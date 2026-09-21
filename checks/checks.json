@@ -315,17 +315,17 @@
     },
     {
       "id": "released-genome-metadata-overwritten",
-      "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "A released Genome identity can never be replayed with different metadata.",
-      "find": "                if let Some(existing) = self.genomes.get(&genome.genome_id)\n                    && existing != &genome\n                {",
-      "replace": "                if let Some(existing) = self.genomes.get(&genome.genome_id)\n                    && existing != &genome\n                    && false\n                {"
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A released World identity can never be replayed with different metadata.",
+      "find": "        if let Some(existing) = self.worlds.get(&record.world_id) {\n            return if existing.record == record {",
+      "replace": "        if let Some(existing) = self.worlds.get(&record.world_id) {\n            return if existing.record == record || true {"
     },
     {
       "id": "inspected-genome-artifact-unverified",
-      "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "Daemon startup verifies every registered Genome's canonical CAS bytes.",
-      "find": "        for genome in self.genomes.values() {\n            let id = ArtifactId::parse(genome.artifact_id.clone())?;\n            artifacts.get(&id)?;\n        }",
-      "replace": "        for genome in self.genomes.values() {\n            let id = ArtifactId::parse(genome.artifact_id.clone())?;\n            let _unverified = id;\n        }"
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "Replay verifies every registered Genome's identity against its canonical CAS bytes.",
+      "find": "        require_metadata(\n            compiled.id() == record.genome_id,",
+      "replace": "        require_metadata(\n            compiled.id() == record.genome_id || true,"
     },
     {
       "id": "replay-divergence-accepted",
@@ -344,9 +344,9 @@
     {
       "id": "unregistered-world-executed",
       "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "A reference run resolves an immutable registered World rather than trusting a Genome string.",
-      "find": "        if !self.state.worlds.contains_key(&genome.world_id) {\n            return Err(ExecuteError::Invalid(\"Genome World is not registered\"));\n        }",
-      "replace": "        if false && !self.state.worlds.contains_key(&genome.world_id) {\n            return Err(ExecuteError::Invalid(\"Genome World is not registered\"));\n        }"
+      "invariant": "Daemon startup fails closed when registration replay rejects history instead of serving an empty registry.",
+      "find": "        let registered =\n            RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;",
+      "replace": "        let registered = RegisteredObjects::replay(&history, &artifacts).unwrap_or_default();"
     },
     {
       "id": "reference-runtime-workspace-authority-widened",
@@ -364,10 +364,10 @@
     },
     {
       "id": "registered-world-artifact-unverified",
-      "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "Daemon startup verifies every registered World's canonical CAS bytes.",
-      "find": "            let source = std::str::from_utf8(&bytes).map_err(|_| {\n                ControlError::Projection(\"canonical World artifact is not UTF-8\".to_owned())\n            })?;\n            let compiled = compile_world(source, SourceFormat::Json, artifacts).map_err(|_| {\n                ControlError::Projection(\"canonical World artifact failed compilation\".to_owned())\n            })?;\n            if compiled.id() != world.world_id || compiled.name() != world.name {\n                return Err(ControlError::Projection(\n                    \"registered World metadata does not match compiled artifact\".to_owned(),\n                ));\n            }",
-      "replace": "            let _unverified = bytes;"
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "Replay verifies every registered World's identity against its canonical CAS bytes.",
+      "find": "        require_metadata(\n            compiled.id() == record.world_id,",
+      "replace": "        require_metadata(\n            compiled.id() == record.world_id || true,"
     },
     {
       "id": "reference-runtime-cost-falsified",
@@ -1248,8 +1248,8 @@
       "id": "arena-manifest-schema-check-bypassed",
       "file": "crates/hephaestus-arena/src/lib.rs",
       "invariant": "Persisted evaluator manifests are accepted only under the supported wire schema.",
-      "find": "        if wire.schema_version != 1 {",
-      "replace": "        if false && wire.schema_version != 1 {"
+      "find": "        let wire: ManifestWire = serde_json::from_slice(bytes)?;\n        if wire.schema_version != 1 {\n            return Err(ArenaError::UnsupportedManifestSchema(wire.schema_version));\n        }\n        if wire.visibility != expected_visibility {",
+      "replace": "        let wire: ManifestWire = serde_json::from_slice(bytes)?;\n        if false && wire.schema_version != 1 {\n            return Err(ArenaError::UnsupportedManifestSchema(wire.schema_version));\n        }\n        if wire.visibility != expected_visibility {"
     },
     {
       "id": "arena-noncanonical-manifest-accepted",

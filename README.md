@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/randyren278/hephaestus/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/randyren278/hephaestus/ci.yml?branch=main&label=CI&logo=github" alt="CI status"></a>
+  <a href="https://github.com/randyren278/hephaestus/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/randyren278/hephaestus/ci.yml?label=CI&logo=github" alt="CI status"></a>
   <img src="https://img.shields.io/badge/rust-1.85%2B-DEA584?logo=rust&logoColor=white" alt="Rust 1.85 or newer">
   <img src="https://img.shields.io/badge/isolation-macOS%20Seatbelt-000000?logo=apple&logoColor=white" alt="macOS Seatbelt isolation">
   <img src="https://img.shields.io/badge/mutations%20killed-224-E8590C" alt="224 deliberate mutations, all detected by the suite">
