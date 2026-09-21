@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1166" viewBox="0 0 1240 1166" role="img" aria-labelledby="t d">
+<title id="t">scripts/quickstart.sh, abridged real output</title>
+<desc id="d">A terminal transcript: the daemon starts frozen, evaluator artifacts are stored by hash, a World and two Genomes are registered, the operator unfreezes, runs the parent, evaluates parent versus child in the Arena, replays the ledger, kills the daemon, and finds everything intact after restart.</desc>
+<rect width="1240" height="1166" rx="18" fill="#0F141A"/>
+<rect x="0.5" y="0.5" width="1239" height="1165" rx="17.5" fill="none" stroke="#2A323C"/>
+<rect x="0" y="0" width="1240" height="44" rx="18" fill="#161C24"/><rect x="0" y="26" width="1240" height="18" fill="#161C24"/>
+<line x1="0" y1="44" x2="1240" y2="44" stroke="#2A323C"/>
+<text x="36" y="28" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8B949E">scripts/quickstart.sh</text>
+<text x="1204" y="28" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#5C6670">macOS · Seatbelt · release build</text>
+<text x="36" y="80" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Start the daemon (single writer, owner-only socket)</text>
+<text x="36" y="105" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus status</text>
+<text x="36" y="130" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">frozen=true active_runs=0 events=2 genomes=0</text>
+<text x="36" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Publish the World&#x27;s evaluator artifacts into the content-addressed store</text>
+<text x="36" y="205" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus arena manifest examples/quickstart/tasks/visible.json</text>
+<text x="36" y="230" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#A5B0BB" xml:space="preserve">77e24f77afbef2ee11058c7020016cbe5ac171cc647f1982473dc7cce5df16a1 bytes=225</text>
+<text x="36" y="255" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus artifact put target/release/hephaestus-reference-evaluator</text>
+<text x="36" y="280" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#A5B0BB" xml:space="preserve">ad92309d64ace194ef3402e37f76880472f13c3433accb05b647bb84dcc89929 bytes=680848</text>
+<text x="36" y="305" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus verifier</text>
+<text x="36" y="330" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#A5B0BB" xml:space="preserve">8c6d8354f350c77bbcdce412c1d6ad6eea207a60778943f73f367416d4f089a6 public_key=4ad10142…fbbbfd</text>
+<text x="36" y="380" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Register the World (Laws, authority ceiling, promotion policy, evaluator bindings)</text>
+<text x="36" y="405" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus world register .quickstart/work/world.json</text>
+<text x="36" y="430" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">hephaestus:world:66bd2e96…59ae233 quickstart-world</text>
+<text x="36" y="480" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Register a parent Genome and a child that declares its lineage</text>
+<text x="36" y="505" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus genome register examples/quickstart/parent.json --world hephaestus:world:66bd2e96…</text>
+<text x="36" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">hephaestus:genome:e23f7393…d776d8a7 quickstart-parent     parents=</text>
+<text x="36" y="555" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus genome register .quickstart/work/candidate.json --world hephaestus:world:66bd2e96…</text>
+<text x="36" y="580" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">hephaestus:genome:db924e24…7a360498 quickstart-candidate  parents=hephaestus:genome:e23f7393…</text>
+<text x="36" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Unfreeze (daemons start frozen; only the operator can lift it) and run the parent</text>
+<text x="36" y="655" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus unfreeze</text>
+<text x="36" y="680" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">acknowledged frozen=false killed_runs=0</text>
+<text x="36" y="705" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus run hephaestus:genome:e23f7393…</text>
+<text x="36" y="730" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">run=reference-15 revision=c4bbc5ef… reason=Success latency_ms=32 cost_microusd=0</text>
+<text x="36" y="780" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Measure parent vs child in the protected Arena</text>
+<text x="36" y="805" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus arena evaluate quickstart-1 hephaestus:genome:e23f7393… hephaestus:genome:db924e24…</text>
+<text x="36" y="830" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">evaluation=quickstart-1 candidate_visible=0/1 parent_visible=0/1 event=arena:evaluation:quickstart-1:recorded</text>
+<text x="36" y="880" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Replay the whole ledger and compare it with live state</text>
+<text x="36" y="905" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus replay</text>
+<text x="36" y="930" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">replayed events=140 frozen=false active_runs=0 projection=b6bc2eab…63830c</text>
+<text x="36" y="980" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#F0883E" font-weight="600" xml:space="preserve">▶ Crash the daemon and bring it back: everything above is canonical history</text>
+<text x="36" y="1005" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ kill -9 $DAEMON_PID &amp;&amp; hephaestusd … &amp;</text>
+<text x="36" y="1030" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#8B949E" xml:space="preserve">$ hephaestus status</text>
+<text x="36" y="1055" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#E6EDF3" xml:space="preserve">frozen=false active_runs=0 events=142 genomes=2</text>
+<text x="36" y="1105" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.5" fill="#3FB950" font-weight="600" xml:space="preserve">✔ Done.</text>
+</svg>

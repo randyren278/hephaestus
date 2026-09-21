@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/hephaestus-mark.svg" width="160" alt="Hephaestus mark: an anvil under a single ember, above a dashed ledger line">
+  <img src="docs/assets/hero.jpg" width="100%" alt="Pixel art of a torch-lit colosseum at night: two identical gladiators face off on the sand, one with an orange crest and one with a graphite crest, while a hooded judge above them holds a sealed scroll">
 </p>
 
 <h1 align="center">Hephaestus</h1>
@@ -9,11 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/randyren278/hephaestus/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/randyren278/hephaestus/ci.yml?label=CI&logo=github" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/rust-1.85%2B-DEA584?logo=rust&logoColor=white" alt="Rust 1.85 or newer">
-  <img src="https://img.shields.io/badge/isolation-macOS%20Seatbelt-000000?logo=apple&logoColor=white" alt="macOS Seatbelt isolation">
-  <img src="https://img.shields.io/badge/mutations%20killed-224-E8590C" alt="224 deliberate mutations, all detected by the suite">
-  <img src="https://img.shields.io/badge/license-MIT-2ea043" alt="MIT license">
+  <a href="https://github.com/randyren278/hephaestus/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/randyren278/hephaestus/ci.yml?label=CI&logo=github&labelColor=161B22" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/rust-1.85%2B-E8590C?logo=rust&logoColor=white&labelColor=161B22" alt="Rust 1.85 or newer">
+  <img src="https://img.shields.io/badge/isolation-macOS%20Seatbelt-E8590C?logo=apple&logoColor=white&labelColor=161B22" alt="macOS Seatbelt isolation">
+  <img src="https://img.shields.io/badge/license-MIT-E8590C?labelColor=161B22" alt="MIT license">
 </p>
 
 <p align="center">
@@ -37,8 +36,8 @@ are scored by an evaluator the candidate can never read, and the result lands in
 a hash-linked ledger signed by the daemon. Kill the daemon, restart it, and it
 rebuilds the exact same state from history or refuses to start.
 
-Named for the god who forged things that lasted. Selection and promotion — the
-part that decides *which* child wins — are the next roadmap item; the part that
+Named for the god who forged things that lasted. Selection and promotion, the
+part that decides *which* child wins, are the next roadmap item; the part that
 makes such a decision *trustworthy* is what ships today.
 
 ---
@@ -68,32 +67,32 @@ and that decision is itself a ledgered event.
 
 ## What it does
 
-- **Compiles Genomes and Worlds into immutable identities.** JSON or YAML in,
-  canonical content-addressed objects out. Two equivalent sources get one
-  identity; a child that claims more authority than its parent or its World is
-  refused at compile time, with the reason.
-- **Registers them through one trusted projection.** `hephaestus world register`
-  and `hephaestus genome register` append `world.registered` / `genome.registered`
-  events. On every startup the daemon replays them strictly: a Genome before its
-  World, a parent registered under another World, a tampered payload, or a
-  non-canonical artifact fails the boot rather than producing a broken state.
-- **Runs a Genome in isolation.** `hephaestus run` materializes a private Git
-  worktree at a pinned commit, executes the offline reference runtime under a
-  deny-by-default Seatbelt profile with hard wall/output limits, records
-  redacted lifecycle traces, and signs the terminal result.
-- **Measures parent against child in a protected Arena.** `hephaestus arena
-  evaluate` loads the World's visible and sealed task manifests itself, pins one
-  revision, seed, environment, and budget for both trials, verifies the deployed
-  evaluator's hash against the World before spending any work, and returns only
-  visible aggregates. A crashed trial is recorded as unreliable and incorrect —
-  with its cost and latency — not dropped.
-- **Proves its own state.** `hephaestus replay` reloads the ledger from disk,
-  verifies every hash, artifact, signature, and registration, rebuilds the
-  projection, and compares it with the live daemon. Mismatch is an error, not a
-  warning.
-- **Stays under your thumb.** `freeze`, `unfreeze`, and `kill --all` are
-  canonical events that survive restarts. The socket, token, database, and
-  producer key are owner-only (0600) inside a 0700 directory.
+<table>
+<tr>
+<td width="34%" valign="top"><strong>Compiles Genomes and Worlds into immutable identities</strong></td>
+<td valign="top">JSON or YAML in, canonical content-addressed objects out. Two equivalent sources get one identity. A child that claims more authority than its parent or its World is refused at compile time, with the reason.</td>
+</tr>
+<tr>
+<td valign="top"><strong>Registers them through one trusted projection</strong></td>
+<td valign="top"><code>hephaestus world register</code> and <code>hephaestus genome register</code> append <code>world.registered</code> / <code>genome.registered</code> events. Every startup replays them strictly: a Genome before its World, a parent under another World, a tampered payload, or a non-canonical artifact fails the boot rather than producing a broken state.</td>
+</tr>
+<tr>
+<td valign="top"><strong>Runs a Genome in isolation</strong></td>
+<td valign="top"><code>hephaestus run</code> materializes a private Git worktree at a pinned commit, executes the offline reference runtime under a deny-by-default Seatbelt profile with hard wall and output limits, records redacted lifecycle traces, and signs the terminal result.</td>
+</tr>
+<tr>
+<td valign="top"><strong>Measures parent against child in a protected Arena</strong></td>
+<td valign="top"><code>hephaestus arena evaluate</code> loads the World's visible and sealed task manifests itself, pins one revision, seed, environment, and budget for both trials, verifies the deployed evaluator's hash against the World before spending any work, and returns only visible aggregates. A crashed trial is recorded as unreliable and incorrect, with its cost and latency, not dropped.</td>
+</tr>
+<tr>
+<td valign="top"><strong>Proves its own state</strong></td>
+<td valign="top"><code>hephaestus replay</code> reloads the ledger from disk, verifies every hash, artifact, signature, and registration, rebuilds the projection, and compares it with the live daemon. Mismatch is an error, not a warning.</td>
+</tr>
+<tr>
+<td valign="top"><strong>Stays under your thumb</strong></td>
+<td valign="top"><code>freeze</code>, <code>unfreeze</code>, and <code>kill --all</code> are canonical events that survive restarts. The socket, token, database, and producer key are owner-only (0600) inside a 0700 directory.</td>
+</tr>
+</table>
 
 ## What it doesn't do (yet)
 
@@ -128,34 +127,16 @@ replay the ledger, then `kill -9` the daemon and bring it back to show that
 everything it just did is canonical history. A few seconds, once the build is
 warm.
 
-Abridged output:
+What that looks like (real output; a few lines dropped and hashes shortened to fit):
 
-```text
-▶ Register the World (Laws, authority ceiling, promotion policy, evaluator bindings)
-hephaestus:world:c12db5bb…  quickstart-world  artifact=c12db5bb…
-
-▶ Register a parent Genome and a child that declares its lineage
-hephaestus:genome:e23f7393…  quickstart-parent     parents=
-hephaestus:genome:db924e24…  quickstart-candidate  parents=hephaestus:genome:e23f7393…
-
-▶ Unfreeze (daemons start frozen; only the operator can lift it) and run the parent
-acknowledged frozen=false killed_runs=0
-run=reference-17 … revision=c4bbc5ef… reason=Success latency_ms=32 cost_microusd=0
-
-▶ Measure parent vs child in the protected Arena
-evaluation=quickstart-1 … candidate_visible=0/1 parent_visible=0/1 event=arena:evaluation:quickstart-1:recorded
-
-▶ Replay the whole ledger and compare it with live state
-replayed events=131 frozen=false active_runs=0 projection=b0269ead…
-
-▶ Crash the daemon and bring it back: everything above is canonical history
-frozen=false active_runs=0 events=133 genomes=2
-```
+<p align="center">
+  <img src="docs/assets/quickstart-terminal.svg" width="100%" alt="Terminal transcript of scripts/quickstart.sh: daemon starts frozen, artifacts stored by hash, World and two Genomes registered, unfreeze, run, Arena evaluation 0/1 vs 0/1, replay of 140 events, kill -9, and status after restart still showing 2 genomes">
+</p>
 
 Both Genomes score 0/1 on purpose: the reference runtime inventories a
 repository, and the example task expects an answer it cannot produce. The point
 of the quickstart is that the *measurement* is real, sealed, signed, and
-replayable — not that the sample agent is clever.
+replayable. Not that the sample agent is clever.
 
 ## Daily use
 
@@ -237,9 +218,9 @@ Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **224 deliberate source mutations** — each one
-disabling a specific documented invariant, from "an oversized request is
-accepted" to "a Genome registered before its World is accepted" — and requires
+runs the suite, then applies **224 deliberate source mutations**, each one
+disabling a specific documented invariant (from "an oversized request is
+accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
 build. The count can only go up.
 
@@ -273,9 +254,9 @@ scopes it to one crate while iterating.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) — crate map, trust boundary, and the full system diagram
-- [Control Plane](docs/CONTROL_PLANE.md) — daemon lifecycle, commands, fail-closed boundaries
-- [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md) — compiler contracts and source schemas
+- [Architecture](docs/ARCHITECTURE.md): crate map, trust boundary, and the full system diagram
+- [Control Plane](docs/CONTROL_PLANE.md): daemon lifecycle, commands, fail-closed boundaries
+- [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): compiler contracts and source schemas
 - [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md)
 - [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
 - [Roadmap](ROADMAP.md) · [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
