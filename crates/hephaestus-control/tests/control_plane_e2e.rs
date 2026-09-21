@@ -1017,7 +1017,7 @@ fn daemon_rejects_forged_operator_history_and_unverifiable_genomes() {
     drop(ledger);
     assert!(matches!(
         ControlPlane::open(missing_directory.path()),
-        Err(ControlError::Ledger(_))
+        Err(ControlError::Projection(_))
     ));
 
     let missing_world_directory = tempdir().expect("temporary directory");
@@ -1077,23 +1077,13 @@ fn daemon_rejects_forged_operator_history_and_unverifiable_genomes() {
 }
 
 #[test]
-fn reference_run_rejects_a_genome_without_a_registered_world() {
+fn daemon_rejects_a_genome_without_a_registered_world_during_replay() {
     let directory = tempdir().expect("temporary directory");
-    let genome = seed_canonical_state(directory.path());
-    let daemon = Daemon::start(directory.path());
-    assert!(cli(directory.path(), &["unfreeze"]).status.success());
-    let output = cli(directory.path(), &["run", &genome.genome_id]);
-    assert!(!output.status.success());
-    let error = serde_json::from_slice::<ApiResponse>(&output.stdout)
-        .expect("decode response")
-        .error
-        .expect("missing World error");
-    assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+    seed_genome_without_world(directory.path());
     assert!(matches!(
-        response(&cli(directory.path(), &["status"])).data,
-        Some(ResponseData::Status { active_runs: 1, .. })
+        ControlPlane::open(directory.path()),
+        Err(ControlError::Projection(_))
     ));
-    daemon.stop();
 }
 
 #[test]
@@ -1126,6 +1116,22 @@ fn reference_run_without_a_resolvable_head_creates_no_runtime_evidence() {
 }
 
 fn seed_canonical_state(data_dir: &Path) -> GenomeRecord {
+    let (_, genome) = seed_compiled_genome(data_dir);
+    let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).expect("open event ledger");
+    ledger
+        .append(EventInput::new(
+            "seed-run",
+            "run-1",
+            "run.started",
+            "test-fixture",
+            3,
+            br#"{"run_id":"run-1"}"#,
+        ))
+        .expect("append active run");
+    genome
+}
+
+fn seed_genome_without_world(data_dir: &Path) -> GenomeRecord {
     let artifact_store = ArtifactStore::open(data_dir.join("blobs")).expect("open artifact store");
     let canonical = br#"{"name":"seed"}"#;
     let artifact = artifact_store
@@ -1149,16 +1155,6 @@ fn seed_canonical_state(data_dir: &Path) -> GenomeRecord {
             serde_json::to_vec(&genome).expect("encode Genome"),
         ))
         .expect("append Genome");
-    ledger
-        .append(EventInput::new(
-            "seed-run",
-            "run-1",
-            "run.started",
-            "test-fixture",
-            2,
-            br#"{"run_id":"run-1"}"#,
-        ))
-        .expect("append active run");
     genome
 }
 
@@ -1314,4 +1310,419 @@ fn assert_private(data_dir: &Path, name: &str, expected: u32) {
             & 0o777,
         expected
     );
+}
+
+const QUICKSTART: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/quickstart");
+
+fn cli_text(data_dir: &Path, arguments: &[&str]) -> String {
+    let output = ProcessCommand::new(CLI)
+        .arg("--data-dir")
+        .arg(data_dir)
+        .args(arguments)
+        .output()
+        .expect("run CLI");
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("UTF-8 CLI output")
+}
+
+fn first_word(text: &str) -> String {
+    text.split_whitespace()
+        .next()
+        .expect("non-empty CLI output")
+        .to_owned()
+}
+
+fn error_body(output: &Output) -> hephaestus_control::ApiError {
+    assert!(!output.status.success(), "CLI unexpectedly succeeded");
+    serde_json::from_slice::<ApiResponse>(&output.stdout)
+        .expect("decode CLI error response")
+        .error
+        .expect("error body")
+}
+
+fn error_code(output: &Output) -> ApiErrorCode {
+    error_body(output).code
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"quickstart fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let quickstart = Path::new(QUICKSTART);
+    let scratch = directory.path().join("scratch");
+    fs::create_dir_all(&scratch).expect("create scratch directory");
+
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+
+    // Manifests are canonicalized by the daemon; the pretty source bytes are never stored.
+    let visible_path = quickstart.join("tasks/visible.json");
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        visible_path.to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/sealed.json").to_str().unwrap(),
+    ]));
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open artifact store");
+    let canonical_visible = artifacts
+        .get(&hephaestus_ledger::ArtifactId::parse(visible.clone()).unwrap())
+        .expect("canonical visible manifest");
+    assert_ne!(canonical_visible, fs::read(&visible_path).unwrap());
+    TrustedManifest::from_canonical_bytes(&canonical_visible, Visibility::Visible)
+        .expect("stored manifest is canonical");
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier_line = text(&["verifier"]);
+    let verifier = first_word(&verifier_line);
+    assert!(verifier_line.contains("public_key="));
+
+    // A World that anchors somebody else's verifier is rejected before it can poison replay.
+    let foreign_key = first_word(&text(&[
+        "artifact",
+        "put",
+        quickstart.join("parent.json").to_str().unwrap(),
+    ]));
+    let template = fs::read_to_string(quickstart.join("world.template.json")).unwrap();
+    let render = |verifier_id: &str| {
+        template
+            .replace("__VISIBLE_MANIFEST__", &visible)
+            .replace("__SEALED_MANIFEST__", &sealed)
+            .replace("__EVALUATOR__", &evaluator)
+            .replace("__VERIFIER__", verifier_id)
+    };
+    let foreign_world = scratch.join("foreign-world.json");
+    fs::write(&foreign_world, render(&foreign_key)).unwrap();
+    let rejected = cli(
+        &data_dir,
+        &["world", "register", foreign_world.to_str().unwrap()],
+    );
+    let rejected = error_body(&rejected);
+    assert_eq!(rejected.code, ApiErrorCode::InvalidRequest);
+    assert!(
+        rejected.message.contains("runtime producer key"),
+        "operator is told why: {}",
+        rejected.message
+    );
+    let unknown_extension = scratch.join("world.txt");
+    fs::write(&unknown_extension, render(&verifier)).unwrap();
+    assert_eq!(
+        error_code(&cli(
+            &data_dir,
+            &["world", "register", unknown_extension.to_str().unwrap()],
+        )),
+        ApiErrorCode::InvalidRequest
+    );
+
+    let world_path = scratch.join("world.json");
+    fs::write(&world_path, render(&verifier)).unwrap();
+    // The daemon never resolves paths relative to its own working directory.
+    let token = fs::read_to_string(data_dir.join("operator.token")).expect("read token");
+    let relative = raw_request(
+        &data_dir.join("control.sock"),
+        &serde_json::to_vec(&ApiRequest {
+            version: API_VERSION,
+            request_id: "relative-path".to_owned(),
+            token,
+            command: Command::WorldRegister {
+                path: "examples/quickstart/world.template.json".to_owned(),
+            },
+        })
+        .unwrap(),
+    );
+    let relative = relative.error.expect("relative path rejected");
+    assert_eq!(relative.code, ApiErrorCode::InvalidRequest);
+    assert!(
+        relative.message.contains("absolute"),
+        "rejected for being relative, not merely unreadable: {}",
+        relative.message
+    );
+    let raw = |command: Command| {
+        let token = fs::read_to_string(data_dir.join("operator.token")).expect("read token");
+        raw_request(
+            &data_dir.join("control.sock"),
+            &serde_json::to_vec(&ApiRequest {
+                version: API_VERSION,
+                request_id: "field-check".to_owned(),
+                token,
+                command,
+            })
+            .unwrap(),
+        )
+        .error
+        .expect("request rejected")
+    };
+    assert_eq!(
+        raw(Command::WorldRegister {
+            path: String::new()
+        })
+        .code,
+        ApiErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        raw(Command::GenomeRegister {
+            path: world_path.to_str().unwrap().to_owned(),
+            world_id: "  ".to_owned(),
+        })
+        .code,
+        ApiErrorCode::InvalidRequest
+    );
+    assert!(
+        raw(Command::ArtifactPut {
+            path: scratch.to_str().unwrap().to_owned(),
+        })
+        .message
+        .contains("regular file")
+    );
+    let oversized = scratch.join("oversized.json");
+    fs::write(&oversized, vec![b' '; 1_048_577]).unwrap();
+    assert!(
+        raw(Command::WorldRegister {
+            path: oversized.to_str().unwrap().to_owned(),
+        })
+        .message
+        .contains("size limit")
+    );
+    let world_line = text(&["world", "register", world_path.to_str().unwrap()]);
+    let world_id = first_word(&world_line);
+    assert!(world_id.starts_with("hephaestus:world:"));
+    assert!(world_line.contains("quickstart-world"));
+    // Registration is idempotent: the same source yields the same identity and no conflict.
+    assert_eq!(
+        first_word(&text(&["world", "register", world_path.to_str().unwrap()])),
+        world_id
+    );
+    let listed = response(&cli(&data_dir, &["world", "list"]));
+    match listed.data {
+        Some(ResponseData::Worlds { worlds }) => {
+            assert_eq!(worlds.len(), 1);
+            assert_eq!(worlds[0].world_id, world_id);
+        }
+        other => panic!("unexpected world list: {other:?}"),
+    }
+    match response(&cli(&data_dir, &["world", "show", &world_id])).data {
+        Some(ResponseData::World { world }) => assert_eq!(world.name, "quickstart-world"),
+        other => panic!("unexpected world show: {other:?}"),
+    }
+
+    let parent_path = quickstart.join("parent.json");
+    assert_eq!(
+        error_code(&cli(
+            &data_dir,
+            &[
+                "genome",
+                "register",
+                parent_path.to_str().unwrap(),
+                "--world",
+                "hephaestus:world:missing",
+            ],
+        )),
+        ApiErrorCode::NotFound
+    );
+    let parent_id = first_word(&text(&[
+        "genome",
+        "register",
+        parent_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    assert!(parent_id.starts_with("hephaestus:genome:"));
+    let candidate_path = scratch.join("candidate.json");
+    fs::write(
+        &candidate_path,
+        fs::read_to_string(quickstart.join("candidate.template.json"))
+            .unwrap()
+            .replace("__PARENT_ID__", &parent_id),
+    )
+    .unwrap();
+    let candidate_line = text(&[
+        "genome",
+        "register",
+        candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]);
+    let candidate_id = first_word(&candidate_line);
+    assert!(candidate_line.contains(&format!("parents={parent_id}")));
+    assert_eq!(
+        first_word(&text(&[
+            "genome",
+            "register",
+            candidate_path.to_str().unwrap(),
+            "--world",
+            &world_id,
+        ])),
+        candidate_id
+    );
+    // A child claiming authority its parent lacks is refused with the compiler's reason.
+    let widened_path = scratch.join("widened.json");
+    fs::write(
+        &widened_path,
+        fs::read_to_string(&candidate_path)
+            .unwrap()
+            .replace("\"network\": false", "\"network\": true"),
+    )
+    .unwrap();
+    let widened = cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            widened_path.to_str().unwrap(),
+            "--world",
+            &world_id,
+        ],
+    );
+    let widened = error_body(&widened);
+    assert_eq!(widened.code, ApiErrorCode::InvalidRequest);
+    assert!(widened.message.contains("Genome source rejected"));
+    match response(&cli(&data_dir, &["genome", "list"])).data {
+        Some(ResponseData::Genomes { genomes }) => {
+            assert_eq!(genomes.len(), 2);
+        }
+        other => panic!("unexpected genome list: {other:?}"),
+    }
+
+    // A World without Arena artifacts supports `run` but not paired evaluation, and a
+    // Genome's content identity belongs to exactly one World.
+    let run_only_world = scratch.join("run-only-world.yaml");
+    fs::write(
+        &run_only_world,
+        "schema_version: 1\nname: run-only-world\nlaws:\n  candidate_network: false\n  candidate_evaluator_access: false\n  maximum_cost_microusd: 0\nauthority_ceiling:\n  workspace_write: false\n  network: false\nmutation_scope: [harness]\npromotion:\n  minimum_delta_bps: 0\n  maximum_regressions: 0\n  confidence_bps: 9500\nobjectives: [correctness]\nevaluator_artifacts: {}\n",
+    )
+    .unwrap();
+    let run_only_world_id = first_word(&text(&[
+        "world",
+        "register",
+        run_only_world.to_str().unwrap(),
+    ]));
+    let already_owned = cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            parent_path.to_str().unwrap(),
+            "--world",
+            &run_only_world_id,
+        ],
+    );
+    assert!(
+        error_body(&already_owned)
+            .message
+            .contains("already registered under World")
+    );
+    let mut run_only_ids = Vec::new();
+    for name in ["run-only-a", "run-only-b"] {
+        let path = scratch.join(format!("{name}.json"));
+        fs::write(
+            &path,
+            fs::read_to_string(&parent_path)
+                .unwrap()
+                .replace("quickstart-parent", name),
+        )
+        .unwrap();
+        run_only_ids.push(first_word(&text(&[
+            "genome",
+            "register",
+            path.to_str().unwrap(),
+            "--world",
+            &run_only_world_id,
+        ])));
+    }
+
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let mixed = cli(
+        &data_dir,
+        &["arena", "evaluate", "mixed", &parent_id, &run_only_ids[0]],
+    );
+    assert!(
+        error_body(&mixed)
+            .message
+            .contains("share one registered World")
+    );
+    let no_manifests = cli(
+        &data_dir,
+        &[
+            "arena",
+            "evaluate",
+            "run-only",
+            &run_only_ids[0],
+            &run_only_ids[1],
+        ],
+    );
+    assert!(
+        error_body(&no_manifests)
+            .message
+            .contains("arena.visible_manifest")
+    );
+    match response(&cli(&data_dir, &["run", &parent_id])).data {
+        Some(ResponseData::Run {
+            genome_id,
+            world_id: run_world,
+            completion_reason,
+            ..
+        }) => {
+            assert_eq!(genome_id, parent_id);
+            assert_eq!(run_world, world_id);
+            assert_eq!(completion_reason, RunCompletionReason::Success);
+        }
+        other => panic!("unexpected run response: {other:?}"),
+    }
+    match response(&cli(
+        &data_dir,
+        &[
+            "arena",
+            "evaluate",
+            "quickstart-1",
+            &parent_id,
+            &candidate_id,
+        ],
+    ))
+    .data
+    {
+        Some(ResponseData::Evaluation { evaluation }) => {
+            assert_eq!(evaluation.world_id, world_id);
+            assert_eq!(evaluation.parent_genome_id, parent_id);
+            assert_eq!(evaluation.candidate_genome_id, candidate_id);
+            assert_eq!(evaluation.visible_total, 1);
+        }
+        other => panic!("unexpected evaluation response: {other:?}"),
+    }
+    let replay_line = text(&["replay"]);
+    assert!(replay_line.starts_with("replayed events="));
+
+    // Everything the operator registered survives a restart because it is canonical history.
+    daemon.stop();
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    match response(&cli(&data_dir, &["status"])).data {
+        Some(ResponseData::Status { genome_count, .. }) => assert_eq!(genome_count, 4),
+        other => panic!("unexpected status: {other:?}"),
+    }
+    match response(&cli(&data_dir, &["genome", "show", &candidate_id])).data {
+        Some(ResponseData::Genome { genome }) => assert_eq!(genome.parent_ids, vec![parent_id]),
+        other => panic!("unexpected genome show: {other:?}"),
+    }
+    daemon.stop();
 }

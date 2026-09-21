@@ -2,4 +2,5 @@
 /coverage/
 __pycache__/
 *.profraw
-lcov.info
+*lcov.info
+/.quickstart/

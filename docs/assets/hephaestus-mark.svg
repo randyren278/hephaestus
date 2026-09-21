@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180" role="img" aria-labelledby="title desc">
+  <title id="title">Hephaestus</title>
+  <desc id="desc">An anvil with a single ember above it on a charcoal tile: the forge where agent Genomes are measured.</desc>
+  <defs>
+    <linearGradient id="ember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFB36B"/>
+      <stop offset="1" stop-color="#E8590C"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C9D1D9"/>
+      <stop offset="1" stop-color="#8B949E"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="36" fill="#161B22"/>
+  <rect x="1" y="1" width="178" height="178" rx="35" fill="none" stroke="#30363D" stroke-width="2"/>
+  <!-- ember -->
+  <circle cx="118" cy="48" r="16" fill="url(#ember)" opacity="0.18"/>
+  <circle cx="118" cy="48" r="7" fill="url(#ember)"/>
+  <!-- anvil face and horn -->
+  <path d="M28 74 Q28 68 40 66 L58 62 L138 62 Q152 62 152 74 Q152 86 138 86 L58 86 L40 82 Q28 80 28 74 Z" fill="url(#steel)"/>
+  <!-- neck -->
+  <path d="M72 86 L108 86 L104 112 L76 112 Z" fill="#6E7681"/>
+  <!-- base -->
+  <path d="M50 134 L64 112 L116 112 L130 134 Q130 140 124 140 L56 140 Q50 140 50 134 Z" fill="url(#steel)"/>
+  <!-- ledger line: the evidence chain under the anvil -->
+  <g stroke="#E8590C" stroke-width="3" stroke-linecap="round">
+    <line x1="40" y1="154" x2="60" y2="154"/>
+    <line x1="70" y1="154" x2="90" y2="154"/>
+    <line x1="100" y1="154" x2="120" y2="154"/>
+    <line x1="130" y1="154" x2="140" y2="154"/>
+  </g>
+</svg>

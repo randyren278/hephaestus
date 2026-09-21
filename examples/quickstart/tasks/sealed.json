@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "quickstart-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "inventory-sealed",
+      "input": "Inventory the repository a second time.",
+      "expected_output": "{\"answer\":\"unknown\"}"
+    }
+  ]
+}

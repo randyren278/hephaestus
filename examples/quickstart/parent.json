@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "quickstart-parent",
+  "parents": [],
+  "model": { "provider": "deterministic", "family": "reference" },
+  "authority": { "workspace_write": false, "network": false },
+  "artifacts": {}
+}

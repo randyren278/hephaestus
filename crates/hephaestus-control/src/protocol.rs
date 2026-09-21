@@ -1,4 +1,5 @@
 pub use hephaestus_experience::RunCompletionReason;
+pub use hephaestus_genome::{GenomeRecord, WorldRecord};
 use serde::{Deserialize, Serialize};
 
 /// The only local operator API version accepted by this release.
@@ -35,6 +36,39 @@ pub enum Command {
         /// Content-derived Genome identity.
         genome_id: String,
     },
+    /// List every registered immutable Genome record.
+    GenomeList,
+    /// Compile one Genome source file under a registered World and register it.
+    GenomeRegister {
+        /// Absolute path to a JSON or YAML Genome source readable by the daemon.
+        path: String,
+        /// Content-derived registered World identity governing the Genome.
+        world_id: String,
+    },
+    /// Inspect one immutable World record.
+    WorldShow {
+        /// Content-derived World identity.
+        world_id: String,
+    },
+    /// List every registered immutable World record.
+    WorldList,
+    /// Compile one World source file and register it.
+    WorldRegister {
+        /// Absolute path to a JSON or YAML World source readable by the daemon.
+        path: String,
+    },
+    /// Canonicalize one Arena task manifest and store it as an artifact.
+    ManifestPut {
+        /// Absolute path to a JSON manifest readable by the daemon.
+        path: String,
+    },
+    /// Store one file in the content-addressed artifact store.
+    ArtifactPut {
+        /// Absolute path to a file readable by the daemon.
+        path: String,
+    },
+    /// Publish the daemon's runtime-result verifier public key as an artifact.
+    VerifierShow,
     /// Execute the offline deterministic reference runtime for one registered Genome.
     RunReference {
         /// Content-derived registered Genome identity.
@@ -142,6 +176,35 @@ pub enum ResponseData {
         /// Canonical projection record.
         genome: GenomeRecord,
     },
+    /// Every registered immutable Genome in canonical identity order.
+    Genomes {
+        /// Canonical projection records.
+        genomes: Vec<GenomeRecord>,
+    },
+    /// One registered immutable World.
+    World {
+        /// Canonical projection record.
+        world: WorldRecord,
+    },
+    /// Every registered immutable World in canonical identity order.
+    Worlds {
+        /// Canonical projection records.
+        worlds: Vec<WorldRecord>,
+    },
+    /// One content-addressed artifact.
+    Artifact {
+        /// BLAKE3 artifact address.
+        artifact_id: String,
+        /// Stored size in bytes.
+        bytes: u64,
+    },
+    /// The daemon's Ed25519 runtime-result verifier.
+    Verifier {
+        /// CAS address of the raw 32-byte public key, usable as `arena.runtime_verifier`.
+        artifact_id: String,
+        /// Hex-encoded public key.
+        public_key_hex: String,
+    },
     /// Terminal result from the offline deterministic reference runtime.
     Run {
         /// Stable run identity.
@@ -221,34 +284,6 @@ pub struct EvaluationEventRecord {
     pub actor: String,
     /// Caller-observed Unix timestamp in milliseconds.
     pub timestamp_millis: i64,
-}
-
-/// Stable public metadata for an immutable Genome ledger record.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct GenomeRecord {
-    /// Content-derived Genome identity.
-    pub genome_id: String,
-    /// Stable display name.
-    pub name: String,
-    /// World identity under which this Genome was compiled.
-    pub world_id: String,
-    /// CAS address of canonical Genome JSON.
-    pub artifact_id: String,
-    /// Content-derived declared parents.
-    pub parent_ids: Vec<String>,
-}
-
-/// Stable public metadata for an immutable World ledger record.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorldRecord {
-    /// Content-derived World identity.
-    pub world_id: String,
-    /// Stable display name.
-    pub name: String,
-    /// CAS address of canonical World JSON.
-    pub artifact_id: String,
 }
 
 /// Safe local API failure body.

@@ -23,7 +23,10 @@ use hephaestus_experience::{
     RunBudgetReceipt, RunResultReceipt, RunResultSigner, RunResultVerifier, TraceKind,
     TraceReceipt,
 };
-use hephaestus_genome::{CompiledWorld, SourceFormat, compile_world};
+use hephaestus_genome::{
+    CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat, compile_genome,
+    compile_world,
+};
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
 use hephaestus_runtime::{
     Budget, CapabilityToken, CompletionReason, DeterministicRuntime, ExperimentContext,
@@ -48,6 +51,8 @@ const MAX_EVALUATION_COST_MICROUSD: u64 = 1_000_000_000;
 const PAIRED_EVALUATION_SEED: u64 = 42;
 const PAIRED_EVALUATION_WALL_MILLIS: u64 = 10_000;
 const PAIRED_EVALUATION_OUTPUT_BYTES: u64 = 1_048_576;
+const MAX_SOURCE_FILE_BYTES: u64 = 1_048_576;
+const MAX_ARTIFACT_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Resolves `HEPHAESTUS_HOME`, then the conventional per-user data directory.
 ///
@@ -170,10 +175,12 @@ impl ControlPlane {
         let artifacts = ArtifactStore::open(artifacts_path)?;
         let history = ledger.replay_verified()?;
         reject_legacy_run_result_history(&history)?;
+        let registered =
+            RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
-        let anchored_verifier = anchored_world_verifier(&history, &artifacts)?;
+        let anchored_verifier = anchored_world_verifier(&registered, &artifacts)?;
         let run_result_signer = load_or_create_run_result_signer(
             &data_dir.join("runtime-producer.key"),
             !has_run_results && anchored_verifier.is_none(),
@@ -187,8 +194,9 @@ impl ControlPlane {
                 "runtime producer key does not match registered World verifier",
             ));
         }
-        let state = ControlState::from_events(&history, &operator_token, &run_result_verifier)?;
-        state.verify_artifacts(&history, &artifacts, &run_result_verifier)?;
+        let state =
+            ControlState::from_events(&history, registered, &operator_token, &run_result_verifier)?;
+        ControlState::verify_artifacts(&history, &artifacts, &run_result_verifier)?;
         Ok(Self {
             data_dir,
             source_repository,
@@ -284,6 +292,9 @@ impl ControlPlane {
             Err(ExecuteError::Invalid(message)) => {
                 ApiResponse::failure(request_id, ApiErrorCode::InvalidRequest, message)
             }
+            Err(ExecuteError::Rejected(message)) => {
+                ApiResponse::failure(request_id, ApiErrorCode::InvalidRequest, message)
+            }
             Err(ExecuteError::NotFound) => ApiResponse::failure(
                 request_id,
                 ApiErrorCode::NotFound,
@@ -309,30 +320,7 @@ impl ControlPlane {
         };
         self.append_audit(request_id, &command, event_type(&command))
             .map_err(|_| ExecuteError::Internal)?;
-        if let Command::GenomeShow { genome_id } = &command
-            && genome_id.trim().is_empty()
-        {
-            return Err(ExecuteError::Invalid("genome_id is required"));
-        }
-        if let Command::RunReference { genome_id } | Command::RunEvaluation { genome_id, .. } =
-            &command
-            && genome_id.trim().is_empty()
-        {
-            return Err(ExecuteError::Invalid("genome_id is required"));
-        }
-        if let Command::EvaluatePair {
-            evaluation_id,
-            parent_genome_id,
-            candidate_genome_id,
-        } = &command
-            && (evaluation_id.trim().is_empty()
-                || parent_genome_id.trim().is_empty()
-                || candidate_genome_id.trim().is_empty())
-        {
-            return Err(ExecuteError::Invalid(
-                "evaluation and Genome identifiers are required",
-            ));
-        }
+        require_command_fields(&command)?;
 
         match command {
             Command::Status => Ok(self.state.status()),
@@ -346,11 +334,39 @@ impl ControlPlane {
             }),
             Command::GenomeShow { genome_id } => self
                 .state
-                .genomes
-                .get(&genome_id)
-                .cloned()
+                .registered
+                .genome(&genome_id)
+                .map(|genome| genome.record().clone())
                 .map(|genome| ResponseData::Genome { genome })
                 .ok_or(ExecuteError::NotFound),
+            Command::GenomeList => Ok(ResponseData::Genomes {
+                genomes: self
+                    .state
+                    .registered
+                    .genome_records()
+                    .into_values()
+                    .collect(),
+            }),
+            Command::GenomeRegister { path, world_id } => self.register_genome(&path, &world_id),
+            Command::WorldShow { world_id } => self
+                .state
+                .registered
+                .world(&world_id)
+                .map(|world| world.record().clone())
+                .map(|world| ResponseData::World { world })
+                .ok_or(ExecuteError::NotFound),
+            Command::WorldList => Ok(ResponseData::Worlds {
+                worlds: self
+                    .state
+                    .registered
+                    .world_records()
+                    .into_values()
+                    .collect(),
+            }),
+            Command::WorldRegister { path } => self.register_world(&path),
+            Command::ManifestPut { path } => self.put_manifest(&path),
+            Command::ArtifactPut { path } => self.put_artifact(&path),
+            Command::VerifierShow => self.verifier_show(),
             Command::RunReference { genome_id } => {
                 let run_id = format!("reference-{}", self.state.event_count);
                 self.run_reference(&run_id, &genome_id)
@@ -427,16 +443,20 @@ impl ControlPlane {
     }
 
     fn replay_response(&self) -> Result<ResponseData, ExecuteError> {
-        let history = self
-            .storage
-            .as_ref()
-            .ok_or(ExecuteError::Internal)?
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        let replayed =
-            ControlState::from_events(&history, &self.operator_token, &self.run_result_verifier)
-                .map_err(|_| ExecuteError::Internal)?;
+        let registered = RegisteredObjects::replay(&history, &storage.artifacts)
+            .map_err(|_| ExecuteError::Internal)?;
+        let replayed = ControlState::from_events(
+            &history,
+            registered,
+            &self.operator_token,
+            &self.run_result_verifier,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         if replayed.snapshot() != self.state.snapshot() {
             return Err(ExecuteError::Internal);
         }
@@ -467,13 +487,10 @@ impl ControlPlane {
         }
         let genome = self
             .state
-            .genomes
-            .get(genome_id)
-            .cloned()
+            .registered
+            .genome(genome_id)
+            .map(|genome| genome.record().clone())
             .ok_or(ExecuteError::NotFound)?;
-        if !self.state.worlds.contains_key(&genome.world_id) {
-            return Err(ExecuteError::Invalid("Genome World is not registered"));
-        }
         Ok(genome)
     }
 
@@ -550,9 +567,12 @@ impl ControlPlane {
         let world = self.registered_world(&parent.world_id)?;
         let visible = self.world_manifest(&world, "arena.visible_manifest", Visibility::Visible)?;
         let sealed = self.world_manifest(&world, "arena.sealed_manifest", Visibility::Sealed)?;
-        let evaluator_id = world
-            .evaluator_artifact("arena.evaluator")
-            .ok_or(ExecuteError::Internal)?;
+        let evaluator_id = world.evaluator_artifact("arena.evaluator").ok_or_else(|| {
+            ExecuteError::Rejected(
+                "World does not declare the arena.evaluator artifact required for paired evaluation"
+                    .to_owned(),
+            )
+        })?;
         let budget = validated_evaluation_budget(
             PAIRED_EVALUATION_WALL_MILLIS,
             PAIRED_EVALUATION_OUTPUT_BYTES,
@@ -764,21 +784,11 @@ impl ControlPlane {
     }
 
     fn registered_world(&self, world_id: &str) -> Result<CompiledWorld, ExecuteError> {
-        let world = self
-            .state
-            .worlds
-            .get(world_id)
-            .ok_or(ExecuteError::Internal)?;
-        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
-        let artifact_id =
-            ArtifactId::parse(world.artifact_id.clone()).map_err(|_| ExecuteError::Internal)?;
-        let bytes = storage
-            .artifacts
-            .get(&artifact_id)
-            .map_err(|_| ExecuteError::Internal)?;
-        let source = std::str::from_utf8(&bytes).map_err(|_| ExecuteError::Internal)?;
-        compile_world(source, SourceFormat::Json, &storage.artifacts)
-            .map_err(|_| ExecuteError::Internal)
+        self.state
+            .registered
+            .world(world_id)
+            .map(|world| world.compiled().clone())
+            .ok_or(ExecuteError::Internal)
     }
 
     fn world_manifest(
@@ -787,9 +797,11 @@ impl ControlPlane {
         name: &str,
         visibility: Visibility,
     ) -> Result<TrustedManifest, ExecuteError> {
-        let id = world
-            .evaluator_artifact(name)
-            .ok_or(ExecuteError::Internal)?;
+        let id = world.evaluator_artifact(name).ok_or_else(|| {
+            ExecuteError::Rejected(format!(
+                "World does not declare the {name} evaluator artifact required for paired evaluation"
+            ))
+        })?;
         let id = ArtifactId::parse(id.to_owned()).map_err(|_| ExecuteError::Internal)?;
         let bytes = self
             .storage
@@ -1026,17 +1038,182 @@ impl ControlPlane {
         Ok(())
     }
 
+    fn register_world(&mut self, path: &str) -> Result<ResponseData, ExecuteError> {
+        let format = source_format(path)?;
+        let source = read_source_text(path, MAX_SOURCE_FILE_BYTES)?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let compiled = compile_world(&source, format, &storage.artifacts)
+            .map_err(|error| ExecuteError::Rejected(format!("World source rejected: {error}")))?;
+        if let Some(existing) = self.state.registered.world(compiled.id()) {
+            return Ok(ResponseData::World {
+                world: existing.record().clone(),
+            });
+        }
+        if let Some(verifier_id) = compiled.evaluator_artifact("arena.runtime_verifier") {
+            let verifier_id =
+                ArtifactId::parse(verifier_id.to_owned()).map_err(|_| ExecuteError::Internal)?;
+            let verifier = storage
+                .artifacts
+                .get(&verifier_id)
+                .map_err(|_| ExecuteError::Internal)?;
+            if verifier != self.run_result_verifier.public_key_bytes() {
+                return Err(ExecuteError::Rejected(
+                    "World arena.runtime_verifier is not this daemon's runtime producer key; \
+                     run `hephaestus verifier` and reference its artifact"
+                        .to_owned(),
+                ));
+            }
+        }
+        let artifact = storage
+            .artifacts
+            .put(compiled.canonical_json())
+            .map_err(|_| ExecuteError::Internal)?;
+        let record = WorldRecord {
+            world_id: compiled.id().to_owned(),
+            name: compiled.name().to_owned(),
+            artifact_id: artifact.as_str().to_owned(),
+        };
+        let payload = serde_json::to_vec(&record).map_err(|_| ExecuteError::Internal)?;
+        storage
+            .ledger
+            .append(EventInput::new(
+                format!("world:{}:registered", record.world_id),
+                &record.world_id,
+                "world.registered",
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::World { world: record })
+    }
+
+    fn register_genome(
+        &mut self,
+        path: &str,
+        world_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        let format = source_format(path)?;
+        let source = read_source_text(path, MAX_SOURCE_FILE_BYTES)?;
+        let world = self
+            .state
+            .registered
+            .world(world_id)
+            .map(|world| world.compiled().clone())
+            .ok_or(ExecuteError::NotFound)?;
+        let parents = self
+            .state
+            .registered
+            .genomes()
+            .filter(|genome| genome.record().world_id == world_id)
+            .map(|genome| (genome.record().genome_id.clone(), genome.compiled().clone()))
+            .collect::<BTreeMap<_, _>>();
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let compiled = compile_genome(&source, format, &world, &parents, &storage.artifacts)
+            .map_err(|error| ExecuteError::Rejected(format!("Genome source rejected: {error}")))?;
+        if let Some(existing) = self.state.registered.genome(compiled.id()) {
+            if existing.record().world_id != world_id {
+                return Err(ExecuteError::Rejected(format!(
+                    "Genome content is already registered under World {}",
+                    existing.record().world_id
+                )));
+            }
+            return Ok(ResponseData::Genome {
+                genome: existing.record().clone(),
+            });
+        }
+        let artifact = storage
+            .artifacts
+            .put(compiled.canonical_json())
+            .map_err(|_| ExecuteError::Internal)?;
+        let record = GenomeRecord {
+            genome_id: compiled.id().to_owned(),
+            name: compiled.name().to_owned(),
+            world_id: world_id.to_owned(),
+            artifact_id: artifact.as_str().to_owned(),
+            parent_ids: compiled.parents().to_vec(),
+        };
+        let payload = serde_json::to_vec(&record).map_err(|_| ExecuteError::Internal)?;
+        storage
+            .ledger
+            .append(EventInput::new(
+                format!("genome:{}:registered", record.genome_id),
+                &record.genome_id,
+                "genome.registered",
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::Genome { genome: record })
+    }
+
+    fn put_manifest(&mut self, path: &str) -> Result<ResponseData, ExecuteError> {
+        let bytes = read_bounded_file(path, MAX_SOURCE_FILE_BYTES)?;
+        let canonical = TrustedManifest::from_source_json(&bytes)
+            .and_then(|manifest| manifest.canonical_bytes())
+            .map_err(|error| ExecuteError::Rejected(format!("manifest rejected: {error}")))?;
+        let artifact = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .artifacts
+            .put(&canonical)
+            .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Artifact {
+            artifact_id: artifact.as_str().to_owned(),
+            bytes: canonical.len() as u64,
+        })
+    }
+
+    fn put_artifact(&mut self, path: &str) -> Result<ResponseData, ExecuteError> {
+        let bytes = read_bounded_file(path, MAX_ARTIFACT_FILE_BYTES)?;
+        let artifact = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .artifacts
+            .put(&bytes)
+            .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Artifact {
+            artifact_id: artifact.as_str().to_owned(),
+            bytes: bytes.len() as u64,
+        })
+    }
+
+    fn verifier_show(&mut self) -> Result<ResponseData, ExecuteError> {
+        let public_key = self.run_result_verifier.public_key_bytes();
+        let artifact = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .artifacts
+            .put(&public_key)
+            .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Verifier {
+            artifact_id: artifact.as_str().to_owned(),
+            public_key_hex: hex_encode(&public_key),
+        })
+    }
+
     fn refresh_projection(&mut self) -> Result<(), ExecuteError> {
         let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
         let history = storage
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        let state =
-            ControlState::from_events(&history, &self.operator_token, &self.run_result_verifier)
-                .map_err(|_| ExecuteError::Internal)?;
-        state
-            .verify_artifacts(&history, &storage.artifacts, &self.run_result_verifier)
+        let registered = RegisteredObjects::replay(&history, &storage.artifacts)
+            .map_err(|_| ExecuteError::Internal)?;
+        let state = ControlState::from_events(
+            &history,
+            registered,
+            &self.operator_token,
+            &self.run_result_verifier,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        ControlState::verify_artifacts(&history, &storage.artifacts, &self.run_result_verifier)
             .map_err(|_| ExecuteError::Internal)?;
         self.state = state;
         Ok(())
@@ -1059,8 +1236,81 @@ struct RecordedCommand {
 #[derive(Debug)]
 enum ExecuteError {
     Invalid(&'static str),
+    Rejected(String),
     NotFound,
     Internal,
+}
+
+fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
+    if let Command::GenomeShow { genome_id } = command
+        && genome_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("genome_id is required"));
+    }
+    if let Command::WorldShow { world_id } | Command::GenomeRegister { world_id, .. } = command
+        && world_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("world_id is required"));
+    }
+    if let Command::WorldRegister { path }
+    | Command::GenomeRegister { path, .. }
+    | Command::ArtifactPut { path } = command
+        && path.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("path is required"));
+    }
+    if let Command::RunReference { genome_id } | Command::RunEvaluation { genome_id, .. } = &command
+        && genome_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("genome_id is required"));
+    }
+    if let Command::EvaluatePair {
+        evaluation_id,
+        parent_genome_id,
+        candidate_genome_id,
+    } = command
+        && (evaluation_id.trim().is_empty()
+            || parent_genome_id.trim().is_empty()
+            || candidate_genome_id.trim().is_empty())
+    {
+        return Err(ExecuteError::Invalid(
+            "evaluation and Genome identifiers are required",
+        ));
+    }
+    Ok(())
+}
+
+fn source_format(path: &str) -> Result<SourceFormat, ExecuteError> {
+    match Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some("json") => Ok(SourceFormat::Json),
+        Some("yaml" | "yml") => Ok(SourceFormat::Yaml),
+        _ => Err(ExecuteError::Invalid(
+            "source path must end in .json, .yaml, or .yml",
+        )),
+    }
+}
+
+fn read_source_text(path: &str, limit: u64) -> Result<String, ExecuteError> {
+    String::from_utf8(read_bounded_file(path, limit)?)
+        .map_err(|_| ExecuteError::Invalid("source file is not UTF-8 text"))
+}
+
+fn read_bounded_file(path: &str, limit: u64) -> Result<Vec<u8>, ExecuteError> {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return Err(ExecuteError::Invalid("path must be absolute"));
+    }
+    let metadata = fs::metadata(path).map_err(|_| ExecuteError::Invalid("file is not readable"))?;
+    if !metadata.is_file() {
+        return Err(ExecuteError::Invalid("path is not a regular file"));
+    }
+    if metadata.len() > limit {
+        return Err(ExecuteError::Invalid("file exceeds the size limit"));
+    }
+    fs::read(path).map_err(|_| ExecuteError::Invalid("file is not readable"))
 }
 
 struct ReferenceExecution {
@@ -1256,22 +1506,21 @@ fn persist_reference_output(
 struct ControlState {
     freeze: FreezeState,
     active_runs: BTreeSet<String>,
-    genomes: BTreeMap<String, GenomeRecord>,
-    worlds: BTreeMap<String, WorldRecord>,
+    registered: RegisteredObjects,
     event_count: u64,
 }
 
 impl ControlState {
     fn from_events(
         events: &[StoredEvent],
+        registered: RegisteredObjects,
         operator_token: &OperatorToken,
         run_result_verifier: &RunResultVerifier,
     ) -> Result<Self, ControlError> {
         let mut state = Self {
             freeze: FreezeState::frozen(operator_token),
             active_runs: BTreeSet::new(),
-            genomes: BTreeMap::new(),
-            worlds: BTreeMap::new(),
+            registered,
             event_count: 0,
         };
         for event in events {
@@ -1333,30 +1582,6 @@ impl ControlState {
                     _ => {}
                 }
             }
-            "genome.registered" => {
-                let genome: GenomeRecord = serde_json::from_slice(&event.payload)?;
-                validate_genome_record(&genome)?;
-                if let Some(existing) = self.genomes.get(&genome.genome_id)
-                    && existing != &genome
-                {
-                    return Err(ControlError::Projection(
-                        "released Genome metadata changed".to_owned(),
-                    ));
-                }
-                self.genomes.insert(genome.genome_id.clone(), genome);
-            }
-            "world.registered" => {
-                let world: WorldRecord = serde_json::from_slice(&event.payload)?;
-                validate_world_record(&world)?;
-                if let Some(existing) = self.worlds.get(&world.world_id)
-                    && existing != &world
-                {
-                    return Err(ControlError::Projection(
-                        "released World metadata changed".to_owned(),
-                    ));
-                }
-                self.worlds.insert(world.world_id.clone(), world);
-            }
             "run.result_recorded" => validate_run_result(event, run_result_verifier)?,
             _ => {}
         }
@@ -1369,7 +1594,7 @@ impl ControlState {
             frozen: self.freeze.is_frozen(),
             active_runs: self.active_runs.len(),
             event_count: self.event_count,
-            genome_count: self.genomes.len(),
+            genome_count: self.registered.genomes().count(),
         }
     }
 
@@ -1377,46 +1602,17 @@ impl ControlState {
         ProjectionSnapshot {
             frozen: self.freeze.is_frozen(),
             active_runs: self.active_runs.iter().cloned().collect(),
-            genomes: self.genomes.clone(),
-            worlds: self.worlds.clone(),
+            genomes: self.registered.genome_records(),
+            worlds: self.registered.world_records(),
             event_count: self.event_count,
         }
     }
 
     fn verify_artifacts(
-        &self,
         history: &[StoredEvent],
         artifacts: &ArtifactStore,
         run_result_verifier: &RunResultVerifier,
     ) -> Result<(), ControlError> {
-        for genome in self.genomes.values() {
-            let id = ArtifactId::parse(genome.artifact_id.clone())?;
-            artifacts.get(&id)?;
-        }
-        for world in self.worlds.values() {
-            let id = ArtifactId::parse(world.artifact_id.clone())?;
-            let bytes = artifacts.get(&id)?;
-            let source = std::str::from_utf8(&bytes).map_err(|_| {
-                ControlError::Projection("canonical World artifact is not UTF-8".to_owned())
-            })?;
-            let compiled = compile_world(source, SourceFormat::Json, artifacts).map_err(|_| {
-                ControlError::Projection("canonical World artifact failed compilation".to_owned())
-            })?;
-            if compiled.id() != world.world_id || compiled.name() != world.name {
-                return Err(ControlError::Projection(
-                    "registered World metadata does not match compiled artifact".to_owned(),
-                ));
-            }
-            if let Some(verifier_id) = compiled.evaluator_artifact("arena.runtime_verifier") {
-                let bytes = artifacts.get(&ArtifactId::parse(verifier_id)?)?;
-                if bytes.as_slice() != run_result_verifier.public_key_bytes() {
-                    return Err(ControlError::Projection(
-                        "registered World runtime verifier does not match daemon producer"
-                            .to_owned(),
-                    ));
-                }
-            }
-        }
         for event in history {
             if event.event_type == "trace.recorded" {
                 let receipt: TraceReceipt = serde_json::from_slice(&event.payload)?;
@@ -1450,43 +1646,6 @@ struct ProjectionSnapshot {
     genomes: BTreeMap<String, GenomeRecord>,
     worlds: BTreeMap<String, WorldRecord>,
     event_count: u64,
-}
-
-fn validate_genome_record(genome: &GenomeRecord) -> Result<(), ControlError> {
-    for (field, value) in [
-        ("genome_id", genome.genome_id.as_str()),
-        ("name", genome.name.as_str()),
-        ("world_id", genome.world_id.as_str()),
-        ("artifact_id", genome.artifact_id.as_str()),
-    ] {
-        require_projection_text(value, field)?;
-    }
-    let genome_hash = validate_content_id(&genome.genome_id, "genome")?;
-    validate_content_id(&genome.world_id, "world")?;
-    ArtifactId::parse(genome.artifact_id.clone())?;
-    if genome.artifact_id != genome_hash {
-        return Err(ControlError::Projection(
-            "Genome identity does not match its canonical artifact".to_owned(),
-        ));
-    }
-    for parent in &genome.parent_ids {
-        validate_content_id(parent, "genome")?;
-    }
-    Ok(())
-}
-
-fn validate_world_record(world: &WorldRecord) -> Result<(), ControlError> {
-    require_projection_text(&world.world_id, "world_id")?;
-    require_projection_text(&world.name, "name")?;
-    require_projection_text(&world.artifact_id, "artifact_id")?;
-    let world_hash = validate_content_id(&world.world_id, "world")?;
-    ArtifactId::parse(world.artifact_id.clone())?;
-    if world.artifact_id != world_hash {
-        return Err(ControlError::Projection(
-            "World identity does not match its canonical artifact".to_owned(),
-        ));
-    }
-    Ok(())
 }
 
 fn validate_trace_receipt(event: &StoredEvent, receipt: &TraceReceipt) -> Result<(), ControlError> {
@@ -1564,6 +1723,14 @@ fn event_type(command: &Command) -> &'static str {
         Command::Unfreeze => "control.unfreeze",
         Command::KillAll => "control.kill_all",
         Command::GenomeShow { .. } => "control.genome_show",
+        Command::GenomeList => "control.genome_list",
+        Command::GenomeRegister { .. } => "control.genome_register",
+        Command::WorldShow { .. } => "control.world_show",
+        Command::WorldList => "control.world_list",
+        Command::WorldRegister { .. } => "control.world_register",
+        Command::ManifestPut { .. } => "control.manifest_put",
+        Command::ArtifactPut { .. } => "control.artifact_put",
+        Command::VerifierShow => "control.verifier_show",
         Command::RunReference { .. } => "control.run_reference",
         Command::RunEvaluation { .. } => "control.run_evaluation",
         Command::EvaluatePair { .. } => "control.evaluate_pair",
@@ -1766,22 +1933,12 @@ fn reject_legacy_run_result_history(history: &[StoredEvent]) -> Result<(), Contr
 }
 
 fn anchored_world_verifier(
-    history: &[StoredEvent],
+    registered: &RegisteredObjects,
     artifacts: &ArtifactStore,
 ) -> Result<Option<[u8; 32]>, ControlError> {
     let mut anchored = None;
-    for event in history
-        .iter()
-        .filter(|event| event.event_type == "world.registered")
-    {
-        let world: WorldRecord = serde_json::from_slice(&event.payload)?;
-        let bytes = artifacts.get(&ArtifactId::parse(world.artifact_id)?)?;
-        let source = std::str::from_utf8(&bytes).map_err(|_| {
-            ControlError::Projection("canonical World artifact is not UTF-8".to_owned())
-        })?;
-        let compiled = compile_world(source, SourceFormat::Json, artifacts).map_err(|_| {
-            ControlError::Projection("canonical World artifact failed compilation".to_owned())
-        })?;
+    for world in registered.worlds() {
+        let compiled = world.compiled();
         let Some(verifier_id) = compiled.evaluator_artifact("arena.runtime_verifier") else {
             continue;
         };
@@ -1803,6 +1960,13 @@ fn anchored_world_verifier(
         anchored = Some(verifier);
     }
     Ok(anchored)
+}
+
+fn registration_control_error(error: RegistrationError) -> ControlError {
+    match error {
+        RegistrationError::Ledger(error) => ControlError::Ledger(error),
+        error => ControlError::Projection(error.to_string()),
+    }
 }
 
 fn hex_encode(bytes: &[u8; 32]) -> String {
@@ -1863,6 +2027,7 @@ mod tests {
     use std::{fs, os::unix::fs::symlink};
 
     use hephaestus_experience::{Provenance, TraceKind, TraceReceipt};
+    use hephaestus_genome::{SourceFormat, compile_world};
     use hephaestus_ledger::{EventInput, EventStore};
     use tempfile::tempdir;
 
@@ -1940,38 +2105,12 @@ mod tests {
             br#"{"request_id":"mismatch","command":{"command":"unfreeze"}}"#,
         );
         assert!(matches!(
-            ControlState::from_events(&[mismatched], &token, &run_result_verifier),
-            Err(ControlError::Projection(_))
-        ));
-
-        let hash = "2".repeat(64);
-        let first = GenomeRecord {
-            genome_id: format!("hephaestus:genome:{hash}"),
-            name: "first".to_owned(),
-            world_id: format!("hephaestus:world:{}", "3".repeat(64)),
-            artifact_id: hash,
-            parent_ids: Vec::new(),
-        };
-        let mut second = first.clone();
-        second.name = "changed".to_owned();
-        let events = [
-            stored_event(
-                1,
-                "genome.registered",
-                "genome",
-                "forge",
-                &serde_json::to_vec(&first).expect("encode first Genome"),
+            ControlState::from_events(
+                &[mismatched],
+                RegisteredObjects::default(),
+                &token,
+                &run_result_verifier,
             ),
-            stored_event(
-                2,
-                "genome.registered",
-                "genome",
-                "forge",
-                &serde_json::to_vec(&second).expect("encode changed Genome"),
-            ),
-        ];
-        assert!(matches!(
-            ControlState::from_events(&events, &token, &run_result_verifier),
             Err(ControlError::Projection(_))
         ));
 
@@ -1979,8 +2118,13 @@ mod tests {
             stored_event(1, "run.started", "run", "runtime", br#"{"run_id":"r1"}"#),
             stored_event(2, "run.completed", "run", "runtime", br#"{"run_id":"r1"}"#),
         ];
-        let state = ControlState::from_events(&lifecycle, &token, &run_result_verifier)
-            .expect("replay run lifecycle");
+        let state = ControlState::from_events(
+            &lifecycle,
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        )
+        .expect("replay run lifecycle");
         assert!(state.active_runs.is_empty());
 
         let provenance = Provenance::new(
@@ -2021,37 +2165,14 @@ mod tests {
                 &serde_json::to_vec(&completed).expect("encode completed trace"),
             ),
         ];
-        let replayed_trace_state = ControlState::from_events(&traces, &token, &run_result_verifier)
-            .expect("replay trace lifecycle");
+        let replayed_trace_state = ControlState::from_events(
+            &traces,
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        )
+        .expect("replay trace lifecycle");
         assert!(replayed_trace_state.active_runs.is_empty());
-
-        let world = WorldRecord {
-            world_id: format!("hephaestus:world:{}", "b".repeat(64)),
-            name: "world".to_owned(),
-            artifact_id: "b".repeat(64),
-        };
-        let mut changed_world = world.clone();
-        changed_world.name = "changed".to_owned();
-        let world_events = [
-            stored_event(
-                1,
-                "world.registered",
-                "world",
-                "forge",
-                &serde_json::to_vec(&world).expect("encode World"),
-            ),
-            stored_event(
-                2,
-                "world.registered",
-                "world",
-                "forge",
-                &serde_json::to_vec(&changed_world).expect("encode changed World"),
-            ),
-        ];
-        assert!(matches!(
-            ControlState::from_events(&world_events, &token, &run_result_verifier),
-            Err(ControlError::Projection(_))
-        ));
     }
 
     #[test]
@@ -2124,46 +2245,10 @@ mod tests {
             Err(ControlError::Protocol(_))
         ));
 
-        let hash = "4".repeat(64);
-        let mut genome = GenomeRecord {
-            genome_id: format!("hephaestus:genome:{hash}"),
-            name: "valid".to_owned(),
-            world_id: format!("hephaestus:world:{}", "5".repeat(64)),
-            artifact_id: "6".repeat(64),
-            parent_ids: Vec::new(),
-        };
-        assert!(matches!(
-            validate_genome_record(&genome),
-            Err(ControlError::Projection(_))
-        ));
-        genome.artifact_id = hash;
-        genome.world_id = "malformed".to_owned();
-        assert!(matches!(
-            validate_genome_record(&genome),
-            Err(ControlError::Projection(_))
-        ));
-        genome.world_id = format!("hephaestus:world:{}", "5".repeat(64));
-        genome.parent_ids = vec![" ".to_owned()];
-        assert!(validate_genome_record(&genome).is_err());
-        genome.name = " ".to_owned();
-        assert!(validate_genome_record(&genome).is_err());
-
-        let mut world = WorldRecord {
-            world_id: format!("hephaestus:world:{}", "7".repeat(64)),
-            name: "world".to_owned(),
-            artifact_id: "8".repeat(64),
-        };
-        assert!(matches!(
-            validate_world_record(&world),
-            Err(ControlError::Projection(_))
-        ));
-        world.artifact_id = "7".repeat(64);
-        assert!(validate_world_record(&world).is_ok());
-
         let provenance = Provenance::new(
             "run",
             format!("hephaestus:genome:{}", "8".repeat(64)),
-            world.world_id,
+            format!("hephaestus:world:{}", "7".repeat(64)),
         )
         .expect("valid provenance");
         let receipt = TraceReceipt {
@@ -2281,15 +2366,17 @@ mod tests {
 
         let non_utf8 = artifacts.put(&[0xff]).expect("non-UTF-8 artifact");
         let non_utf8_world = world_registration_event(1, "non-utf8", non_utf8.as_str());
-        assert!(anchored_world_verifier(&[non_utf8_world], &artifacts).is_err());
+        assert!(RegisteredObjects::replay(&[non_utf8_world], &artifacts).is_err());
 
         let invalid_json = artifacts.put(b"{").expect("invalid World artifact");
         let invalid_world = world_registration_event(1, "invalid", invalid_json.as_str());
-        assert!(anchored_world_verifier(&[invalid_world], &artifacts).is_err());
+        assert!(RegisteredObjects::replay(&[invalid_world], &artifacts).is_err());
 
         let short_key = artifacts.put(b"short verifier").expect("short verifier");
         let (short_event, _) = compiled_world_registration(&artifacts, "short", short_key.as_str());
-        assert!(anchored_world_verifier(&[short_event], &artifacts).is_err());
+        let short_registered =
+            RegisteredObjects::replay(&[short_event], &artifacts).expect("registered short key");
+        assert!(anchored_world_verifier(&short_registered, &artifacts).is_err());
 
         let first_signer = RunResultSigner::from_seed([21; 32]);
         let second_signer = RunResultSigner::from_seed([22; 32]);
@@ -2303,16 +2390,10 @@ mod tests {
             compiled_world_registration(&artifacts, "first", first_key.as_str());
         let (second_event, _) =
             compiled_world_registration(&artifacts, "second", second_key.as_str());
-        assert!(anchored_world_verifier(&[first_event.clone(), second_event], &artifacts).is_err());
-
-        let token = OperatorToken::from_bytes([23; 32]);
-        let state = ControlState::from_events(&[first_event], &token, &first_signer.verifier())
-            .expect("World projection");
-        assert!(
-            state
-                .verify_artifacts(&[], &artifacts, &second_signer.verifier())
-                .is_err()
-        );
+        let different_registered =
+            RegisteredObjects::replay(&[first_event.clone(), second_event], &artifacts)
+                .expect("register Worlds with different verifier keys");
+        assert!(anchored_world_verifier(&different_registered, &artifacts).is_err());
 
         let mut mismatched = first_world;
         mismatched.name = "forged-name".to_owned();
@@ -2323,14 +2404,7 @@ mod tests {
             "test-fixture",
             &serde_json::to_vec(&mismatched).expect("mismatched World"),
         );
-        let mismatched_state =
-            ControlState::from_events(&[mismatched_event], &token, &first_signer.verifier())
-                .expect("mismatched projection");
-        assert!(
-            mismatched_state
-                .verify_artifacts(&[], &artifacts, &first_signer.verifier())
-                .is_err()
-        );
+        assert!(RegisteredObjects::replay(&[mismatched_event], &artifacts).is_err());
 
         let producer_key = directory.path().join("producer.key");
         fs::write(&producer_key, [24; 32]).expect("producer key");

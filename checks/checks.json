@@ -43,7 +43,8 @@
     "crates/hephaestus-runtime/src/sandbox.rs",
     "crates/hephaestus-runtime/src/spec.rs",
     "crates/hephaestus-runtime/src/supervisor.rs",
-    "crates/hephaestus-runtime/src/worker.rs"
+    "crates/hephaestus-runtime/src/worker.rs",
+    "crates/hephaestus-genome/src/registry.rs"
   ],
   "mutations": [
     {
@@ -1529,6 +1530,90 @@
       "invariant": "Trusted Experience evidence identifies the exact verified canonical event hash.",
       "find": "        event_hash: encode_hash(event.hash),",
       "replace": "        event_hash: encode_hash([0; 32]),"
+    },
+    {
+      "id": "registry-cross-world-parent-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A Genome cannot declare a parent registered under a different World.",
+      "find": "            if parent.record.world_id != record.world_id {",
+      "replace": "            if false && parent.record.world_id != record.world_id {"
+    },
+    {
+      "id": "registry-noncanonical-payload-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "Registration payloads must be the exact canonical encoding of their typed record.",
+      "find": "    if canonical != event.payload {",
+      "replace": "    if false && canonical != event.payload {"
+    },
+    {
+      "id": "registry-aggregate-mismatch-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A registration event's aggregate must equal the registered content identity.",
+      "find": "    if event.aggregate_id != expected {",
+      "replace": "    if false && event.aggregate_id != expected {"
+    },
+    {
+      "id": "registry-noncanonical-world-artifact-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A registered World artifact must be byte-exact canonical compiler output.",
+      "find": "        if bytes != compiled.canonical_json() {\n            return Err(RegistrationError::NonCanonicalArtifact {\n                id: record.world_id,",
+      "replace": "        if false && bytes != compiled.canonical_json() {\n            return Err(RegistrationError::NonCanonicalArtifact {\n                id: record.world_id,"
+    },
+    {
+      "id": "registry-noncanonical-genome-artifact-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A registered Genome artifact must be byte-exact canonical compiler output.",
+      "find": "        if bytes != compiled.canonical_json() {\n            return Err(RegistrationError::NonCanonicalArtifact {\n                id: record.genome_id,",
+      "replace": "        if false && bytes != compiled.canonical_json() {\n            return Err(RegistrationError::NonCanonicalArtifact {\n                id: record.genome_id,"
+    },
+    {
+      "id": "registry-conflicting-genome-registration-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "Re-registering a Genome identity with changed metadata is a conflict, not an update.",
+      "find": "        if let Some(existing) = self.genomes.get(&record.genome_id) {\n            return if existing.record == record {",
+      "replace": "        if let Some(existing) = self.genomes.get(&record.genome_id) {\n            return if existing.record == record || true {"
+    },
+    {
+      "id": "registry-missing-world-misattributed",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A Genome registered before its World is reported as a missing World, not a missing parent.",
+      "find": "            .ok_or_else(|| RegistrationError::WorldNotRegistered(record.world_id.clone()))?;",
+      "replace": "            .ok_or_else(|| RegistrationError::ParentNotRegistered(record.world_id.clone()))?;"
+    },
+    {
+      "id": "world-register-foreign-verifier-accepted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A live World registration cannot anchor a runtime verifier other than the daemon's producer key.",
+      "find": "            if verifier != self.run_result_verifier.public_key_bytes() {",
+      "replace": "            if false && verifier != self.run_result_verifier.public_key_bytes() {"
+    },
+    {
+      "id": "source-format-unknown-extension-accepted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Registration sources are parsed only from declared JSON or YAML extensions.",
+      "find": "        _ => Err(ExecuteError::Invalid(\n            \"source path must end in .json, .yaml, or .yml\",\n        )),",
+      "replace": "        _ => Ok(SourceFormat::Json),"
+    },
+    {
+      "id": "manifest-put-stores-source-bytes",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Operator manifests are stored only in their canonical evaluator encoding.",
+      "find": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .and_then(|manifest| manifest.canonical_bytes())",
+      "replace": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .map(|_| bytes.clone())"
+    },
+    {
+      "id": "relative-registration-path-accepted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "The daemon refuses to resolve registration paths relative to its own working directory.",
+      "find": "    if !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }",
+      "replace": "    if false && !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }"
+    },
+    {
+      "id": "genome-content-reused-across-worlds",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A Genome content identity is registered under exactly one World; asking for another World is refused, not silently answered with the first.",
+      "find": "            if existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!(",
+      "replace": "            if false && existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!("
     }
   ]
 }

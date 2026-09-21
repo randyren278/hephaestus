@@ -2,7 +2,8 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
-    ApiResponse, Client, Command, EvaluationRecord, ResponseData, data_dir_from_environment,
+    ApiResponse, Client, Command, EvaluationRecord, GenomeRecord, ResponseData, WorldRecord,
+    data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -32,11 +33,23 @@ enum CliCommand {
         #[arg(long)]
         all: bool,
     },
-    /// Inspect immutable Genome records.
+    /// Register and inspect immutable Genomes.
     Genome {
         #[command(subcommand)]
         command: GenomeCommand,
     },
+    /// Register and inspect immutable Worlds.
+    World {
+        #[command(subcommand)]
+        command: WorldCommand,
+    },
+    /// Store files in the content-addressed artifact store.
+    Artifact {
+        #[command(subcommand)]
+        command: ArtifactCommand,
+    },
+    /// Publish the daemon's runtime-result verifier key as an artifact.
+    Verifier,
     /// Execute one registered Genome with the offline reference runtime.
     Run {
         /// Content-derived registered Genome identity.
@@ -79,10 +92,50 @@ enum GenomeCommand {
         /// Content-derived Genome identity.
         genome_id: String,
     },
+    /// List every registered Genome.
+    List,
+    /// Compile a JSON or YAML Genome source under a registered World and register it.
+    Register {
+        /// Genome source file.
+        path: PathBuf,
+        /// Registered World the Genome is compiled against.
+        #[arg(long)]
+        world: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorldCommand {
+    /// Show one canonical World record.
+    Show {
+        /// Content-derived World identity.
+        world_id: String,
+    },
+    /// List every registered World.
+    List,
+    /// Compile a JSON or YAML World source and register it.
+    Register {
+        /// World source file.
+        path: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum ArtifactCommand {
+    /// Store one file and print its BLAKE3 artifact address.
+    Put {
+        /// File to store.
+        path: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
 enum ArenaCommand {
+    /// Canonicalize a task manifest JSON file and store it as an artifact.
+    Manifest {
+        /// Manifest source file.
+        path: PathBuf,
+    },
     /// Compare a parent and candidate using daemon-owned World tasks and budgets.
     Evaluate {
         /// Stable caller-selected evaluation identity.
@@ -141,6 +194,15 @@ fn main() -> ExitCode {
     }
 }
 
+fn absolute_path(path: PathBuf) -> Result<String, &'static str> {
+    let absolute =
+        std::fs::canonicalize(path).map_err(|_| "file does not exist or is not readable")?;
+    absolute
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "path is not valid UTF-8")
+}
+
 fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
     Ok(match command {
         CliCommand::Status => Command::Status,
@@ -151,6 +213,32 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Genome {
             command: GenomeCommand::Show { genome_id },
         } => Command::GenomeShow { genome_id },
+        CliCommand::Genome {
+            command: GenomeCommand::List,
+        } => Command::GenomeList,
+        CliCommand::Genome {
+            command: GenomeCommand::Register { path, world },
+        } => Command::GenomeRegister {
+            path: absolute_path(path)?,
+            world_id: world,
+        },
+        CliCommand::World {
+            command: WorldCommand::Show { world_id },
+        } => Command::WorldShow { world_id },
+        CliCommand::World {
+            command: WorldCommand::List,
+        } => Command::WorldList,
+        CliCommand::World {
+            command: WorldCommand::Register { path },
+        } => Command::WorldRegister {
+            path: absolute_path(path)?,
+        },
+        CliCommand::Artifact {
+            command: ArtifactCommand::Put { path },
+        } => Command::ArtifactPut {
+            path: absolute_path(path)?,
+        },
+        CliCommand::Verifier => Command::VerifierShow,
         CliCommand::Run { genome_id } => Command::RunReference { genome_id },
         CliCommand::Evaluate {
             genome_id,
@@ -168,6 +256,11 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             wall_millis,
             maximum_output_bytes,
             maximum_cost_microusd,
+        },
+        CliCommand::Arena {
+            command: ArenaCommand::Manifest { path },
+        } => Command::ManifestPut {
+            path: absolute_path(path)?,
         },
         CliCommand::Arena {
             command:
@@ -208,14 +301,28 @@ fn print_human(response: &ApiResponse) {
             }),
             None,
         ) => println!("acknowledged frozen={frozen} killed_runs={killed_runs}"),
-        (Some(ResponseData::Genome { genome }), None) => println!(
-            "{} {} world={} artifact={} parents={}",
-            genome.genome_id,
-            genome.name,
-            genome.world_id,
-            genome.artifact_id,
-            genome.parent_ids.join(",")
-        ),
+        (Some(ResponseData::Genome { genome }), None) => println!("{}", genome_human(genome)),
+        (Some(ResponseData::Genomes { genomes }), None) => {
+            for genome in genomes {
+                println!("{}", genome_human(genome));
+            }
+        }
+        (Some(ResponseData::World { world }), None) => println!("{}", world_human(world)),
+        (Some(ResponseData::Worlds { worlds }), None) => {
+            for world in worlds {
+                println!("{}", world_human(world));
+            }
+        }
+        (Some(ResponseData::Artifact { artifact_id, bytes }), None) => {
+            println!("{artifact_id} bytes={bytes}");
+        }
+        (
+            Some(ResponseData::Verifier {
+                artifact_id,
+                public_key_hex,
+            }),
+            None,
+        ) => println!("{artifact_id} public_key={public_key_hex}"),
         (
             Some(ResponseData::Run {
                 run_id,
@@ -231,8 +338,8 @@ fn print_human(response: &ApiResponse) {
             }),
             None,
         ) => println!(
-            "run={run_id} genome={genome_id} world={world_id} revision={source_revision} reason={completion_reason:?} latency_ms={latency_millis} cost_microusd={actual_cost_microusd} stdout={stdout_artifact_id} stderr={stderr_artifact_id} traces={}",
-            trace_artifact_ids.join(",")
+            "run={run_id} genome={genome_id} world={world_id} revision={source_revision} reason={completion_reason:?} latency_ms={latency_millis} cost_microusd={actual_cost_microusd} stdout={stdout_artifact_id} stderr={stderr_artifact_id} trace_artifacts={}",
+            trace_artifact_ids.len()
         ),
         (Some(ResponseData::Evaluation { evaluation }), None) => {
             println!("{}", evaluation_human(evaluation));
@@ -251,6 +358,24 @@ fn print_human(response: &ApiResponse) {
         (_, Some(error)) => eprintln!("{:?}: {}", error.code, error.message),
         _ => eprintln!("invalid daemon response"),
     }
+}
+
+fn genome_human(genome: &GenomeRecord) -> String {
+    format!(
+        "{} {} world={} artifact={} parents={}",
+        genome.genome_id,
+        genome.name,
+        genome.world_id,
+        genome.artifact_id,
+        genome.parent_ids.join(",")
+    )
+}
+
+fn world_human(world: &WorldRecord) -> String {
+    format!(
+        "{} {} artifact={}",
+        world.world_id, world.name, world.artifact_id
+    )
 }
 
 fn evaluation_human(evaluation: &EvaluationRecord) -> String {

@@ -249,6 +249,38 @@ impl TrustedManifest {
         Ok(manifest)
     }
 
+    /// Compiles operator-authored manifest JSON into its canonical form.
+    ///
+    /// Unlike [`Self::from_canonical_bytes`], whitespace, key order, and task
+    /// order are normalized; every other constructor check still applies.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown fields, unsupported schemas, invalid identifiers, empty
+    /// or duplicate tasks, and oversized text.
+    pub fn from_source_json(bytes: &[u8]) -> Result<Self, ArenaError> {
+        let wire: ManifestWire = serde_json::from_slice(bytes)?;
+        if wire.schema_version != 1 {
+            return Err(ArenaError::UnsupportedManifestSchema(wire.schema_version));
+        }
+        let tasks = wire
+            .tasks
+            .into_iter()
+            .map(|task| TrustedTask::new(task.task_id, task.input, task.expected_output))
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::new(wire.manifest_id, wire.visibility, tasks)
+    }
+
+    /// Returns the exact canonical bytes accepted by [`Self::from_canonical_bytes`].
+    ///
+    /// # Errors
+    ///
+    /// Serialization of a constructed manifest cannot fail in practice; the
+    /// error is propagated rather than hidden.
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, ArenaError> {
+        Ok(serde_json::to_vec(self)?)
+    }
+
     /// Returns candidate-safe tasks only for a visible manifest.
     ///
     /// # Errors
