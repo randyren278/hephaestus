@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, fs};
 
 use hephaestus_core::{authority::CapabilitySet, domain::MutationTarget};
 use hephaestus_genome::{
-    CompileError, CompiledGenome, CompiledWorld, SourceFormat, compile_genome, compile_world,
-    ensure_comparable,
+    CompileError, CompiledGenome, CompiledWorld, SourceFormat, compile_genome,
+    compile_markdown_genome, compile_world, ensure_comparable,
 };
 use hephaestus_ledger::{ArtifactId, ArtifactStore};
 use tempfile::tempdir;
@@ -70,6 +70,177 @@ fn equivalent_json_and_yaml_genomes_have_one_canonical_identity() {
     assert_eq!(from_json.id(), from_yaml.id());
     assert_eq!(from_json.canonical_json(), from_yaml.canonical_json());
     assert_eq!(from_json.name(), "coding-g0");
+}
+
+#[test]
+fn markdown_genome_keeps_exact_body_bytes_in_the_reserved_prompt_artifact() {
+    let directory = tempdir().expect("temporary directory");
+    let store = ArtifactStore::open(directory.path()).expect("open artifact store");
+    let world = compile_test_world(false, &store);
+    let body = "# Agent prompt\n\nKeep these trailing spaces.  \n";
+    let source = format!(
+        "---\nschema_version: 1\nname: markdown-genome\nparents: []\nmodel:\n  provider: test\n  family: markdown\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n{body}"
+    );
+
+    let compiled = compile_markdown_genome(&source, &world, &BTreeMap::new(), &store)
+        .expect("compile Markdown Genome");
+    let canonical: serde_json::Value =
+        serde_json::from_slice(compiled.canonical_json()).expect("canonical Genome JSON");
+    let prompt_id = ArtifactId::parse(
+        canonical["artifacts"]["agent.prompt"]
+            .as_str()
+            .expect("reserved prompt artifact"),
+    )
+    .expect("canonical prompt address");
+
+    assert_eq!(
+        store.get(&prompt_id).expect("read prompt CAS"),
+        body.as_bytes()
+    );
+    assert_eq!(
+        compiled.artifact_id("agent.prompt"),
+        Some(prompt_id.as_str())
+    );
+    assert_eq!(compiled.name(), "markdown-genome");
+    let canonical_source =
+        std::str::from_utf8(compiled.canonical_json()).expect("canonical JSON is UTF-8");
+    let from_canonical = compile_genome(
+        canonical_source,
+        SourceFormat::Json,
+        &world,
+        &BTreeMap::new(),
+        &store,
+    )
+    .expect("compile canonical Markdown Genome JSON");
+    assert_eq!(compiled.id(), from_canonical.id());
+    let repeated = compile_markdown_genome(&source, &world, &BTreeMap::new(), &store)
+        .expect("recompile identical Markdown Genome");
+    assert_eq!(compiled.id(), repeated.id());
+    let changed_body = source.replace("trailing spaces", "changed text");
+    let changed = compile_markdown_genome(&changed_body, &world, &BTreeMap::new(), &store)
+        .expect("compile changed prompt");
+    assert_ne!(compiled.id(), changed.id());
+
+    let crlf_body = "```yaml\r\n---\r\nkey: value\r\n```\r\n";
+    let crlf_source = format!(
+        "---\r\nschema_version: 1\r\nname: crlf-genome\r\nparents: []\r\nmodel:\r\n  provider: test\r\n  family: markdown\r\nauthority:\r\n  workspace_write: false\r\n  network: false\r\nartifacts: {{}}\r\n---\r\n{crlf_body}"
+    );
+    let crlf = compile_markdown_genome(&crlf_source, &world, &BTreeMap::new(), &store)
+        .expect("compile CRLF Markdown frontmatter");
+    let crlf_artifact = ArtifactId::parse(crlf.artifact_id("agent.prompt").unwrap().to_owned())
+        .expect("CRLF prompt address");
+    assert_eq!(store.get(&crlf_artifact).unwrap(), crlf_body.as_bytes());
+
+    let unsupported = source.replace("schema_version: 1", "schema_version: 2");
+    assert_eq!(
+        compile_markdown_genome(&unsupported, &world, &BTreeMap::new(), &store).unwrap_err(),
+        CompileError::UnsupportedSchemaVersion(2)
+    );
+}
+
+#[test]
+fn markdown_frontmatter_rejects_duplicates_merges_and_reserved_prompt_override() {
+    let directory = tempdir().expect("temporary directory");
+    let store = ArtifactStore::open(directory.path()).expect("open artifact store");
+    let world = compile_test_world(false, &store);
+    let common = "name: markdown-genome\nparents: []\nmodel:\n  provider: test\n  family: markdown\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}";
+    let duplicate = format!("---\nschema_version: 1\nschema_version: 1\n{common}\n---\nPrompt");
+    assert!(matches!(
+        compile_markdown_genome(&duplicate, &world, &BTreeMap::new(), &store),
+        Err(CompileError::Parse(_))
+    ));
+
+    let artifact = store.put(b"merge fixture").unwrap();
+    let merged = format!(
+        "---\nschema_version: 1\nname: markdown-genome\nparents: []\nmodel: {{provider: test, family: markdown}}\nauthority: {{workspace_write: false, network: false}}\nartifacts: &defaults {{name: \"{}\"}}\n<<: *defaults\n---\nPrompt",
+        artifact.as_str()
+    );
+    assert!(matches!(
+        compile_markdown_genome(&merged, &world, &BTreeMap::new(), &store),
+        Err(CompileError::Parse(_))
+    ));
+
+    let override_prompt = format!(
+        "---\nschema_version: 1\nname: markdown-genome\nparents: []\nmodel:\n  provider: test\n  family: markdown\nauthority:\n  workspace_write: false\n  network: false\nartifacts:\n  agent.prompt: {}\n---\nPrompt",
+        "0".repeat(64)
+    );
+    assert!(matches!(
+        compile_markdown_genome(&override_prompt, &world, &BTreeMap::new(), &store),
+        Err(CompileError::ReservedAgentPromptArtifact)
+    ));
+}
+
+#[test]
+fn markdown_frontmatter_and_body_bounds_fail_closed() {
+    let directory = tempdir().expect("temporary directory");
+    let store = ArtifactStore::open(directory.path()).expect("open artifact store");
+    let world = compile_test_world(false, &store);
+    let valid_frontmatter = "schema_version: 1\nname: markdown-genome\nparents: []\nmodel:\n  provider: test\n  family: markdown\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}";
+    let blank = format!("---\n{valid_frontmatter}\n---\n \t\n");
+    assert!(matches!(
+        compile_markdown_genome(&blank, &world, &BTreeMap::new(), &store),
+        Err(CompileError::EmptyAgentPrompt)
+    ));
+    assert!(matches!(
+        compile_markdown_genome(
+            "name: no-frontmatter\nPrompt",
+            &world,
+            &BTreeMap::new(),
+            &store
+        ),
+        Err(CompileError::InvalidMarkdownFrontmatter)
+    ));
+    assert!(matches!(
+        compile_markdown_genome(
+            &format!("---\n{valid_frontmatter}\n"),
+            &world,
+            &BTreeMap::new(),
+            &store
+        ),
+        Err(CompileError::InvalidMarkdownFrontmatter)
+    ));
+    let prefix = format!("---\n{valid_frontmatter}\n---\n");
+    let oversized = format!("{prefix}{}", "x".repeat(1_048_576 - prefix.len() + 1));
+    assert_eq!(oversized.len(), 1_048_577);
+    assert!(matches!(
+        compile_markdown_genome(&oversized, &world, &BTreeMap::new(), &store),
+        Err(CompileError::InputTooLarge {
+            bytes: 1_048_577..,
+            maximum: 1_048_576
+        })
+    ));
+
+    let at_limit = format!("{prefix}{}", "x".repeat(1_048_576 - prefix.len()));
+    assert_eq!(at_limit.len(), 1_048_576);
+    assert!(compile_markdown_genome(&at_limit, &world, &BTreeMap::new(), &store).is_ok());
+}
+
+#[test]
+fn reserved_agent_prompt_artifacts_are_validated_by_the_ordinary_compiler() {
+    let directory = tempdir().expect("temporary directory");
+    let store = ArtifactStore::open(directory.path()).expect("open artifact store");
+    let world = compile_test_world(false, &store);
+    for (bytes, expected) in [
+        (b"".as_slice(), CompileError::EmptyAgentPrompt),
+        (&[0xff][..], CompileError::InvalidAgentPromptArtifact),
+    ] {
+        let id = store.put(bytes).expect("store test prompt");
+        let source = format!(
+            r#"{{"schema_version":1,"name":"g","parents":[],"model":{{"provider":"test","family":"v1"}},"authority":{{"workspace_write":false,"network":false}},"artifacts":{{"agent.prompt":"{}"}}}}"#,
+            id.as_str()
+        );
+        assert_eq!(
+            compile_genome(
+                &source,
+                SourceFormat::Json,
+                &world,
+                &BTreeMap::new(),
+                &store
+            )
+            .unwrap_err(),
+            expected
+        );
+    }
 }
 
 #[test]

@@ -75,11 +75,11 @@ jobs:
             timeout_minutes: 20
           - scope: hephaestus-genome
             prefix: crates/hephaestus-genome/
-            minimum: 24
+            minimum: 30
             timeout_minutes: 20
           - scope: hephaestus-control
             prefix: crates/hephaestus-control/
-            minimum: 35
+            minimum: 38
             timeout_minutes: 60
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs

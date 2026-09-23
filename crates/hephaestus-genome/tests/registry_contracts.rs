@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fs};
 
 use hephaestus_genome::{
-    CompiledGenome, CompiledWorld, GenomeRecord, RegisteredGenome, RegisteredObjects,
-    RegistrationError, RegistrationKind, SourceFormat, WorldRecord, compile_genome, compile_world,
+    CompileError, CompiledGenome, CompiledWorld, GenomeRecord, RegisteredGenome, RegisteredObjects,
+    RegistrationError, RegistrationKind, SourceFormat, WorldRecord, compile_genome,
+    compile_markdown_genome, compile_world,
 };
-use hephaestus_ledger::{ArtifactStore, EventInput, EventStore, StoredEvent};
+use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
 use serde::Serialize;
 use serde_json::json;
 use tempfile::TempDir;
@@ -210,6 +211,79 @@ fn replay_rehydrates_two_worlds_and_parent_child_in_registration_order() {
         &[parent.record.genome_id]
     );
     assert_eq!(registered_child.record(), &child.record);
+}
+
+#[test]
+fn replay_requires_the_markdown_genomes_prompt_blob_and_exact_bytes() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "markdown-world");
+    let source = "---\nschema_version: 1\nname: markdown-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n# Inventory rules\n\nKeep exact prompt spacing.  \n";
+    let prompt = "# Inventory rules\n\nKeep exact prompt spacing.  \n";
+    let compiled = compile_markdown_genome(
+        source,
+        &world.compiled,
+        &BTreeMap::new(),
+        &fixture.artifacts,
+    )
+    .expect("compile Markdown Genome");
+    let canonical: serde_json::Value =
+        serde_json::from_slice(compiled.canonical_json()).expect("canonical Genome JSON");
+    let prompt_id = ArtifactId::parse(
+        canonical["artifacts"]["agent.prompt"]
+            .as_str()
+            .expect("prompt artifact address"),
+    )
+    .expect("canonical prompt id");
+    assert_eq!(
+        fixture.artifacts.get(&prompt_id).unwrap(),
+        prompt.as_bytes()
+    );
+
+    let genome_artifact = fixture
+        .artifacts
+        .put(compiled.canonical_json())
+        .expect("store canonical Genome");
+    let genome = GenomeFixture {
+        record: GenomeRecord {
+            genome_id: compiled.id().to_owned(),
+            name: compiled.name().to_owned(),
+            world_id: world.compiled.id().to_owned(),
+            artifact_id: genome_artifact.as_str().to_owned(),
+            parent_ids: compiled.parents().to_vec(),
+        },
+        compiled,
+    };
+    register_world(&mut fixture, &world);
+    register_genome(&mut fixture, &genome);
+    assert!(
+        fixture
+            .replay()
+            .unwrap()
+            .genome(genome.record.genome_id.as_str())
+            .is_some()
+    );
+
+    let prompt_path = fixture.artifacts.path_for(&prompt_id);
+    fs::remove_file(&prompt_path).unwrap();
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::Compile {
+            source: CompileError::UnresolvedArtifact(_),
+            kind: RegistrationKind::Genome,
+            ..
+        })
+    ));
+
+    fixture.artifacts.put(prompt.as_bytes()).unwrap();
+    fs::write(&prompt_path, b"tampered prompt bytes").unwrap();
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::Compile {
+            source: CompileError::ArtifactIntegrity(_),
+            kind: RegistrationKind::Genome,
+            ..
+        })
+    ));
 }
 
 #[test]

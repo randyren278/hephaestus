@@ -35,6 +35,7 @@
     "crates/hephaestus-experience/src/rehydrate.rs",
     "crates/hephaestus-genome/src/compiler.rs",
     "crates/hephaestus-genome/src/genome.rs",
+    "crates/hephaestus-genome/src/markdown.rs",
     "crates/hephaestus-genome/src/world.rs",
     "crates/hephaestus-ledger/src/artifact_store.rs",
     "crates/hephaestus-ledger/src/event_store.rs",
@@ -1769,6 +1770,69 @@
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
       "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;",
       "replace": "        // mutation: skip selection history verification during replay"
+    },
+    {
+      "id": "markdown-frontmatter-duplicates-overwritten",
+      "file": "crates/hephaestus-genome/src/markdown.rs",
+      "invariant": "Markdown YAML frontmatter rejects duplicate keys instead of selecting a last value.",
+      "find": "    options.duplicate_keys = serde_saphyr::DuplicateKeyPolicy::Error;",
+      "replace": "    options.duplicate_keys = serde_saphyr::DuplicateKeyPolicy::LastWins;"
+    },
+    {
+      "id": "markdown-prompt-bytes-trimmed",
+      "file": "crates/hephaestus-genome/src/markdown.rs",
+      "invariant": "Markdown compilation stores the exact prompt body bytes, including surrounding whitespace.",
+      "find": "        .put(body.as_bytes())",
+      "replace": "        .put(body.trim().as_bytes())"
+    },
+    {
+      "id": "markdown-whole-source-limit-bypassed",
+      "file": "crates/hephaestus-genome/src/markdown.rs",
+      "invariant": "Markdown Genome source files are bounded to 1 MiB before parsing and CAS writes.",
+      "find": "    if source.len() > MAX_SOURCE_BYTES {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "markdown-prompt-override-accepted",
+      "file": "crates/hephaestus-genome/src/markdown.rs",
+      "invariant": "The compiler reserves agent.prompt and rejects frontmatter attempts to replace the body-derived address.",
+      "find": "    if raw.artifacts.contains_key(AGENT_PROMPT_ARTIFACT) {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "genome-prompt-bytes-not-validated-on-replay",
+      "file": "crates/hephaestus-genome/src/genome.rs",
+      "invariant": "Every replayed agent.prompt artifact is verified as bounded, nonblank UTF-8 text.",
+      "find": "        if name == AGENT_PROMPT_ARTIFACT {",
+      "replace": "        if false {"
+    },
+    {
+      "id": "markdown-registration-route-bypassed",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "The daemon registers .md Genome sources through the Markdown compiler under the registered World.",
+      "find": "if Path::new(path).extension().and_then(|value| value.to_str()) == Some(\"md\") {",
+      "replace": "if false {"
+    },
+    {
+      "id": "genome-prompt-not-scoped-to-registered-record",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Genome prompt inspection resolves only the reserved artifact referenced by the selected registered Genome.",
+      "find": "            .artifact_id(\"agent.prompt\")",
+      "replace": "            .artifact_id(\"agent.untrusted_prompt\")"
+    },
+    {
+      "id": "maximum-markdown-prompt-response-rejected",
+      "file": "crates/hephaestus-control/src/client.rs",
+      "invariant": "The bounded owner client accepts the worst-case escaped response for a maximum-size Markdown prompt.",
+      "find": "const MAX_RESPONSE_BYTES: usize = 7 * 1_048_576;",
+      "replace": "const MAX_RESPONSE_BYTES: usize = 1_048_576;"
+    },
+    {
+      "id": "markdown-frontmatter-merges-accepted",
+      "file": "crates/hephaestus-genome/src/markdown.rs",
+      "invariant": "Markdown YAML frontmatter rejects merge keys rather than importing hidden fields.",
+      "find": "    options.merge_keys = serde_saphyr::MergeKeyPolicy::Error;",
+      "replace": "    options.merge_keys = serde_saphyr::MergeKeyPolicy::Merge;"
     }
   ]
 }

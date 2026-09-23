@@ -17,6 +17,7 @@ pub struct CompiledGenome {
     name: String,
     parents: Vec<String>,
     authority: CapabilitySet,
+    artifacts: BTreeMap<String, String>,
 }
 
 impl CompiledGenome {
@@ -49,25 +50,33 @@ impl CompiledGenome {
     pub const fn authority(&self) -> CapabilitySet {
         self.authority
     }
+
+    /// Returns the content address for a named artifact declared by this Genome.
+    #[must_use]
+    pub fn artifact_id(&self, name: &str) -> Option<&str> {
+        self.artifacts.get(name).map(String::as_str)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct RawGenome {
-    schema_version: u16,
-    name: String,
-    parents: Vec<String>,
-    model: ModelSpec,
-    authority: RawAuthority,
-    artifacts: BTreeMap<String, String>,
+pub(crate) struct RawGenome {
+    pub(crate) schema_version: u16,
+    pub(crate) name: String,
+    pub(crate) parents: Vec<String>,
+    pub(crate) model: ModelSpec,
+    pub(crate) authority: RawAuthority,
+    pub(crate) artifacts: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ModelSpec {
-    provider: String,
-    family: String,
+pub(crate) struct ModelSpec {
+    pub(crate) provider: String,
+    pub(crate) family: String,
 }
+
+pub(crate) const AGENT_PROMPT_ARTIFACT: &str = "agent.prompt";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +105,18 @@ pub fn compile_genome(
     artifact_store: &ArtifactStore,
 ) -> Result<CompiledGenome, CompileError> {
     let mut raw: RawGenome = parse_versioned(source, format)?;
+    normalize_and_validate(&mut raw, world, parents, artifact_store)?;
+
+    let canonical_json = canonical_json(&raw)?;
+    Ok(compiled_genome(raw, canonical_json))
+}
+
+pub(crate) fn normalize_and_validate(
+    raw: &mut RawGenome,
+    world: &CompiledWorld,
+    parents: &BTreeMap<String, CompiledGenome>,
+    artifact_store: &ArtifactStore,
+) -> Result<(), CompileError> {
     require_text(&raw.name, "name")?;
     require_text(&raw.model.provider, "model.provider")?;
     require_text(&raw.model.family, "model.family")?;
@@ -124,14 +145,25 @@ pub fn compile_genome(
     }
     resolve_artifacts(&raw.artifacts, artifact_store)?;
 
-    let canonical_json = canonical_json(&raw)?;
-    Ok(CompiledGenome {
+    Ok(())
+}
+
+pub(crate) fn compiled_genome(raw: RawGenome, canonical_json: Vec<u8>) -> CompiledGenome {
+    let RawGenome {
+        name,
+        parents,
+        authority,
+        artifacts,
+        ..
+    } = raw;
+    CompiledGenome {
         id: content_id("genome", &canonical_json),
         canonical_json,
-        name: raw.name,
-        parents: raw.parents,
-        authority: requested,
-    })
+        name,
+        parents,
+        authority: authority.capabilities(),
+        artifacts,
+    }
 }
 
 pub(crate) fn resolve_artifacts(
@@ -142,13 +174,31 @@ pub(crate) fn resolve_artifacts(
         require_text(name, "artifact name")?;
         let id = ArtifactId::parse(artifact.clone())
             .map_err(|_| CompileError::InvalidArtifactId(artifact.clone()))?;
-        if let Err(error) = artifact_store.get(&id) {
-            return Err(match error {
-                LedgerError::Io(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => {
-                    CompileError::UnresolvedArtifact(artifact.clone())
-                }
-                _ => CompileError::ArtifactIntegrity(artifact.clone()),
-            });
+        let bytes = match artifact_store.get(&id) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Err(match error {
+                    LedgerError::Io(io_error)
+                        if io_error.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        CompileError::UnresolvedArtifact(artifact.clone())
+                    }
+                    _ => CompileError::ArtifactIntegrity(artifact.clone()),
+                });
+            }
+        };
+        if name == AGENT_PROMPT_ARTIFACT {
+            if bytes.len() > crate::compiler::MAX_SOURCE_BYTES {
+                return Err(CompileError::InputTooLarge {
+                    bytes: bytes.len(),
+                    maximum: crate::compiler::MAX_SOURCE_BYTES,
+                });
+            }
+            let prompt = std::str::from_utf8(&bytes)
+                .map_err(|_| CompileError::InvalidAgentPromptArtifact)?;
+            if prompt.trim().is_empty() {
+                return Err(CompileError::EmptyAgentPrompt);
+            }
         }
     }
     Ok(())

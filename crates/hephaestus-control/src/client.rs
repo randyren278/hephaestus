@@ -9,8 +9,10 @@ use std::{
 
 use crate::{API_VERSION, ApiRequest, ApiResponse, Command, ControlError};
 
-const MAX_RESPONSE_BYTES: usize = 1_048_576;
-const MAX_RESPONSE_READ_BYTES: u64 = 1_048_577;
+// A 1 MiB UTF-8 Genome prompt can expand to six bytes per byte when JSON
+// escapes control characters. Leave bounded space for the response envelope.
+const MAX_RESPONSE_BYTES: usize = 7 * 1_048_576;
+const MAX_RESPONSE_READ_BYTES: u64 = 7 * 1_048_576 + 1;
 
 /// Authenticated client for the daemon's owner-only Unix socket.
 pub struct Client {

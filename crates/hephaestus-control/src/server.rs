@@ -27,7 +27,7 @@ use hephaestus_experience::{
 };
 use hephaestus_genome::{
     CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat, compile_genome,
-    compile_world,
+    compile_markdown_genome, compile_world,
 };
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
 use hephaestus_runtime::{
@@ -342,6 +342,7 @@ impl ControlPlane {
                 .map(|genome| genome.record().clone())
                 .map(|genome| ResponseData::Genome { genome })
                 .ok_or(ExecuteError::NotFound),
+            Command::GenomePrompt { genome_id } => self.genome_prompt(&genome_id),
             Command::GenomeList => Ok(ResponseData::Genomes {
                 genomes: self
                     .state
@@ -1164,7 +1165,6 @@ impl ControlPlane {
         path: &str,
         world_id: &str,
     ) -> Result<ResponseData, ExecuteError> {
-        let format = source_format(path)?;
         let source = read_source_text(path, MAX_SOURCE_FILE_BYTES)?;
         let world = self
             .state
@@ -1180,7 +1180,18 @@ impl ControlPlane {
             .map(|genome| (genome.record().genome_id.clone(), genome.compiled().clone()))
             .collect::<BTreeMap<_, _>>();
         let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
-        let compiled = compile_genome(&source, format, &world, &parents, &storage.artifacts)
+        let compiled =
+            if Path::new(path).extension().and_then(|value| value.to_str()) == Some("md") {
+                compile_markdown_genome(&source, &world, &parents, &storage.artifacts)
+            } else {
+                compile_genome(
+                    &source,
+                    source_format(path)?,
+                    &world,
+                    &parents,
+                    &storage.artifacts,
+                )
+            }
             .map_err(|error| ExecuteError::Rejected(format!("Genome source rejected: {error}")))?;
         if let Some(existing) = self.state.registered.genome(compiled.id()) {
             if existing.record().world_id != world_id {
@@ -1218,6 +1229,38 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         self.refresh_projection()?;
         Ok(ResponseData::Genome { genome: record })
+    }
+
+    fn genome_prompt(&self, genome_id: &str) -> Result<ResponseData, ExecuteError> {
+        let genome = self
+            .state
+            .registered
+            .genome(genome_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let prompt_artifact = genome
+            .compiled()
+            .artifact_id("agent.prompt")
+            .ok_or(ExecuteError::NotFound)?;
+        let prompt_id =
+            ArtifactId::parse(prompt_artifact.to_owned()).map_err(|_| ExecuteError::Internal)?;
+        let bytes = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .artifacts
+            .get(&prompt_id)
+            .map_err(|_| ExecuteError::Internal)?;
+        if u64::try_from(bytes.len()).map_or(true, |length| length > MAX_SOURCE_FILE_BYTES) {
+            return Err(ExecuteError::Internal);
+        }
+        let prompt = String::from_utf8(bytes).map_err(|_| ExecuteError::Internal)?;
+        if prompt.trim().is_empty() {
+            return Err(ExecuteError::Internal);
+        }
+        Ok(ResponseData::GenomePrompt {
+            genome_id: genome_id.to_owned(),
+            prompt,
+        })
     }
 
     fn put_manifest(&mut self, path: &str) -> Result<ResponseData, ExecuteError> {
@@ -1377,7 +1420,7 @@ fn verify_selection_history(
 }
 
 fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
-    if let Command::GenomeShow { genome_id } = command
+    if let Command::GenomeShow { genome_id } | Command::GenomePrompt { genome_id } = command
         && genome_id.trim().is_empty()
     {
         return Err(ExecuteError::Invalid("genome_id is required"));
@@ -1863,6 +1906,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::Unfreeze => "control.unfreeze",
         Command::KillAll => "control.kill_all",
         Command::GenomeShow { .. } => "control.genome_show",
+        Command::GenomePrompt { .. } => "control.genome_prompt",
         Command::GenomeList => "control.genome_list",
         Command::GenomeRegister { .. } => "control.genome_register",
         Command::WorldShow { .. } => "control.world_show",

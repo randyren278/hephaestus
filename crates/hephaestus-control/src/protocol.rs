@@ -37,11 +37,16 @@ pub enum Command {
         /// Content-derived Genome identity.
         genome_id: String,
     },
+    /// Read the verified reserved prompt of one registered Markdown Genome.
+    GenomePrompt {
+        /// Content-derived Genome identity.
+        genome_id: String,
+    },
     /// List every registered immutable Genome record.
     GenomeList,
     /// Compile one Genome source file under a registered World and register it.
     GenomeRegister {
-        /// Absolute path to a JSON or YAML Genome source readable by the daemon.
+        /// Absolute path to a JSON, YAML, or Markdown Genome source readable by the daemon.
         path: String,
         /// Content-derived registered World identity governing the Genome.
         world_id: String,
@@ -181,6 +186,13 @@ pub enum ResponseData {
     Genome {
         /// Canonical projection record.
         genome: GenomeRecord,
+    },
+    /// Exact UTF-8 body bytes of a registered Genome's reserved prompt.
+    GenomePrompt {
+        /// Content-derived Genome identity.
+        genome_id: String,
+        /// Prompt body, without Markdown frontmatter.
+        prompt: String,
     },
     /// Every registered immutable Genome in canonical identity order.
     Genomes {

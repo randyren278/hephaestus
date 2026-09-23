@@ -92,9 +92,14 @@ enum GenomeCommand {
         /// Content-derived Genome identity.
         genome_id: String,
     },
+    /// Print the verified prompt body of a registered Markdown Genome.
+    Prompt {
+        /// Content-derived Genome identity.
+        genome_id: String,
+    },
     /// List every registered Genome.
     List,
-    /// Compile a JSON or YAML Genome source under a registered World and register it.
+    /// Compile a JSON, YAML, or Markdown Genome source under a registered World and register it.
     Register {
         /// Genome source file.
         path: PathBuf,
@@ -219,6 +224,9 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             command: GenomeCommand::Show { genome_id },
         } => Command::GenomeShow { genome_id },
         CliCommand::Genome {
+            command: GenomeCommand::Prompt { genome_id },
+        } => Command::GenomePrompt { genome_id },
+        CliCommand::Genome {
             command: GenomeCommand::List,
         } => Command::GenomeList,
         CliCommand::Genome {
@@ -310,6 +318,7 @@ fn print_human(response: &ApiResponse) {
             None,
         ) => println!("acknowledged frozen={frozen} killed_runs={killed_runs}"),
         (Some(ResponseData::Genome { genome }), None) => println!("{}", genome_human(genome)),
+        (Some(ResponseData::GenomePrompt { prompt, .. }), None) => print!("{prompt}"),
         (Some(ResponseData::Genomes { genomes }), None) => {
             for genome in genomes {
                 println!("{}", genome_human(genome));

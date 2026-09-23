@@ -930,6 +930,10 @@ fn operator_cli_controls_and_replays_real_daemon_state_across_restarts() {
     daemon.stop();
 
     let final_daemon = Daemon::start(data_dir);
+    assert!(matches!(
+        response(&cli(data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
     let final_status = cli(data_dir, &["status"]);
     assert!(matches!(
         response(&final_status).data,
@@ -943,23 +947,120 @@ fn operator_cli_controls_and_replays_real_daemon_state_across_restarts() {
     assert_private(data_dir, "control.sock", 0o600);
     assert_private(data_dir, "events.sqlite3", 0o600);
     assert_private(data_dir, "daemon.lock", 0o600);
-    assert_eq!(
-        fs::metadata(data_dir)
-            .expect("data directory metadata")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o700
-    );
-    assert_eq!(
-        fs::metadata(data_dir.join("blobs"))
-            .expect("artifact directory metadata")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o700
-    );
+    assert_secure_data_dir(data_dir);
     final_daemon.stop();
+}
+
+#[test]
+fn markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path();
+    let base_genome = seed_canonical_state(data_dir);
+    let daemon = Daemon::start(data_dir);
+    let path = directory.path().join("agent.md");
+    let prompt = "Use only trusted task evidence.\nKeep exact body bytes.  \n";
+    fs::write(
+        &path,
+        format!(
+            "---\nschema_version: 1\nname: markdown-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n{prompt}"
+        ),
+    )
+    .unwrap();
+    let registered = cli(
+        data_dir,
+        &[
+            "genome",
+            "register",
+            path.to_str().unwrap(),
+            "--world",
+            &base_genome.world_id,
+        ],
+    );
+    assert!(registered.status.success());
+    let markdown = match response(&registered).data.unwrap() {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected Markdown Genome response: {other:?}"),
+    };
+    let store = ArtifactStore::open(data_dir.join("blobs")).unwrap();
+    let artifact_id = hephaestus_ledger::ArtifactId::parse(markdown.artifact_id.clone()).unwrap();
+    let canonical: serde_json::Value =
+        serde_json::from_slice(&store.get(&artifact_id).unwrap()).unwrap();
+    let prompt_id = hephaestus_ledger::ArtifactId::parse(
+        canonical["artifacts"]["agent.prompt"]
+            .as_str()
+            .unwrap()
+            .to_owned(),
+    )
+    .unwrap();
+    assert_eq!(store.get(&prompt_id).unwrap(), prompt.as_bytes());
+    assert_eq!(
+        cli_text(data_dir, &["genome", "prompt", &markdown.genome_id]),
+        prompt
+    );
+    assert!(matches!(
+        response(&cli(data_dir, &["genome", "show", &markdown.genome_id])).data,
+        Some(ResponseData::Genome { genome }) if genome == markdown
+    ));
+    assert_eq!(
+        error_code(&cli(
+            data_dir,
+            &["genome", "prompt", &base_genome.genome_id]
+        )),
+        ApiErrorCode::NotFound
+    );
+    daemon.stop();
+
+    let restarted = Daemon::start(data_dir);
+    assert_eq!(
+        cli_text(data_dir, &["genome", "prompt", &markdown.genome_id]),
+        prompt
+    );
+    assert!(matches!(
+        response(&cli(data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    restarted.stop();
+}
+
+#[test]
+fn maximum_markdown_prompt_round_trips_through_the_bounded_client() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path();
+    let base_genome = seed_canonical_state(data_dir);
+    let daemon = Daemon::start(data_dir);
+    let path = directory.path().join("maximum-agent.md");
+    let prefix = "---\nschema_version: 1\nname: maximum-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n";
+    let prompt = "\u{1}".repeat(1_048_576 - prefix.len());
+    let source = format!("{prefix}{prompt}");
+    assert_eq!(source.len(), 1_048_576);
+    fs::write(&path, source).unwrap();
+    let registered = cli(
+        data_dir,
+        &[
+            "genome",
+            "register",
+            path.to_str().unwrap(),
+            "--world",
+            &base_genome.world_id,
+        ],
+    );
+    assert!(registered.status.success());
+    let markdown = match response(&registered).data.unwrap() {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected Markdown Genome response: {other:?}"),
+    };
+    assert_eq!(
+        cli_text(data_dir, &["genome", "prompt", &markdown.genome_id]),
+        prompt
+    );
+    daemon.stop();
+
+    let restarted = Daemon::start(data_dir);
+    assert_eq!(
+        cli_text(data_dir, &["genome", "prompt", &markdown.genome_id]),
+        prompt
+    );
+    restarted.stop();
 }
 
 #[test]
@@ -1406,6 +1507,19 @@ fn assert_private(data_dir: &Path, name: &str, expected: u32) {
             & 0o777,
         expected
     );
+}
+
+fn assert_secure_data_dir(data_dir: &Path) {
+    for path in [data_dir.to_owned(), data_dir.join("blobs")] {
+        assert_eq!(
+            fs::metadata(path)
+                .expect("data directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
 }
 
 const QUICKSTART: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/quickstart");

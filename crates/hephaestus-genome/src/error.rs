@@ -14,6 +14,16 @@ pub enum CompileError {
     },
     /// Typed JSON or YAML deserialization failed.
     Parse(String),
+    /// Markdown source did not contain exactly one supported YAML frontmatter block.
+    InvalidMarkdownFrontmatter,
+    /// Markdown prompt body or stored prompt artifact was blank.
+    EmptyAgentPrompt,
+    /// A Markdown Genome attempted to set the compiler-reserved prompt artifact.
+    ReservedAgentPromptArtifact,
+    /// The reserved prompt artifact was not valid UTF-8 text.
+    InvalidAgentPromptArtifact,
+    /// The artifact store could not persist the exact Markdown prompt body.
+    ArtifactStore,
     /// The document schema version is not supported.
     UnsupportedSchemaVersion(u16),
     /// A required stable name was empty.
