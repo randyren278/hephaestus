@@ -20,7 +20,7 @@ use hephaestus_control::{
 use hephaestus_experience::{
     RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner,
 };
-use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
+use hephaestus_genome::{SourceFormat, compile_genome, compile_world};
 #[cfg(feature = "test-support")]
 use hephaestus_ledger::ArtifactId;
 use hephaestus_ledger::{ArtifactStore, EventInput, EventStore};
@@ -29,6 +29,7 @@ use tempfile::tempdir;
 const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
 const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
 const REFERENCE_EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
+const REFERENCE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-reference-worker");
 
 fn runtime_environment_id() -> String {
     format!(
@@ -37,6 +38,18 @@ fn runtime_environment_id() -> String {
         RUN_RESULT_SCHEMA_VERSION,
         std::env::consts::OS,
         std::env::consts::ARCH
+    )
+}
+
+fn reference_worker_environment_id() -> String {
+    let worker_digest = blake3::hash(&fs::read(REFERENCE_WORKER).expect("read reference worker"))
+        .to_hex()
+        .to_string();
+    let base = runtime_environment_id();
+    let identity = format!("{base}|reference-instruction-language-v1|{worker_digest}");
+    format!(
+        "reference-v1.{}",
+        blake3::hash(identity.as_bytes()).to_hex()
     )
 }
 
@@ -56,6 +69,10 @@ impl Daemon {
         fs::copy(REFERENCE_EVALUATOR, &evaluator).expect("copy evaluator executable");
         fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
             .expect("protect evaluator executable");
+        let worker = data_dir.join("reference-worker");
+        fs::copy(REFERENCE_WORKER, &worker).expect("copy reference worker executable");
+        fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+            .expect("protect reference worker executable");
         let mut child = ProcessCommand::new(DAEMON)
             .arg("--data-dir")
             .arg(data_dir)
@@ -63,6 +80,8 @@ impl Daemon {
             .arg(source_repository)
             .arg("--evaluator-executable")
             .arg(evaluator)
+            .arg("--reference-worker-executable")
+            .arg(worker)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -130,13 +149,13 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     let visible = TrustedManifest::new(
         "visible-v1",
         Visibility::Visible,
-        vec![TrustedTask::new("visible-task", "visible input", "not inventory").unwrap()],
+        vec![TrustedTask::new("visible-task", "visible input", "VISIBLE INPUT").unwrap()],
     )
     .unwrap();
     let sealed = TrustedManifest::new(
         "sealed-v1",
         Visibility::Sealed,
-        vec![TrustedTask::new("sealed-task", "sealed input", "not inventory").unwrap()],
+        vec![TrustedTask::new("sealed-task", "sealed input", "SEALED INPUT").unwrap()],
     )
     .unwrap();
     let visible_id = artifacts
@@ -165,8 +184,6 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         name: world.name().to_owned(),
         artifact_id: world_artifact.as_str().to_owned(),
     };
-    let parent = compiled_genome_record("daemon-parent", &world, &artifacts);
-    let candidate = compiled_genome_record("daemon-candidate", &world, &artifacts);
     let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
     ledger
         .append(EventInput::new(
@@ -178,18 +195,6 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             serde_json::to_vec(&world_record).unwrap(),
         ))
         .unwrap();
-    for (sequence, genome) in [(2, &parent), (3, &candidate)] {
-        ledger
-            .append(EventInput::new(
-                format!("genome-{sequence}"),
-                &genome.genome_id,
-                "genome.registered",
-                "test-fixture",
-                sequence,
-                serde_json::to_vec(genome).unwrap(),
-            ))
-            .unwrap();
-    }
     drop(ledger);
 
     let producer_key_path = data_dir.join("runtime-producer.key");
@@ -210,6 +215,55 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     fs::set_permissions(&producer_key_path, fs::Permissions::from_mode(0o600)).unwrap();
 
     let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let parent_path = directory.path().join("parent.md");
+    let candidate_path = directory.path().join("candidate.md");
+    let metadata = |name: &str, parents: &str, operation: &str| {
+        format!(
+            "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{operation}\"}}\n```\n"
+        )
+    };
+    fs::write(&parent_path, metadata("daemon-parent", "[]", "identity")).unwrap();
+    let parent = match response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            parent_path.to_str().unwrap(),
+            "--world",
+            world.id(),
+        ],
+    ))
+    .data
+    .unwrap()
+    {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected parent registration: {other:?}"),
+    };
+    fs::write(
+        &candidate_path,
+        metadata(
+            "daemon-candidate",
+            &format!("[\"{}\"]", parent.genome_id),
+            "ascii_uppercase",
+        ),
+    )
+    .unwrap();
+    let candidate = match response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            candidate_path.to_str().unwrap(),
+            "--world",
+            world.id(),
+        ],
+    ))
+    .data
+    .unwrap()
+    {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected candidate registration: {other:?}"),
+    };
     #[cfg(feature = "test-support")]
     let mut recorded_selections = Vec::new();
     assert!(cli(&data_dir, &["unfreeze"]).status.success());
@@ -250,6 +304,20 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     );
     let sandbox_root = data_dir.join("sandboxes");
     assert!(!sandbox_root.exists() || fs::read_dir(sandbox_root).unwrap().next().is_none());
+    let direct_run = response(&cli(&data_dir, &["run", &candidate.genome_id]));
+    let direct_stdout_id = match direct_run.data.unwrap() {
+        ResponseData::Run {
+            stdout_artifact_id, ..
+        } => stdout_artifact_id,
+        other => panic!("unexpected instruction-bearing direct run: {other:?}"),
+    };
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).unwrap();
+    assert_eq!(
+        artifacts
+            .get(&ArtifactId::parse(direct_stdout_id).unwrap())
+            .unwrap(),
+        b"INVENTORY THE ISOLATED REPOSITORY WITHOUT MODIFYING IT OR USING THE NETWORK."
+    );
     #[cfg(feature = "test-support")]
     {
         let first = response(&cli(
@@ -267,7 +335,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             other => panic!("unexpected paired evaluation response: {other:?}"),
         };
         assert_eq!(first_evaluation.parent_visible_correct, 0);
-        assert_eq!(first_evaluation.candidate_visible_correct, 0);
+        assert_eq!(first_evaluation.candidate_visible_correct, 1);
         assert_eq!(first_evaluation.visible_total, 1);
         let same_genome = cli(
             &data_dir,
@@ -308,10 +376,24 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             "every paired trial must use one pinned source revision"
         );
         for receipt in &paired_receipts {
-            let expected = match receipt.task_id.as_str() {
-                "visible-task" => b"visible input".as_slice(),
-                "sealed-task" => b"sealed input".as_slice(),
+            let task_input = match receipt.task_id.as_str() {
+                "visible-task" => "visible input",
+                "sealed-task" => "sealed input",
                 other => panic!("unexpected daemon-owned task: {other}"),
+            };
+            assert_eq!(
+                receipt.input_commitment,
+                blake3::hash(task_input.as_bytes()).to_hex().to_string()
+            );
+            assert_eq!(receipt.seed, 42);
+            assert_eq!(receipt.environment_id, reference_worker_environment_id());
+            assert_eq!(receipt.budget.wall_millis, 10_000);
+            assert_eq!(receipt.budget.maximum_output_bytes, 1_048_576);
+            assert_eq!(receipt.budget.maximum_cost_microusd, 0);
+            let expected = if receipt.genome_id == parent.genome_id {
+                task_input.as_bytes().to_vec()
+            } else {
+                task_input.to_ascii_uppercase().into_bytes()
             };
             assert_eq!(
                 artifacts
@@ -321,6 +403,32 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                     )
                     .unwrap(),
                 expected
+            );
+        }
+        for task_id in ["visible-task", "sealed-task"] {
+            let parent_receipt = paired_receipts
+                .iter()
+                .find(|receipt| receipt.genome_id == parent.genome_id && receipt.task_id == task_id)
+                .unwrap();
+            let candidate_receipt = paired_receipts
+                .iter()
+                .find(|receipt| {
+                    receipt.genome_id == candidate.genome_id && receipt.task_id == task_id
+                })
+                .unwrap();
+            assert_eq!(
+                parent_receipt.input_commitment,
+                candidate_receipt.input_commitment
+            );
+            assert_eq!(parent_receipt.seed, candidate_receipt.seed);
+            assert_eq!(
+                parent_receipt.environment_id,
+                candidate_receipt.environment_id
+            );
+            assert_eq!(parent_receipt.budget, candidate_receipt.budget);
+            assert_ne!(
+                parent_receipt.stdout_artifact_id,
+                candidate_receipt.stdout_artifact_id
             );
         }
         let retried = response(&cli(
@@ -358,7 +466,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         assert!(!selection.receipt.promotion_eligible());
         assert_eq!(selection.receipt.world_id(), world.id());
         assert_eq!(selection.receipt.correctness_regressions(), 0);
-        assert!(!selection.receipt.metrics_eligible());
+        assert_eq!(selection.receipt.correctness_improvements(), 2);
         recorded_selections.push(selection.clone());
 
         // Force Arena's consumed-store error path by removing the durable
@@ -418,6 +526,21 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 "retry duplicated {event_type}"
             );
         }
+        let deployed_worker = data_dir.join("reference-worker");
+        let worker_bytes = fs::read(&deployed_worker).unwrap();
+        fs::write(&deployed_worker, b"changed reference worker").unwrap();
+        let changed_worker = cli(&data_dir, &["run", &candidate.genome_id]);
+        assert!(!changed_worker.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&changed_worker.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        fs::write(&deployed_worker, worker_bytes).unwrap();
+        fs::set_permissions(&deployed_worker, fs::Permissions::from_mode(0o700)).unwrap();
         for root in [data_dir.join("sandboxes"), data_dir.join("evaluator-runs")] {
             assert!(
                 !root.exists() || fs::read_dir(&root).unwrap().next().is_none(),
@@ -512,7 +635,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     let binding = EvaluationBinding::new(
         world.id(),
         42,
-        runtime_environment_id(),
+        reference_worker_environment_id(),
         evaluator_id.as_str(),
         RunBudgetReceipt {
             wall_millis: 10_000,
@@ -572,32 +695,6 @@ fn evaluation_run(data_dir: &Path, genome_id: &str, task_id: &str, input: &str) 
     match response.data.unwrap() {
         ResponseData::Run { run_id, .. } => format!("result:{run_id}"),
         other => panic!("unexpected evaluation response: {other:?}"),
-    }
-}
-
-fn compiled_genome_record(
-    name: &str,
-    world: &CompiledWorld,
-    artifacts: &ArtifactStore,
-) -> GenomeRecord {
-    let source = format!(
-        r#"{{"schema_version":1,"name":"{name}","parents":[],"model":{{"provider":"deterministic","family":"v1"}},"authority":{{"workspace_write":false,"network":false}},"artifacts":{{}}}}"#
-    );
-    let genome = compile_genome(
-        &source,
-        SourceFormat::Json,
-        world,
-        &std::collections::BTreeMap::new(),
-        artifacts,
-    )
-    .unwrap();
-    let artifact = artifacts.put(genome.canonical_json()).unwrap();
-    GenomeRecord {
-        genome_id: genome.id().to_owned(),
-        name: genome.name().to_owned(),
-        world_id: world.id().to_owned(),
-        artifact_id: artifact.as_str().to_owned(),
-        parent_ids: vec![],
     }
 }
 
@@ -1007,6 +1104,12 @@ fn markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon() {
             &["genome", "prompt", &base_genome.genome_id]
         )),
         ApiErrorCode::NotFound
+    );
+    assert!(cli(data_dir, &["unfreeze"]).status.success());
+    assert_eq!(
+        error_code(&cli(data_dir, &["run", &markdown.genome_id])),
+        ApiErrorCode::InvalidRequest,
+        "generic prose remains stored and inspectable but is not a reference-worker program"
     );
     daemon.stop();
 

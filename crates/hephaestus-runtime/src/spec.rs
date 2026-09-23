@@ -3,6 +3,7 @@ use std::{path::PathBuf, process::Command, time::Duration};
 use hephaestus_core::authority::CapabilitySet;
 
 use crate::RuntimeError;
+use crate::{ReferenceInstruction, reference_instruction::MAX_TASK_INPUT_BYTES};
 
 const MAX_CONTEXT_ID_BYTES: usize = 128;
 const MAX_RUN_ID_BYTES: usize = 128;
@@ -129,6 +130,7 @@ pub struct RunSpec {
     capabilities: CapabilitySet,
     budget: Budget,
     experiment: ExperimentContext,
+    reference_instruction: Option<ReferenceInstruction>,
 }
 
 impl RunSpec {
@@ -288,6 +290,7 @@ impl RunSpec {
             capabilities,
             budget,
             experiment,
+            reference_instruction: None,
         })
     }
 
@@ -343,6 +346,29 @@ impl RunSpec {
     #[must_use]
     pub const fn experiment(&self) -> &ExperimentContext {
         &self.experiment
+    }
+
+    /// Reference-worker instruction resolved from the registered Genome CAS.
+    #[must_use]
+    pub const fn reference_instruction(&self) -> Option<ReferenceInstruction> {
+        self.reference_instruction
+    }
+
+    /// Adds a separate reference-worker instruction without changing task input.
+    /// # Errors
+    ///
+    /// Rejects task input larger than the bounded reference worker frame.
+    pub fn with_reference_instruction(
+        mut self,
+        instruction: ReferenceInstruction,
+    ) -> Result<Self, RuntimeError> {
+        if self.prompt.len() > MAX_TASK_INPUT_BYTES {
+            return Err(RuntimeError::InvalidSpec(
+                "reference task input is oversized",
+            ));
+        }
+        self.reference_instruction = Some(instruction);
+        Ok(self)
     }
 }
 

@@ -79,7 +79,7 @@ jobs:
             timeout_minutes: 20
           - scope: hephaestus-control
             prefix: crates/hephaestus-control/
-            minimum: 38
+            minimum: 41
             timeout_minutes: 60
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs
@@ -99,7 +99,11 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-spec
             prefix: crates/hephaestus-runtime/src/spec.rs
-            minimum: 5
+            minimum: 6
+            timeout_minutes: 30
+          - scope: runtime-reference-instructions
+            prefix: crates/hephaestus-runtime/src/reference_instruction.rs
+            minimum: 6
             timeout_minutes: 30
           - scope: runtime-supervisor
             prefix: crates/hephaestus-runtime/src/supervisor.rs

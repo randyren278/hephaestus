@@ -46,7 +46,8 @@
     "crates/hephaestus-runtime/src/spec.rs",
     "crates/hephaestus-runtime/src/supervisor.rs",
     "crates/hephaestus-runtime/src/worker.rs",
-    "crates/hephaestus-genome/src/registry.rs"
+    "crates/hephaestus-genome/src/registry.rs",
+    "crates/hephaestus-runtime/src/reference_instruction.rs"
   ],
   "mutations": [
     {
@@ -1833,6 +1834,76 @@
       "invariant": "Markdown YAML frontmatter rejects merge keys rather than importing hidden fields.",
       "find": "    options.merge_keys = serde_saphyr::MergeKeyPolicy::Error;",
       "replace": "    options.merge_keys = serde_saphyr::MergeKeyPolicy::Merge;"
+    },
+    {
+      "id": "reference-instruction-unknown-fields-accepted",
+      "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
+      "invariant": "The reference instruction document rejects unknown fields.",
+      "find": "#[serde(deny_unknown_fields)]",
+      "replace": "// mutation: permit unknown instruction fields"
+    },
+    {
+      "id": "reference-instruction-version-unchecked",
+      "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
+      "invariant": "Only reference instruction schema version 1 is executable.",
+      "find": "if document.schema_version != 1 {",
+      "replace": "if false {"
+    },
+    {
+      "id": "reference-uppercase-operation-is-identity",
+      "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
+      "invariant": "The ascii_uppercase operation transforms task input bytes.",
+      "find": "\"ascii_uppercase\" => Ok(Self::AsciiUppercase),",
+      "replace": "\"ascii_uppercase\" => Ok(Self::Identity),"
+    },
+    {
+      "id": "reference-task-input-omitted-from-frame",
+      "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
+      "invariant": "The bounded worker frame carries the exact original task input.",
+      "find": "        frame.extend_from_slice(input);",
+      "replace": "        // mutation: omit task input bytes"
+    },
+    {
+      "id": "reference-worker-input-limit-bypassed",
+      "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
+      "invariant": "Worker request frames reject oversized and length-mismatched input.",
+      "find": "if expected > MAX_TASK_INPUT_BYTES || frame.len() != HEADER + expected {",
+      "replace": "if false {"
+    },
+    {
+      "id": "reference-crlf-fence-normalization-skipped",
+      "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
+      "invariant": "Strict instruction parsing accepts ordinary CRLF Markdown without relaxing document boundaries.",
+      "find": "        let normalized = body.replace(\"\\r\\n\", \"\\n\");",
+      "replace": "        let normalized = body.to_owned();"
+    },
+    {
+      "id": "reference-worker-changed-after-startup-accepted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "The worker executable digest remains bound to reference execution environment receipts.",
+      "find": "        if actual != self.reference_worker_digest {",
+      "replace": "        if false {"
+    },
+    {
+      "id": "reference-instruction-cas-not-interpreted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "The daemon parses only the verified registered prompt CAS as a reference instruction.",
+      "find": "        ReferenceInstruction::parse(body).map(Some).map_err(|_| {\n            ExecuteError::Rejected(\"registered reference instruction is invalid\".to_owned())\n        })",
+      "replace": "        Ok(Some(ReferenceInstruction::Identity))"
+    },
+    {
+      "id": "reference-worker-bypassed-for-arena-candidates",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Paired Arena candidates execute through the configured bounded reference worker.",
+      "find": "        let runtime =\n            SupervisedRuntime::deterministic(isolation, &self.reference_worker_executable, [])",
+      "replace": "        let runtime =\n            SupervisedRuntime::deterministic(isolation, \"/bin/cat\", [])"
+    },
+    {
+      "id": "reference-task-input-bound-checked-before-run",
+      "file": "crates/hephaestus-runtime/src/spec.rs",
+      "invariant": "A reference instruction rejects over-limit task input before sandbox creation.",
+      "find": "        if self.prompt.len() > MAX_TASK_INPUT_BYTES {",
+      "replace": "        if false {"
     }
   ]
 }

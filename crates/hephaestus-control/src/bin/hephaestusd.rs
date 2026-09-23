@@ -15,6 +15,9 @@ struct Arguments {
     /// Exact World-bound evaluator executable deployed beside the daemon by default.
     #[arg(long)]
     evaluator_executable: Option<PathBuf>,
+    /// Bounded reference instruction worker deployed beside the daemon by default.
+    #[arg(long)]
+    reference_worker_executable: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -39,11 +42,27 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let opened = match arguments.evaluator_executable {
-        Some(evaluator) => {
+    let opened = match (
+        arguments.evaluator_executable,
+        arguments.reference_worker_executable,
+    ) {
+        (Some(evaluator), Some(worker)) => {
+            ControlPlane::open_with_repository_evaluator_and_reference_worker(
+                data_dir,
+                source_repository,
+                evaluator,
+                worker,
+            )
+        }
+        (Some(evaluator), None) => {
             ControlPlane::open_with_repository_and_evaluator(data_dir, source_repository, evaluator)
         }
-        None => ControlPlane::open_with_repository(data_dir, source_repository),
+        (None, Some(worker)) => ControlPlane::open_with_repository_and_reference_worker(
+            data_dir,
+            source_repository,
+            worker,
+        ),
+        (None, None) => ControlPlane::open_with_repository(data_dir, source_repository),
     };
     match opened.and_then(ControlPlane::serve) {
         Ok(()) => ExitCode::SUCCESS,

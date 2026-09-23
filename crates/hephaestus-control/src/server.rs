@@ -32,8 +32,8 @@ use hephaestus_genome::{
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
 use hephaestus_runtime::{
     Budget, CapabilityToken, CompletionReason, DeterministicRuntime, ExperimentContext,
-    IsolationPolicy, RunSpec, RunStatus, RuntimeAdapter, Sandbox, SandboxManager,
-    SupervisedRuntime, WorkerLimits,
+    IsolationPolicy, ReferenceInstruction, RunSpec, RunStatus, RuntimeAdapter, Sandbox,
+    SandboxManager, SupervisedRuntime, WorkerLimits,
 };
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +76,8 @@ pub struct ControlPlane {
     data_dir: PathBuf,
     source_repository: PathBuf,
     evaluator_executable: PathBuf,
+    reference_worker_executable: PathBuf,
+    reference_worker_digest: String,
     token_hex: String,
     operator_token: OperatorToken,
     run_result_signer: RunResultSigner,
@@ -148,6 +150,25 @@ impl ControlPlane {
         )
     }
 
+    /// Opens storage with an explicit reference worker and default evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Applies the same fail-closed storage and repository checks as
+    /// [`Self::open_with_repository`].
+    pub fn open_with_repository_and_reference_worker(
+        data_dir: impl Into<PathBuf>,
+        source_repository: impl Into<PathBuf>,
+        reference_worker_executable: impl Into<PathBuf>,
+    ) -> Result<Self, ControlError> {
+        Self::open_with_repository_evaluator_and_reference_worker(
+            data_dir,
+            source_repository,
+            default_evaluator_executable()?,
+            reference_worker_executable,
+        )
+    }
+
     /// Opens canonical storage with explicit source and evaluator executables.
     ///
     /// The evaluator path is identity-checked against each World at evaluation
@@ -162,9 +183,31 @@ impl ControlPlane {
         source_repository: impl Into<PathBuf>,
         evaluator_executable: impl Into<PathBuf>,
     ) -> Result<Self, ControlError> {
+        Self::open_with_repository_evaluator_and_reference_worker(
+            data_dir,
+            source_repository,
+            evaluator_executable,
+            default_reference_worker_executable()?,
+        )
+    }
+
+    /// Opens canonical storage with explicit evaluator and reference-worker executables.
+    ///
+    /// # Errors
+    ///
+    /// Applies the same fail-closed storage and repository checks as
+    /// [`Self::open_with_repository`].
+    pub fn open_with_repository_evaluator_and_reference_worker(
+        data_dir: impl Into<PathBuf>,
+        source_repository: impl Into<PathBuf>,
+        evaluator_executable: impl Into<PathBuf>,
+        reference_worker_executable: impl Into<PathBuf>,
+    ) -> Result<Self, ControlError> {
         let data_dir = data_dir.into();
         let source_repository = validate_source_repository(&source_repository.into())?;
         let evaluator_executable = evaluator_executable.into();
+        let reference_worker_executable = reference_worker_executable.into();
+        let reference_worker_digest = executable_digest(&reference_worker_executable)?;
         prepare_private_directory(&data_dir)?;
         let lock = take_writer_lock(&data_dir.join("daemon.lock"))?;
         let (token_hex, token_bytes) = load_or_create_token(&data_dir.join("operator.token"))?;
@@ -204,6 +247,8 @@ impl ControlPlane {
             data_dir,
             source_repository,
             evaluator_executable,
+            reference_worker_executable,
+            reference_worker_digest,
             token_hex,
             operator_token,
             run_result_signer,
@@ -571,6 +616,10 @@ impl ControlPlane {
                 "paired Genomes must share one registered World",
             ));
         }
+        // Parse both verified prompt CAS objects before scheduling either role,
+        // so an unsupported candidate cannot leave a partial parent run history.
+        self.reference_instruction(&parent.genome_id)?;
+        self.reference_instruction(&candidate.genome_id)?;
         let world = self.registered_world(&parent.world_id)?;
         let visible = self.world_manifest(&world, "arena.visible_manifest", Visibility::Visible)?;
         let sealed = self.world_manifest(&world, "arena.sealed_manifest", Visibility::Sealed)?;
@@ -597,7 +646,7 @@ impl ControlPlane {
         )
         .map_err(|_| ExecuteError::Internal)?;
         let evaluator = self.open_evaluator(evaluator_id, evaluator_limits)?;
-        let environment_id = reference_environment_id();
+        let environment_id = self.reference_execution_environment()?;
         let revision = self.paired_revision(evaluation_id)?;
         let parent_plan = self.schedule_submission(
             evaluation_id,
@@ -802,6 +851,9 @@ impl ControlPlane {
             environment_id,
         )
         .map_err(|_| ExecuteError::Internal)?;
+        let instruction = self
+            .reference_instruction(&genome.genome_id)?
+            .unwrap_or(ReferenceInstruction::Identity);
         let spec = RunSpec::new_for_experiment_at_revision(
             run_id,
             &genome.genome_id,
@@ -813,6 +865,8 @@ impl ControlPlane {
             budget,
             experiment,
         )
+        .map_err(|_| ExecuteError::Internal)?
+        .with_reference_instruction(instruction)
         .map_err(|_| ExecuteError::Internal)?;
         let manager =
             SandboxManager::open(self.data_dir.join("sandboxes"), Duration::from_secs(30))
@@ -820,8 +874,9 @@ impl ControlPlane {
         let (sandbox, token) = manager.create(&spec).map_err(|_| ExecuteError::Internal)?;
         let sandbox = SandboxCleanupGuard::new(sandbox);
         let isolation = candidate_isolation(self.protected_runtime_paths());
-        let runtime = SupervisedRuntime::deterministic(isolation, "/bin/cat", [])
-            .map_err(|_| ExecuteError::Internal)?;
+        let runtime =
+            SupervisedRuntime::deterministic(isolation, &self.reference_worker_executable, [])
+                .map_err(|_| ExecuteError::Internal)?;
         let execution = (|| {
             let limits =
                 RetentionLimits::new(10_000, 65_536).map_err(|_| ExecuteError::Internal)?;
@@ -860,6 +915,51 @@ impl ControlPlane {
             .world(world_id)
             .map(|world| world.compiled().clone())
             .ok_or(ExecuteError::Internal)
+    }
+
+    fn reference_instruction(
+        &self,
+        genome_id: &str,
+    ) -> Result<Option<ReferenceInstruction>, ExecuteError> {
+        let genome = self
+            .state
+            .registered
+            .genome(genome_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let Some(artifact) = genome.compiled().artifact_id("agent.prompt") else {
+            return Ok(None);
+        };
+        let id = ArtifactId::parse(artifact.to_owned()).map_err(|_| ExecuteError::Internal)?;
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let bytes = storage
+            .artifacts
+            .get(&id)
+            .map_err(|_| ExecuteError::Internal)?;
+        let body = std::str::from_utf8(&bytes).map_err(|_| {
+            ExecuteError::Rejected("registered reference instruction is invalid".to_owned())
+        })?;
+        ReferenceInstruction::parse(body).map(Some).map_err(|_| {
+            ExecuteError::Rejected("registered reference instruction is invalid".to_owned())
+        })
+    }
+
+    fn reference_execution_environment(&self) -> Result<String, ExecuteError> {
+        let actual = executable_digest(&self.reference_worker_executable)
+            .map_err(|_| ExecuteError::Internal)?;
+        if actual != self.reference_worker_digest {
+            return Err(ExecuteError::Rejected(
+                "reference worker identity changed after daemon startup".to_owned(),
+            ));
+        }
+        let identity = format!(
+            "{}|reference-instruction-language-v1|{}",
+            reference_environment_id(),
+            self.reference_worker_digest
+        );
+        Ok(format!(
+            "reference-v1.{}",
+            blake3::hash(identity.as_bytes()).to_hex()
+        ))
     }
 
     fn world_manifest(
@@ -1014,10 +1114,15 @@ impl ControlPlane {
     ) -> Result<ResponseData, ExecuteError> {
         let budget =
             validated_evaluation_budget(wall_millis, maximum_output_bytes, maximum_cost_microusd)?;
-        let environment_id = reference_environment_id();
+        let instruction = self.reference_instruction(&genome.genome_id)?;
+        let environment_id = if instruction.is_some() {
+            self.reference_execution_environment()?
+        } else {
+            reference_environment_id()
+        };
         let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), seed, environment_id)
             .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
-        let spec = RunSpec::new_for_experiment(
+        let mut spec = RunSpec::new_for_experiment(
             run_id,
             &genome.genome_id,
             &genome.world_id,
@@ -1028,6 +1133,23 @@ impl ControlPlane {
             experiment,
         )
         .map_err(|_| ExecuteError::Invalid("run specification is invalid"))?;
+        if let Some(instruction) = instruction {
+            spec = spec
+                .with_reference_instruction(instruction)
+                .map_err(|_| ExecuteError::Invalid("reference task input is oversized"))?;
+        }
+        let supervised_runtime = if instruction.is_some() {
+            Some(
+                SupervisedRuntime::deterministic(
+                    candidate_isolation(self.protected_runtime_paths()),
+                    &self.reference_worker_executable,
+                    [],
+                )
+                .map_err(|_| ExecuteError::Internal)?,
+            )
+        } else {
+            None
+        };
         let manager =
             SandboxManager::open(self.data_dir.join("sandboxes"), Duration::from_secs(30))
                 .map_err(|_| ExecuteError::Internal)?;
@@ -1043,8 +1165,18 @@ impl ControlPlane {
                 RedactionPolicy::new([self.token_hex.clone()]),
                 limits,
             );
-            let (execution, recorder) =
-                execute_reference_runtime(recorder, &spec, sandbox.sandbox()?, &token, run_id);
+            let (execution, recorder) = if let Some(runtime) = supervised_runtime {
+                execute_candidate_runtime(
+                    runtime,
+                    recorder,
+                    &spec,
+                    sandbox.sandbox()?,
+                    &token,
+                    run_id,
+                )
+            } else {
+                execute_reference_runtime(recorder, &spec, sandbox.sandbox()?, &token, run_id)
+            };
             let (ledger, artifacts) = recorder.into_stores();
             let execution = execution.and_then(|output| {
                 persist_reference_output(&artifacts, run_id, genome, spec.source_revision(), output)
@@ -1655,6 +1787,43 @@ fn default_evaluator_executable() -> Result<PathBuf, ControlError> {
     )))
 }
 
+fn default_reference_worker_executable() -> Result<PathBuf, ControlError> {
+    let current = env::current_exe()?;
+    let directory = current
+        .parent()
+        .ok_or(ControlError::Protocol("daemon executable has no directory"))?;
+    let sibling = directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if sibling.exists() {
+        return Ok(sibling);
+    }
+    // Cargo places unit-test executables under `target/debug/deps`, while the
+    // installed daemon and worker are siblings under `bin` or `target/debug`.
+    if let Some(parent) = directory.parent() {
+        let cargo_sibling = parent.join(format!(
+            "hephaestus-reference-worker{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        if cargo_sibling.exists() {
+            return Ok(cargo_sibling);
+        }
+    }
+    Ok(sibling)
+}
+
+fn executable_digest(path: &Path) -> Result<String, ControlError> {
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+        return Err(ControlError::Protocol(
+            "reference worker must be an executable regular file",
+        ));
+    }
+    let bytes = fs::read(path)?;
+    Ok(blake3::hash(&bytes).to_hex().to_string())
+}
+
 fn persist_reference_output(
     artifacts: &ArtifactStore,
     run_id: &str,
@@ -2209,7 +2378,10 @@ fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::symlink};
+    use std::{
+        fs,
+        os::unix::fs::{PermissionsExt, symlink},
+    };
 
     use hephaestus_experience::{Provenance, TraceKind, TraceReceipt};
     use hephaestus_genome::{SourceFormat, compile_world};
@@ -2217,6 +2389,35 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn reference_worker_identity_requires_an_executable_regular_file() {
+        let directory = tempdir().expect("temporary directory");
+        let worker = directory.path().join("worker");
+        fs::write(&worker, b"worker bytes").expect("write worker");
+        fs::set_permissions(&worker, fs::Permissions::from_mode(0o700)).expect("make executable");
+        assert_eq!(
+            executable_digest(&worker).expect("hash executable"),
+            blake3::hash(b"worker bytes").to_hex().to_string()
+        );
+        fs::set_permissions(&worker, fs::Permissions::from_mode(0o600))
+            .expect("remove execute permission");
+        assert!(executable_digest(&worker).is_err());
+        assert!(executable_digest(directory.path()).is_err());
+    }
+
+    #[test]
+    fn explicit_reference_worker_open_uses_the_supplied_executable_identity() {
+        let directory = tempdir().expect("temporary directory");
+        let worker = std::env::current_exe().expect("test executable");
+        let plane = ControlPlane::open_with_repository_and_reference_worker(
+            directory.path(),
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            worker,
+        )
+        .expect("open with explicit worker");
+        assert_eq!(plane.reference_worker_digest.len(), 64);
+    }
 
     #[test]
     fn authenticated_failures_are_safe_and_replay_divergence_is_detected() {

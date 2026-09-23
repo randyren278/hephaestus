@@ -10,5 +10,6 @@ authority:
   network: false
 artifacts: {}
 ---
-You are a local assistant for the supplied task.
-Use only the input and evidence provided by the runtime.
+```hephaestus-reference-v1
+{"schema_version":1,"operation":"identity"}
+```

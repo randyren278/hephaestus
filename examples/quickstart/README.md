@@ -10,6 +10,6 @@ Everything `scripts/quickstart.sh` registers, in source form.
 | `parent.json` | root Genome | No parents; the offline `deterministic` / `reference` model. |
 | `candidate.template.json` | child Genome | `__PARENT_ID__` becomes the registered parent's content identity, which is why it cannot be a plain file. |
 
-Both Genomes score 0/1 in the Arena. The reference runtime answers every task with a repository inventory, and `expected_output` asks for something else, so the sample proves the measurement pipeline rather than the sample agent.
+Both JSON Genomes score 0/1 in the Arena: without a reserved prompt, paired reference runs return the exact task input, while the fixture expects a different JSON answer. The Markdown fixture shows the supported `identity` instruction syntax; use `ascii_uppercase` to transform task input deterministically. These are reference-worker operations, not arbitrary natural-language or hosted-model execution.
 
 To adapt the fixtures for your own experiment: keep `schema_version: 1`, change the Laws and ceilings in the World, and point `arena.evaluator` at whichever evaluator binary your daemon was started with. `hephaestus arena evaluate` refuses to run when the World's evaluator hash does not match the executable the daemon was given.

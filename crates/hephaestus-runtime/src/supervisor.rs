@@ -114,11 +114,13 @@ impl SupervisedRuntime {
         let stderr_path = sandbox.execution_dir().join("stderr.log");
         let stdout_file = File::create(&stdout_path)?;
         let stderr_file = File::create(&stderr_path)?;
-        let invocation = ProviderInvocation::deterministic(
-            &self.executable,
-            self.arguments.clone(),
-            spec.prompt(),
-        )?;
+        let stdin = if let Some(instruction) = spec.reference_instruction() {
+            instruction.frame(spec.prompt().as_bytes())?
+        } else {
+            spec.prompt().as_bytes().to_vec()
+        };
+        let invocation =
+            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), stdin)?;
         let mut command = self.isolation.command(&invocation, sandbox)?;
         command.env_clear();
         if let Some(path) = std::env::var_os("PATH") {

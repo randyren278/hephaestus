@@ -6,8 +6,8 @@ use std::{os::unix::fs::PermissionsExt, time::Instant};
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_runtime::{
     Budget, DeterministicRuntime, ExperimentContext, IsolationBackend, IsolationPolicy, Provider,
-    ProviderInvocation, RunSnapshot, RunSpec, RunStatus, RuntimeAdapter, RuntimeError,
-    SandboxManager, SupervisedRuntime,
+    ProviderInvocation, ReferenceInstruction, RunSnapshot, RunSpec, RunStatus, RuntimeAdapter,
+    RuntimeError, SandboxManager, SupervisedRuntime,
 };
 use tempfile::tempdir;
 
@@ -916,6 +916,65 @@ fn budgets_and_run_specs_reject_invalid_inputs() {
         ),
         Err(RuntimeError::InvalidSpec(_))
     ));
+}
+
+#[test]
+fn reference_instruction_keeps_world_input_and_experiment_unchanged() {
+    let repository = repository_fixture();
+    let budget = Budget::new(Duration::from_secs(2), 10, 7).expect("valid budget");
+    let experiment = ExperimentContext::new("task-1", b"prompt", 42, "linux-arm64-v1")
+        .expect("experiment context");
+    let contextual = RunSpec::new_for_experiment(
+        "paired-run",
+        "genome",
+        "world",
+        repository.path(),
+        "prompt",
+        CapabilitySet::new(false, false),
+        budget,
+        experiment,
+    )
+    .expect("contextual spec");
+    let instructed = contextual
+        .clone()
+        .with_reference_instruction(ReferenceInstruction::AsciiUppercase)
+        .expect("in-range reference input");
+    assert_eq!(instructed.prompt(), contextual.prompt());
+    assert_eq!(instructed.experiment(), contextual.experiment());
+    assert_eq!(
+        instructed.reference_instruction(),
+        Some(ReferenceInstruction::AsciiUppercase)
+    );
+}
+
+#[test]
+fn reference_instruction_rejects_oversized_task_input() {
+    let budget = Budget::new(Duration::from_secs(2), 10, 7).expect("valid budget");
+    let repository = repository_fixture();
+    let oversized_prompt = "x".repeat(1_048_577);
+    let oversized_context = ExperimentContext::new(
+        "large-task",
+        oversized_prompt.as_bytes(),
+        42,
+        "linux-arm64-v1",
+    )
+    .expect("large task context");
+    let oversized_spec = RunSpec::new_for_experiment(
+        "oversized-reference-run",
+        "genome",
+        "world",
+        repository.path(),
+        oversized_prompt,
+        CapabilitySet::new(false, false),
+        budget,
+        oversized_context,
+    )
+    .expect("ordinary spec accepts bounded-by-daemon large task");
+    assert!(
+        oversized_spec
+            .with_reference_instruction(ReferenceInstruction::Identity)
+            .is_err()
+    );
 }
 
 #[test]

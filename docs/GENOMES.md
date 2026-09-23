@@ -28,9 +28,21 @@ Register it with `hephaestus genome register <file> --world <world-id>`; the Wor
 
 ## Markdown agent files
 
-Markdown Genomes begin with a standalone `---` delimiter, use the same frontmatter fields shown above, close frontmatter with another standalone `---`, and place the prompt body after the closing delimiter. Unknown fields, duplicate YAML keys, YAML merge keys, blank bodies, an explicit agent.prompt artifact in frontmatter, and files larger than 1 MiB are rejected. The compiler stores the exact nonblank UTF-8 body, including whitespace and final newlines, as agent.prompt; it does not trim or execute it. `hephaestus genome prompt <genome-id>` prints the verified body for a registered Genome that has this artifact. The command reads only the reserved artifact referenced by that registered Genome. See `examples/quickstart/agent.md` for a complete source file.
+Markdown Genomes begin with a standalone `---` delimiter, use the same frontmatter fields shown above, close frontmatter with another standalone `---`, and place the prompt body after the closing delimiter. Unknown fields, duplicate YAML keys, YAML merge keys, blank bodies, an explicit agent.prompt artifact in frontmatter, and files larger than 1 MiB are rejected. The compiler stores the exact nonblank UTF-8 body, including whitespace and final newlines, as agent.prompt. `hephaestus genome prompt <genome-id>` prints the verified body for a registered Genome that has this artifact. The command reads only the reserved artifact referenced by that registered Genome. See `examples/quickstart/agent.md` for a complete source file.
 
-Prompt execution is not implemented by this authoring path. It only stores, hashes, validates, registers, and exposes the prompt bytes to the local operator.
+## Offline reference instruction subset
+
+The local reference worker is installed beside `hephaestusd` by default (or selected with `--reference-worker-executable`). It does not execute arbitrary prose or call a hosted model. For execution through this worker, a Genome with `agent.prompt` must have exact CAS bytes containing one strict fenced `hephaestus-reference-v1` JSON document, no more than 4 KiB:
+
+````text
+```hephaestus-reference-v1
+{"schema_version":1,"operation":"ascii_uppercase"}
+```
+````
+
+The only operations are `identity`, which returns the exact World task input bytes, and `ascii_uppercase`, which applies ASCII uppercase to those bytes. Unknown fields, duplicate keys, unknown versions and operations, malformed fences, and oversized instructions fail closed at execution. Arbitrary nonblank UTF-8 Markdown prompt bodies remain valid stored and inspectable Genome data; they cannot run through this reference worker. The selected operation and task input travel as separate bounded fields, so the instruction does not change the task commitment, seed, environment, or budget. The worker runs as an isolated supervised process. Its executable digest and instruction-language version are included in the paired execution environment identity. A Genome without `agent.prompt` uses identity for paired Arena runs; legacy direct `run` on a prompt-free Genome keeps its repository inventory behavior.
+
+These operations are a deterministic reference-language slice. They do not demonstrate general prompt understanding, arbitrary agent code, or hosted-provider execution.
 
 ## Compilation contract
 
