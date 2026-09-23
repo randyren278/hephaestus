@@ -32,7 +32,7 @@ Markdown Genomes begin with a standalone `---` delimiter, use the same frontmatt
 
 ## Offline reference instruction subset
 
-The local reference worker is installed beside `hephaestusd` by default (or selected with `--reference-worker-executable`). It does not execute arbitrary prose or call a hosted model. For execution through this worker, a Genome with `agent.prompt` must have exact CAS bytes containing one strict fenced `hephaestus-reference-v1` JSON document, no more than 4 KiB:
+The local reference worker is installed beside `hephaestusd` by default (or selected with `--reference-worker-executable`). It does not execute arbitrary prose or call a hosted model. For execution through this worker, a Genome with the reserved agent.prompt artifact must have exact CAS bytes containing one strict fenced `hephaestus-reference-v1` JSON document, no more than 4 KiB:
 
 ````text
 ```hephaestus-reference-v1
@@ -40,7 +40,7 @@ The local reference worker is installed beside `hephaestusd` by default (or sele
 ```
 ````
 
-The only operations are `identity`, which returns the exact World task input bytes, and `ascii_uppercase`, which applies ASCII uppercase to those bytes. Unknown fields, duplicate keys, unknown versions and operations, malformed fences, and oversized instructions fail closed at execution. Arbitrary nonblank UTF-8 Markdown prompt bodies remain valid stored and inspectable Genome data; they cannot run through this reference worker. The selected operation and task input travel as separate bounded fields, so the instruction does not change the task commitment, seed, environment, or budget. The worker runs as an isolated supervised process. Its executable digest and instruction-language version are included in the paired execution environment identity. A Genome without `agent.prompt` uses identity for paired Arena runs; legacy direct `run` on a prompt-free Genome keeps its repository inventory behavior.
+The only operations are `identity`, which returns the exact World task input bytes, and `ascii_uppercase`, which applies ASCII uppercase to those bytes. Unknown fields, duplicate keys, unknown versions and operations, malformed fences, and oversized instructions fail closed at execution. Arbitrary nonblank UTF-8 Markdown prompt bodies remain valid stored and inspectable Genome data; they cannot run through this reference worker. The selected operation and task input travel as separate bounded fields, so the instruction does not change the task commitment, seed, environment, or budget. The worker runs as an isolated supervised process. Its executable digest and instruction-language version are included in the paired execution environment identity. A Genome without the reserved agent.prompt artifact uses identity for paired Arena runs; legacy direct `run` on a prompt-free Genome keeps its repository inventory behavior.
 
 These operations are a deterministic reference-language slice. They do not demonstrate general prompt understanding, arbitrary agent code, or hosted-provider execution.
 
