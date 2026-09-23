@@ -20,17 +20,17 @@ This roadmap implements the complete master-plan sequence without presenting lat
 
 ### 3. Genome, World, and authority compilers
 **Why**: Hephaestus cannot evaluate evolution until candidates and their immutable physics have reproducible identities.
-**Done when**: Canonical YAML/JSON compiles into normalized content-addressed Genomes and versioned Worlds; parent ancestry and referenced artifacts resolve; authority ceilings and mutation scopes validate; incompatible Worlds cannot be compared.
+**Done when**: Canonical YAML/JSON compiles into normalized content-addressed Genomes and versioned Worlds; parent ancestry and referenced artifacts resolve; authority ceilings and mutation scopes validate; incompatible Worlds cannot be compared. A documented Markdown authoring format for agent/Genome definitions compiles through the same validator into the same canonical Genome objects; malformed or ambiguous Markdown fails closed, and fixtures prove equivalent definitions produce identical identities.
 **Risk**: Canonicalization bugs can assign two identities to equivalent content or reuse one identity for different content.
 **Hook**: Deterministic compilation turns agent harnesses into Git-like immutable objects.
 **Invariants**: Released Genome content never changes; children have equal or narrower authority; malformed references fail closed; changing Laws creates a new World.
 
 ### 4. Daemon, operator API, and deterministic CLI
 **Why**: One local process must own canonical truth before runtimes or user interfaces can act on it.
-**Done when**: `hephaestusd` owns storage and exposes a versioned local API; `hephaestus status`, `freeze`, `unfreeze`, `kill --all`, Genome inspection, and replay work end to end; process restart preserves state and freeze status.
+**Done when**: `hephaestusd` owns storage and exposes a versioned local API; `hephaestus status`, `freeze`, `unfreeze`, `kill --all`, Genome inspection, and replay work end to end; process restart preserves state and freeze status. Long-running work is submitted as bounded jobs while a single canonical writer and reconciliation loop remain authoritative, so status and operator-control requests stay responsive during execution.
 **Risk**: Split-brain daemon instances or unauthenticated local clients could bypass policy.
 **Hook**: A reconciliation loop separates desired state from agent suggestions.
-**Invariants**: Only one writer owns canonical state; evolution cannot clear freeze; kill terminates active work; API requests are authenticated and ledgered.
+**Invariants**: Only one writer owns canonical state; evolution cannot clear freeze; kill terminates active work; API requests are authenticated and ledgered; asynchronous job execution cannot bypass reconciliation or create competing writers.
 
 ### 5. Sandboxed runtime adapter contract with Codex and Claude
 **Why**: Provider-neutral, capability-scoped execution is the bridge from immutable specifications to observable agent runs.
@@ -62,10 +62,10 @@ This roadmap implements the complete master-plan sequence without presenting lat
 
 ### 9. TUI-first operator experience
 **Why**: Operators need to understand live experiments, ancestry, authority denials, costs, and evidence before autonomy expands.
-**Done when**: Ratatui screens show home status, live Arena progress, runs, lineage DAG, Genome diff, evidence receipt, costs, denials, and freeze/kill/rollback controls; scripted terminal tests and a recorded real demo prove navigation and actions.
+**Done when**: A fully interactive terminal application built with Ink shows home status, live Arena progress, runs, lineage DAG, Genome diff, evidence receipt, costs, denials, and freeze/kill/rollback controls; scripted terminal tests and a recorded real demo prove navigation and actions. While a real long-running job runs, the TUI remains responsive and surfaces live progress; a PTY test navigates to status, issues kill, and verifies the run's confirmed termination before its budget expires. Operators can install the supported Hephaestus tool from a clean user environment without a source checkout, launch it with its bundled fixture workspace, and author, validate, register, inspect, and test a Markdown-defined agent (Genome) against registered Worlds and Gauntlets through the real daemon, Arena, and persistent receipt path. The reference runtime must consume and act on the Markdown agent's prompt content: an end-to-end fixture proves that prompt instructions affect task behavior and resulting evidence, rather than only being stored or hashed. TUI text and graphics remain readable and operable at common terminal sizes. All newly created product visuals, including interface graphics and artwork in later surfaces, use a pixel-art visual language aligned with the colosseum hero.
 **Risk**: UI projections can become stale or imply false comparability.
 **Hook**: A navigable evolutionary tree makes every improvement edge inspectable.
-**Invariants**: The daemon remains the source of truth; UI controls receive deterministic acknowledgements; incompatible World scores are visually separated.
+**Invariants**: The daemon remains the source of truth; UI controls receive deterministic acknowledgements; incompatible World scores are visually separated; Markdown agent definitions are an authoring format only and cannot bypass canonical compilation, authority checks, sealed-evaluator isolation, or ledgered registration; install and TUI flows never enable evolution without the operator's explicit unfreeze action.
 
 ### 10. Autonomous multi-generation evolution and the Gauntlet
 **Why**: The product thesis is not proven until an imperfect G0 improves on unseen tasks without human harness edits.
