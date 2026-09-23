@@ -175,13 +175,12 @@ fn markdown_reference_instructions_use_one_pinned_worker_for_paired_trials() {
             let found = fs::read_dir(&snapshot_directory)
                 .expect("read data directory")
                 .flatten()
-                .filter(|entry| {
+                .find(|entry| {
                     entry
                         .file_name()
                         .to_string_lossy()
                         .starts_with("reference-worker-")
                 })
-                .next()
                 .is_some();
             if found {
                 fs::write(&worker_path, b"replaced during paired evaluation")
