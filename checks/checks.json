@@ -214,8 +214,8 @@
       "id": "artifact-integrity-error-ignored",
       "file": "crates/hephaestus-genome/src/genome.rs",
       "invariant": "Compilation fails unless every referenced artifact resolves and verifies by content address.",
-      "find": "        if let Err(error) = artifact_store.get(&id) {",
-      "replace": "        if false && let Err(error) = artifact_store.get(&id) {"
+      "find": "        let bytes = match artifact_store.get(&id) {\n            Ok(bytes) => bytes,\n            Err(error) => {\n                return Err(match error {\n                    LedgerError::Io(io_error)\n                        if io_error.kind() == std::io::ErrorKind::NotFound =>\n                    {\n                        CompileError::UnresolvedArtifact(artifact.clone())\n                    }\n                    _ => CompileError::ArtifactIntegrity(artifact.clone()),\n                });\n            }\n        };",
+      "replace": "        let bytes = artifact_store.get(&id).unwrap_or_default();"
     },
     {
       "id": "candidate-evaluator-access-accepted",
