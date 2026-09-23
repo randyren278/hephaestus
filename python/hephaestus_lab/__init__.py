@@ -7,6 +7,7 @@ from .statistics import (
     PairedOutcome,
     SelectionAnalysis,
     analyze_selection,
+    histogram_bootstrap,
     paired_bootstrap,
     pareto_dominates,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "PairedOutcome",
     "SelectionAnalysis",
     "analyze_selection",
+    "histogram_bootstrap",
     "paired_bootstrap",
     "pareto_dominates",
 ]

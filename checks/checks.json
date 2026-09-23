@@ -20,6 +20,7 @@
   "coverage_floor": 95.0,
   "critical_modules": [
     "crates/hephaestus-arena/src/lib.rs",
+    "crates/hephaestus-arena/src/selection.rs",
     "crates/hephaestus-arena/src/evaluator_protocol.rs",
     "crates/hephaestus-arena/src/isolated_evaluator.rs",
     "crates/hephaestus-core/src/authority.rs",
@@ -1614,6 +1615,160 @@
       "invariant": "A Genome content identity is registered under exactly one World; asking for another World is refused, not silently answered with the first.",
       "find": "            if existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!(",
       "replace": "            if false && existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!("
+    },
+    {
+      "id": "selection-bootstrap-seed-ignored",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "The canonical histogram bootstrap reproduces from the trusted evaluation seed.",
+      "find": "    let mut random = SplitMix64(seed);",
+      "replace": "    let mut random = SplitMix64(0);"
+    },
+    {
+      "id": "selection-negative-estimate-truncated",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Negative mean correctness deltas use Python-compatible floor division.",
+      "find": "    let estimate_bps = estimate_sum\n        .checked_mul(10_000)\n        .ok_or(ArenaError::MetricOverflow(\"bootstrap estimate\"))?\n        .div_euclid(count);",
+      "replace": "    let estimate_bps = estimate_sum\n        .checked_mul(10_000)\n        .ok_or(ArenaError::MetricOverflow(\"bootstrap estimate\"))?\n        / count;"
+    },
+    {
+      "id": "selection-negative-resample-truncated",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Negative resampled means use Python-compatible floor division.",
+      "find": "        let value = sum\n            .checked_mul(10_000)\n            .ok_or(ArenaError::MetricOverflow(\"bootstrap sample\"))?\n            .div_euclid(count);",
+      "replace": "        let value = sum\n            .checked_mul(10_000)\n            .ok_or(ArenaError::MetricOverflow(\"bootstrap sample\"))?\n            / count;"
+    },
+    {
+      "id": "selection-regression-sign-inverted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Authenticated correctness regressions contribute -1 deltas to the selection histogram.",
+      "find": "    deltas.extend(std::iter::repeat_n(\n        -1_i64,\n        histogram.regressions() as usize,\n    ));",
+      "replace": "    deltas.extend(std::iter::repeat_n(\n        1_i64,\n        histogram.regressions() as usize,\n    ));"
+    },
+    {
+      "id": "selection-effect-threshold-not-strict",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Measured selection requires the lower confidence bound to strictly exceed the World minimum effect.",
+      "find": "    lower_bps > minimum_delta_bps",
+      "replace": "    lower_bps >= minimum_delta_bps"
+    },
+    {
+      "id": "selection-world-cost-ceiling-ignored",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Measured selection never accepts aggregate candidate cost above the World ceiling.",
+      "find": "        && candidate_cost_microusd <= world_cost_ceiling_microusd",
+      "replace": "        && true"
+    },
+    {
+      "id": "selection-world-confidence-unsupported-endpoint-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "The unsupported 10000-bps confidence endpoint fails closed instead of silently changing the requested interval.",
+      "find": "    if confidence_bps == 10_000 {",
+      "replace": "    if false && confidence_bps == 10_000 {"
+    },
+    {
+      "id": "selection-bootstrap-work-unbounded",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Selection bootstrap work is bounded before sampling begins.",
+      "find": "    if draws > MAX_BOOTSTRAP_DRAWS {",
+      "replace": "    if false && draws > MAX_BOOTSTRAP_DRAWS {"
+    },
+    {
+      "id": "selection-wrong-world-evidence-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Selection requires the exact compiled World committed by trusted evaluation evidence.",
+      "find": "    if evidence.world_id() != world.id() {",
+      "replace": "    if false && evidence.world_id() != world.id() {"
+    },
+    {
+      "id": "selection-promotion-without-invariant-evidence",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Promotion remains denied until an independent trusted invariant gate is verified.",
+      "find": "        promotion_eligible: false,",
+      "replace": "        promotion_eligible: metrics_eligible,"
+    },
+    {
+      "id": "selection-supplied-event-snapshot-unchecked",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Startup selection validation compares every supplied event field to canonical stored history.",
+      "find": "    if supplied == canonical {\n        Ok(())\n    } else {\n        Err(ArenaError::InvalidSelectionEvent)\n    }",
+      "replace": "    Ok(())"
+    },
+    {
+      "id": "python-histogram-regression-sign-inverted",
+      "file": "python/hephaestus_lab/statistics.py",
+      "invariant": "Python histogram regressions contribute -1 and improvements contribute +1 correctness deltas.",
+      "find": "    deltas = [-1] * regressions + [0] * unchanged + [1] * improvements",
+      "replace": "    deltas = [1] * regressions + [0] * unchanged + [-1] * improvements"
+    },
+    {
+      "id": "python-histogram-work-cap-bypassed",
+      "file": "python/hephaestus_lab/statistics.py",
+      "invariant": "Python checks the bootstrap work limit before allocating expanded histogram outcomes.",
+      "find": "    if count * resamples > MAX_BOOTSTRAP_DRAWS:",
+      "replace": "    if False and count * resamples > MAX_BOOTSTRAP_DRAWS:"
+    },
+    {
+      "id": "selection-bootstrap-histogram-order-permuted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Authenticated correctness outcomes expand in the canonical [-1, 0, 1] order used by seeded bootstrap sampling.",
+      "find": "    deltas.extend(std::iter::repeat_n(\n        1_i64,\n        histogram.improvements() as usize,\n    ));\n    let interval = bootstrap(",
+      "replace": "    deltas.extend(std::iter::repeat_n(\n        1_i64,\n        histogram.improvements() as usize,\n    ));\n    deltas.reverse();\n    let interval = bootstrap("
+    },
+    {
+      "id": "python-histogram-order-permuted",
+      "file": "python/hephaestus_lab/statistics.py",
+      "invariant": "Python expands the same histogram outcomes in canonical [-1, 0, 1] order for seed parity.",
+      "find": "    deltas = [-1] * regressions + [0] * unchanged + [1] * improvements",
+      "replace": "    deltas = [1] * improvements + [0] * unchanged + [-1] * regressions"
+    },
+    {
+      "id": "selection-forged-canonical-receipt-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "A hash-valid canonical selection receipt must equal the decision recomputed from trusted evaluation evidence.",
+      "find": "    if serde_json::to_vec(&receipt)? != bytes || &receipt != expected {",
+      "replace": "    if serde_json::to_vec(&receipt)? != bytes {"
+    },
+    {
+      "id": "selection-pareto-correctness-regression-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Correctness may not regress in the Pareto gate.",
+      "find": "    let no_worse = candidate[0] >= parent[0]",
+      "replace": "    let no_worse = candidate[0] <= parent[0]"
+    },
+    {
+      "id": "selection-pareto-reliability-regression-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Reliability may not regress in the Pareto gate.",
+      "find": "        && candidate[1] >= parent[1]",
+      "replace": "        && candidate[1] <= parent[1]"
+    },
+    {
+      "id": "selection-pareto-cost-regression-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Aggregate cost may not regress in the Pareto gate.",
+      "find": "        && candidate[2] <= parent[2]",
+      "replace": "        && candidate[2] >= parent[2]"
+    },
+    {
+      "id": "selection-pareto-latency-regression-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Aggregate latency may not regress in the Pareto gate.",
+      "find": "        && candidate[3] <= parent[3]",
+      "replace": "        && candidate[3] >= parent[3]"
+    },
+    {
+      "id": "control-selection-history-unverified-at-startup",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Daemon startup revalidates every recorded selection against exact World and canonical evidence.",
+      "find": "        verify_selection_history(&data_dir, &history, &registered)?;",
+      "replace": "        // mutation: skip selection history verification at startup"
+    },
+    {
+      "id": "control-selection-history-unverified-on-replay",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;",
+      "replace": "        // mutation: skip selection history verification during replay"
     }
   ]
 }

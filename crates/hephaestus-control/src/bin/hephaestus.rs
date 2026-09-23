@@ -2,8 +2,8 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
-    ApiResponse, Client, Command, EvaluationRecord, GenomeRecord, ResponseData, WorldRecord,
-    data_dir_from_environment,
+    ApiResponse, Client, Command, EvaluationRecord, GenomeRecord, ResponseData, SelectionRecord,
+    WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -145,6 +145,11 @@ enum ArenaCommand {
         /// Content-derived registered candidate Genome identity.
         candidate_genome_id: String,
     },
+    /// Calculate and persist the trusted metrics outcome for one evaluation.
+    Select {
+        /// Stable Arena evaluation identity.
+        evaluation_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -274,6 +279,9 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             parent_genome_id,
             candidate_genome_id,
         },
+        CliCommand::Arena {
+            command: ArenaCommand::Select { evaluation_id },
+        } => Command::ArenaSelect { evaluation_id },
         CliCommand::Replay => Command::Replay,
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
@@ -344,6 +352,9 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Evaluation { evaluation }), None) => {
             println!("{}", evaluation_human(evaluation));
         }
+        (Some(ResponseData::Selection { selection }), None) => {
+            println!("{}", selection_human(selection));
+        }
         (
             Some(ResponseData::Replay {
                 event_count,
@@ -395,6 +406,24 @@ fn evaluation_human(evaluation: &EvaluationRecord) -> String {
     )
 }
 
+fn selection_human(selection: &SelectionRecord) -> String {
+    format!(
+        "selection={} world={} correctness_regressions={} lower_bps={} metrics_eligible={} pareto_dominates={} invariant_gate_verified={} promotion_eligible={} event={} sequence={} aggregate={} receipt={}",
+        selection.evaluation_id,
+        selection.world_id,
+        selection.receipt.correctness_regressions(),
+        selection.receipt.lower_bps(),
+        selection.receipt.metrics_eligible(),
+        selection.receipt.candidate_pareto_dominates(),
+        selection.receipt.invariant_gate_verified(),
+        selection.receipt.promotion_eligible(),
+        selection.event.event_id,
+        selection.event.sequence,
+        selection.event.aggregate_id,
+        selection.event.receipt_artifact_id,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
@@ -420,6 +449,20 @@ mod tests {
                 evaluation_id: "evaluation-1".to_owned(),
                 parent_genome_id: "parent-1".to_owned(),
                 candidate_genome_id: "candidate-1".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn arena_select_maps_evaluation_identity_to_trusted_selection_command() {
+        let arguments =
+            Arguments::try_parse_from(["hephaestus", "arena", "select", "evaluation-1"])
+                .expect("CLI parses");
+
+        assert_eq!(
+            command_from_cli(arguments.command).expect("command maps"),
+            Command::ArenaSelect {
+                evaluation_id: "evaluation-1".to_owned(),
             }
         );
     }

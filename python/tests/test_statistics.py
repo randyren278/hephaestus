@@ -5,6 +5,7 @@ from hephaestus_lab.statistics import (
     FitnessVector,
     PairedOutcome,
     analyze_selection,
+    histogram_bootstrap,
     paired_bootstrap,
     pareto_dominates,
 )
@@ -34,6 +35,33 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual((first.lower_bps, first.upper_bps), (2_500, 10_000))
         short_run = paired_bootstrap(values, seed=42, resamples=100)
         self.assertEqual((short_run.lower_bps, short_run.upper_bps), (2_500, 8_750))
+
+    def test_histogram_bootstrap_matches_canonical_rust_vectors_and_floor_rounding(self) -> None:
+        negative = histogram_bootstrap(2, 1, 0, seed=42)
+        self.assertEqual(
+            (negative.estimate_bps, negative.lower_bps, negative.upper_bps),
+            (-6_667, -10_000, 0),
+        )
+        mixed = histogram_bootstrap(1, 2, 2, seed=7)
+        self.assertEqual(
+            (mixed.estimate_bps, mixed.lower_bps, mixed.upper_bps),
+            (2_000, -4_000, 8_000),
+        )
+        seeds = {0: 8_333, 7: 8_888, 42: 8_888, 123_456_789: 8_333}
+        for seed, upper in seeds.items():
+            interval = histogram_bootstrap(1, 5, 12, seed=seed)
+            self.assertEqual(
+                (interval.estimate_bps, interval.lower_bps, interval.upper_bps),
+                (6_111, 3_333, upper),
+            )
+
+    def test_histogram_bootstrap_rejects_unsupported_endpoint_and_excessive_work(self) -> None:
+        with self.assertRaises(ValueError):
+            histogram_bootstrap(0, 1, 1, seed=1, confidence_bps=10_000)
+        with self.assertRaises(ValueError):
+            histogram_bootstrap(1_001, 1_000, 1_000, seed=1)
+        with self.assertRaises(ValueError):
+            histogram_bootstrap(1 << 100, 0, 0, seed=1)
 
     def test_pareto_keeps_dimensions_separate(self) -> None:
         parent = FitnessVector(8_000, 9_000, 100, 100)

@@ -36,9 +36,9 @@ are scored by an evaluator the candidate can never read, and the result lands in
 a hash-linked ledger signed by the daemon. Kill the daemon, restart it, and it
 rebuilds the exact same state from history or refuses to start.
 
-Named for the god who forged things that lasted. Selection and promotion, the
-part that decides *which* child wins, are the next roadmap item; the part that
-makes such a decision *trustworthy* is what ships today.
+Named for the god who forged things that lasted. Protected Arena evaluation
+and deterministic measured selection are available; trusted invariant checks
+and promotion authorization remain separate work.
 
 ---
 
@@ -85,8 +85,12 @@ and that decision is itself a ledgered event.
 <td valign="top"><code>hephaestus arena evaluate</code> loads the World's visible and sealed task manifests itself, pins one revision, seed, environment, and budget for both trials, verifies the deployed evaluator's hash against the World before spending any work, and returns only visible aggregates. A crashed trial is recorded as unreliable and incorrect, with its cost and latency, not dropped.</td>
 </tr>
 <tr>
+<td valign="top"><strong>Records deterministic measured selection</strong></td>
+<td valign="top"><code>hephaestus arena select &lt;evaluation-id&gt;</code> recomputes a seeded bootstrap and correctness/reliability/cost/latency gates from verified Arena evidence, then stores an event-bound, hash-addressed receipt. Its invariant gate is explicitly unverified, so it never authorizes promotion.</td>
+</tr>
+<tr>
 <td valign="top"><strong>Proves its own state</strong></td>
-<td valign="top"><code>hephaestus replay</code> reloads the ledger from disk, verifies every hash, artifact, signature, and registration, rebuilds the projection, and compares it with the live daemon. Mismatch is an error, not a warning.</td>
+<td valign="top"><code>hephaestus replay</code> reloads the ledger from disk, verifies its hash chain, registrations, recorded selections, and projected state, then compares the result with the live daemon. Mismatch is an error, not a warning.</td>
 </tr>
 <tr>
 <td valign="top"><strong>Stays under your thumb</strong></td>
@@ -96,8 +100,9 @@ and that decision is itself a ledgered event.
 
 ## What it doesn't do (yet)
 
-- **No selection, promotion, or rollback.** Arena evidence is minted and
-  rehydrated; nothing consumes it to crown a Champion. That is roadmap item 8.
+- **No promotion or rollback.** Arena has a deterministic measured-selection
+  receipt, but invariant evidence is not yet checked and promotion always fails
+  closed. That remains part of roadmap item 8.
 - **No hosted-model runs.** The Codex and Claude invocation contracts exist and
   are tested inert; only the deterministic reference runtime executes. Billable
   runs require an explicit permit that does not exist yet.
@@ -186,6 +191,7 @@ never a conflict. Schema in [docs/GENOMES.md](docs/GENOMES.md).
 hephaestus unfreeze
 hephaestus run hephaestus:genome:<parent>
 hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>
+hephaestus arena select eval-001
 hephaestus replay
 ```
 
@@ -208,6 +214,7 @@ run events and receipt; a conflicting retry fails closed.
 | `hephaestus genome list` / `show <id>` | Inspect registered Genomes |
 | `hephaestus run <genome>` | One isolated reference run with signed evidence |
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
+| `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
 | `hephaestus replay` | Verify history and compare it with live state |
 | `hephaestus daemon stop` | Audited graceful stop |
 
@@ -218,14 +225,15 @@ Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **224 deliberate source mutations**, each one
+runs the suite, then applies **246 deliberate source mutations**, each one
 disabling a specific documented invariant (from "an oversized request is
 accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
 build. The count can only go up.
 
-Alongside that: a 95% branch-coverage floor on each of 26 production-critical
-modules, `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
+Alongside that: a 95% per-module coverage floor on each of 27 production-critical
+modules (branch coverage where LCOV reports branches, line coverage otherwise),
+`clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
 docs gate that fails if any path mentioned in this README stops existing.
 
 The threat model is written down rather than implied:
@@ -245,7 +253,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 224
+python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 246
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 

@@ -10,15 +10,16 @@ use std::{
 
 use hephaestus_arena::{
     ArenaError, EvaluationBinding, EvaluationInputs, EvaluationStores, IsolatedEvaluator,
-    OperatorEvaluation, ReceiptContext, TrialPlan, TrustedManifest, TrustedTask, Visibility,
-    evaluate_and_record, load_operator_evaluation,
+    OperatorEvaluation, ReceiptContext, SelectionReceipt, TrialPlan, TrustedManifest, TrustedTask,
+    Visibility, evaluate_and_record, load_operator_evaluation, load_selection, select_and_record,
+    verify_selection_event,
 };
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultSigner,
 };
 use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
-use hephaestus_ledger::{ArtifactId, EventInput};
+use hephaestus_ledger::{ArtifactId, EventInput, StoredEvent};
 use hephaestus_runtime::{Budget, ExperimentContext, IsolationPolicy, RunSpec, WorkerLimits};
 use tempfile::TempDir;
 
@@ -220,14 +221,27 @@ fn plan(role: &str, replacement: Option<(&str, &str)>) -> TrialPlan {
 }
 
 fn make_fixture(directory: &TempDir) -> Fixture {
+    make_fixture_with_confidence(directory, 9_500)
+}
+
+fn make_fixture_with_confidence(directory: &TempDir, confidence_bps: u16) -> Fixture {
     let evaluator_path = directory.path().join("hephaestus-evaluator");
     fs::copy(env!("CARGO_BIN_EXE_hephaestus-evaluator"), &evaluator_path).unwrap();
     fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
-    make_fixture_with_evaluator(directory, evaluator_path)
+    make_fixture_with_evaluator_and_confidence(directory, evaluator_path, confidence_bps)
 }
 
 #[allow(clippy::too_many_lines)]
 fn make_fixture_with_evaluator(directory: &TempDir, evaluator_path: PathBuf) -> Fixture {
+    make_fixture_with_evaluator_and_confidence(directory, evaluator_path, 9_500)
+}
+
+#[allow(clippy::too_many_lines)]
+fn make_fixture_with_evaluator_and_confidence(
+    directory: &TempDir,
+    evaluator_path: PathBuf,
+    confidence_bps: u16,
+) -> Fixture {
     let mut stores = EvaluationStores::open(
         directory.path().join("events.sqlite3"),
         directory.path().join("blobs"),
@@ -260,7 +274,7 @@ fn make_fixture_with_evaluator(directory: &TempDir, evaluator_path: PathBuf) -> 
         .put(&signer.verifier().public_key_bytes())
         .unwrap();
     let source = format!(
-        r#"{{"schema_version":1,"name":"arena-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":100}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":1,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+        r#"{{"schema_version":1,"name":"arena-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":100}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":1,"maximum_regressions":0,"confidence_bps":{confidence_bps}}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
         visible_id.as_str(),
         sealed_id.as_str(),
         evaluator_id.as_str(),
@@ -441,6 +455,115 @@ fn evaluate(fixture: Fixture) -> Result<OperatorEvaluation, ArenaError> {
             evaluator: &fixture.evaluator,
         },
     )
+}
+
+fn assert_selection_receipt_getters_match_json(receipt: &SelectionReceipt, world_id: &str) {
+    let encoded = serde_json::to_value(receipt).unwrap();
+    assert_eq!(receipt.schema_version(), encoded["schema_version"]);
+    assert_eq!(receipt.algorithm(), encoded["algorithm"]);
+    assert_eq!(receipt.resamples(), encoded["resamples"]);
+    assert_eq!(receipt.seed(), encoded["seed"]);
+    assert_eq!(receipt.evaluation_id(), encoded["evaluation_id"]);
+    assert_eq!(
+        receipt.evaluation_event_id(),
+        encoded["evaluation_event_id"]
+    );
+    assert_eq!(
+        receipt.evaluation_event_hash(),
+        encoded["evaluation_event_hash"]
+    );
+    assert_eq!(receipt.world_id(), world_id);
+    assert_eq!(receipt.parent_genome_id(), encoded["parent_genome_id"]);
+    assert_eq!(
+        receipt.candidate_genome_id(),
+        encoded["candidate_genome_id"]
+    );
+    assert_eq!(receipt.minimum_delta_bps(), encoded["minimum_delta_bps"]);
+    assert_eq!(
+        receipt.maximum_regressions(),
+        encoded["maximum_regressions"]
+    );
+    assert_eq!(receipt.confidence_bps(), encoded["confidence_bps"]);
+    assert_eq!(
+        receipt.maximum_cost_microusd(),
+        encoded["maximum_cost_microusd"]
+    );
+    assert_eq!(receipt.metrics_eligible(), encoded["metrics_eligible"]);
+    assert_eq!(
+        receipt.invariant_gate_verified(),
+        encoded["invariant_gate_verified"]
+    );
+    assert_eq!(receipt.promotion_eligible(), encoded["promotion_eligible"]);
+    assert_eq!(
+        receipt.correctness_regressions(),
+        encoded["correctness_regressions"]
+    );
+    assert_eq!(
+        receipt.correctness_unchanged(),
+        encoded["correctness_unchanged"]
+    );
+    assert_eq!(
+        receipt.correctness_improvements(),
+        encoded["correctness_improvements"]
+    );
+    assert_eq!(receipt.estimate_bps(), encoded["estimate_bps"]);
+    assert_eq!(receipt.lower_bps(), encoded["lower_bps"]);
+    assert_eq!(receipt.upper_bps(), encoded["upper_bps"]);
+    assert_eq!(
+        receipt.parent_correctness_bps(),
+        encoded["parent_correctness_bps"]
+    );
+    assert_eq!(
+        receipt.candidate_correctness_bps(),
+        encoded["candidate_correctness_bps"]
+    );
+    assert_eq!(
+        receipt.parent_reliability_bps(),
+        encoded["parent_reliability_bps"]
+    );
+    assert_eq!(
+        receipt.candidate_reliability_bps(),
+        encoded["candidate_reliability_bps"]
+    );
+    assert_eq!(
+        receipt.parent_cost_microusd(),
+        encoded["parent_cost_microusd"]
+    );
+    assert_eq!(
+        receipt.candidate_cost_microusd(),
+        encoded["candidate_cost_microusd"]
+    );
+    assert_eq!(
+        receipt.parent_latency_millis(),
+        encoded["parent_latency_millis"]
+    );
+    assert_eq!(
+        receipt.candidate_latency_millis(),
+        encoded["candidate_latency_millis"]
+    );
+    assert_eq!(
+        receipt.candidate_pareto_dominates(),
+        encoded["candidate_pareto_dominates"]
+    );
+}
+
+fn append_non_selection_history(stores: &mut EvaluationStores, history: &[StoredEvent]) {
+    for event in history
+        .iter()
+        .filter(|event| event.event_type != "selection.recorded")
+    {
+        stores
+            .events
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                &event.payload,
+            ))
+            .unwrap();
+    }
 }
 
 #[test]
@@ -688,6 +811,336 @@ fn operator_selection_evidence_rehydrates_identically_after_restart() {
         serde_json::to_vec(&rehydrated.selection_evidence()).unwrap(),
         expected
     );
+}
+
+#[test]
+fn selection_receipt_recomputes_and_retries_identically_after_restart() {
+    let directory = TempDir::new().unwrap();
+    let open_stores = || {
+        EvaluationStores::open(
+            directory.path().join("events.sqlite3"),
+            directory.path().join("blobs"),
+        )
+        .unwrap()
+    };
+    let mut fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+
+    // Build authenticated paired outcomes with all candidates correct and
+    // all parent trials incorrect, keeping reliability and cost equal.
+    let expected_outputs = [
+        ("task-visible-a", VISIBLE_SECRET),
+        ("task-visible-b", "B"),
+        ("task-sealed-a", SEALED_SECRET),
+        ("task-sealed-b", "Z"),
+    ];
+    let mut parent_pairs = Vec::new();
+    let mut candidate_pairs = Vec::new();
+    for (task, expected) in expected_outputs {
+        let parent_event = append_run(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("selection-parent-{task}"),
+            &fixture.parent_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            RunCompletionReason::Success,
+            b"deliberately incorrect parent",
+        );
+        let candidate_event = append_run(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("selection-candidate-{task}"),
+            &fixture.candidate_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            RunCompletionReason::Success,
+            expected.as_bytes(),
+        );
+        parent_pairs.push((task.to_owned(), parent_event));
+        candidate_pairs.push((task.to_owned(), candidate_event));
+    }
+    fixture.parent = TrialPlan::new(parent_pairs).unwrap();
+    fixture.candidate = TrialPlan::new(candidate_pairs).unwrap();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .expect("trusted persisted evaluation can be selected");
+    let expected = serde_json::to_vec(selected.receipt()).unwrap();
+    assert_selection_receipt_getters_match_json(selected.receipt(), world.id());
+    assert!(selected.receipt().metrics_eligible());
+    assert!(!selected.receipt().promotion_eligible());
+    assert!(!selected.receipt().invariant_gate_verified());
+    let event = selected.event().clone();
+    drop(selected.into_stores());
+
+    let stores = open_stores();
+    let history = stores.events.replay_verified().unwrap();
+    let stored_event = history
+        .iter()
+        .find(|event| event.event_type == "selection.recorded")
+        .unwrap()
+        .clone();
+    let mut forged_snapshot = stored_event.clone();
+    forged_snapshot.timestamp_millis += 1;
+    let stores = open_stores();
+    assert!(matches!(
+        verify_selection_event(stores, &forged_snapshot, &world),
+        Err(ArenaError::InvalidSelectionEvent)
+    ));
+    let stores = open_stores();
+    let retried = verify_selection_event(stores, &stored_event, &world)
+        .expect("startup verification rehydrates and recomputes the receipt");
+    assert_eq!(serde_json::to_vec(retried.receipt()).unwrap(), expected);
+    assert_eq!(retried.event(), &event);
+    let stores = retried.into_stores();
+    let retried = select_and_record(stores, "evaluation-001", &world, 1_788_000_124_000)
+        .expect("identical operator retry returns the existing receipt");
+    assert_eq!(
+        retried
+            .into_stores()
+            .events
+            .replay_verified()
+            .unwrap()
+            .iter()
+            .filter(|event| event.event_type == "selection.recorded")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn selection_requires_the_evaluation_exact_compiled_world() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let mut wrong_source: serde_json::Value =
+        serde_json::from_slice(world.canonical_json()).unwrap();
+    wrong_source["name"] = serde_json::json!("different-arena-world");
+    let wrong_world = compile_world(
+        &wrong_source.to_string(),
+        SourceFormat::Json,
+        &fixture.stores.artifacts,
+    )
+    .unwrap();
+    let operator = evaluate(fixture).unwrap();
+    assert!(matches!(
+        select_and_record(
+            operator.into_stores(),
+            "evaluation-001",
+            &wrong_world,
+            1_788_000_123_999
+        ),
+        Err(ArenaError::SelectionWorldMismatch)
+    ));
+
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let operator = load_operator_evaluation(stores, "evaluation-001").unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    let stores = selected.into_stores();
+    let stored_event = stores
+        .events
+        .replay_verified()
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_type == "selection.recorded")
+        .unwrap();
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    assert!(matches!(
+        verify_selection_event(stores, &stored_event, &wrong_world),
+        Err(ArenaError::SelectionWorldMismatch)
+    ));
+}
+
+#[test]
+fn selection_load_requires_a_preexisting_receipt() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let operator = evaluate(fixture).unwrap();
+    assert!(matches!(
+        load_selection(operator.into_stores(), "evaluation-001", &world),
+        Err(ArenaError::UnknownSelection(evaluation_id)) if evaluation_id == "evaluation-001"
+    ));
+}
+
+#[test]
+fn selection_expands_authenticated_mixed_histogram_in_canonical_order() {
+    let directory = TempDir::new().unwrap();
+    let mut fixture = make_fixture_with_confidence(&directory, 2_500);
+    let world = fixture.world.clone();
+    let regressed_parent_event = append_run(
+        &mut fixture.stores,
+        &fixture.signer,
+        &fixture.repository,
+        "parent-visible-a-regressed",
+        &fixture.parent_genome_id,
+        world.id(),
+        &fixture.revision,
+        "task-visible-a",
+        task_input("task-visible-a"),
+        RunCompletionReason::Success,
+        b"incorrect",
+    );
+    fixture.parent = plan("parent", Some(("task-visible-a", &regressed_parent_event)));
+    let operator = evaluate(fixture).unwrap();
+    let selection = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+
+    let receipt = selection.receipt();
+    assert_eq!(receipt.correctness_regressions(), 1);
+    assert_eq!(receipt.correctness_unchanged(), 1);
+    assert_eq!(receipt.correctness_improvements(), 2);
+    assert_eq!(receipt.estimate_bps(), 2_500);
+    assert_eq!(receipt.lower_bps(), 0);
+    assert_eq!(receipt.upper_bps(), 5_000);
+}
+
+#[test]
+fn selection_rehydration_requires_the_receipt_cas_blob() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    let receipt_id = ArtifactId::parse(selected.event().receipt_artifact_id.clone()).unwrap();
+    let stores = selected.into_stores();
+    fs::remove_file(stores.artifacts.path_for(&receipt_id)).unwrap();
+    assert!(matches!(
+        load_selection(stores, "evaluation-001", &world),
+        Err(ArenaError::Ledger(_))
+    ));
+}
+
+#[test]
+fn selection_rehydration_rejects_hash_valid_forged_receipt_and_event() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    let history = selected.into_stores().events.replay_verified().unwrap();
+    let original = history
+        .iter()
+        .find(|event| event.event_type == "selection.recorded")
+        .unwrap();
+    let (evaluation_id, world_id) = hephaestus_arena::selection_event_references(original).unwrap();
+    let original_payload: serde_json::Value = serde_json::from_slice(&original.payload).unwrap();
+    let original_artifact = original_payload["receipt_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let original_artifact_id = ArtifactId::parse(original_artifact.clone()).unwrap();
+    let artifact_root = directory.path().join("blobs");
+    let original_bytes = fs::read(
+        EvaluationStores::open(directory.path().join("events.sqlite3"), &artifact_root)
+            .unwrap()
+            .artifacts
+            .path_for(&original_artifact_id),
+    )
+    .unwrap();
+
+    let mut forged_receipt: serde_json::Value = serde_json::from_slice(&original_bytes).unwrap();
+    let eligible = forged_receipt["metrics_eligible"].as_bool().unwrap();
+    forged_receipt["metrics_eligible"] = serde_json::json!(!eligible);
+    let forged_receipt: SelectionReceipt = serde_json::from_value(forged_receipt).unwrap();
+    let forged_bytes = serde_json::to_vec(&forged_receipt).unwrap();
+    assert_ne!(forged_bytes, original_bytes);
+    let mut artifacts =
+        EvaluationStores::open(directory.path().join("forged.sqlite3"), &artifact_root).unwrap();
+    let forged_artifact = artifacts.artifacts.put(&forged_bytes).unwrap();
+    let forged_artifact = forged_artifact.as_str().to_owned();
+
+    append_non_selection_history(&mut artifacts, &history);
+    let forged_event_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&original_artifact, &forged_artifact);
+    assert!(forged_event_payload.contains(&forged_artifact));
+    artifacts
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            forged_event_payload,
+        ))
+        .unwrap();
+
+    assert!(matches!(
+        load_selection(artifacts, &evaluation_id, &world),
+        Err(ArenaError::SelectionConflict(_))
+    ));
+    assert_eq!(world_id, world.id());
+
+    let mut invalid_event_stores = EvaluationStores::open(
+        directory.path().join("invalid-event.sqlite3"),
+        &artifact_root,
+    )
+    .unwrap();
+    append_non_selection_history(&mut invalid_event_stores, &history);
+    let wrong_world_id = "hephaestus:world:not-the-source-world";
+    let invalid_event_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&world_id, wrong_world_id);
+    assert!(invalid_event_payload.contains(wrong_world_id));
+    invalid_event_stores
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            invalid_event_payload,
+        ))
+        .unwrap();
+    assert!(matches!(
+        load_selection(invalid_event_stores, &evaluation_id, &world),
+        Err(ArenaError::InvalidSelectionEvent)
+    ));
 }
 
 #[test]

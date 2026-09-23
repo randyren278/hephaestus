@@ -21,6 +21,8 @@ use hephaestus_experience::{
     RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner,
 };
 use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
+#[cfg(feature = "test-support")]
+use hephaestus_ledger::ArtifactId;
 use hephaestus_ledger::{ArtifactStore, EventInput, EventStore};
 use tempfile::tempdir;
 
@@ -208,6 +210,8 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     fs::set_permissions(&producer_key_path, fs::Permissions::from_mode(0o600)).unwrap();
 
     let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    #[cfg(feature = "test-support")]
+    let mut recorded_selections = Vec::new();
     assert!(cli(&data_dir, &["unfreeze"]).status.success());
     let invalid_budget = cli(
         &data_dir,
@@ -335,6 +339,68 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 evaluation: first_evaluation,
             })
         );
+        let unknown_selection = cli(&data_dir, &["arena", "select", "missing-evaluation"]);
+        assert!(!unknown_selection.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&unknown_selection.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::NotFound
+        );
+        let selected = response(&cli(&data_dir, &["arena", "select", "daemon-owned-pair"]));
+        let selection = match selected.data.unwrap() {
+            ResponseData::Selection { selection } => selection,
+            other => panic!("unexpected selection response: {other:?}"),
+        };
+        assert!(!selection.receipt.invariant_gate_verified());
+        assert!(!selection.receipt.promotion_eligible());
+        assert_eq!(selection.receipt.world_id(), world.id());
+        assert_eq!(selection.receipt.correctness_regressions(), 0);
+        assert!(!selection.receipt.metrics_eligible());
+        recorded_selections.push(selection.clone());
+
+        // Force Arena's consumed-store error path by removing the durable
+        // selection receipt bytes while leaving the verified event in history.
+        let receipt_id = ArtifactId::parse(selection.event.receipt_artifact_id.clone()).unwrap();
+        let artifacts = ArtifactStore::open(data_dir.join("blobs")).unwrap();
+        let receipt_bytes = artifacts.get(&receipt_id).unwrap();
+        let receipt_path = artifacts.path_for(&receipt_id);
+        fs::remove_file(&receipt_path).unwrap();
+        let corrupt_retry = cli(&data_dir, &["arena", "select", "daemon-owned-pair"]);
+        assert!(!corrupt_retry.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&corrupt_retry.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::Internal
+        );
+        assert!(cli(&data_dir, &["status"]).status.success());
+        assert!(!cli(&data_dir, &["replay"]).status.success());
+        fs::write(&receipt_path, &receipt_bytes).unwrap();
+        fs::set_permissions(&receipt_path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        assert_eq!(
+            response(&cli(&data_dir, &["arena", "select", "daemon-owned-pair"],)).data,
+            Some(ResponseData::Selection {
+                selection: selection.clone()
+            }),
+            "selection retry returns the same receipt and event"
+        );
+        let after_selection_retry = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        assert_eq!(
+            after_selection_retry
+                .iter()
+                .filter(|event| event.event_type == "selection.recorded")
+                .count(),
+            1
+        );
         let after_retry = EventStore::open(data_dir.join("events.sqlite3"))
             .unwrap()
             .replay_verified()
@@ -411,7 +477,37 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     daemon.stop();
     let restarted = Daemon::start_with_repository(&data_dir, &repository);
     assert!(cli(&data_dir, &["replay"]).status.success());
+    #[cfg(feature = "test-support")]
+    {
+        let expected = recorded_selections
+            .pop()
+            .expect("selection was recorded in the trusted flow");
+        assert_eq!(
+            response(&cli(&data_dir, &["arena", "select", "daemon-owned-pair"],)).data,
+            Some(ResponseData::Selection {
+                selection: expected
+            }),
+            "restart rehydrates the canonical selection receipt"
+        );
+    }
     restarted.stop();
+
+    #[cfg(feature = "test-support")]
+    {
+        let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
+        ledger
+            .append(EventInput::new(
+                "forged-selection-event",
+                "arena:selection:forged",
+                "selection.recorded",
+                "arena-plane",
+                99_999,
+                b"{}",
+            ))
+            .unwrap();
+        drop(ledger);
+        assert!(ControlPlane::open_with_repository(&data_dir, &repository).is_err());
+    }
 
     let binding = EvaluationBinding::new(
         world.id(),

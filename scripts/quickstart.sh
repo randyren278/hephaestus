@@ -79,6 +79,22 @@ run "${H[@]}" run "$PARENT"
 step "Measure parent vs child in the protected Arena"
 run "${H[@]}" arena evaluate quickstart-1 "$PARENT" "$CANDIDATE"
 
+step "Compute and persist the operator-only selection receipt"
+# The receipt prints measured metrics separately from the missing invariant
+# gate; promotion must remain false until that independent proof exists.
+SELECTION=$(run "${H[@]}" arena select quickstart-1)
+printf '%s\n' "$SELECTION"
+[[ "$SELECTION" == *"invariant_gate_verified=false"* ]] || {
+  echo "selection unexpectedly claims invariant verification" >&2; exit 1;
+}
+[[ "$SELECTION" == *"promotion_eligible=false"* ]] || {
+  echo "selection unexpectedly permits promotion without invariant proof" >&2; exit 1;
+}
+SELECTION_RETRY=$(run "${H[@]}" arena select quickstart-1)
+[[ "$SELECTION_RETRY" == "$SELECTION" ]] || {
+  echo "selection retry changed the canonical receipt" >&2; exit 1;
+}
+
 step "Replay the whole ledger and compare it with live state"
 run "${H[@]}" replay
 
@@ -90,6 +106,10 @@ DAEMON_PID=$!
 wait_ready
 run "${H[@]}" status
 run "${H[@]}" genome show "$CANDIDATE"
+SELECTION_AFTER_RESTART=$(run "${H[@]}" arena select quickstart-1)
+[[ "$SELECTION_AFTER_RESTART" == "$SELECTION" ]] || {
+  echo "selection changed after daemon restart" >&2; exit 1;
+}
 
 step "Stop"
 run "${H[@]}" daemon stop

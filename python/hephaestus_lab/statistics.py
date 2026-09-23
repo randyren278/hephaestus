@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Sequence
 
+MAX_BOOTSTRAP_DRAWS = 20_000_000
+
 
 @dataclass(frozen=True)
 class PairedOutcome:
@@ -109,6 +111,8 @@ def paired_bootstrap(
         raise ValueError("paired bootstrap requires at least two outcomes")
     if resamples < 100:
         raise ValueError("resamples must be at least 100")
+    if len(deltas) * resamples > MAX_BOOTSTRAP_DRAWS:
+        raise ValueError("bootstrap work exceeds the 20000000-draw limit")
     if not 1 <= confidence_bps <= 9_999:
         raise ValueError("confidence_bps must be between 1 and 9999")
     generator = _SplitMix64(seed)
@@ -130,6 +134,42 @@ def paired_bootstrap(
         confidence_bps=confidence_bps,
         resamples=resamples,
         seed=seed,
+    )
+
+
+def histogram_bootstrap(
+    regressions: int,
+    unchanged: int,
+    improvements: int,
+    *,
+    seed: int,
+    resamples: int = 10_000,
+    confidence_bps: int = 9_500,
+) -> BootstrapInterval:
+    """Bootstrap an aggregate Arena histogram in canonical [-1, 0, 1] order.
+
+    Rust selection uses the same histogram expansion and integer floor rules.
+    Confidence 10000 remains unsupported by this Python analysis contract.
+    """
+
+    counts = (regressions, unchanged, improvements)
+    if any(not isinstance(count, int) or count < 0 for count in counts):
+        raise ValueError("histogram counts must be non-negative integers")
+    count = sum(counts)
+    if count < 2:
+        raise ValueError("paired bootstrap requires at least two outcomes")
+    if resamples < 100:
+        raise ValueError("resamples must be at least 100")
+    if not 1 <= confidence_bps <= 9_999:
+        raise ValueError("confidence_bps must be between 1 and 9999")
+    if count * resamples > MAX_BOOTSTRAP_DRAWS:
+        raise ValueError("bootstrap work exceeds the 20000000-draw limit")
+    deltas = [-1] * regressions + [0] * unchanged + [1] * improvements
+    return paired_bootstrap(
+        deltas,
+        seed=seed,
+        resamples=resamples,
+        confidence_bps=confidence_bps,
     )
 
 

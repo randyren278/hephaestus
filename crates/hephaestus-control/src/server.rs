@@ -14,8 +14,10 @@ use std::{
 
 use fs2::FileExt;
 use hephaestus_arena::{
-    EvaluationBinding, EvaluationInputs, EvaluationStores, IsolatedEvaluator, ReceiptContext,
-    TrialPlan, TrustedManifest, Visibility, evaluate_and_record,
+    ArenaError, EvaluationBinding, EvaluationInputs, EvaluationStores, IsolatedEvaluator,
+    ReceiptContext, SelectionEvent, SelectionReceipt, TrialPlan, TrustedManifest, Visibility,
+    evaluate_and_record, load_operator_evaluation, select_and_record, selection_event_references,
+    verify_selection_event,
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
 use hephaestus_experience::{
@@ -38,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
     EvaluationEventRecord, EvaluationRecord, GenomeRecord, ResponseData, RunCompletionReason,
-    WorldRecord,
+    SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 
 const MAX_REQUEST_BYTES: usize = 65_536;
@@ -177,6 +179,7 @@ impl ControlPlane {
         reject_legacy_run_result_history(&history)?;
         let registered =
             RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;
+        verify_selection_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -399,6 +402,7 @@ impl ControlPlane {
             } => {
                 self.run_paired_evaluation(&evaluation_id, &parent_genome_id, &candidate_genome_id)
             }
+            Command::ArenaSelect { evaluation_id } => self.select_arena_evaluation(&evaluation_id),
             Command::Replay => self.replay_response(),
             Command::DaemonStop => {
                 self.shutdown_requested = true;
@@ -449,6 +453,8 @@ impl ControlPlane {
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_selection_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
@@ -674,6 +680,70 @@ impl ControlPlane {
         });
         self.refresh_projection()?;
         Ok(response)
+    }
+
+    fn select_arena_evaluation(
+        &mut self,
+        evaluation_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if evaluation_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("evaluation_id is required"));
+        }
+
+        // Derive the World from the verified persisted Arena receipt. There is no
+        // caller-supplied policy selector on this command.
+        let stores = self.open_arena_stores()?;
+        let operator = load_operator_evaluation(stores, evaluation_id)
+            .map_err(|error| map_selection_error(&error))?;
+        let world_id = operator.selection_evidence().world_id().to_owned();
+        drop(operator.into_stores());
+        let world = self
+            .state
+            .registered
+            .world(&world_id)
+            .map(|registered| registered.compiled().clone())
+            .ok_or(ExecuteError::NotFound)?;
+        let timestamp = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
+
+        // Arena consumes stores on both success and error. Always restore the
+        // daemon's handles before returning so one invalid select cannot brick it.
+        let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
+        let selected = select_and_record(
+            EvaluationStores {
+                events: storage.ledger,
+                artifacts: storage.artifacts,
+            },
+            evaluation_id,
+            &world,
+            timestamp,
+        );
+        let selected = match selected {
+            Ok(selected) => selected,
+            Err(error) => {
+                self.reopen_storage()?;
+                self.refresh_projection()?;
+                return Err(map_selection_error(&error));
+            }
+        };
+        let record = selection_record(&world_id, selected.receipt(), selected.event());
+        let stores = selected.into_stores();
+        self.storage = Some(CanonicalStorage {
+            ledger: stores.events,
+            artifacts: stores.artifacts,
+        });
+
+        self.refresh_projection()?;
+        Ok(ResponseData::Selection {
+            selection: Box::new(record),
+        })
+    }
+
+    fn open_arena_stores(&self) -> Result<EvaluationStores, ExecuteError> {
+        EvaluationStores::open(
+            self.data_dir.join("events.sqlite3"),
+            self.data_dir.join("blobs"),
+        )
+        .map_err(|_| ExecuteError::Internal)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1241,6 +1311,71 @@ enum ExecuteError {
     Internal,
 }
 
+fn map_selection_error(error: &ArenaError) -> ExecuteError {
+    match error {
+        ArenaError::UnknownEvaluation(_) => ExecuteError::NotFound,
+        ArenaError::UnsupportedSelectionConfidence(confidence) => ExecuteError::Rejected(format!(
+            "registered World confidence {confidence} bps is unsupported for Arena selection"
+        )),
+        ArenaError::BootstrapWorkExceeded => ExecuteError::Rejected(
+            "Arena selection exceeds its deterministic bootstrap work limit".to_owned(),
+        ),
+        _ => ExecuteError::Internal,
+    }
+}
+
+fn selection_record(
+    world_id: &str,
+    receipt: &SelectionReceipt,
+    event: &SelectionEvent,
+) -> SelectionRecord {
+    SelectionRecord {
+        evaluation_id: receipt.evaluation_id().to_owned(),
+        world_id: world_id.to_owned(),
+        receipt: receipt.clone(),
+        event: SelectionEventRecord {
+            sequence: event.sequence,
+            event_id: event.event_id.clone(),
+            aggregate_id: event.aggregate_id.clone(),
+            event_type: event.event_type.clone(),
+            actor: event.actor.clone(),
+            event_hash: event.event_hash.clone(),
+            receipt_artifact_id: event.receipt_artifact_id.clone(),
+        },
+    }
+}
+
+fn verify_selection_history(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+) -> Result<(), ControlError> {
+    for event in history
+        .iter()
+        .filter(|event| event.event_type == "selection.recorded")
+    {
+        // The World identity in the event envelope is only a routing hint. Arena
+        // independently recomputes the evaluation receipt and compares the full
+        // canonical selection event against this registered World's policy.
+        let (_evaluation_id, world_id) = selection_event_references(event).map_err(|_| {
+            ControlError::Projection("canonical selection event is invalid".to_owned())
+        })?;
+        let world = registered.world(&world_id).ok_or_else(|| {
+            ControlError::Projection("selection World is not registered".to_owned())
+        })?;
+        let stores =
+            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                .map_err(|_| {
+                    ControlError::Projection("selection stores could not be opened".to_owned())
+                })?;
+        let verified = verify_selection_event(stores, event, world.compiled()).map_err(|_| {
+            ControlError::Projection("canonical selection receipt is invalid".to_owned())
+        })?;
+        drop(verified.into_stores());
+    }
+    Ok(())
+}
+
 fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     if let Command::GenomeShow { genome_id } = command
         && genome_id.trim().is_empty()
@@ -1276,6 +1411,11 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         return Err(ExecuteError::Invalid(
             "evaluation and Genome identifiers are required",
         ));
+    }
+    if let Command::ArenaSelect { evaluation_id } = command
+        && evaluation_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("evaluation_id is required"));
     }
     Ok(())
 }
@@ -1734,6 +1874,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::RunReference { .. } => "control.run_reference",
         Command::RunEvaluation { .. } => "control.run_evaluation",
         Command::EvaluatePair { .. } => "control.evaluate_pair",
+        Command::ArenaSelect { .. } => "control.arena_select",
         Command::Replay => "control.replay",
         Command::DaemonStop => "control.daemon_stop",
     }

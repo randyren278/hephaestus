@@ -1,3 +1,4 @@
+use hephaestus_arena::SelectionReceipt;
 pub use hephaestus_experience::RunCompletionReason;
 pub use hephaestus_genome::{GenomeRecord, WorldRecord};
 use serde::{Deserialize, Serialize};
@@ -99,6 +100,11 @@ pub enum Command {
         parent_genome_id: String,
         /// Immutable registered candidate Genome identity.
         candidate_genome_id: String,
+    },
+    /// Select from one exact persisted Arena evaluation using its registered World's policy.
+    ArenaSelect {
+        /// Stable Arena evaluation identity.
+        evaluation_id: String,
     },
     /// Verify and replay canonical history into a fresh projection.
     Replay,
@@ -228,10 +234,15 @@ pub enum ResponseData {
         /// CAS addresses of the redacted trace artifacts.
         trace_artifact_ids: Vec<String>,
     },
-    /// Candidate-safe aggregate result from a trusted paired evaluation.
+    /// Visible aggregate result from a trusted paired evaluation.
     Evaluation {
         /// Visible summary and payload-free canonical event metadata.
         evaluation: EvaluationRecord,
+    },
+    /// Operator-only metrics and fail-closed promotion state for one selection.
+    Selection {
+        /// Aggregate measurements and payload-free canonical selection event metadata.
+        selection: Box<SelectionRecord>,
     },
     /// Result of a fresh verified replay.
     Replay {
@@ -284,6 +295,40 @@ pub struct EvaluationEventRecord {
     pub actor: String,
     /// Caller-observed Unix timestamp in milliseconds.
     pub timestamp_millis: i64,
+}
+
+/// Operator-only full result of the trusted selection calculation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionRecord {
+    /// Stable Arena evaluation identity.
+    pub evaluation_id: String,
+    /// Exact immutable registered World identity whose policy governed selection.
+    pub world_id: String,
+    /// Full deterministic receipt, including sealed-derived operator metrics and policy inputs.
+    pub receipt: SelectionReceipt,
+    /// Payload-free canonical event metadata binding the receipt artifact.
+    pub event: SelectionEventRecord,
+}
+
+/// Payload-free canonical ledger metadata for a selection receipt.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic event identity.
+    pub event_id: String,
+    /// Stable evaluation selection aggregate identity.
+    pub aggregate_id: String,
+    /// Event type.
+    pub event_type: String,
+    /// Trusted actor.
+    pub actor: String,
+    /// Canonical event-chain hash.
+    pub event_hash: String,
+    /// BLAKE3 address of the canonical selection receipt.
+    pub receipt_artifact_id: String,
 }
 
 /// Safe local API failure body.

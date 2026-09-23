@@ -67,6 +67,18 @@ pub enum ArenaError {
     InvalidStoredReceipt(&'static str),
     /// Durable evidence storage failed.
     Ledger(LedgerError),
+    /// Selection was requested under a World different from its verified evaluation.
+    SelectionWorldMismatch,
+    /// The Python statistics contract does not support the World's 10000-bps confidence endpoint.
+    UnsupportedSelectionConfidence(u16),
+    /// Bootstrap work exceeds the explicit deterministic CPU bound.
+    BootstrapWorkExceeded,
+    /// No durable selection event exists for the requested evaluation.
+    UnknownSelection(String),
+    /// A selection receipt conflicts with the recomputed trusted result.
+    SelectionConflict(String),
+    /// A selection event envelope or canonical payload is invalid.
+    InvalidSelectionEvent,
     /// Canonical JSON encoding failed.
     Serialization(serde_json::Error),
     /// Evaluator executable inspection failed.

@@ -4,6 +4,7 @@ mod error;
 #[doc(hidden)]
 pub mod evaluator_protocol;
 mod isolated_evaluator;
+mod selection;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,6 +15,10 @@ use hephaestus_experience::{
 use hephaestus_genome::CompiledWorld;
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
 pub use isolated_evaluator::IsolatedEvaluator;
+pub use selection::{
+    OperatorSelection, SelectionEvent, SelectionReceipt, load_selection, select_and_record,
+    selection_event_references, verify_selection_event,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::evaluator_protocol::{EvaluatorRequest, EvaluatorScores, EvaluatorTrial};
