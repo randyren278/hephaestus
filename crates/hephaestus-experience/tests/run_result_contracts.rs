@@ -224,7 +224,6 @@ fn parser_rejects_unknown_schema_fields_and_invalid_runtime_claims() {
     );
 
     for reason in [
-        RunCompletionReason::ProviderFailure,
         RunCompletionReason::OperatorInterrupt,
         RunCompletionReason::WallBudgetExceeded,
         RunCompletionReason::IoFailure,
@@ -249,6 +248,18 @@ fn parser_rejects_unknown_schema_fields_and_invalid_runtime_claims() {
     let mut invalid_output = receipt();
     invalid_output.stdout_artifact_id = "not-an-artifact".to_owned();
     assert!(signer().issue(invalid_output, 1).is_err());
+}
+
+#[test]
+fn confirmed_provider_failure_can_be_signed_and_replayed() {
+    let mut provider_failure = receipt();
+    provider_failure.completion_reason = RunCompletionReason::ProviderFailure;
+    let event = stored(provider_failure.clone());
+    assert_eq!(
+        RunResultReceipt::parse_from_event(&event, &signer().verifier())
+            .expect("signed provider failure receipt"),
+        provider_failure
+    );
 }
 
 #[test]

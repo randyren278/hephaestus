@@ -345,7 +345,9 @@ impl RunResultReceipt {
         }
         if !matches!(
             self.completion_reason,
-            RunCompletionReason::Success | RunCompletionReason::OutputBudgetExceeded
+            RunCompletionReason::Success
+                | RunCompletionReason::ProviderFailure
+                | RunCompletionReason::OutputBudgetExceeded
         ) {
             return Err(ExperienceError::InvalidInput(
                 "deterministic run result has an unsupported completion reason",

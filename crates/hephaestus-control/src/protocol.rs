@@ -1,4 +1,5 @@
 use hephaestus_arena::SelectionReceipt;
+use hephaestus_experience::RunBudgetReceipt;
 pub use hephaestus_experience::RunCompletionReason;
 pub use hephaestus_genome::{GenomeRecord, WorldRecord};
 use serde::{Deserialize, Serialize};
@@ -75,7 +76,24 @@ pub enum Command {
     },
     /// Publish the daemon's runtime-result verifier public key as an artifact.
     VerifierShow,
-    /// Execute the offline deterministic reference runtime for one registered Genome.
+    /// Admit one bounded asynchronous direct reference run.
+    RunSubmit {
+        /// Caller-selected idempotency key, unique for one immutable Genome.
+        job_id: String,
+        /// Content-derived registered Genome identity.
+        genome_id: String,
+    },
+    /// Inspect one admitted asynchronous run.
+    JobStatus {
+        /// Stable job identity returned by submission.
+        job_id: String,
+    },
+    /// Request cancellation of one active asynchronous run.
+    JobKill {
+        /// Stable job identity returned by submission.
+        job_id: String,
+    },
+    /// Execute the offline deterministic reference runtime synchronously.
     RunReference {
         /// Content-derived registered Genome identity.
         genome_id: String,
@@ -223,6 +241,13 @@ pub enum ResponseData {
         /// Hex-encoded public key.
         public_key_hex: String,
     },
+    /// Current durable state of one asynchronous direct run.
+    Job {
+        /// Canonical job projection.
+        job: JobRecord,
+        /// Durable trace progress projected from the canonical event stream.
+        progress: JobProgress,
+    },
     /// Terminal result from the offline deterministic reference runtime.
     Run {
         /// Stable run identity.
@@ -267,6 +292,70 @@ pub enum ResponseData {
         /// Stable BLAKE3 hash of the reconstructed projection.
         projection_hash: String,
     },
+}
+
+/// Durable lifecycle projection for one direct asynchronous reference run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobRecord {
+    /// Stable caller-selected idempotency key.
+    pub job_id: String,
+    /// Immutable Genome identity captured at admission.
+    pub genome_id: String,
+    /// Deterministic underlying runtime identity.
+    pub run_id: String,
+    /// Exact Git commit paired with this run.
+    pub source_revision: String,
+    /// Immutable World identity bound at admission.
+    pub world_id: String,
+    /// Immutable task and input commitment bound at admission.
+    pub task_id: String,
+    /// BLAKE3 commitment to the exact reference-task input.
+    pub input_commitment: String,
+    /// Runtime-owned seed bound at admission.
+    pub seed: u64,
+    /// Worker and instruction-engine identity bound at admission.
+    pub environment_id: String,
+    /// Hard resource budget bound at admission.
+    pub budget: RunBudgetReceipt,
+    /// Current durable state.
+    pub state: JobState,
+    /// Fixed terminal outcome, present only after process confirmation.
+    pub terminal: Option<JobTerminal>,
+}
+
+/// Live durable progress for one job, derived from its acknowledged trace events.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobProgress {
+    /// Number of persisted runtime trace events.
+    pub trace_events: u64,
+    /// Sequence of the most recent trace event, when any exists.
+    pub last_event_sequence: Option<u64>,
+    /// Stable label for the most recent trace phase.
+    pub last_phase: Option<String>,
+}
+
+/// Durable bounded-job lifecycle states.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobState {
+    Admitted,
+    Running,
+    CancellationRequested,
+    Succeeded,
+    Failed,
+    Interrupted,
+}
+
+/// Terminal outcome persisted after supervised process termination.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobTerminal {
+    Succeeded,
+    Failed,
+    Cancelled,
+    Interrupted,
 }
 
 /// Candidate-safe visible aggregate and ledger metadata for one evaluation.
@@ -367,6 +456,8 @@ pub enum ApiErrorCode {
     NotFound,
     /// Canonical persistence or projection verification failed.
     Internal,
+    /// Another bounded job is already active, or request capacity is full.
+    Busy,
 }
 
 #[cfg(test)]

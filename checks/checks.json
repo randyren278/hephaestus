@@ -9,6 +9,7 @@
     "crates/hephaestus-genome/": "cargo test -p hephaestus-genome --quiet",
     "crates/hephaestus-ledger/": "cargo test -p hephaestus-ledger --quiet",
     "crates/hephaestus-runtime/": "cargo test -p hephaestus-runtime --all-features --quiet",
+    "crates/hephaestus-runtime/src/guardian.rs": "cargo test -p hephaestus-control --all-features --test control_plane_e2e guardian_monitors_eof_during_large_stdin_and_reaps_leader_descendants -- --exact",
     "python/": "env PYTHONPATH=python python3 -m unittest discover -s python/tests -v"
   },
   "timeout_seconds": 120,
@@ -47,7 +48,9 @@
     "crates/hephaestus-runtime/src/supervisor.rs",
     "crates/hephaestus-runtime/src/worker.rs",
     "crates/hephaestus-genome/src/registry.rs",
-    "crates/hephaestus-runtime/src/reference_instruction.rs"
+    "crates/hephaestus-runtime/src/reference_instruction.rs",
+    "crates/hephaestus-runtime/src/guardian.rs",
+    "crates/hephaestus-experience/src/sink.rs"
   ],
   "mutations": [
     {
@@ -903,6 +906,13 @@
       "invariant": "Canonical run-result output references must be valid content addresses.",
       "find": "        validate_artifact_id(&self.stdout_artifact_id)?;",
       "replace": ""
+    },
+    {
+      "id": "run-result-provider-failure-rejected",
+      "file": "crates/hephaestus-experience/src/run_result.rs",
+      "invariant": "A confirmed nonzero worker exit can be recorded as a signed ProviderFailure result.",
+      "find": "            RunCompletionReason::Success\n                | RunCompletionReason::ProviderFailure\n                | RunCompletionReason::OutputBudgetExceeded",
+      "replace": "            RunCompletionReason::Success\n                | RunCompletionReason::OutputBudgetExceeded"
     },
     {
       "id": "artifact-preflight-address-forged",
@@ -1911,6 +1921,34 @@
       "invariant": "Every paired trial executes the private worker snapshot whose digest is in its environment identity.",
       "find": "        let runtime = SupervisedRuntime::deterministic(isolation, &worker.executable, [])",
       "replace": "        let runtime = SupervisedRuntime::deterministic(isolation, &self.reference_worker_executable, [])"
+    },
+    {
+      "id": "async-job-kill-request-skips-runtime-cancellation",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An operator kill request signals the active job and does not claim termination before confirmation.",
+      "find": "                self.request_active_job_cancellation()?;",
+      "replace": "                // mutation: omit active job cancellation"
+    },
+    {
+      "id": "guardian-leader-exit-leaves-descendants-running",
+      "file": "crates/hephaestus-runtime/src/guardian.rs",
+      "invariant": "The guardian contains the entire worker process group when its leader exits before output relays are joined.",
+      "find": "            // A leader may exit while descendants keep inherited output pipes\n            // open. Contain its whole process group before joining relays.\n            kill_process_group(child.id());",
+      "replace": "            // mutation: leave descendants running"
+    },
+    {
+      "id": "async-job-terminal-success-unbound-to-signed-result",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A succeeded async job must be backed by its exact signed successful result and completed lifecycle trace.",
+      "find": "                        receipt_matches\n                            && self.completed_runs.contains(&record.run_id)\n                            && signed_result.is_some_and(|receipt| {\n                                receipt.completion_reason == RunCompletionReason::Success\n                            })",
+      "replace": "                        true"
+    },
+    {
+      "id": "experience-capacity-failure-acknowledged-as-success",
+      "file": "crates/hephaestus-experience/src/sink.rs",
+      "invariant": "A canonical writer cannot acknowledge a failed capacity reservation as successful.",
+      "find": "                let acknowledged = result.as_ref().map_err(Clone::clone).copied();",
+      "replace": "                let acknowledged = Ok(());"
     }
   ]
 }

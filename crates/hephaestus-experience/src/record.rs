@@ -100,6 +100,12 @@ pub struct TraceInput {
 }
 
 impl TraceInput {
+    /// Returns the provenance supplied with this trace.
+    #[must_use]
+    pub const fn provenance(&self) -> &Provenance {
+        &self.provenance
+    }
+
     /// Creates a bounded structured trace input.
     ///
     /// # Errors

@@ -9,7 +9,13 @@ use std::{
     },
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use fs2::FileExt;
@@ -21,9 +27,9 @@ use hephaestus_arena::{
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
 use hephaestus_experience::{
-    EvidenceRecorder, RUN_RESULT_SCHEMA_VERSION, RecordedRuntime, RedactionPolicy, RetentionLimits,
-    RunBudgetReceipt, RunResultReceipt, RunResultSigner, RunResultVerifier, TraceKind,
-    TraceReceipt,
+    EvidenceRecorder, EvidenceRequest, RUN_RESULT_SCHEMA_VERSION, RecordedRuntime, RedactionPolicy,
+    RetentionLimits, RunBudgetReceipt, RunResultReceipt, RunResultSigner, RunResultVerifier,
+    TraceKind, TraceReceipt,
 };
 use hephaestus_genome::{
     CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat, compile_genome,
@@ -40,14 +46,17 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
-    EvaluationEventRecord, EvaluationRecord, GenomeRecord, ResponseData, RunCompletionReason,
-    SelectionEventRecord, SelectionRecord, WorldRecord,
+    EvaluationEventRecord, EvaluationRecord, GenomeRecord, JobProgress, JobRecord, JobState,
+    JobTerminal, ResponseData, RunCompletionReason, SelectionEventRecord, SelectionRecord,
+    WorldRecord,
 };
 
-const MAX_REQUEST_BYTES: usize = 65_536;
-const MAX_REQUEST_READ_BYTES: u64 = 65_537;
+// A 1 MiB Markdown body can expand to six JSON bytes per escaped control
+// character. Keep enough bounded headroom for that representation.
+const MAX_REQUEST_BYTES: usize = 7 * 1_048_576;
 const CONTROL_AGGREGATE: &str = "hephaestus-control";
 const OPERATOR_ACTOR: &str = "local-operator";
+const RUNTIME_ACTOR: &str = "daemon-runtime";
 const MAX_EVALUATION_WALL_MILLIS: u64 = 86_400_000;
 const MAX_EVALUATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_EVALUATION_COST_MICROUSD: u64 = 1_000_000_000;
@@ -56,6 +65,8 @@ const PAIRED_EVALUATION_WALL_MILLIS: u64 = 10_000;
 const PAIRED_EVALUATION_OUTPUT_BYTES: u64 = 1_048_576;
 const MAX_SOURCE_FILE_BYTES: u64 = 1_048_576;
 const MAX_ARTIFACT_FILE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SOCKET_HANDLERS: usize = 16;
+const MAX_QUEUED_REQUESTS: usize = 16;
 
 /// Resolves `HEPHAESTUS_HOME`, then the conventional per-user data directory.
 ///
@@ -79,6 +90,7 @@ pub struct ControlPlane {
     evaluator_executable: PathBuf,
     reference_worker_executable: PathBuf,
     reference_worker_digest: String,
+    guardian_executable: PathBuf,
     token_hex: String,
     operator_token: OperatorToken,
     run_result_signer: RunResultSigner,
@@ -87,11 +99,35 @@ pub struct ControlPlane {
     state: ControlState,
     _lock: File,
     shutdown_requested: bool,
+    active_job: Option<ActiveJob>,
+    job_evidence_receiver: Option<mpsc::Receiver<EvidenceRequest>>,
+    job_result_receiver: Option<mpsc::Receiver<AsyncJobResult>>,
 }
 
 struct CanonicalStorage {
     ledger: EventStore,
     artifacts: ArtifactStore,
+}
+
+#[derive(Clone)]
+struct ActiveJob {
+    record: JobRecord,
+    genome: GenomeRecord,
+    spec: RunSpec,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+}
+
+struct AsyncJobResult {
+    job_id: String,
+    output: Result<ReferenceExecution, String>,
+}
+
+struct AsyncReferenceLaunch {
+    data_dir: PathBuf,
+    guardian: PathBuf,
+    protected_paths: Vec<PathBuf>,
+    worker: PinnedReferenceWorker,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 struct PinnedReferenceWorker {
@@ -143,6 +179,125 @@ impl Drop for SandboxCleanupGuard {
         if let Some(sandbox) = self.sandbox.take() {
             let _ = sandbox.cleanup();
         }
+    }
+}
+
+struct QueuedRequest {
+    request: ApiRequest,
+    reply: mpsc::SyncSender<ApiResponse>,
+}
+
+struct HandlerCount(Arc<AtomicUsize>);
+
+impl Drop for HandlerCount {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn serve_connection(
+    mut stream: UnixStream,
+    sender: &mpsc::SyncSender<QueuedRequest>,
+    active_handlers: Arc<AtomicUsize>,
+) {
+    let _count = HandlerCount(active_handlers);
+    if stream.set_nonblocking(false).is_err() {
+        return;
+    }
+    let _read_timeout_error = stream.set_read_timeout(Some(Duration::from_secs(2))).err();
+    let _write_timeout_error = stream.set_write_timeout(Some(Duration::from_secs(2))).err();
+    let response = match read_bounded_request(&mut stream) {
+        Ok(None) => ApiResponse::failure("", ApiErrorCode::InvalidRequest, "request exceeds limit"),
+        Err(_) => ApiResponse::failure(
+            "",
+            ApiErrorCode::InvalidRequest,
+            "request could not be read",
+        ),
+        Ok(Some(bytes)) => match serde_json::from_slice::<ApiRequest>(&bytes) {
+            Ok(request) => {
+                let (reply, response) = mpsc::sync_channel(1);
+                match sender.try_send(QueuedRequest { request, reply }) {
+                    Ok(()) => response
+                        .recv_timeout(Duration::from_secs(15))
+                        .unwrap_or_else(|_| {
+                            ApiResponse::failure(
+                                "",
+                                ApiErrorCode::Internal,
+                                "canonical operation failed",
+                            )
+                        }),
+                    Err(mpsc::TrySendError::Full(_)) => {
+                        ApiResponse::failure("", ApiErrorCode::Busy, "daemon request queue is full")
+                    }
+                    Err(mpsc::TrySendError::Disconnected(_)) => {
+                        ApiResponse::failure("", ApiErrorCode::Internal, "daemon is stopping")
+                    }
+                }
+            }
+            Err(_) => ApiResponse::failure(
+                "",
+                ApiErrorCode::InvalidRequest,
+                "request does not match the declared schema",
+            ),
+        },
+    };
+    if let Ok(bytes) = serde_json::to_vec(&response) {
+        let _ignored = write_bounded_response(&mut stream, &bytes);
+    }
+}
+
+fn write_bounded_response(stream: &mut UnixStream, bytes: &[u8]) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut offset = 0;
+    while offset < bytes.len() {
+        match stream.write(&bytes[offset..]) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(written) => offset += written,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn read_bounded_request(stream: &mut UnixStream) -> std::io::Result<Option<Vec<u8>>> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 8_192];
+    let mut total_bytes = 0_usize;
+    let mut too_large = false;
+    loop {
+        let read = match stream.read(&mut buffer) {
+            Ok(read) => read,
+            Err(_) if too_large => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if read == 0 {
+            return Ok((!too_large).then_some(bytes));
+        }
+        total_bytes = total_bytes.saturating_add(read);
+        if total_bytes > MAX_REQUEST_BYTES {
+            too_large = true;
+            bytes.clear();
+        } else if !too_large {
+            bytes.extend_from_slice(&buffer[..read]);
+        }
+        if too_large && total_bytes >= MAX_REQUEST_BYTES.saturating_mul(2) {
+            return Ok(None);
+        }
+    }
+}
+
+fn reject_busy_stream(mut stream: UnixStream) {
+    let response = ApiResponse::failure("", ApiErrorCode::Busy, "daemon connection limit reached");
+    if let Ok(bytes) = serde_json::to_vec(&response) {
+        let _ignored = stream.write_all(&bytes);
     }
 }
 
@@ -232,13 +387,14 @@ impl ControlPlane {
         let evaluator_executable = evaluator_executable.into();
         let reference_worker_executable = reference_worker_executable.into();
         let reference_worker_digest = executable_digest(&reference_worker_executable)?;
+        let guardian_executable = default_process_guardian_executable()?;
         prepare_private_directory(&data_dir)?;
         let lock = take_writer_lock(&data_dir.join("daemon.lock"))?;
         let (token_hex, token_bytes) = load_or_create_token(&data_dir.join("operator.token"))?;
         let operator_token = OperatorToken::from_bytes(token_bytes);
         let database_path = data_dir.join("events.sqlite3");
         prepare_private_file(&database_path)?;
-        let ledger = EventStore::open(&database_path)?;
+        let mut ledger = EventStore::open(&database_path)?;
         let artifacts_path = data_dir.join("blobs");
         prepare_private_directory(&artifacts_path)?;
         let artifacts = ArtifactStore::open(artifacts_path)?;
@@ -264,15 +420,24 @@ impl ControlPlane {
                 "runtime producer key does not match registered World verifier",
             ));
         }
-        let state =
+        let mut state =
             ControlState::from_events(&history, registered, &operator_token, &run_result_verifier)?;
         ControlState::verify_artifacts(&history, &artifacts, &run_result_verifier)?;
+        // The prior guardian owns any process group left at crash time; recovery
+        // persists an outcome only from already verified canonical evidence.
+        recover_unfinished_jobs(
+            &mut ledger,
+            &mut state,
+            &operator_token,
+            &run_result_verifier,
+        )?;
         Ok(Self {
             data_dir,
             source_repository,
             evaluator_executable,
             reference_worker_executable,
             reference_worker_digest,
+            guardian_executable,
             token_hex,
             operator_token,
             run_result_signer,
@@ -281,6 +446,9 @@ impl ControlPlane {
             state,
             _lock: lock,
             shutdown_requested: false,
+            active_job: None,
+            job_evidence_receiver: None,
+            job_result_receiver: None,
         })
     }
 
@@ -295,36 +463,34 @@ impl ControlPlane {
         remove_stale_socket(&socket_path)?;
         let listener = UnixListener::bind(&socket_path)?;
         fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
-        for connection in listener.incoming() {
-            let mut stream = connection?;
-            let _read_timeout_error = stream.set_read_timeout(Some(Duration::from_secs(2))).err();
-            let _write_timeout_error = stream.set_write_timeout(Some(Duration::from_secs(2))).err();
-            let _connection_error = self.serve_one(&mut stream).err();
-            if self.shutdown_requested {
-                break;
+        listener.set_nonblocking(true)?;
+        let (request_sender, request_receiver) =
+            mpsc::sync_channel::<QueuedRequest>(MAX_QUEUED_REQUESTS);
+        let active_handlers = Arc::new(AtomicUsize::new(0));
+        while !self.shutdown_requested {
+            self.service_async_messages()?;
+            if let Ok(queued) = request_receiver.try_recv() {
+                let response = self.handle(queued.request);
+                let _ignored = queued.reply.send(response);
+            }
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let current = active_handlers.fetch_add(1, Ordering::AcqRel);
+                    if current >= MAX_SOCKET_HANDLERS {
+                        active_handlers.fetch_sub(1, Ordering::AcqRel);
+                        reject_busy_stream(stream);
+                    } else {
+                        let sender = request_sender.clone();
+                        let handlers = Arc::clone(&active_handlers);
+                        thread::spawn(move || serve_connection(stream, &sender, handlers));
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(2));
+                }
+                Err(error) => return Err(error.into()),
             }
         }
-        Ok(())
-    }
-
-    fn serve_one(&mut self, stream: &mut UnixStream) -> Result<(), ControlError> {
-        let mut bytes = Vec::new();
-        stream
-            .take(MAX_REQUEST_READ_BYTES)
-            .read_to_end(&mut bytes)?;
-        let response = if bytes.len() > MAX_REQUEST_BYTES {
-            ApiResponse::failure("", ApiErrorCode::InvalidRequest, "request exceeds limit")
-        } else {
-            match serde_json::from_slice::<ApiRequest>(&bytes) {
-                Ok(request) => self.handle(request),
-                Err(_) => ApiResponse::failure(
-                    "",
-                    ApiErrorCode::InvalidRequest,
-                    "request does not match the declared schema",
-                ),
-            }
-        };
-        stream.write_all(&serde_json::to_vec(&response)?)?;
         Ok(())
     }
 
@@ -377,6 +543,11 @@ impl ControlPlane {
                 ApiErrorCode::Internal,
                 "canonical operation failed",
             ),
+            Err(ExecuteError::Busy) => ApiResponse::failure(
+                request_id,
+                ApiErrorCode::Busy,
+                "another bounded job is active",
+            ),
         }
     }
 
@@ -385,14 +556,10 @@ impl ControlPlane {
         request_id: &str,
         command: Command,
     ) -> Result<ResponseData, ExecuteError> {
-        let killed_runs = if command == Command::KillAll {
-            self.state.active_runs.len()
-        } else {
-            0
-        };
+        require_command_fields(&command)?;
+        self.require_no_active_job_for_sync_work(&command)?;
         self.append_audit(request_id, &command, event_type(&command))
             .map_err(|_| ExecuteError::Internal)?;
-        require_command_fields(&command)?;
 
         match command {
             Command::Status => Ok(self.state.status()),
@@ -400,10 +567,13 @@ impl ControlPlane {
                 frozen: self.state.freeze.is_frozen(),
                 killed_runs: 0,
             }),
-            Command::KillAll => Ok(ResponseData::Acknowledged {
-                frozen: self.state.freeze.is_frozen(),
-                killed_runs,
-            }),
+            Command::KillAll => {
+                self.request_active_job_cancellation()?;
+                Ok(ResponseData::Acknowledged {
+                    frozen: self.state.freeze.is_frozen(),
+                    killed_runs: 0,
+                })
+            }
             Command::GenomeShow { genome_id } => self
                 .state
                 .registered
@@ -440,6 +610,9 @@ impl ControlPlane {
             Command::ManifestPut { path } => self.put_manifest(&path),
             Command::ArtifactPut { path } => self.put_artifact(&path),
             Command::VerifierShow => self.verifier_show(),
+            Command::RunSubmit { job_id, genome_id } => self.submit_job(&job_id, &genome_id),
+            Command::JobStatus { job_id } => self.job_status(&job_id),
+            Command::JobKill { job_id } => self.kill_job(&job_id),
             Command::RunReference { genome_id } => {
                 let run_id = format!("reference-{}", self.state.event_count);
                 self.run_reference(&run_id, &genome_id)
@@ -474,14 +647,426 @@ impl ControlPlane {
             }
             Command::ArenaSelect { evaluation_id } => self.select_arena_evaluation(&evaluation_id),
             Command::Replay => self.replay_response(),
-            Command::DaemonStop => {
-                self.shutdown_requested = true;
-                Ok(ResponseData::Acknowledged {
-                    frozen: self.state.freeze.is_frozen(),
-                    killed_runs: 0,
-                })
+            Command::DaemonStop => self.request_daemon_stop(),
+        }
+    }
+
+    fn request_daemon_stop(&mut self) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() {
+            self.request_active_job_cancellation()?;
+            return Err(ExecuteError::Busy);
+        }
+        self.shutdown_requested = true;
+        Ok(ResponseData::Acknowledged {
+            frozen: self.state.freeze.is_frozen(),
+            killed_runs: 0,
+        })
+    }
+
+    fn require_no_active_job_for_sync_work(&self, command: &Command) -> Result<(), ExecuteError> {
+        let storage_taking = matches!(
+            command,
+            Command::RunReference { .. }
+                | Command::RunEvaluation { .. }
+                | Command::EvaluatePair { .. }
+                | Command::ArenaSelect { .. }
+                | Command::GenomeRegister { .. }
+                | Command::WorldRegister { .. }
+                | Command::ManifestPut { .. }
+                | Command::ArtifactPut { .. }
+                | Command::Replay
+        );
+        if self.active_job.is_some() && storage_taking {
+            Err(ExecuteError::Busy)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn submit_job(&mut self, job_id: &str, genome_id: &str) -> Result<ResponseData, ExecuteError> {
+        validate_job_id(job_id)?;
+        if let Some(existing) = self.state.jobs.get(job_id) {
+            if existing.genome_id != genome_id {
+                return Err(ExecuteError::Rejected(
+                    "job id is already bound to another Genome".to_owned(),
+                ));
+            }
+            return Ok(self.job_response(existing.clone()));
+        }
+        if self.state.jobs.values().any(|job| {
+            matches!(
+                job.state,
+                JobState::Admitted | JobState::Running | JobState::CancellationRequested
+            )
+        }) {
+            return Err(ExecuteError::Busy);
+        }
+        let genome = self.runnable_genome(genome_id)?;
+        let worker = self.pin_reference_worker()?;
+        let run_id = job_run_id(job_id);
+        let spec = self.async_reference_spec(&run_id, &genome, &worker)?;
+        let budget = spec.budget();
+        let admitted = JobRecord {
+            job_id: job_id.to_owned(),
+            genome_id: genome.genome_id.clone(),
+            run_id,
+            source_revision: spec.source_revision().to_owned(),
+            world_id: spec.world_id().to_owned(),
+            task_id: spec.experiment().task_id().to_owned(),
+            input_commitment: spec.experiment().input_commitment().to_owned(),
+            seed: spec.experiment().seed(),
+            environment_id: spec.experiment().environment_id().to_owned(),
+            budget: RunBudgetReceipt {
+                wall_millis: u64::try_from(budget.wall().as_millis())
+                    .map_err(|_| ExecuteError::Internal)?,
+                maximum_output_bytes: u64::try_from(budget.maximum_output_bytes())
+                    .map_err(|_| ExecuteError::Internal)?,
+                maximum_cost_microusd: budget.maximum_cost_microusd(),
+            },
+            state: JobState::Admitted,
+            terminal: None,
+        };
+        self.append_job_record(&admitted)?;
+        let running = JobRecord {
+            state: JobState::Running,
+            ..admitted.clone()
+        };
+        self.append_job_record(&running)?;
+
+        let (evidence_sink, evidence_receiver) = hephaestus_experience::bounded_evidence_channel(1);
+        let (result_sender, result_receiver) = mpsc::sync_channel(1);
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_copy = worker;
+        let spec_copy = spec.clone();
+        let genome_copy = genome.clone();
+        let data_dir = self.data_dir.clone();
+        let guardian = self.guardian_executable.clone();
+        let protected = self.protected_runtime_paths();
+        let initial_sequence = self.state.event_count;
+        let thread_cancel = Arc::clone(&cancel);
+        let thread_job_id = job_id.to_owned();
+        let spawn_result = thread::Builder::new()
+            .name(format!(
+                "hephaestus-job-{}",
+                &blake3::hash(job_id.as_bytes()).to_hex()[..8]
+            ))
+            .spawn(move || {
+                let output = execute_async_reference(
+                    AsyncReferenceLaunch {
+                        data_dir,
+                        guardian,
+                        protected_paths: protected,
+                        worker: worker_copy,
+                        cancel: thread_cancel,
+                    },
+                    &spec_copy,
+                    evidence_sink,
+                    initial_sequence,
+                );
+                let _ignored = result_sender.send(AsyncJobResult {
+                    job_id: thread_job_id,
+                    output,
+                });
+                drop(genome_copy);
+            });
+        if spawn_result.is_err() {
+            let mut terminal = running;
+            terminal.state = JobState::Interrupted;
+            terminal.terminal = Some(JobTerminal::Interrupted);
+            self.append_job_record(&terminal)?;
+            return Err(ExecuteError::Internal);
+        }
+        self.active_job = Some(ActiveJob {
+            record: running.clone(),
+            genome,
+            spec,
+            cancel,
+        });
+        self.job_evidence_receiver = Some(evidence_receiver);
+        self.job_result_receiver = Some(result_receiver);
+        Ok(self.job_response(running))
+    }
+
+    fn async_reference_spec(
+        &self,
+        run_id: &str,
+        genome: &GenomeRecord,
+        worker: &PinnedReferenceWorker,
+    ) -> Result<RunSpec, ExecuteError> {
+        let instruction = self
+            .reference_instruction(&genome.genome_id)?
+            .ok_or_else(|| {
+                ExecuteError::Rejected(
+                    "async reference jobs require a supported reference instruction".to_owned(),
+                )
+            })?;
+        worker.verify()?;
+        let task_id = "repository-inventory-v1";
+        let prompt = "Inventory the isolated repository without modifying it or using the network.";
+        let budget = validated_evaluation_budget(10_000, 1_048_576, 0)?;
+        let experiment = ExperimentContext::new(
+            task_id,
+            prompt.as_bytes(),
+            0,
+            Self::reference_execution_environment(worker),
+        )
+        .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
+        let spec = RunSpec::new_for_experiment(
+            run_id,
+            &genome.genome_id,
+            &genome.world_id,
+            &self.source_repository,
+            prompt,
+            CapabilitySet::new(false, false),
+            budget,
+            experiment,
+        )
+        .map_err(|_| ExecuteError::Invalid("run specification is invalid"))?;
+        spec.with_reference_instruction(instruction)
+            .map_err(|_| ExecuteError::Invalid("reference task input is oversized"))
+    }
+
+    fn job_status(&self, job_id: &str) -> Result<ResponseData, ExecuteError> {
+        self.state
+            .jobs
+            .get(job_id)
+            .cloned()
+            .map(|job| self.job_response(job))
+            .ok_or(ExecuteError::NotFound)
+    }
+
+    fn job_response(&self, job: JobRecord) -> ResponseData {
+        let progress = self
+            .state
+            .job_progress
+            .get(&job.job_id)
+            .cloned()
+            .unwrap_or_default();
+        ResponseData::Job { job, progress }
+    }
+
+    fn kill_job(&mut self, job_id: &str) -> Result<ResponseData, ExecuteError> {
+        let mut record = self
+            .state
+            .jobs
+            .get(job_id)
+            .cloned()
+            .ok_or(ExecuteError::NotFound)?;
+        if matches!(
+            record.state,
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted
+        ) {
+            return Ok(self.job_response(record));
+        }
+        self.request_job_cancellation(job_id)?;
+        record = self
+            .state
+            .jobs
+            .get(job_id)
+            .cloned()
+            .ok_or(ExecuteError::Internal)?;
+        Ok(self.job_response(record))
+    }
+
+    fn request_active_job_cancellation(&mut self) -> Result<(), ExecuteError> {
+        let Some(active) = self.active_job.as_ref() else {
+            return Ok(());
+        };
+        let job_id = active.record.job_id.clone();
+        self.request_job_cancellation(&job_id)
+    }
+
+    fn request_job_cancellation(&mut self, job_id: &str) -> Result<(), ExecuteError> {
+        let mut record = self
+            .state
+            .jobs
+            .get(job_id)
+            .cloned()
+            .ok_or(ExecuteError::NotFound)?;
+        let active = self.active_job.as_ref().ok_or(ExecuteError::Internal)?;
+        if active.record.job_id != job_id {
+            return Err(ExecuteError::Internal);
+        }
+        active.cancel.store(true, Ordering::Release);
+        if record.state != JobState::CancellationRequested {
+            record.state = JobState::CancellationRequested;
+            self.append_job_record(&record)?;
+        }
+        Ok(())
+    }
+
+    fn append_job_record(&mut self, record: &JobRecord) -> Result<(), ExecuteError> {
+        let event_type = match record.state {
+            JobState::Admitted => "job.admitted",
+            JobState::Running => "job.running",
+            JobState::CancellationRequested => "job.cancellation_requested",
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted => "job.terminal",
+        };
+        let event_suffix = event_type
+            .strip_prefix("job.")
+            .ok_or(ExecuteError::Internal)?;
+        let payload = serde_json::to_vec(record).map_err(|_| ExecuteError::Internal)?;
+        let event = self
+            .storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                format!("job:{}:{event_suffix}", record.job_id),
+                format!("job:{}", record.job_id),
+                event_type,
+                RUNTIME_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.state
+            .apply(&event, &self.operator_token, &self.run_result_verifier)
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(active) = self
+            .active_job
+            .as_mut()
+            .filter(|active| active.record.job_id == record.job_id)
+        {
+            active.record = record.clone();
+        }
+        Ok(())
+    }
+
+    fn service_async_messages(&mut self) -> Result<(), ControlError> {
+        for _ in 0..8 {
+            let request = self
+                .job_evidence_receiver
+                .as_ref()
+                .and_then(|receiver| receiver.try_recv().ok());
+            let Some(request) = request else { break };
+            let valid = self.active_job.as_ref().is_some_and(|active| {
+                request.run_id() == active.spec.run_id()
+                    && request.provenance().is_none_or(|provenance| {
+                        provenance.genome_id() == active.spec.genome_id()
+                            && provenance.world_id() == active.spec.world_id()
+                            && provenance.run_id() == active.spec.run_id()
+                    })
+            });
+            if !valid {
+                request.reject("writer rejected evidence outside the admitted run");
+                if let Some(active) = &self.active_job {
+                    active.cancel.store(true, Ordering::Release);
+                }
+                continue;
+            }
+            let Some(storage) = self.storage.take() else {
+                request.reject("canonical writer is unavailable");
+                if let Some(active) = &self.active_job {
+                    active.cancel.store(true, Ordering::Release);
+                }
+                continue;
+            };
+            let mut recorder = EvidenceRecorder::from_stores(
+                storage.ledger,
+                storage.artifacts,
+                RedactionPolicy::new([self.token_hex.clone()]),
+                RetentionLimits::new(10_000, 65_536)
+                    .map_err(|_| ControlError::Protocol("trace limits are invalid"))?,
+            );
+            let result = request.persist(&mut recorder);
+            let (ledger, artifacts) = recorder.into_stores();
+            self.storage = Some(CanonicalStorage { ledger, artifacts });
+            if result.is_err() {
+                if let Some(active) = &self.active_job {
+                    active.cancel.store(true, Ordering::Release);
+                }
+            } else {
+                self.refresh_projection().map_err(|_| {
+                    ControlError::Projection("evidence projection failed".to_owned())
+                })?;
             }
         }
+        if let Some(receiver) = &self.job_result_receiver {
+            match receiver.try_recv() {
+                Ok(completed) => {
+                    if self.complete_async_job(completed).is_err() {
+                        return Err(ControlError::Projection(
+                            "asynchronous job completion failed".to_owned(),
+                        ));
+                    }
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // The executor has fully unwound. SupervisedRuntime's Drop
+                    // waits for guardian confirmation before this channel closes.
+                    if let Some(active) = self.active_job.as_ref() {
+                        let mut record = active.record.clone();
+                        record.state = JobState::Interrupted;
+                        record.terminal = Some(JobTerminal::Interrupted);
+                        self.append_job_record(&record).map_err(|_| {
+                            ControlError::Projection(
+                                "interrupted job could not be recorded".to_owned(),
+                            )
+                        })?;
+                        self.active_job = None;
+                        self.job_evidence_receiver = None;
+                        self.job_result_receiver = None;
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn complete_async_job(&mut self, completed: AsyncJobResult) -> Result<(), ExecuteError> {
+        let active = self.active_job.clone().ok_or(ExecuteError::Internal)?;
+        if active.record.job_id != completed.job_id {
+            return Err(ExecuteError::Internal);
+        }
+        let mut record = active.record.clone();
+        if record.state == JobState::CancellationRequested {
+            record.state = JobState::Interrupted;
+            record.terminal = Some(JobTerminal::Cancelled);
+            self.append_job_record(&record)?;
+            self.active_job = None;
+            self.job_evidence_receiver = None;
+            self.job_result_receiver = None;
+            return Ok(());
+        }
+        let terminal = if let Ok(output) = completed.output {
+            let response = {
+                let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+                persist_reference_output(
+                    &storage.artifacts,
+                    active.spec.run_id(),
+                    &active.genome,
+                    active.spec.source_revision(),
+                    output,
+                )?
+            };
+            self.append_run_result(&active.spec, &response)?;
+            let ResponseData::Run {
+                completion_reason, ..
+            } = response
+            else {
+                return Err(ExecuteError::Internal);
+            };
+            if completion_reason == RunCompletionReason::Success {
+                record.state = JobState::Succeeded;
+                JobTerminal::Succeeded
+            } else if completion_reason == RunCompletionReason::OperatorInterrupt {
+                record.state = JobState::Interrupted;
+                JobTerminal::Cancelled
+            } else {
+                record.state = JobState::Failed;
+                JobTerminal::Failed
+            }
+        } else {
+            record.state = JobState::Failed;
+            JobTerminal::Failed
+        };
+        record.terminal = Some(terminal);
+        self.append_job_record(&record)?;
+        self.active_job = None;
+        self.job_evidence_receiver = None;
+        self.job_result_receiver = None;
+        Ok(())
     }
 
     fn append_audit(
@@ -1201,10 +1786,11 @@ impl ControlPlane {
             let worker = worker.as_ref().ok_or(ExecuteError::Internal)?;
             worker.verify()?;
             Some(
-                SupervisedRuntime::deterministic(
+                SupervisedRuntime::deterministic_guarded(
                     candidate_isolation(self.protected_runtime_paths()),
                     &worker.executable,
                     [],
+                    &self.guardian_executable,
                 )
                 .map_err(|_| ExecuteError::Internal)?,
             )
@@ -1300,11 +1886,15 @@ impl ControlPlane {
             .run_result_signer
             .issue(receipt, timestamp)
             .map_err(|_| ExecuteError::Internal)?;
-        self.storage
+        let stored = self
+            .storage
             .as_mut()
             .ok_or(ExecuteError::Internal)?
             .ledger
             .append(event)
+            .map_err(|_| ExecuteError::Internal)?;
+        self.state
+            .apply(&stored, &self.operator_token, &self.run_result_verifier)
             .map_err(|_| ExecuteError::Internal)?;
         Ok(())
     }
@@ -1552,6 +2142,7 @@ enum ExecuteError {
     Rejected(String),
     NotFound,
     Internal,
+    Busy,
 }
 
 fn map_selection_error(error: &ArenaError) -> ExecuteError {
@@ -1637,6 +2228,16 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     {
         return Err(ExecuteError::Invalid("path is required"));
     }
+    if let Command::RunSubmit { job_id, genome_id } = command
+        && (job_id.trim().is_empty() || genome_id.trim().is_empty())
+    {
+        return Err(ExecuteError::Invalid("job_id and genome_id are required"));
+    }
+    if let Command::JobStatus { job_id } | Command::JobKill { job_id } = command
+        && job_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("job_id is required"));
+    }
     if let Command::RunReference { genome_id } | Command::RunEvaluation { genome_id, .. } = &command
         && genome_id.trim().is_empty()
     {
@@ -1702,6 +2303,95 @@ struct ReferenceExecution {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     trace_artifact_ids: Vec<String>,
+}
+
+fn execute_async_reference(
+    launch: AsyncReferenceLaunch,
+    spec: &RunSpec,
+    evidence: hephaestus_experience::ChannelEvidenceSink,
+    initial_sequence: u64,
+) -> Result<ReferenceExecution, String> {
+    let AsyncReferenceLaunch {
+        data_dir,
+        guardian,
+        protected_paths,
+        worker,
+        cancel,
+    } = launch;
+    worker
+        .verify()
+        .map_err(|_| "reference worker identity check failed".to_owned())?;
+    let manager = SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30))
+        .map_err(|_| "sandbox could not be opened".to_owned())?;
+    let (sandbox, token) = manager
+        .create(spec)
+        .map_err(|_| "sandbox could not be created".to_owned())?;
+    let sandbox = SandboxCleanupGuard::new(sandbox);
+    let runtime = SupervisedRuntime::deterministic_guarded(
+        candidate_isolation(protected_paths),
+        &worker.executable,
+        [],
+        &guardian,
+    )
+    .map_err(|_| "guarded worker could not be configured".to_owned())?;
+    let mut runtime = RecordedRuntime::with_sink(runtime, evidence, initial_sequence);
+    let result = (|| {
+        runtime
+            .start(
+                spec,
+                sandbox.sandbox().map_err(|_| "sandbox unavailable")?,
+                &token,
+            )
+            .map_err(|_| "guarded worker did not start".to_owned())?;
+        loop {
+            if cancel.load(Ordering::Acquire) {
+                runtime
+                    .interrupt(spec.run_id())
+                    .map_err(|_| "guarded worker did not confirm cancellation".to_owned())?;
+            }
+            let snapshot = runtime
+                .snapshot(spec.run_id())
+                .map_err(|_| "guarded worker status failed".to_owned())?;
+            if snapshot.status != RunStatus::Running {
+                let completion_reason = snapshot
+                    .completion_reason
+                    .ok_or_else(|| "terminal worker omitted completion reason".to_owned())?;
+                let stdout = fs::read(&snapshot.stdout_path)
+                    .map_err(|_| "worker output could not be read".to_owned())?;
+                let stderr = fs::read(&snapshot.stderr_path)
+                    .map_err(|_| "worker diagnostics could not be read".to_owned())?;
+                let latency_millis = u64::try_from(snapshot.elapsed.as_millis())
+                    .map_err(|_| "worker latency is invalid".to_owned())?;
+                return Ok(ReferenceExecution {
+                    completion_reason: map_run_completion_reason(completion_reason),
+                    latency_millis,
+                    stdout,
+                    stderr,
+                    trace_artifact_ids: runtime.trace_artifact_ids().to_vec(),
+                });
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    })();
+    if result.is_err() {
+        // Contain every post-start failure before removing the private workspace.
+        // `interrupt` waits for the guardian's worker process group to exit;
+        // dropping the supervisor repeats this best-effort containment if trace
+        // persistence itself prevented the normal interruption trace.
+        let _ignored = runtime.interrupt(spec.run_id());
+    }
+    drop(runtime);
+    sandbox
+        .cleanup()
+        .map_err(|_| "sandbox cleanup failed".to_owned())?;
+    worker
+        .verify()
+        .map_err(|_| "reference worker identity changed".to_owned())?;
+    result
+}
+
+fn map_run_completion_reason(reason: CompletionReason) -> RunCompletionReason {
+    reason.into()
 }
 
 fn execute_reference_runtime(
@@ -1815,6 +2505,23 @@ fn candidate_isolation(protected_paths: Vec<PathBuf>) -> IsolationPolicy {
     IsolationPolicy::detect(protected_paths)
 }
 
+fn validate_job_id(job_id: &str) -> Result<(), ExecuteError> {
+    if job_id.is_empty()
+        || job_id.len() > 128
+        || !job_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(ExecuteError::Invalid("job_id is invalid"));
+    }
+    Ok(())
+}
+
+fn job_run_id(job_id: &str) -> String {
+    let digest = blake3::hash(job_id.as_bytes()).to_hex().to_string();
+    format!("async-{}", &digest[..32])
+}
+
 fn paired_run_prefix(evaluation_id: &str) -> String {
     let digest = blake3::hash(evaluation_id.as_bytes()).to_hex().to_string();
     format!("paired-{}", &digest[..24])
@@ -1881,6 +2588,30 @@ fn default_reference_worker_executable() -> Result<PathBuf, ControlError> {
     Ok(sibling)
 }
 
+fn default_process_guardian_executable() -> Result<PathBuf, ControlError> {
+    let current = env::current_exe()?;
+    let directory = current
+        .parent()
+        .ok_or(ControlError::Protocol("daemon executable has no directory"))?;
+    let sibling = directory.join(format!(
+        "hephaestus-process-guardian{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if sibling.exists() {
+        return Ok(sibling);
+    }
+    if let Some(parent) = directory.parent() {
+        let cargo_sibling = parent.join(format!(
+            "hephaestus-process-guardian{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        if cargo_sibling.exists() {
+            return Ok(cargo_sibling);
+        }
+    }
+    Ok(sibling)
+}
+
 fn executable_digest(path: &Path) -> Result<String, ControlError> {
     let metadata = fs::metadata(path)?;
     if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
@@ -1926,6 +2657,10 @@ fn persist_reference_output(
 struct ControlState {
     freeze: FreezeState,
     active_runs: BTreeSet<String>,
+    jobs: BTreeMap<String, JobRecord>,
+    job_progress: BTreeMap<String, JobProgress>,
+    run_results: BTreeMap<String, RunResultReceipt>,
+    completed_runs: BTreeSet<String>,
     registered: RegisteredObjects,
     event_count: u64,
 }
@@ -1940,6 +2675,10 @@ impl ControlState {
         let mut state = Self {
             freeze: FreezeState::frozen(operator_token),
             active_runs: BTreeSet::new(),
+            jobs: BTreeMap::new(),
+            job_progress: BTreeMap::new(),
+            run_results: BTreeMap::new(),
+            completed_runs: BTreeSet::new(),
             registered,
             event_count: 0,
         };
@@ -1977,7 +2716,6 @@ impl ControlState {
                 .freeze
                 .unfreeze(operator_token)
                 .map_err(|_| ControlError::Projection("operator proof rejected".to_owned()))?,
-            "control.kill_all" => self.active_runs.clear(),
             "run.started" => {
                 let run: RunRecord = serde_json::from_slice(&event.payload)?;
                 require_projection_text(&run.run_id, "run_id")?;
@@ -1991,6 +2729,20 @@ impl ControlState {
             "trace.recorded" => {
                 let receipt: TraceReceipt = serde_json::from_slice(&event.payload)?;
                 validate_trace_receipt(event, &receipt)?;
+                let owner = self
+                    .jobs
+                    .iter()
+                    .find(|(_, job)| job.run_id == receipt.provenance.run_id())
+                    .map(|(job_id, _)| job_id.clone());
+                if let Some(job_id) = owner {
+                    let progress = self.job_progress.entry(job_id).or_default();
+                    progress.trace_events =
+                        progress.trace_events.checked_add(1).ok_or_else(|| {
+                            ControlError::Projection("job trace count overflow".to_owned())
+                        })?;
+                    progress.last_event_sequence = Some(event.sequence);
+                    progress.last_phase = Some(trace_phase(receipt.kind).to_owned());
+                }
                 match receipt.kind {
                     TraceKind::LifecycleStarted | TraceKind::LifecycleResumed => {
                         self.active_runs
@@ -1998,15 +2750,205 @@ impl ControlState {
                     }
                     TraceKind::LifecycleCompleted => {
                         self.active_runs.remove(receipt.provenance.run_id());
+                        self.completed_runs
+                            .insert(receipt.provenance.run_id().to_owned());
                     }
                     _ => {}
                 }
             }
-            "run.result_recorded" => validate_run_result(event, run_result_verifier)?,
+            "run.result_recorded" => {
+                let receipt = RunResultReceipt::parse_from_event(event, run_result_verifier)
+                    .map_err(|_| {
+                        ControlError::Projection("canonical run result is invalid".to_owned())
+                    })?;
+                self.run_results.insert(receipt.run_id.clone(), receipt);
+            }
+            "job.admitted" | "job.running" | "job.cancellation_requested" | "job.terminal" => {
+                self.apply_job_record(event)?;
+            }
             _ => {}
         }
         self.event_count = event.sequence;
         Ok(())
+    }
+
+    fn apply_job_record(&mut self, event: &StoredEvent) -> Result<(), ControlError> {
+        let record: JobRecord = serde_json::from_slice(&event.payload)?;
+        self.validate_job_record(event, &record)?;
+        if !self.job_transition_is_valid(event, &record) {
+            return Err(ControlError::Projection(
+                "job lifecycle transition is invalid".to_owned(),
+            ));
+        }
+        self.commit_job_record(record);
+        Ok(())
+    }
+
+    fn validate_job_record(
+        &self,
+        event: &StoredEvent,
+        record: &JobRecord,
+    ) -> Result<(), ControlError> {
+        require_projection_text(&record.job_id, "job_id")?;
+        require_projection_text(&record.run_id, "run_id")?;
+        require_projection_text(&record.task_id, "task_id")?;
+        require_projection_text(&record.environment_id, "environment_id")?;
+        require_projection_text(&record.source_revision, "source_revision")?;
+        validate_content_id(&record.genome_id, "genome")?;
+        validate_content_id(&record.world_id, "world")?;
+        let environment_digest = record
+            .environment_id
+            .strip_prefix("reference-v1.")
+            .ok_or_else(|| ControlError::Projection("job environment is invalid".to_owned()))?;
+        ArtifactId::parse(environment_digest.to_owned())?;
+        let genome = self
+            .registered
+            .genome(&record.genome_id)
+            .ok_or_else(|| ControlError::Projection("job Genome is unregistered".to_owned()))?;
+        let fixed_input =
+            "Inventory the isolated repository without modifying it or using the network.";
+        if record.run_id != job_run_id(&record.job_id)
+            || record.world_id != genome.record().world_id
+            || record.task_id != "repository-inventory-v1"
+            || record.input_commitment != blake3::hash(fixed_input.as_bytes()).to_hex().to_string()
+            || record.seed != 0
+            || record.budget
+                != (RunBudgetReceipt {
+                    wall_millis: 10_000,
+                    maximum_output_bytes: 1_048_576,
+                    maximum_cost_microusd: 0,
+                })
+        {
+            return Err(ControlError::Projection(
+                "job spec binding is invalid".to_owned(),
+            ));
+        }
+        if event.actor != RUNTIME_ACTOR
+            || event.aggregate_id != format!("job:{}", record.job_id)
+            || event.event_id
+                != format!(
+                    "job:{}:{}",
+                    record.job_id,
+                    event.event_type.strip_prefix("job.").unwrap_or("invalid")
+                )
+        {
+            return Err(ControlError::Projection(
+                "job event crossed its runtime boundary".to_owned(),
+            ));
+        }
+        if event.event_type == "job.terminal" {
+            let receipt = self.run_results.get(&record.run_id);
+            let matches = receipt.is_some_and(|receipt| receipt_matches_job(receipt, record));
+            if record.state == JobState::Succeeded
+                && (!matches
+                    || !self.completed_runs.contains(&record.run_id)
+                    || !receipt.is_some_and(|receipt| {
+                        receipt.completion_reason == RunCompletionReason::Success
+                    }))
+            {
+                return Err(ControlError::Projection(
+                    "successful job terminal lacks matching signed result and lifecycle completion"
+                        .to_owned(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn job_transition_is_valid(&self, event: &StoredEvent, record: &JobRecord) -> bool {
+        let previous = self.jobs.get(&record.job_id);
+        let valid = match event.event_type.as_str() {
+            "job.admitted" => {
+                previous.is_none()
+                    && record.state == JobState::Admitted
+                    && record.terminal.is_none()
+            }
+            "job.running" => {
+                previous.is_some_and(|old| old.state == JobState::Admitted)
+                    && record.state == JobState::Running
+                    && record.terminal.is_none()
+            }
+            "job.cancellation_requested" => {
+                previous
+                    .is_some_and(|old| matches!(old.state, JobState::Running | JobState::Admitted))
+                    && record.state == JobState::CancellationRequested
+                    && record.terminal.is_none()
+            }
+            "job.terminal" => {
+                let previous_active = previous.is_some_and(|old| {
+                    matches!(
+                        old.state,
+                        JobState::Running | JobState::Admitted | JobState::CancellationRequested
+                    )
+                });
+                let state_matches_terminal = matches!(
+                    (record.state, record.terminal),
+                    (JobState::Succeeded, Some(JobTerminal::Succeeded))
+                        | (JobState::Failed, Some(JobTerminal::Failed))
+                        | (
+                            JobState::Interrupted,
+                            Some(JobTerminal::Cancelled | JobTerminal::Interrupted),
+                        )
+                );
+                let signed_result = self.run_results.get(&record.run_id);
+                let receipt_matches =
+                    signed_result.is_some_and(|receipt| receipt_matches_job(receipt, record));
+                let terminal_proven = match record.terminal {
+                    Some(JobTerminal::Succeeded) => {
+                        receipt_matches
+                            && self.completed_runs.contains(&record.run_id)
+                            && signed_result.is_some_and(|receipt| {
+                                receipt.completion_reason == RunCompletionReason::Success
+                            })
+                    }
+                    Some(JobTerminal::Failed) => signed_result.is_none_or(|receipt| {
+                        receipt_matches && receipt.completion_reason != RunCompletionReason::Success
+                    }),
+                    Some(JobTerminal::Cancelled) => {
+                        previous.is_some_and(|old| old.state == JobState::CancellationRequested)
+                            && signed_result.is_none_or(|receipt| {
+                                receipt_matches
+                                    && receipt.completion_reason != RunCompletionReason::Success
+                            })
+                    }
+                    Some(JobTerminal::Interrupted) => signed_result.is_none_or(|receipt| {
+                        receipt_matches && receipt.completion_reason != RunCompletionReason::Success
+                    }),
+                    None => false,
+                };
+                previous_active && state_matches_terminal && terminal_proven
+            }
+            _ => false,
+        };
+        valid
+            && !previous.is_some_and(|old| {
+                old.genome_id != record.genome_id
+                    || old.run_id != record.run_id
+                    || old.source_revision != record.source_revision
+                    || old.world_id != record.world_id
+                    || old.task_id != record.task_id
+                    || old.input_commitment != record.input_commitment
+                    || old.seed != record.seed
+                    || old.environment_id != record.environment_id
+                    || old.budget != record.budget
+            })
+    }
+
+    fn commit_job_record(&mut self, record: JobRecord) {
+        if record.state == JobState::Running {
+            self.active_runs.insert(record.run_id.clone());
+        }
+        if record.state == JobState::Admitted {
+            self.job_progress
+                .insert(record.job_id.clone(), JobProgress::default());
+        }
+        if matches!(
+            record.state,
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted
+        ) {
+            self.active_runs.remove(&record.run_id);
+        }
+        self.jobs.insert(record.job_id.clone(), record);
     }
 
     fn status(&self) -> ResponseData {
@@ -2024,6 +2966,10 @@ impl ControlState {
             active_runs: self.active_runs.iter().cloned().collect(),
             genomes: self.registered.genome_records(),
             worlds: self.registered.world_records(),
+            jobs: self.jobs.clone(),
+            job_progress: self.job_progress.clone(),
+            run_results: self.run_results.clone(),
+            completed_runs: self.completed_runs.iter().cloned().collect(),
             event_count: self.event_count,
         }
     }
@@ -2053,6 +2999,67 @@ impl ControlState {
     }
 }
 
+fn recover_unfinished_jobs(
+    ledger: &mut EventStore,
+    state: &mut ControlState,
+    operator_token: &OperatorToken,
+    run_result_verifier: &RunResultVerifier,
+) -> Result<(), ControlError> {
+    let unfinished_jobs: Vec<_> = state
+        .jobs
+        .values()
+        .filter(|job| {
+            matches!(
+                job.state,
+                JobState::Admitted | JobState::Running | JobState::CancellationRequested
+            )
+        })
+        .cloned()
+        .collect();
+    for mut job in unfinished_jobs {
+        let cancelled = job.state == JobState::CancellationRequested;
+        let receipt = state.run_results.get(&job.run_id);
+        if receipt.is_some_and(|receipt| !receipt_matches_job(receipt, &job)) {
+            return Err(ControlError::Projection(
+                "signed job result differs from its admitted spec".to_owned(),
+            ));
+        }
+        if receipt.is_some_and(|receipt| {
+            receipt.completion_reason == RunCompletionReason::Success
+                && !state.completed_runs.contains(&job.run_id)
+        }) {
+            return Err(ControlError::Projection(
+                "successful job result lacks a completed lifecycle trace".to_owned(),
+            ));
+        }
+        (job.state, job.terminal) = if cancelled {
+            (JobState::Interrupted, Some(JobTerminal::Cancelled))
+        } else {
+            match receipt.map(|receipt| receipt.completion_reason) {
+                Some(RunCompletionReason::Success) => {
+                    (JobState::Succeeded, Some(JobTerminal::Succeeded))
+                }
+                Some(RunCompletionReason::OperatorInterrupt) => {
+                    (JobState::Interrupted, Some(JobTerminal::Interrupted))
+                }
+                Some(_) => (JobState::Failed, Some(JobTerminal::Failed)),
+                None => (JobState::Interrupted, Some(JobTerminal::Interrupted)),
+            }
+        };
+        let payload = serde_json::to_vec(&job)?;
+        let event = ledger.append(EventInput::new(
+            format!("job:{}:terminal", job.job_id),
+            format!("job:{}", job.job_id),
+            "job.terminal",
+            RUNTIME_ACTOR,
+            timestamp_millis()?,
+            payload,
+        ))?;
+        state.apply(&event, operator_token, run_result_verifier)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RunRecord {
@@ -2065,6 +3072,10 @@ struct ProjectionSnapshot {
     active_runs: Vec<String>,
     genomes: BTreeMap<String, GenomeRecord>,
     worlds: BTreeMap<String, WorldRecord>,
+    jobs: BTreeMap<String, JobRecord>,
+    job_progress: BTreeMap<String, JobProgress>,
+    run_results: BTreeMap<String, RunResultReceipt>,
+    completed_runs: Vec<String>,
     event_count: u64,
 }
 
@@ -2084,6 +3095,29 @@ fn validate_trace_receipt(event: &StoredEvent, receipt: &TraceReceipt) -> Result
     Ok(())
 }
 
+const fn trace_phase(kind: TraceKind) -> &'static str {
+    match kind {
+        TraceKind::LifecycleStarted => "started",
+        TraceKind::LifecycleResumed => "resumed",
+        TraceKind::LifecycleCompleted => "completed",
+        TraceKind::ToolCalled => "tool_called",
+        TraceKind::ToolResult => "tool_result",
+        TraceKind::ContextComposed => "context_composed",
+        TraceKind::MemoryRetrieved => "memory_retrieved",
+        TraceKind::SubagentSpawned => "subagent_spawned",
+        TraceKind::FileRead => "file_read",
+        TraceKind::FileChanged => "file_changed",
+        TraceKind::TestExecuted => "test_executed",
+        TraceKind::CapabilityDenied => "capability_denied",
+        TraceKind::CostObserved => "cost_observed",
+        TraceKind::CheckpointCreated => "checkpoint_created",
+        TraceKind::Error => "error",
+        TraceKind::Retry => "retry",
+        TraceKind::ModelResponse => "model_response",
+    }
+}
+
+#[cfg(test)]
 fn validate_run_result(
     event: &StoredEvent,
     run_result_verifier: &RunResultVerifier,
@@ -2091,6 +3125,18 @@ fn validate_run_result(
     RunResultReceipt::parse_from_event(event, run_result_verifier)
         .map(|_| ())
         .map_err(|_| ControlError::Projection("canonical run result is invalid".to_owned()))
+}
+
+fn receipt_matches_job(receipt: &RunResultReceipt, job: &JobRecord) -> bool {
+    receipt.run_id == job.run_id
+        && receipt.genome_id == job.genome_id
+        && receipt.world_id == job.world_id
+        && receipt.source_revision == job.source_revision
+        && receipt.task_id == job.task_id
+        && receipt.input_commitment == job.input_commitment
+        && receipt.seed == job.seed
+        && receipt.environment_id == job.environment_id
+        && receipt.budget == job.budget
 }
 
 fn trace_artifacts_for_run(
@@ -2152,6 +3198,9 @@ fn event_type(command: &Command) -> &'static str {
         Command::ManifestPut { .. } => "control.manifest_put",
         Command::ArtifactPut { .. } => "control.artifact_put",
         Command::VerifierShow => "control.verifier_show",
+        Command::RunSubmit { .. } => "control.run_submit",
+        Command::JobStatus { .. } => "control.job_status",
+        Command::JobKill { .. } => "control.job_kill",
         Command::RunReference { .. } => "control.run_reference",
         Command::RunEvaluation { .. } => "control.run_evaluation",
         Command::EvaluatePair { .. } => "control.evaluate_pair",
@@ -2459,6 +3508,1009 @@ mod tests {
     use super::*;
 
     #[test]
+    fn progress_phase_names_cover_each_persisted_trace_kind() {
+        let kinds = [
+            (TraceKind::LifecycleStarted, "started"),
+            (TraceKind::LifecycleResumed, "resumed"),
+            (TraceKind::LifecycleCompleted, "completed"),
+            (TraceKind::ToolCalled, "tool_called"),
+            (TraceKind::ToolResult, "tool_result"),
+            (TraceKind::ContextComposed, "context_composed"),
+            (TraceKind::MemoryRetrieved, "memory_retrieved"),
+            (TraceKind::SubagentSpawned, "subagent_spawned"),
+            (TraceKind::FileRead, "file_read"),
+            (TraceKind::FileChanged, "file_changed"),
+            (TraceKind::TestExecuted, "test_executed"),
+            (TraceKind::CapabilityDenied, "capability_denied"),
+            (TraceKind::CostObserved, "cost_observed"),
+            (TraceKind::CheckpointCreated, "checkpoint_created"),
+            (TraceKind::Error, "error"),
+            (TraceKind::Retry, "retry"),
+            (TraceKind::ModelResponse, "model_response"),
+        ];
+        for (kind, expected) in kinds {
+            assert_eq!(trace_phase(kind), expected);
+        }
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn command_audit_types_and_source_extensions_are_stable() {
+        let commands = [
+            (Command::Status, "control.status"),
+            (Command::Freeze, "control.freeze"),
+            (Command::Unfreeze, "control.unfreeze"),
+            (Command::KillAll, "control.kill_all"),
+            (
+                Command::GenomeShow {
+                    genome_id: "g".into(),
+                },
+                "control.genome_show",
+            ),
+            (
+                Command::GenomePrompt {
+                    genome_id: "g".into(),
+                },
+                "control.genome_prompt",
+            ),
+            (Command::GenomeList, "control.genome_list"),
+            (
+                Command::GenomeRegister {
+                    path: "a.md".into(),
+                    world_id: "w".into(),
+                },
+                "control.genome_register",
+            ),
+            (
+                Command::WorldShow {
+                    world_id: "w".into(),
+                },
+                "control.world_show",
+            ),
+            (Command::WorldList, "control.world_list"),
+            (
+                Command::WorldRegister {
+                    path: "a.json".into(),
+                },
+                "control.world_register",
+            ),
+            (
+                Command::ManifestPut {
+                    path: "a.json".into(),
+                },
+                "control.manifest_put",
+            ),
+            (
+                Command::ArtifactPut {
+                    path: "a.bin".into(),
+                },
+                "control.artifact_put",
+            ),
+            (Command::VerifierShow, "control.verifier_show"),
+            (
+                Command::RunSubmit {
+                    job_id: "j".into(),
+                    genome_id: "g".into(),
+                },
+                "control.run_submit",
+            ),
+            (
+                Command::JobStatus { job_id: "j".into() },
+                "control.job_status",
+            ),
+            (Command::JobKill { job_id: "j".into() }, "control.job_kill"),
+            (
+                Command::RunReference {
+                    genome_id: "g".into(),
+                },
+                "control.run_reference",
+            ),
+            (
+                Command::RunEvaluation {
+                    genome_id: "g".into(),
+                    task_id: "t".into(),
+                    input: "i".into(),
+                    seed: 1,
+                    wall_millis: 1,
+                    maximum_output_bytes: 1,
+                    maximum_cost_microusd: 0,
+                },
+                "control.run_evaluation",
+            ),
+            (
+                Command::EvaluatePair {
+                    evaluation_id: "e".into(),
+                    parent_genome_id: "p".into(),
+                    candidate_genome_id: "c".into(),
+                },
+                "control.evaluate_pair",
+            ),
+            (
+                Command::ArenaSelect {
+                    evaluation_id: "e".into(),
+                },
+                "control.arena_select",
+            ),
+            (Command::Replay, "control.replay"),
+            (Command::DaemonStop, "control.daemon_stop"),
+        ];
+        for (command, expected) in commands {
+            assert_eq!(event_type(&command), expected);
+            assert!(require_command_fields(&command).is_ok());
+        }
+        assert_eq!(source_format("world.json").unwrap(), SourceFormat::Json);
+        assert_eq!(source_format("world.yaml").unwrap(), SourceFormat::Yaml);
+        assert_eq!(source_format("world.yml").unwrap(), SourceFormat::Yaml);
+        assert!(source_format("agent.md").is_err());
+    }
+
+    #[test]
+    fn bounded_source_reader_rejects_invalid_utf8_and_oversized_files() {
+        let directory = tempdir().expect("source directory");
+        let source = directory.path().join("source.yaml");
+        fs::write(&source, b"key: value\n").expect("write source");
+        assert_eq!(
+            read_source_text(source.to_str().unwrap(), 32).unwrap(),
+            "key: value\n"
+        );
+        assert!(read_bounded_file(source.to_str().unwrap(), 2).is_err());
+        fs::write(&source, [0xff]).expect("write invalid UTF-8");
+        assert!(read_source_text(source.to_str().unwrap(), 32).is_err());
+        assert!(read_bounded_file(directory.path().to_str().unwrap(), 32).is_err());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn bounded_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_clients() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (server, mut client) = UnixStream::pair().expect("create local socket pair");
+        let active = Arc::new(AtomicUsize::new(1));
+        let handler_active = Arc::clone(&active);
+        let handler = thread::spawn(move || serve_connection(server, &sender, handler_active));
+        let request = ApiRequest {
+            version: API_VERSION,
+            request_id: "socket-request".to_owned(),
+            token: "token".to_owned(),
+            command: Command::Status,
+        };
+        client
+            .write_all(&serde_json::to_vec(&request).expect("encode request"))
+            .expect("write request");
+        client
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish request frame");
+        let queued = receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer receives request");
+        assert_eq!(queued.request, request);
+        queued
+            .reply
+            .send(ApiResponse::success(
+                request.request_id.clone(),
+                ResponseData::Status {
+                    frozen: true,
+                    active_runs: 0,
+                    event_count: 1,
+                    genome_count: 0,
+                },
+            ))
+            .expect("reply to socket handler");
+        let mut response_bytes = Vec::new();
+        client
+            .read_to_end(&mut response_bytes)
+            .expect("read socket response");
+        handler.join().expect("join socket handler");
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&response_bytes)
+                .expect("decode socket response")
+                .request_id,
+            "socket-request"
+        );
+
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        let malformed = serve_test_connection(&sender, b"{");
+        assert_eq!(
+            malformed.error.expect("malformed response").code,
+            ApiErrorCode::InvalidRequest
+        );
+
+        let oversized = vec![b'x'; MAX_REQUEST_BYTES * 2];
+        let response = serve_test_connection(&sender, &oversized);
+        assert_eq!(
+            response.error.expect("oversized response").code,
+            ApiErrorCode::InvalidRequest
+        );
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
+        sender
+            .try_send(QueuedRequest {
+                request: request.clone(),
+                reply: reply_sender,
+            })
+            .expect("saturate writer queue");
+        let full = serve_test_connection(&sender, &serde_json::to_vec(&request).unwrap());
+        assert_eq!(full.error.expect("busy response").code, ApiErrorCode::Busy);
+        drop(receiver);
+        drop(reply_receiver);
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        drop(receiver);
+        let stopped = serve_test_connection(&sender, &serde_json::to_vec(&request).unwrap());
+        assert_eq!(
+            stopped.error.expect("stopped response").code,
+            ApiErrorCode::Internal
+        );
+
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        let timeout = serve_silent_test_connection(&sender);
+        assert_eq!(
+            timeout.error.expect("timeout response").code,
+            ApiErrorCode::InvalidRequest
+        );
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (server, mut client) = UnixStream::pair().expect("create disconnect socket pair");
+        let active = Arc::new(AtomicUsize::new(1));
+        let handler_active = Arc::clone(&active);
+        let handler_sender = sender.clone();
+        let handler =
+            thread::spawn(move || serve_connection(server, &handler_sender, handler_active));
+        client
+            .write_all(&serde_json::to_vec(&request).expect("encode disconnect request"))
+            .expect("write disconnect request");
+        client
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish disconnect request");
+        let queued = receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer receives disconnect request");
+        drop(client);
+        queued
+            .reply
+            .send(ApiResponse::success(
+                request.request_id,
+                ResponseData::Status {
+                    frozen: true,
+                    active_runs: 0,
+                    event_count: 1,
+                    genome_count: 0,
+                },
+            ))
+            .expect("reply remains independent of client disconnect");
+        handler.join().expect("join disconnected handler");
+        assert_eq!(active.load(Ordering::Acquire), 0);
+    }
+
+    fn serve_test_connection(
+        sender: &mpsc::SyncSender<QueuedRequest>,
+        bytes: &[u8],
+    ) -> ApiResponse {
+        let (server, mut client) = UnixStream::pair().expect("create local socket pair");
+        let active = Arc::new(AtomicUsize::new(1));
+        let handler_active = Arc::clone(&active);
+        let handler_sender = sender.clone();
+        let handler =
+            thread::spawn(move || serve_connection(server, &handler_sender, handler_active));
+        client.write_all(bytes).expect("write request bytes");
+        client
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish request frame");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .expect("read error response");
+        handler.join().expect("join socket handler");
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        serde_json::from_slice(&response).expect("decode error response")
+    }
+
+    fn serve_silent_test_connection(sender: &mpsc::SyncSender<QueuedRequest>) -> ApiResponse {
+        let (server, mut client) = UnixStream::pair().expect("create silent socket pair");
+        let active = Arc::new(AtomicUsize::new(1));
+        let handler_active = Arc::clone(&active);
+        let handler_sender = sender.clone();
+        let handler =
+            thread::spawn(move || serve_connection(server, &handler_sender, handler_active));
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .expect("read timeout response");
+        handler.join().expect("join timed out handler");
+        assert_eq!(active.load(Ordering::Acquire), 0);
+        serde_json::from_slice(&response).expect("decode timeout response")
+    }
+
+    #[test]
+    fn real_listener_services_status_and_shutdown_through_the_socket_writer() {
+        let directory = tempdir().expect("daemon directory");
+        let data_dir = directory.path().join("daemon-data");
+        let plane = ControlPlane::open(&data_dir).expect("open control plane");
+        let server = thread::spawn(move || plane.serve());
+        let socket = data_dir.join("control.sock");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let token = loop {
+            if let Ok(token) = fs::read_to_string(data_dir.join("operator.token"))
+                && UnixStream::connect(&socket).is_ok()
+            {
+                break token;
+            }
+            assert!(Instant::now() < deadline, "listener did not start");
+            thread::sleep(Duration::from_millis(2));
+        };
+        let mut slow_clients: Vec<_> = (0..=MAX_SOCKET_HANDLERS)
+            .map(|_| UnixStream::connect(&socket).expect("connect slow client"))
+            .collect();
+        for client in &slow_clients {
+            client
+                .set_nonblocking(true)
+                .expect("make slow client nonblocking");
+        }
+        let mut response_bytes = vec![Vec::new(); slow_clients.len()];
+        let saturation_deadline = Instant::now() + Duration::from_secs(1);
+        while !response_bytes.iter().any(|bytes| {
+            bytes
+                .windows(b"daemon connection limit reached".len())
+                .any(|window| window == b"daemon connection limit reached")
+        }) {
+            for (client, bytes) in slow_clients.iter_mut().zip(&mut response_bytes) {
+                let mut buffer = [0_u8; 256];
+                if let Ok(read) = client.read(&mut buffer) {
+                    bytes.extend_from_slice(&buffer[..read]);
+                }
+            }
+            assert!(
+                Instant::now() < saturation_deadline,
+                "handler limit was not enforced"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+        drop(slow_clients);
+        let status = send_test_api_request(&socket, &token, "status-1", Command::Status);
+        assert!(matches!(status.data, Some(ResponseData::Status { .. })));
+        let stopped = send_test_api_request(&socket, &token, "stop-1", Command::DaemonStop);
+        assert!(matches!(
+            stopped.data,
+            Some(ResponseData::Acknowledged { .. })
+        ));
+        server
+            .join()
+            .expect("join listener thread")
+            .expect("serve requests");
+    }
+
+    #[test]
+    fn authenticated_command_dispatch_covers_safe_read_and_control_paths() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let token = plane.token_hex.clone();
+        assert_dispatch_auth_and_control_paths(&mut plane, &token);
+        assert_dispatch_missing_command_paths(&mut plane, &token, &directory);
+        let (world, genome, prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+        assert_registered_dispatch_objects(&mut plane, &token, &world, &genome, prompt);
+        exercise_dispatch_job(&mut plane, &genome.genome_id);
+        assert!(matches!(
+            dispatch_call(&mut plane, &token, "replay", Command::Replay).data,
+            Some(ResponseData::Replay { .. })
+        ));
+        assert!(matches!(
+            dispatch_call(&mut plane, &token, "stop", Command::DaemonStop).data,
+            Some(ResponseData::Acknowledged { .. })
+        ));
+    }
+
+    fn dispatch_call(
+        plane: &mut ControlPlane,
+        token: &str,
+        request_id: &str,
+        command: Command,
+    ) -> ApiResponse {
+        plane.handle(ApiRequest {
+            version: API_VERSION,
+            request_id: request_id.to_owned(),
+            token: token.to_owned(),
+            command,
+        })
+    }
+
+    fn assert_dispatch_auth_and_control_paths(plane: &mut ControlPlane, token: &str) {
+        for (request, expected) in [
+            (
+                ApiRequest {
+                    version: API_VERSION + 1,
+                    request_id: "version".to_owned(),
+                    token: token.to_owned(),
+                    command: Command::Status,
+                },
+                ApiErrorCode::UnsupportedVersion,
+            ),
+            (
+                ApiRequest {
+                    version: API_VERSION,
+                    request_id: "auth".to_owned(),
+                    token: "wrong-token".to_owned(),
+                    command: Command::Status,
+                },
+                ApiErrorCode::Unauthorized,
+            ),
+        ] {
+            assert_eq!(
+                plane.handle(request).error.expect("request rejection").code,
+                expected
+            );
+        }
+        assert_eq!(
+            dispatch_call(plane, token, "", Command::Status)
+                .error
+                .expect("request ID error")
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        for (request_id, command) in [
+            ("status", Command::Status),
+            ("freeze", Command::Freeze),
+            ("unfreeze", Command::Unfreeze),
+            ("kill-all", Command::KillAll),
+            ("genomes", Command::GenomeList),
+            ("worlds", Command::WorldList),
+        ] {
+            assert!(
+                dispatch_call(plane, token, request_id, command)
+                    .error
+                    .is_none()
+            );
+        }
+    }
+
+    fn assert_dispatch_missing_command_paths(
+        plane: &mut ControlPlane,
+        token: &str,
+        directory: &TempDir,
+    ) {
+        for (index, command) in [
+            Command::GenomeShow {
+                genome_id: "hephaestus:genome:missing".to_owned(),
+            },
+            Command::WorldShow {
+                world_id: "hephaestus:world:missing".to_owned(),
+            },
+            Command::JobStatus {
+                job_id: "missing".to_owned(),
+            },
+            Command::JobKill {
+                job_id: "missing".to_owned(),
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                dispatch_call(plane, token, &format!("not-found-{index}"), command)
+                    .error
+                    .expect("not-found response")
+                    .code,
+                ApiErrorCode::NotFound
+            );
+        }
+        let absent_genome = format!("hephaestus:genome:{}", "f".repeat(64));
+        let missing = |name: &str| directory.path().join(name).display().to_string();
+        let commands = [
+            Command::GenomePrompt {
+                genome_id: absent_genome.clone(),
+            },
+            Command::RunSubmit {
+                job_id: "missing-genome-job".to_owned(),
+                genome_id: absent_genome.clone(),
+            },
+            Command::RunReference {
+                genome_id: absent_genome.clone(),
+            },
+            Command::RunEvaluation {
+                genome_id: absent_genome.clone(),
+                task_id: "task".to_owned(),
+                input: "input".to_owned(),
+                seed: 0,
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 0,
+            },
+            Command::EvaluatePair {
+                evaluation_id: "missing-pair".to_owned(),
+                parent_genome_id: absent_genome.clone(),
+                candidate_genome_id: format!("hephaestus:genome:{}", "e".repeat(64)),
+            },
+            Command::ArenaSelect {
+                evaluation_id: "missing-evaluation".to_owned(),
+            },
+            Command::GenomeRegister {
+                path: missing("missing.md"),
+                world_id: format!("hephaestus:world:{}", "d".repeat(64)),
+            },
+            Command::WorldRegister {
+                path: missing("missing.json"),
+            },
+            Command::ManifestPut {
+                path: missing("missing-manifest.json"),
+            },
+            Command::ArtifactPut {
+                path: missing("missing-artifact"),
+            },
+        ];
+        for (index, command) in commands.into_iter().enumerate() {
+            assert!(
+                dispatch_call(plane, token, &format!("invalid-{index}"), command)
+                    .error
+                    .is_some()
+            );
+        }
+    }
+
+    fn register_dispatch_objects(
+        plane: &mut ControlPlane,
+        token: &str,
+        directory: &TempDir,
+    ) -> (WorldRecord, GenomeRecord, &'static str) {
+        let world_path = directory.path().join("world.json");
+        fs::write(
+            &world_path,
+            r#"{"schema_version":1,"name":"dispatch-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#,
+        )
+        .expect("write World source");
+        let Some(ResponseData::World { world }) = dispatch_call(
+            plane,
+            token,
+            "register-world",
+            Command::WorldRegister {
+                path: world_path.display().to_string(),
+            },
+        )
+        .data
+        else {
+            panic!("World registration should succeed");
+        };
+        let prompt =
+            "```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n";
+        let genome_path = directory.path().join("agent.md");
+        fs::write(
+            &genome_path,
+            format!(
+                "---\nschema_version: 1\nname: dispatch-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n{prompt}"
+            ),
+        )
+        .expect("write Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            "register-genome",
+            Command::GenomeRegister {
+                path: genome_path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Genome registration should succeed");
+        };
+        (world, genome, prompt)
+    }
+
+    fn assert_registered_dispatch_objects(
+        plane: &mut ControlPlane,
+        token: &str,
+        world: &WorldRecord,
+        genome: &GenomeRecord,
+        prompt: &str,
+    ) {
+        assert!(matches!(
+            dispatch_call(
+                plane,
+                token,
+                "world-show",
+                Command::WorldShow {
+                    world_id: world.world_id.clone(),
+                }
+            )
+            .data,
+            Some(ResponseData::World { .. })
+        ));
+        assert!(matches!(
+            dispatch_call(
+                plane,
+                token,
+                "genome-show",
+                Command::GenomeShow {
+                    genome_id: genome.genome_id.clone(),
+                }
+            )
+            .data,
+            Some(ResponseData::Genome { .. })
+        ));
+        assert!(matches!(
+            dispatch_call(plane, token, "genome-prompt", Command::GenomePrompt {
+                genome_id: genome.genome_id.clone(),
+            }).data,
+            Some(ResponseData::GenomePrompt { prompt: actual, .. }) if actual == prompt
+        ));
+        assert!(matches!(
+            dispatch_call(plane, token, "verifier", Command::VerifierShow).data,
+            Some(ResponseData::Verifier { .. })
+        ));
+    }
+
+    fn exercise_dispatch_job(plane: &mut ControlPlane, genome_id: &str) {
+        assert!(matches!(
+            plane.submit_job("dispatch-run", genome_id)
+                .expect("admit bounded reference job"),
+            ResponseData::Job { job, .. } if job.state == JobState::Running
+        ));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while plane.active_job.is_some() {
+            plane
+                .service_async_messages()
+                .expect("persist worker evidence");
+            assert!(Instant::now() < deadline, "direct reference job stalled");
+            if plane.active_job.is_some() {
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+        assert_eq!(plane.state.jobs["dispatch-run"].state, JobState::Succeeded);
+    }
+
+    #[test]
+    fn canonical_writer_rejects_evidence_without_an_admitted_job() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (reply, result) = mpsc::channel();
+        sender
+            .send(EvidenceRequest::EnsureCapacity {
+                run_id: "unadmitted-run".to_owned(),
+                needed: 2,
+                reply,
+            })
+            .expect("queue unadmitted evidence");
+        plane.job_evidence_receiver = Some(receiver);
+        plane
+            .service_async_messages()
+            .expect("reject unadmitted evidence safely");
+        assert!(
+            result
+                .recv_timeout(Duration::from_secs(1))
+                .expect("writer returns evidence rejection")
+                .is_err()
+        );
+        assert!(
+            plane.storage.is_some(),
+            "canonical storage remains available"
+        );
+    }
+
+    #[test]
+    fn terminal_job_kill_is_idempotent_and_selection_errors_map_to_safe_api_states() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let job = JobRecord {
+            job_id: "completed".to_owned(),
+            genome_id: format!("hephaestus:genome:{}", "1".repeat(64)),
+            run_id: "async-completed".to_owned(),
+            source_revision: "2".repeat(40),
+            world_id: format!("hephaestus:world:{}", "3".repeat(64)),
+            task_id: "repository-inventory-v1".to_owned(),
+            input_commitment: "4".repeat(64),
+            seed: 0,
+            environment_id: format!("reference-v1.{}", "5".repeat(64)),
+            budget: RunBudgetReceipt {
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 0,
+            },
+            state: JobState::Succeeded,
+            terminal: Some(JobTerminal::Succeeded),
+        };
+        plane.state.jobs.insert(job.job_id.clone(), job);
+        assert!(matches!(
+            plane.kill_job("completed").expect("idempotent terminal kill"),
+            ResponseData::Job { job, .. } if job.terminal == Some(JobTerminal::Succeeded)
+        ));
+        assert!(matches!(
+            map_selection_error(&ArenaError::UnknownEvaluation("missing".to_owned())),
+            ExecuteError::NotFound
+        ));
+        assert!(matches!(
+            map_selection_error(&ArenaError::UnsupportedSelectionConfidence(10_000)),
+            ExecuteError::Rejected(_)
+        ));
+        assert!(matches!(
+            map_selection_error(&ArenaError::BootstrapWorkExceeded),
+            ExecuteError::Rejected(_)
+        ));
+        assert!(matches!(
+            map_selection_error(&ArenaError::UnsupportedEvaluator),
+            ExecuteError::Internal
+        ));
+    }
+
+    fn send_test_api_request(
+        socket_path: &Path,
+        token: &str,
+        request_id: &str,
+        command: Command,
+    ) -> ApiResponse {
+        let mut stream = UnixStream::connect(socket_path).expect("connect to control socket");
+        let request = ApiRequest {
+            version: API_VERSION,
+            request_id: request_id.to_owned(),
+            token: token.to_owned(),
+            command,
+        };
+        stream
+            .write_all(&serde_json::to_vec(&request).expect("encode request"))
+            .expect("write request");
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish request");
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).expect("read response");
+        serde_json::from_slice(&bytes).expect("decode response")
+    }
+
+    #[test]
+    fn projection_identifiers_text_and_trace_artifact_selection_fail_closed() {
+        let hash = "a".repeat(64);
+        assert_eq!(
+            validate_content_id(&format!("hephaestus:genome:{hash}"), "genome").unwrap(),
+            hash
+        );
+        assert!(validate_content_id("foreign:genome:abc", "genome").is_err());
+        assert!(validate_content_id("hephaestus:genome:abc", "genome").is_err());
+        assert!(require_projection_text("run-1", "run_id").is_ok());
+        assert!(require_projection_text(" \t", "run_id").is_err());
+
+        let make_trace = |run_id: &str, event_id: &str, artifact_id: &str| TraceReceipt {
+            schema_version: 1,
+            event_id: event_id.to_owned(),
+            provenance: Provenance::new(
+                run_id,
+                format!("hephaestus:genome:{}", "1".repeat(64)),
+                format!("hephaestus:world:{}", "2".repeat(64)),
+            )
+            .unwrap(),
+            kind: TraceKind::LifecycleStarted,
+            artifact_id: artifact_id.to_owned(),
+            redacted_fields: 0,
+        };
+        let selected = make_trace("run-1", "trace-1", &"3".repeat(64));
+        let unrelated = make_trace("run-2", "trace-2", &"4".repeat(64));
+        let history = [
+            stored_event(
+                1,
+                "trace.recorded",
+                "run:run-1",
+                "experience-plane",
+                &serde_json::to_vec(&selected).unwrap(),
+            ),
+            stored_event(
+                2,
+                "trace.recorded",
+                "run:run-2",
+                "experience-plane",
+                &serde_json::to_vec(&unrelated).unwrap(),
+            ),
+            stored_event(
+                3,
+                "trace.recorded",
+                "run:run-1",
+                "experience-plane",
+                b"invalid",
+            ),
+            stored_event(4, "other.event", "run:run-1", "test", b"{}"),
+        ];
+        assert_eq!(
+            trace_artifacts_for_run(&history[..2], "run-1").unwrap(),
+            vec!["3".repeat(64)]
+        );
+        assert!(trace_artifacts_for_run(&history, "run-1").is_err());
+
+        let receipt = TraceReceipt {
+            schema_version: 1,
+            event_id: "trace-1".to_owned(),
+            provenance: Provenance::new(
+                "run-1",
+                format!("hephaestus:genome:{}", "1".repeat(64)),
+                format!("hephaestus:world:{}", "2".repeat(64)),
+            )
+            .unwrap(),
+            kind: TraceKind::LifecycleStarted,
+            artifact_id: "6".repeat(64),
+            redacted_fields: 0,
+        };
+        let mut trace_event =
+            stored_event(1, "trace.recorded", "run:run-1", "experience-plane", b"{}");
+        trace_event.event_id = receipt.event_id.clone();
+        assert!(validate_trace_receipt(&trace_event, &receipt).is_ok());
+        trace_event.actor = "runtime-plane".to_owned();
+        assert!(validate_trace_receipt(&trace_event, &receipt).is_err());
+        trace_event.actor = "experience-plane".to_owned();
+        let mut malformed_receipt = receipt;
+        malformed_receipt.artifact_id = "not-a-content-address".to_owned();
+        assert!(validate_trace_receipt(&trace_event, &malformed_receipt).is_err());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn job_transition_rules_cover_admission_running_cancellation_and_terminal_edges() {
+        fn record(state: JobState, terminal: Option<JobTerminal>) -> JobRecord {
+            JobRecord {
+                job_id: "job-1".to_owned(),
+                genome_id: format!("hephaestus:genome:{}", "1".repeat(64)),
+                run_id: "async-1".to_owned(),
+                source_revision: "2".repeat(40),
+                world_id: format!("hephaestus:world:{}", "3".repeat(64)),
+                task_id: "repository-inventory-v1".to_owned(),
+                input_commitment: "4".repeat(64),
+                seed: 0,
+                environment_id: format!("reference-v1.{}", "5".repeat(64)),
+                budget: RunBudgetReceipt {
+                    wall_millis: 10_000,
+                    maximum_output_bytes: 1_048_576,
+                    maximum_cost_microusd: 0,
+                },
+                state,
+                terminal,
+            }
+        }
+        fn state_with(previous: Option<JobRecord>) -> ControlState {
+            let mut jobs = BTreeMap::new();
+            if let Some(previous) = previous {
+                jobs.insert(previous.job_id.clone(), previous);
+            }
+            ControlState {
+                freeze: FreezeState::frozen(&OperatorToken::from_bytes([1; 32])),
+                active_runs: BTreeSet::new(),
+                jobs,
+                job_progress: BTreeMap::new(),
+                run_results: BTreeMap::new(),
+                completed_runs: BTreeSet::new(),
+                registered: RegisteredObjects::default(),
+                event_count: 0,
+            }
+        }
+        let event =
+            |event_type: &str| stored_event(1, event_type, "job:job-1", RUNTIME_ACTOR, b"{}");
+
+        assert!(
+            state_with(None)
+                .job_transition_is_valid(&event("job.admitted"), &record(JobState::Admitted, None))
+        );
+        assert!(
+            state_with(Some(record(JobState::Admitted, None)))
+                .job_transition_is_valid(&event("job.running"), &record(JobState::Running, None))
+        );
+        assert!(
+            state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
+                &event("job.cancellation_requested"),
+                &record(JobState::CancellationRequested, None)
+            )
+        );
+        assert!(
+            state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
+                &event("job.terminal"),
+                &record(JobState::Failed, Some(JobTerminal::Failed))
+            )
+        );
+        assert!(
+            state_with(Some(record(JobState::CancellationRequested, None)))
+                .job_transition_is_valid(
+                    &event("job.terminal"),
+                    &record(JobState::Interrupted, Some(JobTerminal::Cancelled))
+                )
+        );
+        assert!(
+            state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
+                &event("job.terminal"),
+                &record(JobState::Interrupted, Some(JobTerminal::Interrupted))
+            )
+        );
+        assert!(
+            !state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
+                &event("job.terminal"),
+                &record(JobState::Succeeded, Some(JobTerminal::Succeeded))
+            )
+        );
+        assert!(
+            !state_with(Some(record(JobState::Running, None)))
+                .job_transition_is_valid(&event("job.unknown"), &record(JobState::Running, None))
+        );
+        let mut conflicting = record(JobState::Running, None);
+        conflicting.world_id = format!("hephaestus:world:{}", "6".repeat(64));
+        assert!(
+            !state_with(Some(record(JobState::Running, None)))
+                .job_transition_is_valid(&event("job.terminal"), &conflicting)
+        );
+    }
+
+    #[test]
+    fn command_field_validation_rejects_empty_ids_and_paths() {
+        let invalid = [
+            Command::GenomeShow {
+                genome_id: " ".to_owned(),
+            },
+            Command::GenomePrompt {
+                genome_id: String::new(),
+            },
+            Command::WorldShow {
+                world_id: String::new(),
+            },
+            Command::WorldRegister {
+                path: " ".to_owned(),
+            },
+            Command::GenomeRegister {
+                path: "genome.md".to_owned(),
+                world_id: " ".to_owned(),
+            },
+            Command::GenomeRegister {
+                path: String::new(),
+                world_id: "world".to_owned(),
+            },
+            Command::ArtifactPut {
+                path: String::new(),
+            },
+            Command::RunSubmit {
+                job_id: String::new(),
+                genome_id: "genome".to_owned(),
+            },
+            Command::RunSubmit {
+                job_id: "job".to_owned(),
+                genome_id: String::new(),
+            },
+            Command::JobStatus {
+                job_id: String::new(),
+            },
+            Command::JobKill {
+                job_id: " ".to_owned(),
+            },
+            Command::RunReference {
+                genome_id: String::new(),
+            },
+            Command::RunEvaluation {
+                genome_id: " ".to_owned(),
+                task_id: "task".to_owned(),
+                input: "input".to_owned(),
+                seed: 0,
+                wall_millis: 1,
+                maximum_output_bytes: 1,
+                maximum_cost_microusd: 0,
+            },
+            Command::EvaluatePair {
+                evaluation_id: String::new(),
+                parent_genome_id: "parent".to_owned(),
+                candidate_genome_id: "candidate".to_owned(),
+            },
+            Command::EvaluatePair {
+                evaluation_id: "evaluation".to_owned(),
+                parent_genome_id: " ".to_owned(),
+                candidate_genome_id: "candidate".to_owned(),
+            },
+            Command::EvaluatePair {
+                evaluation_id: "evaluation".to_owned(),
+                parent_genome_id: "parent".to_owned(),
+                candidate_genome_id: String::new(),
+            },
+            Command::ArenaSelect {
+                evaluation_id: String::new(),
+            },
+        ];
+        assert!(invalid.into_iter().all(|command| {
+            matches!(
+                require_command_fields(&command),
+                Err(ExecuteError::Invalid(_))
+            )
+        }));
+        assert!(require_command_fields(&Command::Status).is_ok());
+    }
+
+    #[test]
     fn reference_worker_identity_requires_an_executable_regular_file() {
         let directory = tempdir().expect("temporary directory");
         let worker = directory.path().join("worker");
@@ -2472,6 +4524,84 @@ mod tests {
             .expect("remove execute permission");
         assert!(executable_digest(&worker).is_err());
         assert!(executable_digest(directory.path()).is_err());
+    }
+
+    #[test]
+    fn pinned_reference_worker_rejects_mutated_snapshot_bytes() {
+        let directory = tempdir().expect("temporary directory");
+        let snapshot = tempfile::Builder::new()
+            .prefix("pinned-worker-")
+            .tempdir_in(directory.path())
+            .expect("private worker directory");
+        let executable = snapshot.path().join("worker");
+        fs::write(&executable, b"pinned worker").expect("write worker");
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))
+            .expect("make worker executable");
+        let digest = executable_digest(&executable).expect("hash worker");
+        let worker = PinnedReferenceWorker {
+            directory: snapshot,
+            executable: executable.clone(),
+            digest,
+        };
+        worker.verify().expect("initial pinned worker is valid");
+
+        fs::write(&executable, b"replaced worker").expect("replace snapshot bytes");
+        assert!(matches!(
+            worker.verify(),
+            Err(ExecuteError::Rejected(message))
+                if message == "pinned reference worker identity changed during execution"
+        ));
+
+        let private_directory = tempfile::Builder::new()
+            .prefix("private-worker-")
+            .tempdir_in(directory.path())
+            .expect("private worker directory");
+        let external_worker = directory.path().join("external-worker");
+        fs::write(&external_worker, b"external worker").expect("write external worker");
+        fs::set_permissions(&external_worker, fs::Permissions::from_mode(0o700))
+            .expect("make external worker executable");
+        let escaped = PinnedReferenceWorker {
+            directory: private_directory,
+            digest: executable_digest(&external_worker).expect("hash external worker"),
+            executable: external_worker,
+        };
+        assert!(matches!(
+            escaped.verify(),
+            Err(ExecuteError::Rejected(message))
+                if message == "pinned reference worker escaped its private directory"
+        ));
+    }
+
+    #[test]
+    fn admitted_job_projection_binds_the_runtime_actor_and_immutable_spec() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let token = plane.token_hex.clone();
+        let (world, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+        let input = "Inventory the isolated repository without modifying it or using the network.";
+        let job = JobRecord {
+            job_id: "validated-job".to_owned(),
+            genome_id: genome.genome_id,
+            run_id: job_run_id("validated-job"),
+            source_revision: "2".repeat(40),
+            world_id: world.world_id,
+            task_id: "repository-inventory-v1".to_owned(),
+            input_commitment: blake3::hash(input.as_bytes()).to_hex().to_string(),
+            seed: 0,
+            environment_id: format!("reference-v1.{}", "5".repeat(64)),
+            budget: RunBudgetReceipt {
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 0,
+            },
+            state: JobState::Admitted,
+            terminal: None,
+        };
+        let mut event = stored_event(1, "job.admitted", "job:validated-job", RUNTIME_ACTOR, b"{}");
+        event.event_id = "job:validated-job:admitted".to_owned();
+        assert!(plane.state.validate_job_record(&event, &job).is_ok());
+        event.actor = "untrusted-actor".to_owned();
+        assert!(plane.state.validate_job_record(&event, &job).is_err());
     }
 
     #[test]

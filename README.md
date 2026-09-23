@@ -94,7 +94,7 @@ and that decision is itself a ledgered event.
 </tr>
 <tr>
 <td valign="top"><strong>Stays under your thumb</strong></td>
-<td valign="top"><code>freeze</code>, <code>unfreeze</code>, and <code>kill --all</code> are canonical events that survive restarts. The socket, token, database, and producer key are owner-only (0600) inside a 0700 directory.</td>
+<td valign="top"><code>freeze</code>, <code>unfreeze</code>, and cancellation requests survive restarts. A job is reported stopped only after its guardian confirms process-group termination. The socket, token, database, and producer key are owner-only (0600) inside a 0700 directory.</td>
 </tr>
 </table>
 
@@ -196,11 +196,15 @@ run events and receipt; a conflicting retry fails closed.
 
 ### Command reference
 
+The first asynchronous path supports one direct offline reference job at a time.
+Arena evaluation remains synchronous. Cancellation commands record a request;
+the job status becomes terminal only after supervised process termination.
+
 | Command | What it does |
 |---|---|
 | `hephaestus status` | Freeze state, active runs, event count, registered Genomes |
 | `hephaestus freeze` / `unfreeze` | Halt or resume evolution; ledgered, restart-safe |
-| `hephaestus kill --all` | Terminate every active run |
+| `hephaestus kill --all` | Request cancellation of the active async job |
 | `hephaestus arena manifest <file>` | Canonicalize a task manifest into the artifact store |
 | `hephaestus artifact put <file>` | Store any file by BLAKE3 address |
 | `hephaestus verifier` | Publish this daemon's runtime-result public key as an artifact |
@@ -210,6 +214,9 @@ run events and receipt; a conflicting retry fails closed.
 | `hephaestus genome list` / `show <id>` | Inspect registered Genomes |
 | `hephaestus genome prompt <id>` | Print the verified reserved prompt body for a Markdown Genome |
 | `hephaestus run <genome>` | One isolated reference run with signed evidence |
+| `hephaestus submit <job-id> <genome>` | Submit a bounded async direct reference run |
+| `hephaestus job status <job-id>` | Inspect durable state and last recorded trace progress |
+| `hephaestus job kill <job-id>` | Request cancellation; confirm termination with `job status` |
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
 | `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
 | `hephaestus replay` | Verify history and compare it with live state |

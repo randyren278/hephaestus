@@ -15,10 +15,12 @@ use hephaestus_arena::{
 };
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError, ControlPlane,
-    GenomeRecord, ResponseData, RunCompletionReason, WorldRecord,
+    GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData, RunCompletionReason,
+    WorldRecord,
 };
 use hephaestus_experience::{
-    RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner,
+    RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner, TraceKind,
+    TraceReceipt,
 };
 use hephaestus_genome::{SourceFormat, compile_genome, compile_world};
 use hephaestus_ledger::ArtifactId;
@@ -29,6 +31,7 @@ const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
 const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
 const REFERENCE_EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
 const REFERENCE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-reference-worker");
+const PROCESS_GUARDIAN: &str = env!("CARGO_BIN_EXE_hephaestus-process-guardian");
 
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -267,7 +270,68 @@ fn markdown_reference_instructions_use_one_pinned_worker_for_paired_trials() {
     };
     assert!(!selection.receipt.invariant_gate_verified());
     assert!(!selection.receipt.promotion_eligible());
+
+    let submitted = response(&cli(
+        &data_dir,
+        &["submit", "job-async-1", &candidate.genome_id],
+    ));
+    let ResponseData::Job { job, progress } = submitted.data.expect("job admission") else {
+        panic!("expected job response");
+    };
+    assert_eq!(job.genome_id, candidate.genome_id);
+    assert_eq!(progress.trace_events, 0);
+    let repeated = response(&cli(
+        &data_dir,
+        &["submit", "job-async-1", &candidate.genome_id],
+    ));
+    let Some(ResponseData::Job {
+        job: repeated_job, ..
+    }) = repeated.data
+    else {
+        panic!("expected idempotent job response");
+    };
+    assert_eq!(repeated_job, job);
+    let conflicting = cli(&data_dir, &["submit", "job-async-1", &parent.genome_id]);
+    assert!(!conflicting.status.success());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let terminal = loop {
+        let status = response(&cli(&data_dir, &["job", "status", "job-async-1"]));
+        let ResponseData::Job { job, .. } = status.data.expect("job status") else {
+            panic!("expected job status response");
+        };
+        if matches!(
+            job.state,
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted
+        ) {
+            break job;
+        }
+        assert!(Instant::now() < deadline, "asynchronous job did not finish");
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(terminal.state, JobState::Succeeded);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Succeeded));
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
     daemon.stop();
+
+    let restarted = Daemon::start_with_repository(&data_dir, &repository);
+    let recovered = response(&cli(&data_dir, &["job", "status", "job-async-1"]));
+    let Some(ResponseData::Job {
+        job: recovered_job,
+        progress,
+    }) = recovered.data
+    else {
+        panic!("expected replayed job");
+    };
+    assert_eq!(recovered_job, terminal);
+    assert!(progress.trace_events > 0);
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    restarted.stop();
 }
 
 fn runtime_environment_id() -> String {
@@ -303,13 +367,17 @@ impl Daemon {
     }
 
     fn start_with_repository(data_dir: &Path, source_repository: &Path) -> Self {
+        Self::start_with_worker(data_dir, source_repository, Path::new(REFERENCE_WORKER))
+    }
+
+    fn start_with_worker(data_dir: &Path, source_repository: &Path, worker_source: &Path) -> Self {
         fs::create_dir_all(data_dir).expect("create daemon data directory");
         let evaluator = data_dir.join("reference-evaluator");
         fs::copy(REFERENCE_EVALUATOR, &evaluator).expect("copy evaluator executable");
         fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
             .expect("protect evaluator executable");
         let worker = data_dir.join("reference-worker");
-        fs::copy(REFERENCE_WORKER, &worker).expect("copy reference worker executable");
+        fs::copy(worker_source, &worker).expect("copy reference worker executable");
         fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
             .expect("protect reference worker executable");
         let mut child = ProcessCommand::new(DAEMON)
@@ -1183,6 +1251,759 @@ fn reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence() {
     assert!(!data_dir.join("runtime-producer.key").exists());
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"async fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let worker = directory.path().join("slow-worker");
+    fs::write(
+        &worker,
+        "#!/bin/sh\n/bin/sleep 60 &\nchild=$!\nprintf '%s' \"$child\" > \"$HOME/slow-child.pid\"\nwait \"$child\"\n",
+    )
+    .expect("write slow worker");
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+        .expect("make worker executable");
+    let daemon = Daemon::start_with_worker(&data_dir, &repository, &worker);
+    let genome_path = directory.path().join("agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: async-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let ResponseData::Genome { genome } = registered.data.expect("registered Genome") else {
+        panic!("expected registered Genome");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let submitted = response(&cli(&data_dir, &["submit", "slow-job", &genome.genome_id]));
+    assert!(matches!(submitted.data, Some(ResponseData::Job { .. })));
+
+    let child_file_deadline = Instant::now() + Duration::from_secs(5);
+    let child_pid = loop {
+        let pid_file = fs::read_dir(data_dir.join("sandboxes"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("execution/slow-child.pid"))
+            .find(|path| path.is_file());
+        if let Some(path) = pid_file {
+            if let Some(pid) = fs::read_to_string(path)
+                .ok()
+                .and_then(|contents| contents.parse::<u32>().ok())
+            {
+                break pid;
+            }
+        }
+        assert!(
+            Instant::now() < child_file_deadline,
+            "slow worker did not start"
+        );
+        thread::sleep(Duration::from_millis(5));
+    };
+
+    let mut partial_client =
+        UnixStream::connect(data_dir.join("control.sock")).expect("connect partial client");
+    partial_client
+        .write_all(b"{\"version\":")
+        .expect("write partial frame");
+    let status_started = Instant::now();
+    assert!(matches!(
+        response(&cli(&data_dir, &["status"])).data,
+        Some(ResponseData::Status { .. })
+    ));
+    assert!(status_started.elapsed() < Duration::from_millis(500));
+    assert_eq!(
+        error_body(&cli(&data_dir, &["replay"])).code,
+        hephaestus_control::ApiErrorCode::Busy,
+        "replay must not monopolize the canonical writer during active work"
+    );
+    let freeze_started = Instant::now();
+    assert!(cli(&data_dir, &["freeze"]).status.success());
+    assert!(freeze_started.elapsed() < Duration::from_millis(500));
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    drop(partial_client);
+    let second = cli(&data_dir, &["submit", "second-job", &genome.genome_id]);
+    assert!(
+        !second.status.success(),
+        "second job must be rejected while busy"
+    );
+    let kill = response(&cli(&data_dir, &["kill", "--all"]));
+    let ResponseData::Acknowledged { killed_runs, .. } = kill.data.expect("kill acknowledgement")
+    else {
+        panic!("expected kill acknowledgement");
+    };
+    assert_eq!(killed_runs, 0, "a signal is not terminal confirmation");
+    let requested = match response(&cli(&data_dir, &["job", "status", "slow-job"])).data {
+        Some(ResponseData::Job { job, .. }) => job,
+        other => panic!("expected cancellation state, got {other:?}"),
+    };
+    assert_eq!(requested.state, JobState::CancellationRequested);
+    assert_eq!(requested.terminal, None);
+    let terminal_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let status = response(&cli(&data_dir, &["job", "status", "slow-job"]));
+        let ResponseData::Job { job, progress } = status.data.expect("job status") else {
+            panic!("expected job response");
+        };
+        assert!(progress.trace_events > 0);
+        if job.state == JobState::Interrupted {
+            assert_eq!(job.terminal, Some(JobTerminal::Cancelled));
+            break;
+        }
+        assert!(
+            Instant::now() < terminal_deadline,
+            "worker termination was not confirmed"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let probe = ProcessCommand::new("/bin/kill")
+        .args(["-0", &child_pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe child process");
+    assert!(
+        !probe.success(),
+        "cancelled job left a worker descendant alive"
+    );
+    assert!(cli(&data_dir, &["freeze"]).status.success());
+    daemon.stop();
+    remove_job_terminal_before_restart(&data_dir, "slow-job");
+    let restarted = Daemon::start_with_repository(&data_dir, &repository);
+    assert!(matches!(
+        response(&cli(&data_dir, &["status"])).data,
+        Some(ResponseData::Status { frozen: true, .. })
+    ));
+    assert!(matches!(
+        response(&cli(&data_dir, &["job", "status", "slow-job"])).data,
+        Some(ResponseData::Job { job, .. }) if job.state == JobState::Interrupted
+    ));
+    assert!(matches!(
+        response(&cli(&data_dir, &["job", "kill", "slow-job"])).data,
+        Some(ResponseData::Job { job, .. }) if job.state == JobState::Interrupted
+    ));
+    restarted.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn async_direct_reference_job_persists_signed_output_and_replays_success() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let daemon = Daemon::start(&data_dir);
+    let genome_path = directory.path().join("async-agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: async-success-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"ascii_uppercase\"}\n```\n",
+    )
+    .expect("write Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let Some(ResponseData::Genome { genome }) = registered.data else {
+        panic!("expected registered Genome");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    let accepted = response(&cli(
+        &data_dir,
+        &["submit", "success-job", &genome.genome_id],
+    ));
+    let Some(ResponseData::Job { job, .. }) = accepted.data else {
+        panic!("expected admitted job");
+    };
+    let retry = response(&cli(
+        &data_dir,
+        &["submit", "success-job", &genome.genome_id],
+    ));
+    let Some(ResponseData::Job { job: retried, .. }) = retry.data else {
+        panic!("expected idempotent job retry");
+    };
+    assert_eq!(job.run_id, retried.run_id);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (terminal, progress) = loop {
+        let response = response(&cli(&data_dir, &["job", "status", "success-job"]));
+        let Some(ResponseData::Job { job, progress }) = response.data else {
+            panic!("expected job status");
+        };
+        if matches!(
+            job.state,
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted
+        ) {
+            break (job, progress);
+        }
+        assert!(Instant::now() < deadline, "async job did not finish");
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(terminal.state, JobState::Succeeded);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Succeeded));
+    assert!(progress.trace_events > 0);
+    assert!(progress.last_event_sequence.is_some());
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open canonical ledger")
+        .replay_verified()
+        .expect("verify canonical ledger");
+    let result_event = history
+        .iter()
+        .find(|event| event.event_type == "run.result_recorded")
+        .expect("signed result event");
+    let seed: [u8; 32] = fs::read(data_dir.join("runtime-producer.key"))
+        .expect("read producer key for verifier")
+        .try_into()
+        .expect("producer key width");
+    let receipt = RunResultSigner::from_seed(seed)
+        .verifier()
+        .verify_event(result_event)
+        .expect("authenticate signed result");
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open CAS");
+    let stdout = artifacts
+        .get(&ArtifactId::parse(receipt.stdout_artifact_id).expect("stdout artifact ID"))
+        .expect("read signed stdout artifact");
+    assert_eq!(
+        stdout,
+        b"INVENTORY THE ISOLATED REPOSITORY WITHOUT MODIFYING IT OR USING THE NETWORK."
+    );
+    daemon.stop();
+
+    // Rebuild the authenticated ledger without its terminal job record. This
+    // models a crash after the signed run result and completion trace committed
+    // but before the job terminal event was appended.
+    remove_job_terminal_before_restart(&data_dir, "success-job");
+
+    let restarted = Daemon::start(&data_dir);
+    let replay = response(&cli(&data_dir, &["replay"]));
+    assert!(matches!(replay.data, Some(ResponseData::Replay { .. })));
+    let status = response(&cli(&data_dir, &["job", "status", "success-job"]));
+    assert!(matches!(
+        status.data,
+        Some(ResponseData::Job {
+            job: JobRecord {
+                state: JobState::Succeeded,
+                terminal: Some(JobTerminal::Succeeded),
+                ..
+            },
+            progress: JobProgress {
+                trace_events: 1..,
+                ..
+            }
+        })
+    ));
+    restarted.stop();
+
+    // A signed success cannot be recovered if its lifecycle completion evidence
+    // is absent, even when the receipt artifact and signature remain valid.
+    remove_job_terminal_and_completion_trace(&data_dir, "success-job");
+    assert!(ControlPlane::open(&data_dir).is_err());
+}
+
+fn remove_job_terminal_before_restart(data_dir: &Path, job_id: &str) {
+    rebuild_ledger_without(data_dir, |event| {
+        event.event_id == format!("job:{job_id}:terminal")
+    });
+}
+
+fn remove_job_terminal_and_completion_trace(data_dir: &Path, job_id: &str) {
+    let digest = blake3::hash(job_id.as_bytes()).to_hex().to_string();
+    let run_id = format!("async-{}", &digest[..32]);
+    rebuild_ledger_without(data_dir, |event| {
+        if event.event_id == format!("job:{job_id}:terminal") {
+            return true;
+        }
+        event.event_type == "trace.recorded"
+            && serde_json::from_slice::<TraceReceipt>(&event.payload).is_ok_and(|receipt| {
+                receipt.kind == TraceKind::LifecycleCompleted
+                    && receipt.provenance.run_id() == run_id
+            })
+    });
+}
+
+fn rebuild_ledger_without(
+    data_dir: &Path,
+    should_remove: impl Fn(&hephaestus_ledger::StoredEvent) -> bool,
+) {
+    let ledger_path = data_dir.join("events.sqlite3");
+    let history = EventStore::open(&ledger_path)
+        .expect("open ledger before recovery fixture")
+        .replay_verified()
+        .expect("verify ledger before recovery fixture");
+    let mut rebuilt =
+        EventStore::open(data_dir.join("events.rebuilt.sqlite3")).expect("open rebuilt ledger");
+    for event in history.iter().filter(|event| !should_remove(event)) {
+        rebuilt
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                event.payload.clone(),
+            ))
+            .expect("reappend authenticated history without job terminal");
+    }
+    drop(rebuilt);
+    fs::remove_file(&ledger_path).expect("remove pre-recovery ledger");
+    fs::rename(data_dir.join("events.rebuilt.sqlite3"), &ledger_path)
+        .expect("install pre-recovery ledger");
+}
+
+#[test]
+fn async_worker_failure_is_durable_as_provider_failure() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let worker = directory.path().join("failing-worker");
+    fs::write(&worker, "#!/bin/sh\nexit 7\n").expect("write failing worker");
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+        .expect("make worker executable");
+    let daemon =
+        Daemon::start_with_worker(&data_dir, Path::new(env!("CARGO_MANIFEST_DIR")), &worker);
+    let genome_path = directory.path().join("failing-agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: failing-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let Some(ResponseData::Genome { genome }) = registered.data else {
+        panic!("expected registered Genome");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let _accepted = response(&cli(
+        &data_dir,
+        &["submit", "failed-job", &genome.genome_id],
+    ));
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let terminal = loop {
+        let status = response(&cli(&data_dir, &["job", "status", "failed-job"]));
+        let Some(ResponseData::Job { job, .. }) = status.data else {
+            panic!("expected job status");
+        };
+        if matches!(
+            job.state,
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted
+        ) {
+            break job;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "failing worker job did not finish"
+        );
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    daemon.stop();
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open canonical ledger")
+        .replay_verified()
+        .expect("verify failed job history");
+    let run_event = history
+        .iter()
+        .find(|event| event.event_type == "run.result_recorded")
+        .expect("confirmed worker exit records a signed failure result");
+    let seed: [u8; 32] = fs::read(data_dir.join("runtime-producer.key"))
+        .expect("read producer key for verifier")
+        .try_into()
+        .expect("producer key width");
+    let receipt = RunResultSigner::from_seed(seed)
+        .verifier()
+        .verify_event(run_event)
+        .expect("authenticate signed failure result");
+    assert_eq!(
+        receipt.completion_reason,
+        RunCompletionReason::ProviderFailure
+    );
+    remove_job_terminal_before_restart(&data_dir, "failed-job");
+    let restarted = Daemon::start(&data_dir);
+    let replay = response(&cli(&data_dir, &["replay"]));
+    assert!(matches!(replay.data, Some(ResponseData::Replay { .. })));
+    assert!(matches!(
+        response(&cli(&data_dir, &["job", "status", "failed-job"])).data,
+        Some(ResponseData::Job { job, .. })
+            if job.state == JobState::Failed && job.terminal == Some(JobTerminal::Failed)
+    ));
+    restarted.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"async fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let worker = directory.path().join("delayed-failure-worker");
+    fs::write(
+        &worker,
+        "#!/bin/sh\nprintf '%s' \"$$\" > \"$HOME/failure-worker.pid\"\n/bin/sleep 3\nexit 7\n",
+    )
+    .expect("write delayed failing worker");
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+        .expect("make worker executable");
+    let daemon = Daemon::start_with_worker(&data_dir, &repository, &worker);
+    let genome_path = directory.path().join("agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: store-failure-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let Some(ResponseData::Genome { genome }) = registered.data else {
+        panic!("expected registered Genome");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    assert!(matches!(
+        response(&cli(
+            &data_dir,
+            &["submit", "store-failure", &genome.genome_id]
+        ))
+        .data,
+        Some(ResponseData::Job { .. })
+    ));
+
+    let pid_file_deadline = Instant::now() + Duration::from_secs(5);
+    let worker_pid = loop {
+        let found = fs::read_dir(data_dir.join("sandboxes"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("execution"))
+            .find(|path| path.join("failure-worker.pid").is_file());
+        if let Some(path) = found
+            && let Some(pid) = fs::read_to_string(path.join("failure-worker.pid"))
+                .ok()
+                .and_then(|contents| contents.parse::<u32>().ok())
+        {
+            break pid.to_string();
+        }
+        assert!(Instant::now() < pid_file_deadline, "worker did not start");
+        thread::sleep(Duration::from_millis(5));
+    };
+    let blobs = data_dir.join("blobs");
+    let saved_blobs = data_dir.join("blobs.saved");
+    fs::rename(&blobs, &saved_blobs).expect("preserve canonical artifacts");
+    fs::write(&blobs, b"injected artifact-store failure").expect("block artifact writes");
+
+    let terminal_deadline = Instant::now() + Duration::from_secs(8);
+    let terminal = loop {
+        let status = response(&cli(&data_dir, &["job", "status", "store-failure"]));
+        let Some(ResponseData::Job { job, .. }) = status.data else {
+            panic!("expected job status");
+        };
+        if matches!(job.state, JobState::Failed | JobState::Interrupted) {
+            break job;
+        }
+        assert!(
+            Instant::now() < terminal_deadline,
+            "worker did not terminate"
+        );
+        thread::sleep(Duration::from_millis(10));
+    };
+    fs::remove_file(&blobs).expect("remove artifact-store blocker");
+    fs::rename(&saved_blobs, &blobs).expect("restore canonical artifacts");
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    let worker_alive = ProcessCommand::new("/bin/kill")
+        .args(["-0", &worker_pid])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe failed worker process");
+    assert!(!worker_alive.success(), "failed job left its worker alive");
+    daemon.stop();
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open canonical ledger")
+        .replay_verified()
+        .expect("verify failed job history");
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_type == "run.result_recorded"),
+        "a failed evidence append must not produce a signed run result"
+    );
+    let restarted = Daemon::start(&data_dir);
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    restarted.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn guardian_contains_worker_after_daemon_crash_and_replay_marks_job_interrupted() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"crash fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let worker = directory.path().join("slow-worker");
+    fs::write(
+        &worker,
+        "#!/bin/sh\n/bin/sleep 60 &\nchild=$!\nprintf '%s' \"$child\" > \"$HOME/slow-child.pid\"\nwait \"$child\"\n",
+    )
+    .expect("write slow worker");
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+        .expect("make worker executable");
+    let daemon = Daemon::start_with_worker(&data_dir, &repository, &worker);
+    let genome_path = directory.path().join("agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: crash-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let ResponseData::Genome { genome } = registered.data.expect("registered Genome") else {
+        panic!("expected Genome response");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    assert!(
+        cli(&data_dir, &["submit", "crash-job", &genome.genome_id])
+            .status
+            .success()
+    );
+    let pid_deadline = Instant::now() + Duration::from_secs(5);
+    let child_pid = loop {
+        let pid_file = fs::read_dir(data_dir.join("sandboxes"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("execution/slow-child.pid"))
+            .find(|path| path.is_file());
+        if let Some(child_pid) = pid_file
+            .and_then(|path| fs::read_to_string(path).ok())
+            .and_then(|contents| contents.parse::<u32>().ok())
+        {
+            break child_pid;
+        }
+        assert!(Instant::now() < pid_deadline, "slow worker did not start");
+        thread::sleep(Duration::from_millis(5));
+    };
+    daemon.crash();
+    let death_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let probe = ProcessCommand::new("/bin/kill")
+            .args(["-0", &child_pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .expect("probe worker descendant");
+        if !probe.success() {
+            break;
+        }
+        assert!(
+            Instant::now() < death_deadline,
+            "guardian left descendant alive"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let restarted = Daemon::start_with_repository(&data_dir, &repository);
+    let status = response(&cli(&data_dir, &["job", "status", "crash-job"]));
+    let ResponseData::Job { job, .. } = status.data.expect("recovered job status") else {
+        panic!("expected recovered job");
+    };
+    assert_eq!(job.state, JobState::Interrupted);
+    assert_eq!(job.terminal, Some(JobTerminal::Interrupted));
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open canonical ledger")
+        .replay_verified()
+        .expect("verify canonical history");
+    assert!(!history.iter().any(|event| {
+        event.event_type == "run.result_recorded"
+            && event.aggregate_id == format!("run:{}", job.run_id)
+    }));
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    restarted.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn guardian_monitors_eof_during_large_stdin_and_reaps_leader_descendants() {
+    let directory = tempdir().expect("temporary directory");
+    let home = directory.path().canonicalize().expect("canonical home");
+    let guardian = |command: &str, input_bytes: usize| {
+        let mut child = ProcessCommand::new(PROCESS_GUARDIAN)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start guardian");
+        let config = serde_json::json!({
+            "program": "/bin/sh",
+            "arguments": ["-c", command],
+            "current_dir": home,
+            "home": home,
+            "temp": home,
+            "path": "/bin:/usr/bin",
+            "input_bytes": input_bytes,
+        });
+        let mut input = child.stdin.take().expect("guardian input");
+        writeln!(input, "{config}").expect("write guardian config");
+        input
+            .write_all(&vec![b'x'; input_bytes])
+            .expect("write guardian worker input");
+        input.write_all(b"\n").expect("write guardian delimiter");
+        (child, input)
+    };
+    let wait_bounded = |child: &mut std::process::Child, descendant_pid: &Path| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(status) = child.try_wait().expect("poll guardian exit") {
+                return Some(status);
+            }
+            if Instant::now() >= deadline {
+                if let Ok(pid) = fs::read_to_string(descendant_pid) {
+                    let _ignored = ProcessCommand::new("/bin/kill")
+                        .args(["-KILL", pid.trim()])
+                        .status();
+                }
+                let _ignored = child.kill();
+                let _ignored = child.wait();
+                return None;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    };
+
+    let (mut child, guardian_stdin) = guardian(
+        "echo $$ > \"$HOME/large-input-worker.pid\"; exec /bin/sleep 60",
+        1_048_576,
+    );
+    let worker_pid_path = home.join("large-input-worker.pid");
+    let pid_deadline = Instant::now() + Duration::from_secs(2);
+    while !worker_pid_path.is_file() {
+        assert!(
+            Instant::now() < pid_deadline,
+            "large-input worker did not start"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    drop(guardian_stdin);
+    let status = wait_bounded(&mut child, &worker_pid_path)
+        .expect("guardian should stop promptly after liveness EOF");
+    assert!(!status.success());
+    let worker_pid = fs::read_to_string(worker_pid_path)
+        .expect("read worker PID")
+        .trim()
+        .parse::<u32>()
+        .expect("parse worker PID");
+    let worker_probe = ProcessCommand::new("/bin/kill")
+        .args(["-0", &worker_pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe worker");
+    assert!(
+        !worker_probe.success(),
+        "large-input worker survived guardian EOF"
+    );
+
+    let command = "(/bin/sleep 60) & child=$!; echo $child > \"$HOME/held-pipe-child.pid\"; exit 0";
+    let (mut child, _guardian_stdin) = guardian(command, 0);
+    let descendant_pid_path = home.join("held-pipe-child.pid");
+    let status = wait_bounded(&mut child, &descendant_pid_path)
+        .expect("guardian must close descendant output pipes promptly");
+    assert!(status.success());
+    let descendant_pid = fs::read_to_string(descendant_pid_path)
+        .expect("read descendant PID")
+        .trim()
+        .parse::<u32>()
+        .expect("parse descendant PID");
+    let descendant_probe = ProcessCommand::new("/bin/kill")
+        .args(["-0", &descendant_pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe descendant");
+    assert!(
+        !descendant_probe.success(),
+        "guardian left a pipe-holding descendant alive"
+    );
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ignored = self.child.kill();
@@ -1260,7 +2081,7 @@ fn operator_cli_controls_and_replays_real_daemon_state_across_restarts() {
         response(&killed).data,
         Some(ResponseData::Acknowledged {
             frozen: true,
-            killed_runs: 1
+            killed_runs: 0
         })
     ));
     daemon.stop();
@@ -1275,7 +2096,7 @@ fn operator_cli_controls_and_replays_real_daemon_state_across_restarts() {
         response(&final_status).data,
         Some(ResponseData::Status {
             frozen: true,
-            active_runs: 0,
+            active_runs: 1,
             ..
         })
     ));
@@ -1447,7 +2268,7 @@ fn local_api_fails_closed_for_bad_auth_versions_and_requests() {
         malformed.error.expect("schema error").code,
         ApiErrorCode::InvalidRequest
     );
-    let oversized = raw_request(&socket, &vec![b'x'; 65_537]);
+    let oversized = raw_request(&socket, &vec![b'x'; 7 * 1_048_576 + 1]);
     let oversized_error = oversized.error.expect("size error");
     assert_eq!(oversized_error.code, ApiErrorCode::InvalidRequest);
     assert_eq!(oversized_error.message, "request exceeds limit");
@@ -1507,7 +2328,7 @@ fn local_api_fails_closed_for_bad_auth_versions_and_requests() {
     assert!(
         history
             .iter()
-            .any(|event| event.event_type == "control.genome_show")
+            .any(|event| event.event_type == "control.status")
     );
 }
 
@@ -1832,8 +2653,14 @@ fn response(output: &Output) -> ApiResponse {
 
 fn raw_request(socket: &Path, bytes: &[u8]) -> ApiResponse {
     let mut stream = UnixStream::connect(socket).expect("connect control socket");
-    stream.write_all(bytes).expect("write request");
-    stream.shutdown(Shutdown::Write).expect("finish request");
+    if let Err(error) = stream.write_all(bytes) {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "write request"
+        );
+    }
+    let _ignored = stream.shutdown(Shutdown::Write);
     let mut response = Vec::new();
     stream.read_to_end(&mut response).expect("read response");
     serde_json::from_slice(&response).expect("decode response")
@@ -1875,7 +2702,7 @@ fn cli_text(data_dir: &Path, arguments: &[&str]) -> String {
         .expect("run CLI");
     assert!(
         output.status.success(),
-        "CLI failed: {}",
+        "CLI command {arguments:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("UTF-8 CLI output")

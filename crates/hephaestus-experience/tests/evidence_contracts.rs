@@ -1,12 +1,89 @@
 use std::collections::BTreeMap;
 
 use hephaestus_experience::{
-    EvidenceRecorder, ExperienceError, ExperienceInput, ExperienceKind, ExperienceReceipt,
-    Provenance, RedactionPolicy, RetentionLimits, TraceInput, TraceKind, TraceReceipt,
-    rehydrate_experience,
+    EvidenceRecorder, EvidenceRequest, EvidenceSink, ExperienceError, ExperienceInput,
+    ExperienceKind, ExperienceReceipt, Provenance, RedactionPolicy, RetentionLimits, TraceInput,
+    TraceKind, TraceReceipt, bounded_evidence_channel, rehydrate_experience,
 };
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore};
 use tempfile::tempdir;
+
+#[test]
+fn channel_sink_waits_for_canonical_writer_acknowledgement() {
+    let directory = tempdir().expect("evidence directory");
+    let mut canonical = recorder(&directory, 8, 16_384);
+    let (mut sink, requests) = bounded_evidence_channel(1);
+    let worker = std::thread::spawn(move || {
+        sink.record_trace(trace("channel-trace", 17), 0)
+            .expect("writer acknowledgement")
+    });
+    let request = requests.recv().expect("evidence request");
+    assert_eq!(request.run_id(), "run-1");
+    assert!(request.provenance().is_some());
+    assert!(
+        !worker.is_finished(),
+        "executor must wait for durable acknowledgement"
+    );
+    request
+        .persist(&mut canonical)
+        .expect("persist canonical trace");
+    let receipt = worker.join().expect("join evidence sender");
+    assert_eq!(receipt.event_id, "channel-trace");
+    assert_eq!(
+        canonical
+            .replay_verified()
+            .expect("verified canonical trace")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn rejected_evidence_requests_release_both_waiting_executor_paths() {
+    let (reply, response) = std::sync::mpsc::channel();
+    EvidenceRequest::EnsureCapacity {
+        run_id: "run-1".to_owned(),
+        needed: 2,
+        reply,
+    }
+    .reject("writer unavailable");
+    assert_eq!(
+        response.recv().expect("capacity rejection acknowledgement"),
+        Err("writer unavailable".to_owned())
+    );
+
+    let (reply, response) = std::sync::mpsc::channel();
+    EvidenceRequest::RecordTrace {
+        input: trace("rejected-trace", 18),
+        reserved_after: 0,
+        reply,
+    }
+    .reject("writer unavailable");
+    assert_eq!(
+        response.recv().expect("trace rejection acknowledgement"),
+        Err("writer unavailable".to_owned())
+    );
+}
+
+#[test]
+fn writer_does_not_acknowledge_failed_capacity_reservation() {
+    let directory = tempdir().expect("evidence directory");
+    let mut canonical = recorder(&directory, 1, 16_384);
+    let (reply, response) = std::sync::mpsc::channel();
+    let request = EvidenceRequest::EnsureCapacity {
+        run_id: "run-1".to_owned(),
+        needed: 2,
+        reply,
+    };
+
+    assert!(request.persist(&mut canonical).is_err());
+    assert!(
+        response
+            .recv()
+            .expect("capacity rejection acknowledgement")
+            .is_err()
+    );
+}
 
 #[test]
 fn traces_cover_observable_runtime_events_and_redact_before_persistence() {

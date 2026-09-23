@@ -8,6 +8,7 @@ use std::{
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc::{self, Receiver, SyncSender},
     },
     thread,
     time::{Duration, Instant},
@@ -18,7 +19,7 @@ use hephaestus_core::authority::CapabilitySet;
 use crate::{
     AdapterCapabilities, CapabilityToken, CompletionReason, IsolationPolicy, Provider,
     ProviderInvocation, RunHandle, RunSnapshot, RunSpec, RunStatus, RuntimeAdapter, RuntimeError,
-    Sandbox,
+    Sandbox, guardian::GuardianLaunch,
 };
 
 /// Provider-neutral child-process supervisor used for non-billable local helpers.
@@ -29,7 +30,27 @@ pub struct SupervisedRuntime {
     isolation: IsolationPolicy,
     executable: PathBuf,
     arguments: Vec<String>,
+    guardian_executable: Option<PathBuf>,
     runs: BTreeMap<String, SupervisedRun>,
+}
+
+impl Drop for SupervisedRuntime {
+    fn drop(&mut self) {
+        for run in self.runs.values() {
+            let mut observed = run.shared.observed.lock().expect("run state lock poisoned");
+            if observed.status == RunStatus::Running {
+                run.shared.interrupt.store(true, Ordering::Release);
+                request_guardian_cancel(&run.shared);
+                while observed.status == RunStatus::Running {
+                    observed = run
+                        .shared
+                        .changed
+                        .wait(observed)
+                        .expect("run state lock poisoned");
+                }
+            }
+        }
+    }
 }
 
 struct SupervisedRun {
@@ -45,6 +66,8 @@ struct SharedRun {
     interrupt: AtomicBool,
     output_exceeded: AtomicBool,
     io_failed: AtomicBool,
+    guarded: bool,
+    cancel: Mutex<Option<SyncSender<GuardianControl>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -59,6 +82,12 @@ pub(crate) struct ProcessOutput {
     pub(crate) completion_reason: CompletionReason,
     pub(crate) exit_code: Option<i32>,
     pub(crate) elapsed: Duration,
+}
+
+#[derive(Clone, Copy)]
+enum GuardianControl {
+    Cancel,
+    Close,
 }
 
 #[derive(Clone, Copy)]
@@ -86,8 +115,28 @@ impl SupervisedRuntime {
             isolation,
             executable,
             arguments: arguments.into_iter().collect(),
+            guardian_executable: None,
             runs: BTreeMap::new(),
         })
+    }
+
+    /// Creates a worker adapter whose OS guardian kills the worker process group
+    /// whenever this daemon closes its control pipe.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an empty worker or guardian executable path.
+    pub fn deterministic_guarded(
+        isolation: IsolationPolicy,
+        executable: impl Into<PathBuf>,
+        arguments: impl IntoIterator<Item = String>,
+        guardian_executable: impl Into<PathBuf>,
+    ) -> Result<Self, RuntimeError> {
+        let mut runtime = Self::deterministic(isolation, executable, arguments)?;
+        let guardian = guardian_executable.into();
+        ProviderInvocation::deterministic(&guardian, [], [])?;
+        runtime.guardian_executable = Some(guardian);
+        Ok(runtime)
     }
 
     fn launch(
@@ -114,20 +163,7 @@ impl SupervisedRuntime {
         let stderr_path = sandbox.execution_dir().join("stderr.log");
         let stdout_file = File::create(&stdout_path)?;
         let stderr_file = File::create(&stderr_path)?;
-        let stdin = if let Some(instruction) = spec.reference_instruction() {
-            instruction.frame(spec.prompt().as_bytes())?
-        } else {
-            spec.prompt().as_bytes().to_vec()
-        };
-        let invocation =
-            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), stdin)?;
-        let mut command = self.isolation.command(&invocation, sandbox)?;
-        command.env_clear();
-        if let Some(path) = std::env::var_os("PATH") {
-            command.env("PATH", path);
-        }
-        command.env("HOME", sandbox.execution_dir());
-        command.env("TMPDIR", sandbox.execution_dir());
+        let (mut command, guarded, launch_bytes) = self.worker_command(spec, sandbox)?;
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -147,6 +183,12 @@ impl SupervisedRuntime {
             .take()
             .ok_or(RuntimeError::InvalidSpec("child stderr was not piped"))?;
 
+        let (cancel_sender, cancel_receiver) = if guarded {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            (Some(sender), Some(receiver))
+        } else {
+            (None, None)
+        };
         let shared = Arc::new(SharedRun {
             observed: Mutex::new(ObservedRun {
                 status: RunStatus::Running,
@@ -158,10 +200,13 @@ impl SupervisedRuntime {
             interrupt: AtomicBool::new(false),
             output_exceeded: AtomicBool::new(false),
             io_failed: AtomicBool::new(false),
+            guarded,
+            cancel: Mutex::new(cancel_sender),
         });
         let stdin_writer = spawn_stdin_writer(
             child_stdin,
-            invocation.stdin().to_vec(),
+            launch_bytes,
+            cancel_receiver,
             Arc::clone(&shared),
         );
         spawn_monitor(
@@ -189,6 +234,63 @@ impl SupervisedRuntime {
             run_id: spec.run_id().to_owned(),
             provider: Provider::Deterministic,
         })
+    }
+
+    fn worker_command(
+        &self,
+        spec: &RunSpec,
+        sandbox: &Sandbox,
+    ) -> Result<(Command, bool, Vec<u8>), RuntimeError> {
+        let stdin = if let Some(instruction) = spec.reference_instruction() {
+            instruction.frame(spec.prompt().as_bytes())?
+        } else {
+            spec.prompt().as_bytes().to_vec()
+        };
+        let invocation =
+            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), stdin)?;
+        let mut worker_command = self.isolation.command(&invocation, sandbox)?;
+        worker_command.env_clear();
+        let path = std::env::var("PATH").ok();
+        if let Some(path_value) = &path {
+            worker_command.env("PATH", path_value);
+        }
+        worker_command.env("HOME", sandbox.execution_dir());
+        worker_command.env("TMPDIR", sandbox.execution_dir());
+        let Some(guardian) = &self.guardian_executable else {
+            return Ok((worker_command, false, invocation.stdin().to_vec()));
+        };
+        let program = worker_command
+            .get_program()
+            .to_str()
+            .ok_or(RuntimeError::InvalidSpec(
+                "worker program path is not UTF-8",
+            ))?
+            .to_owned();
+        let arguments = worker_command
+            .get_args()
+            .map(|argument| {
+                argument
+                    .to_str()
+                    .map(str::to_owned)
+                    .ok_or(RuntimeError::InvalidSpec("worker argument is not UTF-8"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let input = invocation.stdin().to_vec();
+        let config = GuardianLaunch {
+            program,
+            arguments,
+            current_dir: sandbox.worktree().to_owned(),
+            home: sandbox.execution_dir().to_owned(),
+            temp: sandbox.execution_dir().to_owned(),
+            path,
+            input_bytes: input.len(),
+        };
+        let mut frame = serde_json::to_vec(&config)
+            .map_err(|_| RuntimeError::InvalidSpec("guardian configuration is invalid"))?;
+        frame.push(b'\n');
+        frame.extend_from_slice(&input);
+        frame.push(b'\n');
+        Ok((Command::new(guardian), true, frame))
     }
 }
 
@@ -233,6 +335,7 @@ impl RuntimeAdapter for SupervisedRuntime {
             .get(run_id)
             .ok_or(RuntimeError::InvalidSpec("run does not exist"))?;
         run.shared.interrupt.store(true, Ordering::Release);
+        request_guardian_cancel(&run.shared);
         let mut observed = run.shared.observed.lock().expect("run state lock poisoned");
         while observed.status == RunStatus::Running {
             observed = run
@@ -267,13 +370,35 @@ impl RuntimeAdapter for SupervisedRuntime {
     }
 }
 
+fn request_guardian_cancel(shared: &SharedRun) {
+    send_guardian_control(shared, GuardianControl::Cancel);
+}
+
+fn close_guardian_control(shared: &SharedRun) {
+    send_guardian_control(shared, GuardianControl::Close);
+}
+
+fn send_guardian_control(shared: &SharedRun, control: GuardianControl) {
+    if let Some(sender) = shared.cancel.lock().expect("cancel lock poisoned").as_ref() {
+        let _ignored = sender.try_send(control);
+    }
+}
+
 fn spawn_stdin_writer(
     mut stdin: impl Write + Send + 'static,
     bytes: Vec<u8>,
+    cancel: Option<Receiver<GuardianControl>>,
     shared: Arc<SharedRun>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         if stdin.write_all(&bytes).is_err() {
+            shared.io_failed.store(true, Ordering::Release);
+            return;
+        }
+        if let Some(cancel) = cancel
+            && matches!(cancel.recv(), Ok(GuardianControl::Cancel))
+            && stdin.write_all(b"cancel\n").is_err()
+        {
             shared.io_failed.store(true, Ordering::Release);
         }
     })
@@ -322,8 +447,10 @@ pub(crate) fn execute_supervised_process(
         interrupt: AtomicBool::new(false),
         output_exceeded: AtomicBool::new(false),
         io_failed: AtomicBool::new(false),
+        guarded: false,
+        cancel: Mutex::new(None),
     });
-    let stdin_writer = spawn_stdin_writer(child_stdin, stdin, Arc::clone(&shared));
+    let stdin_writer = spawn_stdin_writer(child_stdin, stdin, None, Arc::clone(&shared));
     spawn_monitor(
         child,
         child_stdout,
@@ -384,16 +511,16 @@ fn spawn_monitor(
 
         let outcome = loop {
             if shared.interrupt.load(Ordering::Acquire) {
-                break terminate(&mut child, StopReason::Interrupted);
+                break stop_supervised_child(&mut child, &shared, StopReason::Interrupted);
             }
             if shared.output_exceeded.load(Ordering::Acquire) {
-                break terminate(&mut child, StopReason::OutputExceeded);
+                break stop_supervised_child(&mut child, &shared, StopReason::OutputExceeded);
             }
             if shared.io_failed.load(Ordering::Acquire) {
-                break terminate(&mut child, StopReason::IoFailed);
+                break stop_supervised_child(&mut child, &shared, StopReason::IoFailed);
             }
             if Instant::now() >= deadline {
-                break terminate(&mut child, StopReason::TimedOut);
+                break stop_supervised_child(&mut child, &shared, StopReason::TimedOut);
             }
             match child.try_wait() {
                 Ok(Some(status)) => break (Some(status), None),
@@ -402,6 +529,7 @@ fn spawn_monitor(
             }
         };
 
+        close_guardian_control(&shared);
         if stdin_writer.join().is_err()
             || stdout_reader.join().is_err()
             || stderr_reader.join().is_err()
@@ -482,6 +610,21 @@ fn spawn_output_reader(
             }
         }
     })
+}
+
+fn stop_supervised_child(
+    child: &mut Child,
+    shared: &SharedRun,
+    reason: StopReason,
+) -> (Option<ExitStatus>, Option<StopReason>) {
+    if !shared.guarded {
+        return terminate(child, reason);
+    }
+    request_guardian_cancel(shared);
+    match child.wait() {
+        Ok(status) => (Some(status), Some(reason)),
+        Err(_) => (None, Some(StopReason::IoFailed)),
+    }
 }
 
 fn terminate(child: &mut Child, reason: StopReason) -> (Option<ExitStatus>, Option<StopReason>) {
@@ -936,6 +1079,8 @@ mod tests {
             interrupt: AtomicBool::new(false),
             output_exceeded: AtomicBool::new(false),
             io_failed: AtomicBool::new(false),
+            guarded: false,
+            cancel: Mutex::new(None),
         })
     }
 }

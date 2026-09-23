@@ -21,6 +21,10 @@ pub enum ExperienceError {
     Ledger(LedgerError),
     /// Canonical JSON serialization or decoding failed.
     Json(serde_json::Error),
+    /// The canonical evidence writer is no longer available.
+    SinkUnavailable,
+    /// The canonical evidence writer rejected a request.
+    SinkRejected(String),
 }
 
 impl fmt::Display for ExperienceError {
@@ -39,7 +43,9 @@ impl Error for ExperienceError {
             | Self::RetentionExceeded { .. }
             | Self::UnknownSourceEvent(_)
             | Self::UnknownExperience(_)
-            | Self::InvalidStoredExperience(_) => None,
+            | Self::InvalidStoredExperience(_)
+            | Self::SinkUnavailable
+            | Self::SinkRejected(_) => None,
         }
     }
 }

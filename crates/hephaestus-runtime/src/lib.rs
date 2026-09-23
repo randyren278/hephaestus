@@ -2,6 +2,7 @@
 
 mod deterministic;
 mod error;
+mod guardian;
 mod isolation;
 mod provider;
 mod reference_instruction;
@@ -13,6 +14,7 @@ mod worker;
 
 pub use deterministic::DeterministicRuntime;
 pub use error::RuntimeError;
+pub use guardian::run_process_guardian;
 pub use isolation::{IsolationBackend, IsolationPolicy};
 pub use provider::ProviderInvocation;
 pub use reference_instruction::{ReferenceInstruction, execute_reference_worker_request};

@@ -9,14 +9,15 @@ use hephaestus_runtime::{
     Sandbox,
 };
 
-use crate::{EvidenceRecorder, Provenance, TraceInput, TraceKind};
+use crate::{EvidenceRecorder, EvidenceSink, Provenance, TraceInput, TraceKind};
 
 /// Runtime adapter decorator that makes observable execution evidence mandatory.
-pub struct RecordedRuntime<R> {
+pub struct RecordedRuntime<R, E = EvidenceRecorder> {
     inner: R,
-    evidence: EvidenceRecorder,
+    evidence: E,
     runs: BTreeMap<String, RecordedRun>,
     sequence: u64,
+    trace_artifact_ids: Vec<String>,
 }
 
 struct RecordedRun {
@@ -69,24 +70,54 @@ impl<R> RecordedRuntime<R> {
             evidence,
             runs: BTreeMap::new(),
             sequence,
+            trace_artifact_ids: Vec::new(),
         })
     }
 
+    /// Wraps a runtime with a bounded asynchronous evidence sink.
+    ///
+    /// The sink must acknowledge a trace only after the canonical writer has
+    /// persisted it. `initial_sequence` is the writer's verified event count.
+    #[must_use]
+    pub fn with_sink<E: EvidenceSink>(
+        inner: R,
+        evidence: E,
+        initial_sequence: u64,
+    ) -> RecordedRuntime<R, E> {
+        RecordedRuntime {
+            inner,
+            evidence,
+            runs: BTreeMap::new(),
+            sequence: initial_sequence,
+            trace_artifact_ids: Vec::new(),
+        }
+    }
+}
+
+impl<R> RecordedRuntime<R, EvidenceRecorder> {
+    /// Returns the durable recorder for verified replay and artifact reads.
+    #[must_use]
+    pub const fn evidence(&self) -> &EvidenceRecorder {
+        &self.evidence
+    }
+}
+
+impl<R, E: EvidenceSink> RecordedRuntime<R, E> {
     /// Returns the wrapped provider-neutral runtime.
     #[must_use]
     pub const fn inner(&self) -> &R {
         &self.inner
     }
 
-    /// Returns the durable recorder for verified replay and artifact reads.
+    /// Trace artifacts durably acknowledged by the evidence sink.
     #[must_use]
-    pub const fn evidence(&self) -> &EvidenceRecorder {
-        &self.evidence
+    pub fn trace_artifact_ids(&self) -> &[String] {
+        &self.trace_artifact_ids
     }
 
     /// Returns the wrapped runtime and evidence recorder to their owner.
     #[must_use]
-    pub fn into_parts(self) -> (R, EvidenceRecorder) {
+    pub fn into_parts(self) -> (R, E) {
         (self.inner, self.evidence)
     }
 
@@ -110,9 +141,11 @@ impl<R> RecordedRuntime<R> {
         let event_id = format!("trace-{}", blake3::hash(identity.as_bytes()).to_hex());
         let input = TraceInput::new(event_id, provenance, kind, timestamp_millis, fields)
             .map_err(evidence_error)?;
-        self.evidence
-            .record_trace_reserving(input, reserved_after)
+        let receipt = self
+            .evidence
+            .record_trace(input, reserved_after)
             .map_err(evidence_error)?;
+        self.trace_artifact_ids.push(receipt.artifact_id);
         Ok(())
     }
 
@@ -208,7 +241,7 @@ impl<R> RecordedRuntime<R> {
     }
 }
 
-impl<R: RuntimeAdapter> RuntimeAdapter for RecordedRuntime<R> {
+impl<R: RuntimeAdapter, E: EvidenceSink> RuntimeAdapter for RecordedRuntime<R, E> {
     fn provider(&self) -> Provider {
         self.inner.provider()
     }

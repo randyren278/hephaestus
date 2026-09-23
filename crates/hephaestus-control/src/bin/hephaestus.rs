@@ -55,6 +55,13 @@ enum CliCommand {
         /// Content-derived registered Genome identity.
         genome_id: String,
     },
+    /// Submit one bounded direct reference run to the daemon writer.
+    Submit { job_id: String, genome_id: String },
+    /// Inspect or cancel a submitted direct run.
+    Job {
+        #[command(subcommand)]
+        command: JobCommand,
+    },
     /// Execute one registered Genome for a World-bound evaluation task.
     Evaluate {
         genome_id: String,
@@ -163,6 +170,14 @@ enum DaemonCommand {
     Stop,
 }
 
+#[derive(Subcommand)]
+enum JobCommand {
+    /// Show the durable state of one job.
+    Status { job_id: String },
+    /// Request cancellation and return before terminal confirmation.
+    Kill { job_id: String },
+}
+
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
     let data_dir = match arguments
@@ -253,6 +268,13 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         },
         CliCommand::Verifier => Command::VerifierShow,
         CliCommand::Run { genome_id } => Command::RunReference { genome_id },
+        CliCommand::Submit { job_id, genome_id } => Command::RunSubmit { job_id, genome_id },
+        CliCommand::Job {
+            command: JobCommand::Status { job_id },
+        } => Command::JobStatus { job_id },
+        CliCommand::Job {
+            command: JobCommand::Kill { job_id },
+        } => Command::JobKill { job_id },
         CliCommand::Evaluate {
             genome_id,
             task_id,
@@ -319,6 +341,19 @@ fn print_human(response: &ApiResponse) {
         ) => println!("acknowledged frozen={frozen} killed_runs={killed_runs}"),
         (Some(ResponseData::Genome { genome }), None) => println!("{}", genome_human(genome)),
         (Some(ResponseData::GenomePrompt { prompt, .. }), None) => print!("{prompt}"),
+        (Some(ResponseData::Job { job, progress }), None) => println!(
+            "job={} genome={} run={} state={:?} terminal={:?} traces={} last_phase={} last_sequence={}",
+            job.job_id,
+            job.genome_id,
+            job.run_id,
+            job.state,
+            job.terminal,
+            progress.trace_events,
+            progress.last_phase.as_deref().unwrap_or("none"),
+            progress
+                .last_event_sequence
+                .map_or_else(|| "none".to_owned(), |value| value.to_string())
+        ),
         (Some(ResponseData::Genomes { genomes }), None) => {
             for genome in genomes {
                 println!("{}", genome_human(genome));
