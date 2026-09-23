@@ -708,6 +708,18 @@ mod tests {
     }
 
     #[test]
+    fn negative_resampled_mean_uses_floor_division_in_the_confidence_tail() {
+        // The deterministic 99.5% lower tail lands on a resample with four
+        // negative deltas: -40_000 / 6 must floor to -6_667, not truncate to
+        // -6_666 as Rust's signed `/` would.
+        let interval = bootstrap(&[-1, 0, 0, 0, 0, 0], 42, 9_950).unwrap();
+        assert_eq!(
+            (interval.estimate, interval.lower, interval.upper),
+            (-1_667, -6_667, 0)
+        );
+    }
+
+    #[test]
     fn bootstrap_uses_canonical_histogram_order_for_fixed_seed() {
         let interval = bootstrap(&[-1, 0, 1], 0, 9_500).unwrap();
         assert_eq!(
