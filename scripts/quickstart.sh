@@ -66,24 +66,31 @@ sed -e "s/__VISIBLE_MANIFEST__/$VISIBLE/" -e "s/__SEALED_MANIFEST__/$SEALED/" \
     "$EXAMPLES/world.template.json" > "$DATA/work/world.json"
 WORLD=$(capture "${H[@]}" world register "$DATA/work/world.json")
 
-step "Register a parent Genome and a child that declares its lineage"
-PARENT=$(capture "${H[@]}" genome register "$EXAMPLES/parent.json" --world "$WORLD")
-sed -e "s/__PARENT_ID__/$PARENT/" "$EXAMPLES/candidate.template.json" > "$DATA/work/candidate.json"
-CANDIDATE=$(capture "${H[@]}" genome register "$DATA/work/candidate.json" --world "$WORLD")
+step "Register Markdown Genomes: identity parent and an uppercase child"
+PARENT=$(capture "${H[@]}" genome register "$EXAMPLES/agent.md" --world "$WORLD")
+sed -e "s/__PARENT_ID__/$PARENT/" "$EXAMPLES/candidate.md" > "$DATA/work/candidate.md"
+CANDIDATE=$(capture "${H[@]}" genome register "$DATA/work/candidate.md" --world "$WORLD")
 run "${H[@]}" genome list
 
-step "Unfreeze (daemons start frozen; only the operator can lift it) and run the parent"
+step "Unfreeze (daemons start frozen; only the operator can lift it) and run the identity parent"
 run "${H[@]}" unfreeze
 run "${H[@]}" run "$PARENT"
 
 step "Measure parent vs child in the protected Arena"
-run "${H[@]}" arena evaluate quickstart-1 "$PARENT" "$CANDIDATE"
+EVALUATION=$(run "${H[@]}" arena evaluate quickstart-1 "$PARENT" "$CANDIDATE")
+printf '%s\n' "$EVALUATION"
+[[ "$EVALUATION" == *"candidate_visible=1/1"* && "$EVALUATION" == *"parent_visible=0/1"* ]] || {
+  echo "Markdown reference instructions did not produce the expected Arena improvement" >&2; exit 1;
+}
 
 step "Compute and persist the operator-only selection receipt"
 # The receipt prints measured metrics separately from the missing invariant
 # gate; promotion must remain false until that independent proof exists.
 SELECTION=$(run "${H[@]}" arena select quickstart-1)
 printf '%s\n' "$SELECTION"
+[[ "$SELECTION" == *"correctness_improvements=2"* ]] || {
+  echo "selection did not preserve the measured Markdown correctness improvement" >&2; exit 1;
+}
 [[ "$SELECTION" == *"invariant_gate_verified=false"* ]] || {
   echo "selection unexpectedly claims invariant verification" >&2; exit 1;
 }

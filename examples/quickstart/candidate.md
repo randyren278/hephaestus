@@ -1,7 +1,7 @@
 ---
 schema_version: 1
-name: quickstart-parent
-parents: []
+name: quickstart-candidate
+parents: ["__PARENT_ID__"]
 model:
   provider: deterministic
   family: reference
@@ -11,5 +11,5 @@ authority:
 artifacts: {}
 ---
 ```hephaestus-reference-v1
-{"schema_version":1,"operation":"identity"}
+{"schema_version":1,"operation":"ascii_uppercase"}
 ```

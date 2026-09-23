@@ -21,7 +21,6 @@ use hephaestus_experience::{
     RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner,
 };
 use hephaestus_genome::{SourceFormat, compile_genome, compile_world};
-#[cfg(feature = "test-support")]
 use hephaestus_ledger::ArtifactId;
 use hephaestus_ledger::{ArtifactStore, EventInput, EventStore};
 use tempfile::tempdir;
@@ -30,6 +29,247 @@ const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
 const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
 const REFERENCE_EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
 const REFERENCE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-reference-worker");
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn markdown_reference_instructions_use_one_pinned_worker_for_paired_trials() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"sandboxed fixture\n")
+        .expect("write repository fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+
+    fs::create_dir_all(&data_dir).expect("create daemon data directory");
+    fs::set_permissions(&data_dir, fs::Permissions::from_mode(0o700))
+        .expect("protect daemon data directory");
+    let producer_seed = [71_u8; 32];
+    fs::write(data_dir.join("runtime-producer.key"), producer_seed).expect("write producer key");
+    fs::set_permissions(
+        data_dir.join("runtime-producer.key"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .expect("protect producer key");
+    let signer = RunResultSigner::from_seed(producer_seed);
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open CAS");
+    let visible = TrustedManifest::new(
+        "seatbelt-visible-v1",
+        Visibility::Visible,
+        vec![TrustedTask::new("visible-task", "lower input", "LOWER INPUT").unwrap()],
+    )
+    .unwrap();
+    let sealed = TrustedManifest::new(
+        "seatbelt-sealed-v1",
+        Visibility::Sealed,
+        vec![TrustedTask::new("sealed-task", "secret input", "SECRET INPUT").unwrap()],
+    )
+    .unwrap();
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).unwrap())
+        .unwrap();
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).unwrap())
+        .unwrap();
+    let evaluator_id = artifacts
+        .put(&fs::read(REFERENCE_EVALUATOR).unwrap())
+        .unwrap();
+    let verifier_id = artifacts
+        .put(&signer.verifier().public_key_bytes())
+        .unwrap();
+    let world_source = format!(
+        r#"{{"schema_version":1,"name":"seatbelt-reference","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+        visible_id.as_str(),
+        sealed_id.as_str(),
+        evaluator_id.as_str(),
+        verifier_id.as_str()
+    );
+    let world = compile_world(&world_source, SourceFormat::Json, &artifacts).unwrap();
+    let world_artifact = artifacts.put(world.canonical_json()).unwrap();
+    let world_record = WorldRecord {
+        world_id: world.id().to_owned(),
+        name: world.name().to_owned(),
+        artifact_id: world_artifact.as_str().to_owned(),
+    };
+    EventStore::open(data_dir.join("events.sqlite3"))
+        .unwrap()
+        .append(EventInput::new(
+            "seatbelt-world",
+            &world_record.world_id,
+            "world.registered",
+            "test-fixture",
+            1,
+            serde_json::to_vec(&world_record).unwrap(),
+        ))
+        .unwrap();
+
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let instruction_file = |name: &str, parents: &str, operation: &str| {
+        format!(
+            "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{operation}\"}}\n```\n"
+        )
+    };
+    let parent_path = directory.path().join("parent.md");
+    fs::write(
+        &parent_path,
+        instruction_file("seatbelt-parent", "[]", "identity"),
+    )
+    .unwrap();
+    let parent = match response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            parent_path.to_str().unwrap(),
+            "--world",
+            world.id(),
+        ],
+    ))
+    .data
+    .unwrap()
+    {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected parent registration: {other:?}"),
+    };
+    let candidate_path = directory.path().join("candidate.md");
+    fs::write(
+        &candidate_path,
+        instruction_file(
+            "seatbelt-candidate",
+            &format!("[\"{}\"]", parent.genome_id),
+            "ascii_uppercase",
+        ),
+    )
+    .unwrap();
+    let candidate = match response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            candidate_path.to_str().unwrap(),
+            "--world",
+            world.id(),
+        ],
+    ))
+    .data
+    .unwrap()
+    {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected candidate registration: {other:?}"),
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let deployed_worker = data_dir.join("reference-worker");
+    let worker_bytes = fs::read(&deployed_worker).expect("read deployed worker");
+    let worker_path = deployed_worker.clone();
+    let snapshot_directory = data_dir.clone();
+    let mutation = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let found = fs::read_dir(&snapshot_directory)
+                .expect("read data directory")
+                .flatten()
+                .filter(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("reference-worker-")
+                })
+                .next()
+                .is_some();
+            if found {
+                fs::write(&worker_path, b"replaced during paired evaluation")
+                    .expect("replace deployed worker after snapshot");
+                return true;
+            }
+            thread::sleep(Duration::from_micros(100));
+        }
+        false
+    });
+    let evaluation_response = cli(
+        &data_dir,
+        &[
+            "arena",
+            "evaluate",
+            "seatbelt-reference-evaluation",
+            &parent.genome_id,
+            &candidate.genome_id,
+        ],
+    );
+    let worker_replaced_after_snapshot = mutation.join().expect("join worker replacement");
+    fs::write(&deployed_worker, &worker_bytes).expect("restore deployed worker");
+    fs::set_permissions(&deployed_worker, fs::Permissions::from_mode(0o700))
+        .expect("restore worker permissions");
+    assert!(
+        worker_replaced_after_snapshot,
+        "paired evaluation never exposed its private worker snapshot"
+    );
+    let evaluation = response(&evaluation_response);
+    let evaluation = match evaluation.data.unwrap() {
+        ResponseData::Evaluation { evaluation } => evaluation,
+        other => panic!("unexpected paired evaluation: {other:?}"),
+    };
+    assert_eq!(evaluation.parent_visible_correct, 0);
+    assert_eq!(evaluation.candidate_visible_correct, 1);
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .unwrap()
+        .replay_verified()
+        .unwrap();
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).unwrap();
+    let receipts = history
+        .iter()
+        .filter(|event| event.event_type == "run.result_recorded")
+        .map(|event| RunResultReceipt::parse_from_event(event, &signer.verifier()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(receipts.len(), 4);
+    for receipt in receipts {
+        let (input, expected) = match receipt.task_id.as_str() {
+            "visible-task" => (
+                "lower input",
+                if receipt.genome_id == parent.genome_id {
+                    "lower input"
+                } else {
+                    "LOWER INPUT"
+                },
+            ),
+            "sealed-task" => (
+                "secret input",
+                if receipt.genome_id == parent.genome_id {
+                    "secret input"
+                } else {
+                    "SECRET INPUT"
+                },
+            ),
+            task => panic!("unexpected task in signed receipt: {task}"),
+        };
+        assert_eq!(
+            receipt.input_commitment,
+            blake3::hash(input.as_bytes()).to_hex().to_string()
+        );
+        assert_eq!(receipt.environment_id, reference_worker_environment_id());
+        let output = artifacts
+            .get(&ArtifactId::parse(receipt.stdout_artifact_id).unwrap())
+            .unwrap();
+        assert_eq!(output, expected.as_bytes());
+    }
+    let selected = response(&cli(
+        &data_dir,
+        &["arena", "select", "seatbelt-reference-evaluation"],
+    ));
+    let ResponseData::Selection { selection } = selected.data.unwrap() else {
+        panic!("expected operator selection response");
+    };
+    assert!(!selection.receipt.invariant_gate_verified());
+    assert!(!selection.receipt.promotion_eligible());
+    daemon.stop();
+}
 
 fn runtime_environment_id() -> String {
     format!(

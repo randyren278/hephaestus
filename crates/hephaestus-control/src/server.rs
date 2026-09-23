@@ -36,6 +36,7 @@ use hephaestus_runtime::{
     SandboxManager, SupervisedRuntime, WorkerLimits,
 };
 use serde::{Deserialize, Serialize};
+use tempfile::{Builder as TempDirBuilder, TempDir};
 
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
@@ -91,6 +92,29 @@ pub struct ControlPlane {
 struct CanonicalStorage {
     ledger: EventStore,
     artifacts: ArtifactStore,
+}
+
+struct PinnedReferenceWorker {
+    directory: TempDir,
+    executable: PathBuf,
+    digest: String,
+}
+
+impl PinnedReferenceWorker {
+    fn verify(&self) -> Result<(), ExecuteError> {
+        if self.executable.parent() != Some(self.directory.path()) {
+            return Err(ExecuteError::Rejected(
+                "pinned reference worker escaped its private directory".to_owned(),
+            ));
+        }
+        let actual = executable_digest(&self.executable).map_err(|_| ExecuteError::Internal)?;
+        if actual != self.digest {
+            return Err(ExecuteError::Rejected(
+                "pinned reference worker identity changed during execution".to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 struct SandboxCleanupGuard {
@@ -646,7 +670,8 @@ impl ControlPlane {
         )
         .map_err(|_| ExecuteError::Internal)?;
         let evaluator = self.open_evaluator(evaluator_id, evaluator_limits)?;
-        let environment_id = self.reference_execution_environment()?;
+        let worker = self.pin_reference_worker()?;
+        let environment_id = Self::reference_execution_environment(&worker);
         let revision = self.paired_revision(evaluation_id)?;
         let parent_plan = self.schedule_submission(
             evaluation_id,
@@ -656,6 +681,7 @@ impl ControlPlane {
             &sealed,
             &revision,
             &environment_id,
+            &worker,
             budget,
         )?;
         let candidate_plan = self.schedule_submission(
@@ -666,6 +692,7 @@ impl ControlPlane {
             &sealed,
             &revision,
             &environment_id,
+            &worker,
             budget,
         )?;
         let binding = EvaluationBinding::new(
@@ -676,6 +703,7 @@ impl ControlPlane {
             budget_receipt,
         )
         .map_err(|_| ExecuteError::Internal)?;
+        worker.verify()?;
         let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
         let result = evaluate_and_record(
             EvaluationStores {
@@ -806,6 +834,7 @@ impl ControlPlane {
         sealed: &TrustedManifest,
         revision: &str,
         environment_id: &str,
+        worker: &PinnedReferenceWorker,
         budget: Budget,
     ) -> Result<TrialPlan, ExecuteError> {
         let tasks = visible
@@ -825,6 +854,7 @@ impl ControlPlane {
                     &task.input,
                     revision,
                     environment_id,
+                    worker,
                     budget,
                 )?;
             }
@@ -842,6 +872,7 @@ impl ControlPlane {
         input: &str,
         revision: &str,
         environment_id: &str,
+        worker: &PinnedReferenceWorker,
         budget: Budget,
     ) -> Result<ResponseData, ExecuteError> {
         let experiment = ExperimentContext::new(
@@ -874,9 +905,9 @@ impl ControlPlane {
         let (sandbox, token) = manager.create(&spec).map_err(|_| ExecuteError::Internal)?;
         let sandbox = SandboxCleanupGuard::new(sandbox);
         let isolation = candidate_isolation(self.protected_runtime_paths());
-        let runtime =
-            SupervisedRuntime::deterministic(isolation, &self.reference_worker_executable, [])
-                .map_err(|_| ExecuteError::Internal)?;
+        worker.verify()?;
+        let runtime = SupervisedRuntime::deterministic(isolation, &worker.executable, [])
+            .map_err(|_| ExecuteError::Internal)?;
         let execution = (|| {
             let limits =
                 RetentionLimits::new(10_000, 65_536).map_err(|_| ExecuteError::Internal)?;
@@ -895,8 +926,10 @@ impl ControlPlane {
                 &token,
                 run_id,
             );
+            let worker_integrity = worker.verify();
             let (ledger, artifacts) = recorder.into_stores();
             let execution = execution.and_then(|output| {
+                worker_integrity?;
                 persist_reference_output(&artifacts, run_id, genome, spec.source_revision(), output)
             });
             self.storage = Some(CanonicalStorage { ledger, artifacts });
@@ -904,6 +937,7 @@ impl ControlPlane {
         })();
         sandbox.cleanup()?;
         let response = execution?;
+        worker.verify()?;
         self.append_run_result(&spec, &response)?;
         self.refresh_projection()?;
         Ok(response)
@@ -943,23 +977,44 @@ impl ControlPlane {
         })
     }
 
-    fn reference_execution_environment(&self) -> Result<String, ExecuteError> {
-        let actual = executable_digest(&self.reference_worker_executable)
-            .map_err(|_| ExecuteError::Internal)?;
-        if actual != self.reference_worker_digest {
+    fn pin_reference_worker(&self) -> Result<PinnedReferenceWorker, ExecuteError> {
+        let bytes =
+            fs::read(&self.reference_worker_executable).map_err(|_| ExecuteError::Internal)?;
+        let digest = blake3::hash(&bytes).to_hex().to_string();
+        if digest != self.reference_worker_digest {
             return Err(ExecuteError::Rejected(
                 "reference worker identity changed after daemon startup".to_owned(),
             ));
         }
+        let directory = TempDirBuilder::new()
+            .prefix("reference-worker-")
+            .tempdir_in(&self.data_dir)
+            .map_err(|_| ExecuteError::Internal)?;
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))
+            .map_err(|_| ExecuteError::Internal)?;
+        let executable = directory.path().join("worker");
+        fs::write(&executable, bytes).map_err(|_| ExecuteError::Internal)?;
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o500))
+            .map_err(|_| ExecuteError::Internal)?;
+        let worker = PinnedReferenceWorker {
+            directory,
+            executable,
+            digest,
+        };
+        worker.verify()?;
+        Ok(worker)
+    }
+
+    fn reference_execution_environment(worker: &PinnedReferenceWorker) -> String {
         let identity = format!(
             "{}|reference-instruction-language-v1|{}",
             reference_environment_id(),
-            self.reference_worker_digest
+            worker.digest
         );
-        Ok(format!(
+        format!(
             "reference-v1.{}",
             blake3::hash(identity.as_bytes()).to_hex()
-        ))
+        )
     }
 
     fn world_manifest(
@@ -1115,11 +1170,15 @@ impl ControlPlane {
         let budget =
             validated_evaluation_budget(wall_millis, maximum_output_bytes, maximum_cost_microusd)?;
         let instruction = self.reference_instruction(&genome.genome_id)?;
-        let environment_id = if instruction.is_some() {
-            self.reference_execution_environment()?
-        } else {
-            reference_environment_id()
-        };
+        let worker = instruction
+            .is_some()
+            .then(|| self.pin_reference_worker())
+            .transpose()?;
+        let environment_id = worker
+            .as_ref()
+            .map_or_else(reference_environment_id, |worker| {
+                Self::reference_execution_environment(worker)
+            });
         let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), seed, environment_id)
             .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
         let mut spec = RunSpec::new_for_experiment(
@@ -1139,10 +1198,12 @@ impl ControlPlane {
                 .map_err(|_| ExecuteError::Invalid("reference task input is oversized"))?;
         }
         let supervised_runtime = if instruction.is_some() {
+            let worker = worker.as_ref().ok_or(ExecuteError::Internal)?;
+            worker.verify()?;
             Some(
                 SupervisedRuntime::deterministic(
                     candidate_isolation(self.protected_runtime_paths()),
-                    &self.reference_worker_executable,
+                    &worker.executable,
                     [],
                 )
                 .map_err(|_| ExecuteError::Internal)?,
@@ -1177,8 +1238,12 @@ impl ControlPlane {
             } else {
                 execute_reference_runtime(recorder, &spec, sandbox.sandbox()?, &token, run_id)
             };
+            let worker_integrity = worker
+                .as_ref()
+                .map_or(Ok(()), PinnedReferenceWorker::verify);
             let (ledger, artifacts) = recorder.into_stores();
             let execution = execution.and_then(|output| {
+                worker_integrity?;
                 persist_reference_output(&artifacts, run_id, genome, spec.source_revision(), output)
             });
             self.storage = Some(CanonicalStorage { ledger, artifacts });
@@ -1186,6 +1251,9 @@ impl ControlPlane {
         })();
         sandbox.cleanup()?;
         let response = execution?;
+        if let Some(worker) = &worker {
+            worker.verify()?;
+        }
         self.append_run_result(&spec, &response)?;
         Ok(response)
     }
@@ -2417,6 +2485,60 @@ mod tests {
         )
         .expect("open with explicit worker");
         assert_eq!(plane.reference_worker_digest.len(), 64);
+    }
+
+    #[test]
+    fn evaluation_worker_snapshot_survives_deployment_path_replacement() {
+        let directory = tempdir().expect("temporary directory");
+        let worker = directory.path().join("deployed-worker");
+        fs::copy(std::env::current_exe().expect("test executable"), &worker)
+            .expect("copy worker executable");
+        fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+            .expect("make worker executable");
+        let plane = ControlPlane::open_with_repository_and_reference_worker(
+            directory.path().join("daemon-data"),
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            &worker,
+        )
+        .expect("open control plane");
+        let pinned = plane.pin_reference_worker().expect("pin worker");
+        let environment = ControlPlane::reference_execution_environment(&pinned);
+        let pinned_bytes = fs::read(&pinned.executable).expect("read pinned worker");
+        assert_eq!(
+            fs::metadata(pinned.directory.path())
+                .expect("read snapshot directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&pinned.executable)
+                .expect("read snapshot executable metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o500
+        );
+
+        fs::write(&worker, b"replacement at deployment path").expect("replace worker path");
+        assert_ne!(
+            executable_digest(&worker).expect("replacement stays executable"),
+            plane.reference_worker_digest
+        );
+        pinned.verify().expect("pinned executable remains valid");
+        assert_eq!(
+            fs::read(&pinned.executable).expect("read pinned worker after replacement"),
+            pinned_bytes
+        );
+        assert_eq!(
+            ControlPlane::reference_execution_environment(&pinned),
+            environment
+        );
+        fs::set_permissions(&pinned.executable, fs::Permissions::from_mode(0o700))
+            .expect("make snapshot writable for tamper test");
+        fs::write(&pinned.executable, b"tampered pinned worker").expect("tamper pinned snapshot");
+        assert!(pinned.verify().is_err());
     }
 
     #[test]

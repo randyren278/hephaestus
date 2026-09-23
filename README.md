@@ -126,22 +126,18 @@ scripts/quickstart.sh
 
 That builds the workspace, starts a daemon on a scratch `.quickstart` directory,
 and walks the entire loop with real binaries: publish evaluator artifacts,
-register a World, register a parent Genome and a child that declares its
-lineage, unfreeze, run the parent, evaluate parent vs child in the Arena,
+register a World, register an identity Markdown Genome and an uppercase child,
+unfreeze, run the parent, evaluate parent vs child in the Arena,
 replay the ledger, then `kill -9` the daemon and bring it back to show that
 everything it just did is canonical history. A few seconds, once the build is
 warm.
 
-What that looks like (real output; a few lines dropped and hashes shortened to fit):
-
-<p align="center">
-  <img src="docs/assets/quickstart-terminal.svg" width="100%" alt="Terminal transcript of scripts/quickstart.sh: daemon starts frozen, artifacts stored by hash, World and two Genomes registered, unfreeze, run, Arena evaluation 0/1 vs 0/1, replay of 140 events, kill -9, and status after restart still showing 2 genomes">
-</p>
-
-Both Genomes score 0/1 on purpose: the reference runtime inventories a
-repository, and the example task expects an answer it cannot produce. The point
-of the quickstart is that the *measurement* is real, sealed, signed, and
-replayable. Not that the sample agent is clever.
+The quickstart demonstrates only the bounded offline reference instruction
+language: the parent returns each input unchanged and the child uppercases it.
+Its release run checks for a visible score improvement from 0/1 to 1/1 and two
+total correctness improvements including the sealed task. Execution uses the
+release Seatbelt sandbox and produces signed receipts and CAS outputs.
+Promotion remains disabled until the independent invariant gate is verified.
 
 ## Daily use
 
@@ -177,8 +173,8 @@ template in [examples/quickstart/world.template.json](examples/quickstart/world.
 already be registered under that same World:
 
 ```bash
-hephaestus genome register parent.json --world hephaestus:world:<id>
-hephaestus genome register child.json  --world hephaestus:world:<id>   # child.json lists the parent id
+hephaestus genome register parent.md --world hephaestus:world:<id>
+hephaestus genome register child.md  --world hephaestus:world:<id>   # child.md lists the parent id
 hephaestus genome list
 ```
 
@@ -226,7 +222,7 @@ Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **265 deliberate source mutations**, each one
+runs the suite, then applies **266 deliberate source mutations**, each one
 disabling a specific documented invariant (from "an oversized request is
 accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
@@ -254,7 +250,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 265
+python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 266
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 

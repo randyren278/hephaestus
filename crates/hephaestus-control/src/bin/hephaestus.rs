@@ -417,10 +417,11 @@ fn evaluation_human(evaluation: &EvaluationRecord) -> String {
 
 fn selection_human(selection: &SelectionRecord) -> String {
     format!(
-        "selection={} world={} correctness_regressions={} lower_bps={} metrics_eligible={} pareto_dominates={} invariant_gate_verified={} promotion_eligible={} event={} sequence={} aggregate={} receipt={}",
+        "selection={} world={} correctness_regressions={} correctness_improvements={} lower_bps={} metrics_eligible={} pareto_dominates={} invariant_gate_verified={} promotion_eligible={} event={} sequence={} aggregate={} receipt={}",
         selection.evaluation_id,
         selection.world_id,
         selection.receipt.correctness_regressions(),
+        selection.receipt.correctness_improvements(),
         selection.receipt.lower_bps(),
         selection.receipt.metrics_eligible(),
         selection.receipt.candidate_pareto_dominates(),

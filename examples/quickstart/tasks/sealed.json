@@ -5,8 +5,8 @@
   "tasks": [
     {
       "task_id": "inventory-sealed",
-      "input": "Inventory the repository a second time.",
-      "expected_output": "{\"answer\":\"unknown\"}"
+      "input": "sealed arena input",
+      "expected_output": "SEALED ARENA INPUT"
     }
   ]
 }

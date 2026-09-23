@@ -5,8 +5,8 @@
   "tasks": [
     {
       "task_id": "inventory-visible",
-      "input": "Inventory the repository without modifying it.",
-      "expected_output": "{\"answer\":\"unknown\"}"
+      "input": "lower arena input",
+      "expected_output": "LOWER ARENA INPUT"
     }
   ]
 }

@@ -21,11 +21,11 @@ hephaestus-ledger = { path = "../hephaestus-ledger" }
 hephaestus-runtime = { path = "../hephaestus-runtime" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
 
 [dev-dependencies]
 hephaestus-arena = { path = "../hephaestus-arena", features = ["test-support"] }
 hephaestus-runtime = { path = "../hephaestus-runtime", features = ["test-support"] }
-tempfile = "3"
 
 [lints]
 workspace = true
