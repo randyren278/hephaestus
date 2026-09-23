@@ -1,6 +1,6 @@
 # Genomes
 
-A compiled Genome is an immutable, normalized agent specification. The compiler accepts schema version 1 as strict JSON or YAML, serializes the typed value to canonical compact JSON, and assigns `hephaestus:genome:<blake3>` from those exact bytes. Equivalent JSON and YAML therefore produce one identity. Markdown Genome files use the same schema in a strict YAML frontmatter block followed by a nonblank prompt body; the body bytes are stored in CAS as the reserved `agent.prompt` artifact and its address is included in the Genome identity.
+A compiled Genome is an immutable, normalized agent specification. The compiler accepts schema version 1 as strict JSON or YAML, serializes the typed value to canonical compact JSON, and assigns `hephaestus:genome:<blake3>` from those exact bytes. Equivalent JSON and YAML therefore produce one identity. Markdown Genome files use the same schema in a strict YAML frontmatter block followed by a nonblank prompt body; the body bytes are stored in CAS as the reserved agent.prompt artifact and its address is included in the Genome identity.
 
 ## Source schema
 
@@ -28,7 +28,7 @@ Register it with `hephaestus genome register <file> --world <world-id>`; the Wor
 
 ## Markdown agent files
 
-Markdown Genomes begin with a standalone `---` delimiter, use the same frontmatter fields shown above, close frontmatter with another standalone `---`, and place the prompt body after the closing delimiter. Unknown fields, duplicate YAML keys, YAML merge keys, blank bodies, an explicit `agent.prompt` frontmatter field, and files larger than 1 MiB are rejected. The compiler stores the exact nonblank UTF-8 body, including whitespace and final newlines, as `agent.prompt`; it does not trim or execute it. `hephaestus genome prompt <genome-id>` prints the verified body for a registered Genome that has this artifact. The command reads only the reserved artifact referenced by that registered Genome. See `examples/quickstart/agent.md` for a complete source file.
+Markdown Genomes begin with a standalone `---` delimiter, use the same frontmatter fields shown above, close frontmatter with another standalone `---`, and place the prompt body after the closing delimiter. Unknown fields, duplicate YAML keys, YAML merge keys, blank bodies, an explicit agent.prompt artifact in frontmatter, and files larger than 1 MiB are rejected. The compiler stores the exact nonblank UTF-8 body, including whitespace and final newlines, as agent.prompt; it does not trim or execute it. `hephaestus genome prompt <genome-id>` prints the verified body for a registered Genome that has this artifact. The command reads only the reserved artifact referenced by that registered Genome. See `examples/quickstart/agent.md` for a complete source file.
 
 Prompt execution is not implemented by this authoring path. It only stores, hashes, validates, registers, and exposes the prompt bytes to the local operator.
 
