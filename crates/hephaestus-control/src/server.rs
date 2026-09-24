@@ -109,6 +109,8 @@ pub struct ControlPlane {
     // Exercise durable recovery when the real executor exits after cleanup but loses its result.
     #[cfg(test)]
     drop_next_direct_result_after_execution: bool,
+    #[cfg(test)]
+    thread_spawn_failures: TestThreadSpawnFailures,
     active_arena_job: Option<ActiveArenaJob>,
     arena_message_receiver: Option<mpsc::Receiver<ArenaWorkerMessage>>,
     arena_message_sender: Option<mpsc::SyncSender<ArenaWorkerMessage>>,
@@ -130,6 +132,32 @@ struct ActiveJob {
 struct AsyncJobResult {
     job_id: String,
     output: Result<ReferenceExecution, String>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestThreadSpawnFailures {
+    direct: bool,
+    arena: bool,
+}
+
+#[cfg(test)]
+fn spawn_named_thread<T, F>(
+    name: String,
+    fail: bool,
+    task: F,
+) -> std::io::Result<thread::JoinHandle<T>>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    if fail {
+        Err(std::io::Error::other(
+            "injected thread launch failure for admission recovery test",
+        ))
+    } else {
+        thread::Builder::new().name(name).spawn(task)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -551,6 +579,8 @@ impl ControlPlane {
             job_result_receiver: None,
             #[cfg(test)]
             drop_next_direct_result_after_execution: false,
+            #[cfg(test)]
+            thread_spawn_failures: TestThreadSpawnFailures::default(),
             active_arena_job: None,
             arena_message_receiver: None,
             arena_message_sender: None,
@@ -853,34 +883,41 @@ impl ControlPlane {
         #[cfg(test)]
         let drop_result_after_execution =
             std::mem::take(&mut self.drop_next_direct_result_after_execution);
-        let spawn_result = thread::Builder::new()
-            .name(format!(
-                "hephaestus-job-{}",
-                &blake3::hash(job_id.as_bytes()).to_hex()[..8]
-            ))
-            .spawn(move || {
-                let output = execute_async_reference(
-                    AsyncReferenceLaunch {
-                        data_dir,
-                        guardian,
-                        protected_paths: protected,
-                        worker: worker_copy,
-                        cancel: thread_cancel,
-                    },
-                    &spec_copy,
-                    evidence_sink,
-                    initial_sequence,
-                );
-                #[cfg(test)]
-                if drop_result_after_execution {
-                    return;
-                }
-                let _ignored = result_sender.send(AsyncJobResult {
-                    job_id: thread_job_id,
-                    output,
-                });
-                drop(genome_copy);
+        let thread_name = format!(
+            "hephaestus-job-{}",
+            &blake3::hash(job_id.as_bytes()).to_hex()[..8]
+        );
+        let task = move || {
+            let output = execute_async_reference(
+                AsyncReferenceLaunch {
+                    data_dir,
+                    guardian,
+                    protected_paths: protected,
+                    worker: worker_copy,
+                    cancel: thread_cancel,
+                },
+                &spec_copy,
+                evidence_sink,
+                initial_sequence,
+            );
+            #[cfg(test)]
+            if drop_result_after_execution {
+                return;
+            }
+            let _ignored = result_sender.send(AsyncJobResult {
+                job_id: thread_job_id,
+                output,
             });
+            drop(genome_copy);
+        };
+        #[cfg(test)]
+        let spawn_result = spawn_named_thread(
+            thread_name,
+            std::mem::take(&mut self.thread_spawn_failures.direct),
+            task,
+        );
+        #[cfg(not(test))]
+        let spawn_result = thread::Builder::new().name(thread_name).spawn(task);
         if spawn_result.is_err() {
             let mut terminal = running;
             terminal.state = JobState::Interrupted;
@@ -1992,12 +2029,19 @@ impl ControlPlane {
             initial_sequence: self.state.event_count,
             job_id: evaluation_id.to_owned(),
         };
-        let spawn = thread::Builder::new()
-            .name(format!(
-                "hephaestus-arena-{}",
-                &blake3::hash(evaluation_id.as_bytes()).to_hex()[..8]
-            ))
-            .spawn(move || execute_async_arena_trials(launch));
+        let thread_name = format!(
+            "hephaestus-arena-{}",
+            &blake3::hash(evaluation_id.as_bytes()).to_hex()[..8]
+        );
+        let task = move || execute_async_arena_trials(launch);
+        #[cfg(test)]
+        let spawn = spawn_named_thread(
+            thread_name,
+            std::mem::take(&mut self.thread_spawn_failures.arena),
+            task,
+        );
+        #[cfg(not(test))]
+        let spawn = thread::Builder::new().name(thread_name).spawn(task);
         if spawn.is_err() {
             admitted.state = JobState::Interrupted;
             admitted.phase = ArenaJobPhase::Terminal;

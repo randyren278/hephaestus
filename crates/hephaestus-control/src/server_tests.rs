@@ -1179,6 +1179,258 @@ fn open_projection_test_plane(directory: &TempDir) -> ControlPlane {
     .expect("open control plane with explicit test executables")
 }
 
+fn register_thread_failure_arena_objects(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        "thread-failure-visible",
+        Visibility::Visible,
+        vec![TrustedTask::new("visible-task", "visible", "VISIBLE").expect("visible task")],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "thread-failure-sealed",
+        Visibility::Sealed,
+        vec![TrustedTask::new("sealed-task", "sealed", "SEALED").expect("sealed task")],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator = env::current_exe().expect("test evaluator executable");
+    let evaluator_id = artifacts
+        .put(&fs::read(evaluator).expect("read test evaluator executable"))
+        .expect("store test evaluator");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store runtime verifier");
+    drop(artifacts);
+
+    let world_path = directory.path().join("thread-failure-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"thread-failure-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+        ),
+    )
+    .expect("write Arena World source");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        "register-thread-failure-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Arena World registration should succeed");
+    };
+
+    let register_genome = |plane: &mut ControlPlane, name: &str, parents: &str| {
+        let path = directory.path().join(format!("{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+            ),
+        )
+        .expect("write reference Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            name,
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Arena Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(plane, "thread-failure-parent", "[]");
+    let candidate = register_genome(
+        plane,
+        "thread-failure-candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+    );
+    (world, parent, candidate)
+}
+
+#[test]
+fn direct_thread_launch_failure_persists_interruption_and_releases_slot() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    plane.thread_spawn_failures.direct = true;
+    assert!(matches!(
+        plane.submit_job("launch-failed-one", &genome.genome_id),
+        Err(ExecuteError::Internal)
+    ));
+    let first = &plane.state.jobs["launch-failed-one"];
+    assert_eq!(first.state, JobState::Interrupted);
+    assert_eq!(first.terminal, Some(JobTerminal::Interrupted));
+    assert!(plane.active_job.is_none());
+    assert!(plane.job_result_receiver.is_none());
+    assert!(!plane.state.active_runs.contains(&first.run_id));
+
+    plane.thread_spawn_failures.direct = true;
+    assert!(
+        matches!(
+            plane.submit_job("launch-failed-two", &genome.genome_id),
+            Err(ExecuteError::Internal)
+        ),
+        "second admission must reach the injected launch boundary instead of returning Busy"
+    );
+    assert_eq!(
+        plane.state.jobs["launch-failed-two"].state,
+        JobState::Interrupted
+    );
+    assert!(plane.active_job.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify launch-failure history");
+    for job_id in ["launch-failed-one", "launch-failed-two"] {
+        assert_eq!(
+            history
+                .iter()
+                .filter(|event| {
+                    event.event_type == "job.terminal"
+                        && event.aggregate_id == format!("job:{job_id}")
+                })
+                .count(),
+            1
+        );
+    }
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay interrupted admissions"),
+        ResponseData::Replay { .. }
+    ));
+
+    drop(plane);
+    let reopened = open_projection_test_plane(&directory);
+    for job_id in ["launch-failed-one", "launch-failed-two"] {
+        assert_eq!(reopened.state.jobs[job_id].state, JobState::Interrupted);
+    }
+    assert!(reopened.active_job.is_none());
+}
+
+#[test]
+fn arena_thread_launch_failure_persists_interruption_and_releases_slot() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) =
+        register_thread_failure_arena_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    plane.thread_spawn_failures.arena = true;
+    assert!(matches!(
+        plane.submit_arena_job(
+            "arena-launch-failed-one",
+            &parent.genome_id,
+            &candidate.genome_id
+        ),
+        Err(ExecuteError::Internal)
+    ));
+    let first = &plane.state.arena_jobs["arena-launch-failed-one"];
+    assert_eq!(first.state, JobState::Interrupted);
+    assert_eq!(first.phase, ArenaJobPhase::Terminal);
+    assert_eq!(first.terminal, Some(JobTerminal::Interrupted));
+    assert!(first.evaluation.is_none());
+    assert!(plane.active_arena_job.is_none());
+    assert!(plane.arena_message_receiver.is_none());
+    assert!(plane.arena_message_sender.is_none());
+
+    plane.thread_spawn_failures.arena = true;
+    assert!(
+        matches!(
+            plane.submit_arena_job(
+                "arena-launch-failed-two",
+                &parent.genome_id,
+                &candidate.genome_id
+            ),
+            Err(ExecuteError::Internal)
+        ),
+        "second Arena admission must reach the injected launch boundary instead of returning Busy"
+    );
+    assert_eq!(
+        plane.state.arena_jobs["arena-launch-failed-two"].state,
+        JobState::Interrupted
+    );
+    assert!(plane.active_arena_job.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify Arena launch-failure history");
+    for evaluation_id in ["arena-launch-failed-one", "arena-launch-failed-two"] {
+        assert_eq!(
+            history
+                .iter()
+                .filter(|event| {
+                    event.event_type == "arena.job.terminal"
+                        && event.aggregate_id == format!("arena-job:{evaluation_id}")
+                })
+                .count(),
+            1
+        );
+    }
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay interrupted Arena admissions"),
+        ResponseData::Replay { .. }
+    ));
+
+    drop(plane);
+    let reopened = open_projection_test_plane(&directory);
+    for evaluation_id in ["arena-launch-failed-one", "arena-launch-failed-two"] {
+        assert_eq!(
+            reopened.state.arena_jobs[evaluation_id].state,
+            JobState::Interrupted
+        );
+        assert_eq!(
+            reopened.state.arena_jobs[evaluation_id].phase,
+            ArenaJobPhase::Terminal
+        );
+    }
+    assert!(reopened.active_arena_job.is_none());
+}
+
 #[test]
 fn arena_replay_rejects_admitted_plan_without_its_registered_bindings() {
     let directory = tempdir().expect("daemon directory");
