@@ -106,6 +106,9 @@ pub struct ControlPlane {
     active_job: Option<ActiveJob>,
     job_evidence_receiver: Option<mpsc::Receiver<EvidenceRequest>>,
     job_result_receiver: Option<mpsc::Receiver<AsyncJobResult>>,
+    // Exercise durable recovery when the real executor exits after cleanup but loses its result.
+    #[cfg(test)]
+    drop_next_direct_result_after_execution: bool,
     active_arena_job: Option<ActiveArenaJob>,
     arena_message_receiver: Option<mpsc::Receiver<ArenaWorkerMessage>>,
     arena_message_sender: Option<mpsc::SyncSender<ArenaWorkerMessage>>,
@@ -546,6 +549,8 @@ impl ControlPlane {
             active_job: None,
             job_evidence_receiver: None,
             job_result_receiver: None,
+            #[cfg(test)]
+            drop_next_direct_result_after_execution: false,
             active_arena_job: None,
             arena_message_receiver: None,
             arena_message_sender: None,
@@ -845,6 +850,9 @@ impl ControlPlane {
         let initial_sequence = self.state.event_count;
         let thread_cancel = Arc::clone(&cancel);
         let thread_job_id = job_id.to_owned();
+        #[cfg(test)]
+        let drop_result_after_execution =
+            std::mem::take(&mut self.drop_next_direct_result_after_execution);
         let spawn_result = thread::Builder::new()
             .name(format!(
                 "hephaestus-job-{}",
@@ -863,6 +871,10 @@ impl ControlPlane {
                     evidence_sink,
                     initial_sequence,
                 );
+                #[cfg(test)]
+                if drop_result_after_execution {
+                    return;
+                }
                 let _ignored = result_sender.send(AsyncJobResult {
                     job_id: thread_job_id,
                     output,

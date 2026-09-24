@@ -869,6 +869,54 @@ fn canonical_writer_cas_failure_rejects_trace_and_cancels_admitted_job() {
 }
 
 #[test]
+fn missing_direct_result_after_real_execution_records_interruption_and_releases_slot() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    plane.drop_next_direct_result_after_execution = true;
+    plane
+        .submit_job("lost-result", &genome.genome_id)
+        .expect("admit direct reference job");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist evidence and detect closed result channel");
+        assert!(Instant::now() < deadline, "executor did not finish");
+        thread::sleep(Duration::from_millis(2));
+    }
+    let interrupted = &plane.state.jobs["lost-result"];
+    assert_eq!(interrupted.state, JobState::Interrupted);
+    assert_eq!(interrupted.terminal, Some(JobTerminal::Interrupted));
+    assert!(
+        plane.state.job_progress["lost-result"].trace_events > 0,
+        "the real worker must persist evidence before losing its result"
+    );
+    assert!(matches!(
+        plane.replay_response().expect("replay interrupted result"),
+        ResponseData::Replay { .. }
+    ));
+    exercise_dispatch_job(&mut plane, &genome.genome_id);
+    drop(plane);
+    let reopened = ControlPlane::open(directory.path()).expect("reopen after result loss");
+    assert_eq!(
+        reopened.state.jobs["lost-result"].state,
+        JobState::Interrupted
+    );
+    assert_eq!(
+        reopened.state.jobs["dispatch-run"].state,
+        JobState::Succeeded
+    );
+}
+
+#[test]
 fn arena_job_record_validation_rejects_plan_and_event_tampering() {
     let directory = tempdir().expect("fixture directory");
     let artifacts =
