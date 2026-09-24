@@ -71,13 +71,15 @@ PARENT=$(capture "${H[@]}" genome register "$EXAMPLES/agent.md" --world "$WORLD"
 sed -e "s/__PARENT_ID__/$PARENT/" "$EXAMPLES/candidate.md" > "$DATA/work/candidate.md"
 CANDIDATE=$(capture "${H[@]}" genome register "$DATA/work/candidate.md" --world "$WORLD")
 run "${H[@]}" genome list
+SOURCE_REVISION=$(git -C "$ROOT" rev-parse HEAD)
+EVALUATION_ID="quickstart-$(printf '%s\n' "$WORLD" "$PARENT" "$CANDIDATE" "$SOURCE_REVISION" | git hash-object --stdin)"
 
 step "Unfreeze (daemons start frozen; only the operator can lift it) and run the identity parent"
 run "${H[@]}" unfreeze
 run "${H[@]}" run "$PARENT"
 
 step "Measure parent vs child in the protected Arena"
-EVALUATION=$(run "${H[@]}" arena evaluate quickstart-1 "$PARENT" "$CANDIDATE")
+EVALUATION=$(run "${H[@]}" arena evaluate "$EVALUATION_ID" "$PARENT" "$CANDIDATE")
 printf '%s\n' "$EVALUATION"
 [[ "$EVALUATION" == *"candidate_visible=1/1"* && "$EVALUATION" == *"parent_visible=0/1"* ]] || {
   echo "Markdown reference instructions did not produce the expected Arena improvement" >&2; exit 1;
@@ -86,7 +88,7 @@ printf '%s\n' "$EVALUATION"
 step "Compute and persist the operator-only selection receipt"
 # The receipt prints measured metrics separately from the missing invariant
 # gate; promotion must remain false until that independent proof exists.
-SELECTION=$(run "${H[@]}" arena select quickstart-1)
+SELECTION=$(run "${H[@]}" arena select "$EVALUATION_ID")
 printf '%s\n' "$SELECTION"
 [[ "$SELECTION" == *"correctness_improvements=2"* ]] || {
   echo "selection did not preserve the measured Markdown correctness improvement" >&2; exit 1;
@@ -97,7 +99,7 @@ printf '%s\n' "$SELECTION"
 [[ "$SELECTION" == *"promotion_eligible=false"* ]] || {
   echo "selection unexpectedly permits promotion without invariant proof" >&2; exit 1;
 }
-SELECTION_RETRY=$(run "${H[@]}" arena select quickstart-1)
+SELECTION_RETRY=$(run "${H[@]}" arena select "$EVALUATION_ID")
 [[ "$SELECTION_RETRY" == "$SELECTION" ]] || {
   echo "selection retry changed the canonical receipt" >&2; exit 1;
 }
@@ -113,7 +115,7 @@ DAEMON_PID=$!
 wait_ready
 run "${H[@]}" status
 run "${H[@]}" genome show "$CANDIDATE"
-SELECTION_AFTER_RESTART=$(run "${H[@]}" arena select quickstart-1)
+SELECTION_AFTER_RESTART=$(run "${H[@]}" arena select "$EVALUATION_ID")
 [[ "$SELECTION_AFTER_RESTART" == "$SELECTION" ]] || {
   echo "selection changed after daemon restart" >&2; exit 1;
 }
