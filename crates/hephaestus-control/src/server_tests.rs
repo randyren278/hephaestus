@@ -5032,7 +5032,7 @@ fn corrupted_runtime_recorder_fixture(
 }
 
 fn assert_recovery_failure_keeps_recorder_and_cleans_sandbox(
-    result: Result<ReferenceExecution, ExecuteError>,
+    result: &Result<ReferenceExecution, ExecuteError>,
     recorder: EvidenceRecorder,
     database: &Path,
     sandbox: Sandbox,
@@ -5084,7 +5084,7 @@ fn reference_runtime_returns_recorder_when_recovery_detects_tampered_history() {
         execute_reference_runtime(recorder, &spec, &sandbox, &token, spec.run_id());
 
     assert_recovery_failure_keeps_recorder_and_cleans_sandbox(
-        result,
+        &result,
         recorder,
         &database,
         sandbox,
@@ -5110,7 +5110,7 @@ fn candidate_runtime_returns_recorder_when_recovery_detects_tampered_history() {
         execute_candidate_runtime(runtime, recorder, &spec, &sandbox, &token, spec.run_id());
 
     assert_recovery_failure_keeps_recorder_and_cleans_sandbox(
-        result,
+        &result,
         recorder,
         &database,
         sandbox,
