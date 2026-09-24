@@ -4,7 +4,13 @@ export type Command =
 	| {command: 'unfreeze'}
 	| {command: 'kill_all'}
 	| {command: 'job_status'; job_id: string}
-	| {command: 'job_kill'; job_id: string};
+	| {command: 'job_kill'; job_id: string}
+	| {command: 'world_list'}
+	| {command: 'world_show'; world_id: string}
+	| {command: 'genome_list'}
+	| {command: 'genome_show'; genome_id: string}
+	| {command: 'genome_prompt'; genome_id: string}
+	| {command: 'champion_show'; world_id: string};
 
 export type ApiRequest = {version: 1; request_id: string; token: string; command: Command};
 export type JobState = 'admitted' | 'running' | 'cancellation_requested' | 'succeeded' | 'failed' | 'interrupted';
@@ -20,11 +26,39 @@ export type ArenaJobProgress = {
 	state: JobState; phase: ArenaJobPhase; completed_trials: number; total_trials: number;
 	evaluation?: {parent_visible_correct: number; candidate_visible_correct: number; visible_total: number};
 };
+export type WorldRecord = {world_id: string; name: string; artifact_id: string};
+export type GenomeRecord = {genome_id: string; name: string; world_id: string; artifact_id: string; parent_ids: string[]};
+export type ChampionTransitionKind = 'seeded' | 'promoted' | 'rolled_back';
+export type ChampionPromotionEvidence = {
+	assessment_id: string; assessment_event_id: string; assessment_event_hash: string; evaluation_id: string;
+	selection_receipt_artifact_id: string; invariant_event_id: string; invariant_event_hash: string;
+	invariant_receipt_artifact_id: string;
+};
+export type ChampionTransitionRecord = {
+	payload: {
+		schema_version: number; transition_id: string; world_id: string; kind: ChampionTransitionKind;
+		champion_genome_id: string; previous_champion_genome_id: string | null;
+		previous_transition_event_id: string | null; previous_transition_event_hash: string | null;
+		promotion: ChampionPromotionEvidence | null; reason: string | null;
+	};
+	event: {sequence: number; event_id: string; aggregate_id: string; event_hash: string};
+};
+export type ChampionRecord = {
+	world_id: string; champion_genome_id: string | null; standby_genome_ids: string[];
+	quarantined_genome_ids: string[]; transitions: ChampionTransitionRecord[];
+};
+
 export type ResponseData =
 	| {type: 'status'; frozen: boolean; active_runs: number; event_count: number; genome_count: number}
 	| {type: 'acknowledged'; frozen: boolean; killed_runs: number}
 	| {type: 'job'; job: Job; progress: {trace_events: number; last_event_sequence: number | null; last_phase: string | null}}
-	| {type: 'arena_job'; job: ArenaJobProgress};
+	| {type: 'arena_job'; job: ArenaJobProgress}
+	| {type: 'world'; world: WorldRecord}
+	| {type: 'worlds'; worlds: WorldRecord[]}
+	| {type: 'genome'; genome: GenomeRecord}
+	| {type: 'genomes'; genomes: GenomeRecord[]}
+	| {type: 'genome_prompt'; genome_id: string; prompt: string}
+	| {type: 'champion'; champion: ChampionRecord};
 export type ApiResponse = {version: number; request_id: string; data?: ResponseData; error?: {code: string; message: string}};
 
 export const MAX_FRAME_BYTES = 7 * 1_048_576;
@@ -52,6 +86,51 @@ function boundedCount(value: unknown): value is number {
 
 function nonnegativeInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
+}
+
+function stringArray(value: unknown, maxItems: number, maxLength: number): value is string[] {
+	return Array.isArray(value) && value.length <= maxItems && value.every(item => boundedString(item, maxLength));
+}
+
+function validWorld(value: unknown): value is WorldRecord {
+	return record(value) && boundedString(value['world_id'], 256) && boundedString(value['name'], 512) && boundedString(value['artifact_id'], 256);
+}
+
+function validGenome(value: unknown): value is GenomeRecord {
+	return record(value) && boundedString(value['genome_id'], 256) && boundedString(value['name'], 512)
+		&& boundedString(value['world_id'], 256) && boundedString(value['artifact_id'], 256)
+		&& stringArray(value['parent_ids'], 64, 256);
+}
+
+function validChampionTransition(value: unknown): value is ChampionTransitionRecord {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return false;
+	const payload = value['payload'];
+	const event = value['event'];
+	const kinds: ChampionTransitionKind[] = ['seeded', 'promoted', 'rolled_back'];
+	const promotion = payload['promotion'];
+	if (promotion !== null && (!record(promotion)
+		|| !boundedString(promotion['assessment_id'], 256) || !boundedString(promotion['assessment_event_id'], 256)
+		|| !boundedString(promotion['assessment_event_hash'], 256) || !boundedString(promotion['evaluation_id'], 256)
+		|| !boundedString(promotion['selection_receipt_artifact_id'], 256) || !boundedString(promotion['invariant_event_id'], 256)
+		|| !boundedString(promotion['invariant_event_hash'], 256) || !boundedString(promotion['invariant_receipt_artifact_id'], 256))) return false;
+	return typeof payload['schema_version'] === 'number'
+		&& boundedString(payload['transition_id'], 256) && boundedString(payload['world_id'], 256)
+		&& typeof payload['kind'] === 'string' && kinds.includes(payload['kind'] as ChampionTransitionKind)
+		&& boundedString(payload['champion_genome_id'], 256)
+		&& (payload['previous_champion_genome_id'] === null || boundedString(payload['previous_champion_genome_id'], 256))
+		&& (payload['previous_transition_event_id'] === null || boundedString(payload['previous_transition_event_id'], 256))
+		&& (payload['previous_transition_event_hash'] === null || boundedString(payload['previous_transition_event_hash'], 256))
+		&& (payload['reason'] === null || boundedString(payload['reason'], 2048))
+		&& safeInteger(event['sequence']) && boundedString(event['event_id'], 256)
+		&& boundedString(event['aggregate_id'], 256) && boundedString(event['event_hash'], 256);
+}
+
+function validChampion(value: unknown): value is ChampionRecord {
+	if (!record(value)) return false;
+	if (value['champion_genome_id'] !== null && !boundedString(value['champion_genome_id'], 256)) return false;
+	if (!stringArray(value['standby_genome_ids'], 4096, 256) || !stringArray(value['quarantined_genome_ids'], 4096, 256)) return false;
+	if (!Array.isArray(value['transitions']) || value['transitions'].length > 4096) return false;
+	return boundedString(value['world_id'], 256) && value['transitions'].every(validChampionTransition);
 }
 
 function validJob(value: unknown): value is Job {
@@ -130,6 +209,35 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 					visible_total: evaluation['visible_total'] as number,
 				}} : {}),
 			}}};
+		}
+		case 'world': {
+			const world = data['world'];
+			if (!validWorld(world)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'world', world}};
+		}
+		case 'worlds': {
+			const worlds = data['worlds'];
+			if (!Array.isArray(worlds) || worlds.length > 65_536 || !worlds.every(validWorld)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'worlds', worlds}};
+		}
+		case 'genome': {
+			const genome = data['genome'];
+			if (!validGenome(genome)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genome', genome}};
+		}
+		case 'genomes': {
+			const genomes = data['genomes'];
+			if (!Array.isArray(genomes) || genomes.length > 65_536 || !genomes.every(validGenome)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genomes', genomes}};
+		}
+		case 'genome_prompt': {
+			if (!boundedString(data['genome_id'], 256) || typeof data['prompt'] !== 'string' || data['prompt'].length > 1_048_576) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genome_prompt', genome_id: data['genome_id'], prompt: data['prompt']}};
+		}
+		case 'champion': {
+			const champion = data['champion'];
+			if (!validChampion(champion)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'champion', champion}};
 		}
 	}
 	throw new Error('daemon response variant is invalid');

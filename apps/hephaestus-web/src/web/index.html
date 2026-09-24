@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hephaestus // Web Console</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="hdr">
+  <div class="hdr-title">
+    <span class="crest crest-ember" aria-hidden="true"></span>
+    HEPHAESTUS <span class="hdr-sub">// WEB CONSOLE</span>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-view="status">Status</button>
+    <button class="tab" data-view="worlds">Worlds</button>
+    <button class="tab" data-view="genome">Genome</button>
+  </nav>
+  <div class="hdr-token" id="token-indicator">no token</div>
+</header>
+
+<main id="app">
+  <section id="view-status" class="view"></section>
+  <section id="view-worlds" class="view" hidden></section>
+  <section id="view-genome" class="view" hidden></section>
+</main>
+
+<footer class="ftr">
+  Local, read-only. Bound to 127.0.0.1. Never writes to canonical storage.
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
