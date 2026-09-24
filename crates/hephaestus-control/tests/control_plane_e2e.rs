@@ -926,19 +926,39 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         ));
     }
     daemon.stop();
+    // Simulate a daemon crash after the authenticated evaluation receipt was
+    // committed but before its final Arena lifecycle event was persisted.
+    rebuild_ledger_without(&data_dir, |event| {
+        event.event_id == "arena-job:daemon-owned-pair:terminal"
+    });
     let restarted = Daemon::start_with_repository(&data_dir, &repository);
     assert!(cli(&data_dir, &["replay"]).status.success());
+    let recovered = Client::new(&data_dir)
+        .request(Command::JobStatus {
+            job_id: "daemon-owned-pair".to_owned(),
+        })
+        .unwrap();
+    assert!(matches!(
+        recovered.data,
+        Some(ResponseData::ArenaJob { job })
+            if job.state == JobState::Succeeded && job.evaluation.is_some()
+    ));
     #[cfg(feature = "test-support")]
     {
         let expected = recorded_selections
             .pop()
             .expect("selection was recorded in the trusted flow");
+        let Some(ResponseData::Selection {
+            selection: recovered,
+        }) = response(&cli(&data_dir, &["arena", "select", "daemon-owned-pair"])).data
+        else {
+            panic!("restart did not rehydrate the selection receipt");
+        };
+        assert_eq!(recovered.receipt, expected.receipt);
+        assert_eq!(recovered.event.event_id, expected.event.event_id);
         assert_eq!(
-            response(&cli(&data_dir, &["arena", "select", "daemon-owned-pair"],)).data,
-            Some(ResponseData::Selection {
-                selection: expected
-            }),
-            "restart rehydrates the canonical selection receipt"
+            recovered.event.receipt_artifact_id,
+            expected.event.receipt_artifact_id
         );
     }
     restarted.stop();
@@ -1388,8 +1408,8 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
     let accepted = Client::new(&data_dir)
         .request(Command::EvaluatePair {
             evaluation_id: "deadline-pair".to_owned(),
-            parent_genome_id: parent.genome_id,
-            candidate_genome_id: candidate.genome_id,
+            parent_genome_id: parent.genome_id.clone(),
+            candidate_genome_id: candidate.genome_id.clone(),
         })
         .unwrap();
     assert!(matches!(
@@ -1461,6 +1481,97 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             .iter()
             .any(|event| event.event_type == "evaluation.recorded")
     );
+    assert!(cli(&data_dir, &["replay"]).status.success());
+
+    let cancelled = Client::new(&data_dir)
+        .request(Command::EvaluatePair {
+            evaluation_id: "cancelled-pair".to_owned(),
+            parent_genome_id: parent.genome_id.clone(),
+            candidate_genome_id: candidate.genome_id.clone(),
+        })
+        .unwrap();
+    assert!(matches!(
+        cancelled.data,
+        Some(ResponseData::ArenaJob { job }) if job.state == JobState::Running
+    ));
+    let cancellation = Client::new(&data_dir)
+        .request(Command::JobKill {
+            job_id: "cancelled-pair".to_owned(),
+        })
+        .unwrap();
+    assert!(matches!(
+        cancellation.data,
+        Some(ResponseData::ArenaJob { job }) if job.state == JobState::CancellationRequested
+    ));
+    let cancellation_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = Client::new(&data_dir)
+            .request(Command::JobStatus {
+                job_id: "cancelled-pair".to_owned(),
+            })
+            .unwrap();
+        let Some(ResponseData::ArenaJob { job }) = status.data else {
+            panic!("cancelled Arena job status missing");
+        };
+        if job.state == JobState::Interrupted {
+            assert_eq!(job.phase, ArenaJobPhase::Terminal);
+            assert!(job.evaluation.is_none());
+            break;
+        }
+        assert!(
+            Instant::now() < cancellation_deadline,
+            "Arena cancellation did not reach a terminal state"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let repeated_kill = Client::new(&data_dir)
+        .request(Command::JobKill {
+            job_id: "cancelled-pair".to_owned(),
+        })
+        .unwrap();
+    assert!(matches!(
+        repeated_kill.data,
+        Some(ResponseData::ArenaJob { job }) if job.state == JobState::Interrupted
+    ));
+
+    let stopping = Client::new(&data_dir)
+        .request(Command::EvaluatePair {
+            evaluation_id: "stop-pair".to_owned(),
+            parent_genome_id: parent.genome_id,
+            candidate_genome_id: candidate.genome_id,
+        })
+        .unwrap();
+    assert!(matches!(
+        stopping.data,
+        Some(ResponseData::ArenaJob { job }) if job.state == JobState::Running
+    ));
+    let deferred_stop = Client::new(&data_dir).request(Command::DaemonStop).unwrap();
+    assert_eq!(
+        deferred_stop.error.map(|error| error.code),
+        Some(ApiErrorCode::Busy),
+        "daemon shutdown should first cancel the active Arena job"
+    );
+    let stop_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = Client::new(&data_dir)
+            .request(Command::JobStatus {
+                job_id: "stop-pair".to_owned(),
+            })
+            .unwrap();
+        let Some(ResponseData::ArenaJob { job }) = status.data else {
+            panic!("Arena job status missing after deferred daemon stop");
+        };
+        if job.state == JobState::Interrupted {
+            assert_eq!(job.phase, ArenaJobPhase::Terminal);
+            assert!(job.evaluation.is_none());
+            break;
+        }
+        assert!(
+            Instant::now() < stop_deadline,
+            "deferred daemon stop did not cancel the Arena job"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
     assert!(cli(&data_dir, &["replay"]).status.success());
     daemon.stop();
 }
