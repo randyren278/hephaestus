@@ -531,6 +531,7 @@ impl ControlPlane {
         verify_forge_history(&data_dir, &history, &registered)?;
         verify_forge_assessment_history(&data_dir, &history, &registered)?;
         verify_invariant_history(&data_dir, &history, &registered)?;
+        verify_champion_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -792,6 +793,10 @@ impl ControlPlane {
             Command::ArenaInvariants { evaluation_id } => {
                 self.check_arena_invariants(&evaluation_id)
             }
+            command @ (Command::ChampionSeed { .. }
+            | Command::ChampionPromote { .. }
+            | Command::ChampionRollback { .. }) => self.champion_transition_command(command),
+            Command::ChampionShow { world_id } => self.champion_show(&world_id),
             Command::Replay => self.replay_response(),
             Command::DaemonStop => self.request_daemon_stop(),
         }
@@ -827,6 +832,107 @@ impl ControlPlane {
         self.assess_genome(&assessment_id, &proposal_id, &selection_event_id)
     }
 
+    fn champion_transition_command(
+        &mut self,
+        command: Command,
+    ) -> Result<ResponseData, ExecuteError> {
+        let (transition_id, request) = match command {
+            Command::ChampionSeed {
+                transition_id,
+                world_id,
+                genome_id,
+                reason,
+            } => (
+                transition_id,
+                ChampionRequest::Seed {
+                    world_id,
+                    genome_id,
+                    reason,
+                },
+            ),
+            Command::ChampionPromote {
+                transition_id,
+                assessment_id,
+            } => (transition_id, ChampionRequest::Promote { assessment_id }),
+            Command::ChampionRollback {
+                transition_id,
+                world_id,
+                reason,
+            } => (
+                transition_id,
+                ChampionRequest::Rollback { world_id, reason },
+            ),
+            _ => return Err(ExecuteError::Internal),
+        };
+        self.transition_champion(&transition_id, &request)
+    }
+
+    fn transition_champion(
+        &mut self,
+        transition_id: &str,
+        request: &ChampionRequest,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(transition_id)
+            .map_err(|_| ExecuteError::Invalid("transition_id is invalid"))?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_champion_history(&self.data_dir, &history, &self.state.registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) = existing_champion_transition(&history, transition_id, request)? {
+            return Ok(ResponseData::ChampionTransition {
+                transition: Box::new(existing),
+            });
+        }
+        let payload = champion_transition_payload(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            transition_id,
+            request,
+        )?;
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        let event = storage
+            .ledger
+            .append(EventInput::new(
+                champion_event_id(transition_id),
+                champion_aggregate_id(&payload.world_id),
+                CHAMPION_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::ChampionTransition {
+            transition: Box::new(champion_transition_record(payload, &event)),
+        })
+    }
+
+    fn champion_show(&self, world_id: &str) -> Result<ResponseData, ExecuteError> {
+        self.state
+            .registered
+            .world(world_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let champion =
+            champion_projection(&history, world_id).map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Champion {
+            champion: Box::new(champion),
+        })
+    }
+
     fn request_daemon_stop(&mut self) -> Result<ResponseData, ExecuteError> {
         if self.active_job.is_some() || self.active_arena_job.is_some() {
             self.request_active_job_cancellation()?;
@@ -849,6 +955,9 @@ impl ControlPlane {
                 | Command::GenomeRegister { .. }
                 | Command::GenomePropose { .. }
                 | Command::GenomeAssess { .. }
+                | Command::ChampionSeed { .. }
+                | Command::ChampionPromote { .. }
+                | Command::ChampionRollback { .. }
                 | Command::WorldRegister { .. }
                 | Command::ManifestPut { .. }
                 | Command::ArtifactPut { .. }
@@ -1763,6 +1872,8 @@ impl ControlPlane {
         verify_forge_assessment_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_invariant_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_champion_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
@@ -3090,6 +3201,8 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_invariant_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_champion_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
             registered,
@@ -4090,7 +4203,51 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     {
         return Err(ExecuteError::Invalid("evaluation_id is required"));
     }
-    Ok(())
+    require_champion_fields(command)
+}
+
+fn require_champion_fields(command: &Command) -> Result<(), ExecuteError> {
+    let transition_id = match command {
+        Command::ChampionSeed {
+            transition_id,
+            world_id,
+            genome_id,
+            reason,
+        } => {
+            if world_id.trim().is_empty() || genome_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid("world_id and genome_id are required"));
+            }
+            validate_reason(reason)?;
+            transition_id
+        }
+        Command::ChampionPromote {
+            transition_id,
+            assessment_id,
+        } => {
+            validate_job_id(assessment_id)
+                .map_err(|_| ExecuteError::Invalid("assessment_id is invalid"))?;
+            transition_id
+        }
+        Command::ChampionRollback {
+            transition_id,
+            world_id,
+            reason,
+        } => {
+            if world_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid("world_id is required"));
+            }
+            validate_reason(reason)?;
+            transition_id
+        }
+        Command::ChampionShow { world_id } => {
+            if world_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid("world_id is required"));
+            }
+            return Ok(());
+        }
+        _ => return Ok(()),
+    };
+    validate_job_id(transition_id).map_err(|_| ExecuteError::Invalid("transition_id is invalid"))
 }
 
 fn source_format(path: &str) -> Result<SourceFormat, ExecuteError> {
@@ -5533,6 +5690,10 @@ fn event_type(command: &Command) -> &'static str {
         Command::EvaluatePair { .. } => "control.evaluate_pair",
         Command::ArenaSelect { .. } => "control.arena_select",
         Command::ArenaInvariants { .. } => "control.arena_invariants",
+        Command::ChampionSeed { .. } => "control.champion_seed",
+        Command::ChampionPromote { .. } => "control.champion_promote",
+        Command::ChampionRollback { .. } => "control.champion_rollback",
+        Command::ChampionShow { .. } => "control.champion_show",
         Command::Replay => "control.replay",
         Command::DaemonStop => "control.daemon_stop",
     }
@@ -5824,3 +5985,12 @@ fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {
 #[cfg(test)]
 #[path = "server_tests.rs"]
 mod tests;
+
+#[path = "champion.rs"]
+mod champion;
+
+use champion::{
+    CHAMPION_EVENT_TYPE, ChampionRequest, champion_aggregate_id, champion_event_id,
+    champion_projection, champion_transition_payload, champion_transition_record,
+    existing_champion_transition, validate_reason, verify_champion_history,
+};

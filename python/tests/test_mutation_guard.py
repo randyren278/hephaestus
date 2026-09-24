@@ -32,7 +32,7 @@ from mutation_guard import (  # noqa: E402
 
 
 class MutationShardingTests(unittest.TestCase):
-    def test_control_mutations_are_partitioned_once_across_four_shards(self) -> None:
+    def test_control_mutations_are_partitioned_once_across_five_shards(self) -> None:
         manifest_path = CHECKS / "checks.json"
         control = [
             entry
@@ -40,16 +40,16 @@ class MutationShardingTests(unittest.TestCase):
             if entry["file"].startswith("crates/hephaestus-control/")
         ]
         expected_ids = [entry["id"] for entry in control]
-        self.assertEqual(len(expected_ids), 60)
+        self.assertEqual(len(expected_ids), 70)
         self.assertEqual(len(set(expected_ids)), len(expected_ids))
 
-        shards = [shard_entries(control, index, 4) for index in range(4)]
+        shards = [shard_entries(control, index, 5) for index in range(5)]
         sharded_ids = [entry["id"] for shard in shards for entry in shard]
 
-        self.assertEqual([len(shard) for shard in shards], [15, 15, 15, 15])
+        self.assertEqual([len(shard) for shard in shards], [14, 14, 14, 14, 14])
         self.assertCountEqual(sharded_ids, expected_ids)
         self.assertEqual(len(sharded_ids), len(set(sharded_ids)))
-        self.assertEqual(shards, [shard_entries(control, index, 4) for index in range(4)])
+        self.assertEqual(shards, [shard_entries(control, index, 5) for index in range(5)])
 
     def test_unsharded_selection_preserves_entries_and_invalid_shards_fail(self) -> None:
         entries = [{"id": "one"}, {"id": "two"}]

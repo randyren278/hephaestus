@@ -234,6 +234,10 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
 | `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
 | `hephaestus arena invariants <id>` | Record aggregate reference-output invariant evidence; never promotes |
+| `hephaestus champion seed <id> --world <world> --genome <genome> --reason <text>` | Bootstrap a World's first Champion by operator authority |
+| `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |
+| `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
+| `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
 | `hephaestus replay` | Verify history and compare it with live state |
 | `hephaestus daemon stop` | Audited graceful stop |
 
@@ -244,7 +248,7 @@ Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **288 deliberate source mutations**, each one
+runs the suite, then applies **309 deliberate source mutations**, each one
 disabling a specific documented invariant (from "an oversized request is
 accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
@@ -277,7 +281,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 288
+python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 309
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 

@@ -11,6 +11,10 @@ use hephaestus_ledger::{EventInput, EventStore};
 use tempfile::{TempDir, tempdir};
 
 use super::*;
+use crate::{
+    ApiError, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
+    ChampionTransitionRecord,
+};
 
 #[test]
 fn forge_mutation_changes_only_the_supported_compact_instruction_token() {
@@ -4323,6 +4327,13 @@ fn take_test_record_trace_request(plane: &mut ControlPlane, deadline: Instant) -
 }
 
 fn real_worker_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    real_worker_arena_fixture_with_invariants(directory, None)
+}
+
+fn real_worker_arena_fixture_with_invariants(
+    directory: &TempDir,
+    invariant_manifest: Option<&[u8]>,
+) -> (ControlPlane, GenomeRecord, GenomeRecord) {
     let data_dir = directory.path().join("data");
     let repository = directory.path().join("repository");
     fs::create_dir_all(&repository).expect("create source repository");
@@ -4368,7 +4379,12 @@ fn real_worker_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord
     )
     .expect("open real worker fixture");
     let token = plane.token_hex.clone();
-    let (_, parent, candidate) = register_dispatch_arena_objects(&mut plane, &token, directory);
+    let (_, parent, candidate) = register_dispatch_arena_objects_with_invariants(
+        &mut plane,
+        &token,
+        directory,
+        invariant_manifest,
+    );
     assert!(
         dispatch_call(&mut plane, &token, "unfreeze-evidence", Command::Unfreeze)
             .error
@@ -6482,6 +6498,16 @@ fn register_dispatch_arena_objects(
     token: &str,
     directory: &TempDir,
 ) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+    register_dispatch_arena_objects_with_invariants(plane, token, directory, None)
+}
+
+#[allow(clippy::too_many_lines)]
+fn register_dispatch_arena_objects_with_invariants(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    invariant_manifest: Option<&[u8]>,
+) -> (WorldRecord, GenomeRecord, GenomeRecord) {
     let artifacts =
         ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
     let visible = TrustedManifest::new(
@@ -6523,16 +6549,26 @@ fn register_dispatch_arena_objects(
     let verifier_id = artifacts
         .put(&plane.run_result_verifier.public_key_bytes())
         .expect("store result verifier");
+    let invariant_entry = invariant_manifest.map_or_else(String::new, |manifest| {
+        format!(
+            r#","arena.invariant_manifest":"{}""#,
+            artifacts
+                .put(manifest)
+                .expect("store invariant manifest")
+                .as_str()
+        )
+    });
     drop(artifacts);
     let world_path = directory.path().join("arena-world.json");
     fs::write(
         &world_path,
         format!(
-            r#"{{"schema_version":1,"name":"dispatch-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            r#"{{"schema_version":1,"name":"dispatch-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"{}}}}}"#,
             visible_id.as_str(),
             sealed_id.as_str(),
             evaluator_id.as_str(),
             verifier_id.as_str(),
+            invariant_entry,
         ),
     )
     .expect("write Arena World");
@@ -8455,4 +8491,708 @@ fn synchronous_json_run_reference_inventories_committed_repository_and_replays()
     assert_eq!(reopened.state.run_results.get(&run_id), Some(&receipt));
     assert!(reopened.state.completed_runs.contains(&run_id));
     assert!(!reopened.state.active_runs.contains(&run_id));
+}
+
+const CLEAN_INVARIANTS: &[u8] = br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[0]}"#;
+// Forbids `V`, which only the uppercase child emits for the visible task.
+const UPPERCASE_V_FORBIDDEN_INVARIANTS: &[u8] = br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[86]}"#;
+// Every fixture output is longer than five bytes, so parent and child both
+// violate the cap: no paired regression, yet the candidate contract fails.
+const SHARED_OUTPUT_CAP_INVARIANTS: &[u8] = br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":5,"forbidden_ascii_bytes":[0]}"#;
+
+struct AssessedChild {
+    world: String,
+    child: String,
+    evaluation: String,
+    selection_event: String,
+}
+
+/// Evaluates `parent` against `candidate`, proposes a one-flip child of
+/// `candidate`, evaluates and assesses that child against `candidate`.
+fn assessed_forge_child(
+    plane: &mut ControlPlane,
+    prefix: &str,
+    parent: &str,
+    candidate: &str,
+) -> AssessedChild {
+    let source_evaluation = format!("{prefix}-source");
+    complete_arena_test_job(plane, &source_evaluation, parent, candidate);
+    let ResponseData::Selection { selection: source } = plane
+        .select_arena_evaluation(&source_evaluation)
+        .expect("select Forge source")
+    else {
+        panic!("source selection should produce a receipt");
+    };
+    let ResponseData::ForgeProposal { proposal } = plane
+        .propose_genome(
+            &format!("{prefix}-proposal"),
+            &source.event.event_id,
+            candidate,
+            "Flip the single reference operation.",
+        )
+        .expect("record Forge proposal")
+    else {
+        panic!("proposal should return its durable record");
+    };
+    let evaluation = format!("{prefix}-child");
+    complete_arena_test_job(
+        plane,
+        &evaluation,
+        candidate,
+        &proposal.payload.child.genome_id,
+    );
+    let ResponseData::Selection { selection: child } = plane
+        .select_arena_evaluation(&evaluation)
+        .expect("select child evaluation")
+    else {
+        panic!("child selection should produce a receipt");
+    };
+    plane
+        .assess_genome(
+            &format!("{prefix}-assessment"),
+            &format!("{prefix}-proposal"),
+            &child.event.event_id,
+        )
+        .expect("record Forge assessment");
+    AssessedChild {
+        world: proposal.payload.world_id.clone(),
+        child: proposal.payload.child.genome_id.clone(),
+        evaluation,
+        selection_event: child.event.event_id.clone(),
+    }
+}
+
+fn champion_transition(
+    plane: &mut ControlPlane,
+    token: &str,
+    request_id: &str,
+    command: Command,
+) -> Result<ChampionTransitionRecord, ApiError> {
+    let response = dispatch_call(plane, token, request_id, command);
+    match (response.data, response.error) {
+        (Some(ResponseData::ChampionTransition { transition }), None) => Ok(*transition),
+        (None, Some(error)) => Err(error),
+        other => panic!("unexpected Champion response: {other:?}"),
+    }
+}
+
+fn champion_show(plane: &mut ControlPlane, token: &str, world_id: &str) -> ChampionRecord {
+    match dispatch_call(
+        plane,
+        token,
+        "champion-show",
+        Command::ChampionShow {
+            world_id: world_id.to_owned(),
+        },
+    )
+    .data
+    {
+        Some(ResponseData::Champion { champion }) => *champion,
+        other => panic!("unexpected Champion projection: {other:?}"),
+    }
+}
+
+fn assert_champion_error(
+    result: Result<ChampionTransitionRecord, ApiError>,
+    code: ApiErrorCode,
+    message: &str,
+) {
+    let error = result.expect_err("Champion transition should be refused");
+    assert_eq!((error.code, error.message.as_str()), (code, message));
+}
+
+fn champion_history(plane: &ControlPlane) -> Vec<StoredEvent> {
+    plane
+        .storage
+        .as_ref()
+        .expect("canonical Champion ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify Champion history")
+}
+
+fn champion_history_with_payload_edit(
+    history: &[StoredEvent],
+    event_id: &str,
+    edit: impl FnOnce(&mut ChampionTransitionPayload),
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == event_id)
+        .expect("Champion event exists");
+    let mut payload: ChampionTransitionPayload =
+        serde_json::from_slice(&event.payload).expect("decode Champion payload");
+    edit(&mut payload);
+    let canonical = serde_json::to_value(&payload).expect("canonicalize Champion payload");
+    event.payload = serde_json::to_vec(&canonical).expect("encode Champion payload");
+    tampered
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
+    let directory = tempdir().expect("Champion fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    for (request_id, command, expected) in [
+        (
+            "seed-invalid-id",
+            Command::ChampionSeed {
+                transition_id: "bad id".to_owned(),
+                world_id: "world".to_owned(),
+                genome_id: "genome".to_owned(),
+                reason: "bootstrap".to_owned(),
+            },
+            "transition_id is invalid",
+        ),
+        (
+            "seed-empty-world",
+            Command::ChampionSeed {
+                transition_id: "seed".to_owned(),
+                world_id: " ".to_owned(),
+                genome_id: "genome".to_owned(),
+                reason: "bootstrap".to_owned(),
+            },
+            "world_id and genome_id are required",
+        ),
+        (
+            "seed-control-reason",
+            Command::ChampionSeed {
+                transition_id: "seed".to_owned(),
+                world_id: "world".to_owned(),
+                genome_id: "genome".to_owned(),
+                reason: "line\nbreak".to_owned(),
+            },
+            "reason must be 1 to 512 printable UTF-8 bytes",
+        ),
+        (
+            "promote-invalid-assessment",
+            Command::ChampionPromote {
+                transition_id: "promote".to_owned(),
+                assessment_id: "bad assessment".to_owned(),
+            },
+            "assessment_id is invalid",
+        ),
+        (
+            "rollback-empty-world",
+            Command::ChampionRollback {
+                transition_id: "rollback".to_owned(),
+                world_id: String::new(),
+                reason: "regressed".to_owned(),
+            },
+            "world_id is required",
+        ),
+        (
+            "rollback-empty-reason",
+            Command::ChampionRollback {
+                transition_id: "rollback".to_owned(),
+                world_id: "world".to_owned(),
+                reason: " ".to_owned(),
+            },
+            "reason must be 1 to 512 printable UTF-8 bytes",
+        ),
+        (
+            "show-empty-world",
+            Command::ChampionShow {
+                world_id: String::new(),
+            },
+            "world_id is required",
+        ),
+    ] {
+        let error = dispatch_call(&mut plane, &token, request_id, command)
+            .error
+            .expect("malformed Champion request is refused");
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (ApiErrorCode::InvalidRequest, expected)
+        );
+    }
+
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    let world_id = assessed.world.clone();
+    let seed = |transition_id: &str, genome_id: &str| Command::ChampionSeed {
+        transition_id: transition_id.to_owned(),
+        world_id: world_id.clone(),
+        genome_id: genome_id.to_owned(),
+        reason: "Bootstrap the reference lineage.".to_owned(),
+    };
+    let promote = |transition_id: &str, assessment_id: &str| Command::ChampionPromote {
+        transition_id: transition_id.to_owned(),
+        assessment_id: assessment_id.to_owned(),
+    };
+    let rollback = |transition_id: &str| Command::ChampionRollback {
+        transition_id: transition_id.to_owned(),
+        world_id: world_id.clone(),
+        reason: "Injected live regression.".to_owned(),
+    };
+
+    assert_eq!(
+        champion_show(&mut plane, &token, &world_id).champion_genome_id,
+        None
+    );
+    assert_eq!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "show-unknown-world",
+            Command::ChampionShow {
+                world_id: "hephaestus:world:missing".to_owned()
+            }
+        )
+        .error
+        .expect("unknown World")
+        .code,
+        ApiErrorCode::NotFound
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-unseeded",
+            promote("promote-early", "improve-assessment"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "World has no Champion; seed one before promotion",
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "rollback-unseeded",
+            rollback("rollback-early"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "World has no previous Champion to restore",
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "seed-unknown-genome",
+            seed("seed-unknown", "hephaestus:genome:missing"),
+        ),
+        ApiErrorCode::NotFound,
+        "canonical record not found",
+    );
+
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-seed", Command::Freeze)
+            .error
+            .is_none()
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "seed-frozen",
+            seed("seed-frozen", &initial_candidate.genome_id),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "evolution is frozen",
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-seed", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let seeded = champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        seed("seed-reference", &initial_candidate.genome_id),
+    )
+    .expect("seed Champion");
+    assert_eq!(seeded.payload.kind, ChampionTransitionKind::Seeded);
+    assert_eq!(
+        seeded.payload.champion_genome_id,
+        initial_candidate.genome_id
+    );
+    assert_eq!(seeded.payload.previous_champion_genome_id, None);
+    assert_eq!(seeded.payload.previous_transition_event_id, None);
+    assert_eq!(seeded.event.event_id, "champion:seed-reference:recorded");
+    assert_eq!(seeded.event.aggregate_id, format!("champion:{world_id}"));
+    assert_eq!(
+        champion_transition(
+            &mut plane,
+            &token,
+            "seed-retry",
+            seed("seed-reference", &initial_candidate.genome_id)
+        ),
+        Ok(seeded.clone()),
+        "an identical retry returns the recorded transition"
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "seed-conflict",
+            seed("seed-reference", &initial_parent.genome_id),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "transition_id is already bound to different Champion content",
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "seed-twice",
+            seed("seed-again", &initial_parent.genome_id),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "World already has Champion history; only promotion or rollback may change it",
+    );
+
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-missing",
+            promote("promote-missing", "missing-assessment"),
+        ),
+        ApiErrorCode::NotFound,
+        "canonical record not found",
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-no-invariants",
+            promote("promote-child", "improve-assessment"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "invariant evidence for the assessed evaluation is required",
+    );
+    let ResponseData::ArenaInvariants { invariants } = plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("record child invariant evidence")
+    else {
+        panic!("invariant check should return its receipt");
+    };
+    assert!(invariants.receipt.regressions_within_budget);
+    assert!(invariants.receipt.candidate_contract_satisfied);
+
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-promote", Command::Freeze)
+            .error
+            .is_none()
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-frozen",
+            promote("promote-child", "improve-assessment"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "evolution is frozen",
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-promote", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let promoted = champion_transition(
+        &mut plane,
+        &token,
+        "promote",
+        promote("promote-child", "improve-assessment"),
+    )
+    .expect("promote measured child");
+    assert_eq!(promoted.payload.kind, ChampionTransitionKind::Promoted);
+    assert_eq!(promoted.payload.champion_genome_id, assessed.child);
+    assert_eq!(
+        promoted.payload.previous_champion_genome_id.as_deref(),
+        Some(initial_candidate.genome_id.as_str())
+    );
+    assert_eq!(
+        promoted.payload.previous_transition_event_id.as_deref(),
+        Some(seeded.event.event_id.as_str())
+    );
+    assert_eq!(
+        promoted.payload.previous_transition_event_hash.as_deref(),
+        Some(seeded.event.event_hash.as_str())
+    );
+    let evidence = promoted
+        .payload
+        .promotion
+        .clone()
+        .expect("promotion evidence");
+    assert_eq!(evidence.assessment_id, "improve-assessment");
+    assert_eq!(
+        evidence.assessment_event_id,
+        "forge-assessment:improve-assessment:recorded"
+    );
+    assert_eq!(evidence.evaluation_id, assessed.evaluation);
+    assert_eq!(evidence.invariant_event_id, invariants.event.event_id);
+    assert_eq!(evidence.invariant_event_hash, invariants.event.event_hash);
+    assert_eq!(
+        evidence.invariant_receipt_artifact_id,
+        invariants.event.receipt_artifact_id
+    );
+    assert_eq!(promoted.payload.reason, None);
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-stale",
+            promote("promote-stale", "improve-assessment"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "assessment parent is not the current Champion",
+    );
+
+    let projection = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        projection.champion_genome_id.as_deref(),
+        Some(assessed.child.as_str())
+    );
+    assert_eq!(
+        projection.standby_genome_ids,
+        vec![initial_candidate.genome_id.clone()]
+    );
+    assert!(projection.quarantined_genome_ids.is_empty());
+    assert_eq!(
+        projection.transitions,
+        vec![seeded.clone(), promoted.clone()]
+    );
+
+    // A worse child of the Champion measures as rejected and cannot be promoted.
+    let regressed = assessed_forge_child(
+        &mut plane,
+        "regress",
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    assert_ne!(regressed.selection_event, assessed.selection_event);
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-rejected",
+            promote("promote-regressed", "regress-assessment"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "Forge assessment did not pass the World metrics policy",
+    );
+
+    // Rollback is a safety action and remains available while frozen.
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-rollback", Command::Freeze)
+            .error
+            .is_none()
+    );
+    let rolled_back =
+        champion_transition(&mut plane, &token, "rollback", rollback("rollback-child"))
+            .expect("roll back to previous Champion");
+    assert_eq!(rolled_back.payload.kind, ChampionTransitionKind::RolledBack);
+    assert_eq!(
+        rolled_back.payload.champion_genome_id,
+        initial_candidate.genome_id
+    );
+    assert_eq!(
+        rolled_back.payload.previous_champion_genome_id.as_deref(),
+        Some(assessed.child.as_str())
+    );
+    assert_eq!(
+        rolled_back.payload.previous_transition_event_id.as_deref(),
+        Some(promoted.event.event_id.as_str())
+    );
+    assert_eq!(
+        rolled_back.payload.reason.as_deref(),
+        Some("Injected live regression.")
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "rollback-seed",
+            rollback("rollback-seed"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "World has no previous Champion to restore",
+    );
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "unfreeze-after-rollback",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "repromote-quarantined",
+            promote("promote-again", "improve-assessment"),
+        ),
+        ApiErrorCode::InvalidRequest,
+        "assessment child already held or lost the Champion role",
+    );
+
+    let projection = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        projection.champion_genome_id.as_deref(),
+        Some(initial_candidate.genome_id.as_str())
+    );
+    assert!(projection.standby_genome_ids.is_empty());
+    assert_eq!(
+        projection.quarantined_genome_ids,
+        vec![assessed.child.clone()]
+    );
+    assert_eq!(projection.transitions.len(), 3);
+    assert!(
+        plane.state.registered.genome(&assessed.child).is_some(),
+        "a quarantined Champion stays registered and reconstructable"
+    );
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+
+    let history = champion_history(&plane);
+    verify_champion_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("canonical Champion history verifies");
+    for (event_id, edit) in [
+        (
+            promoted.event.event_id.clone(),
+            Box::new(|payload: &mut ChampionTransitionPayload| {
+                payload
+                    .champion_genome_id
+                    .clone_from(&initial_parent.genome_id);
+            }) as Box<dyn FnOnce(&mut ChampionTransitionPayload)>,
+        ),
+        (
+            promoted.event.event_id.clone(),
+            Box::new(|payload: &mut ChampionTransitionPayload| {
+                payload.previous_transition_event_hash = Some("0".repeat(64));
+            }),
+        ),
+        (
+            rolled_back.event.event_id.clone(),
+            Box::new(|payload: &mut ChampionTransitionPayload| {
+                payload.reason = None;
+            }),
+        ),
+        (
+            seeded.event.event_id.clone(),
+            Box::new(|payload: &mut ChampionTransitionPayload| {
+                payload.schema_version = 2;
+            }),
+        ),
+    ] {
+        let tampered = champion_history_with_payload_edit(&history, &event_id, edit);
+        assert!(
+            verify_champion_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+            "tampered Champion transition {event_id} must fail replay"
+        );
+    }
+    let mut noncanonical = history.clone();
+    noncanonical
+        .iter_mut()
+        .find(|event| event.event_id == rolled_back.event.event_id)
+        .expect("rollback event")
+        .payload
+        .push(b' ');
+    assert!(
+        verify_champion_history(&plane.data_dir, &noncanonical, &plane.state.registered).is_err(),
+        "a noncanonical Champion payload must fail replay"
+    );
+    // Nothing later depends on the final rollback, so only identity-based
+    // detection can reject its rewritten event type.
+    let mut retyped = history.clone();
+    retyped
+        .iter_mut()
+        .find(|event| event.event_id == rolled_back.event.event_id)
+        .expect("rollback event")
+        .event_type = "champion.rewritten".to_owned();
+    assert!(verify_champion_history(&plane.data_dir, &retyped, &plane.state.registered).is_err());
+    let mut reordered = history;
+    let seed_index = reordered
+        .iter()
+        .position(|event| event.event_id == seeded.event.event_id)
+        .expect("seed event");
+    let seed_event = reordered.remove(seed_index);
+    reordered.push(seed_event);
+    assert!(
+        verify_champion_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
+        "a promotion cannot precede the seed it depends on"
+    );
+}
+
+#[test]
+fn champion_promotion_requires_satisfied_invariant_contract() {
+    for (manifest, regressions_within_budget) in [
+        (UPPERCASE_V_FORBIDDEN_INVARIANTS, false),
+        (SHARED_OUTPUT_CAP_INVARIANTS, true),
+    ] {
+        assert_promotion_refused_by_invariants(manifest, regressions_within_budget);
+    }
+}
+
+fn assert_promotion_refused_by_invariants(manifest: &[u8], regressions_within_budget: bool) {
+    let directory = tempdir().expect("Champion invariant fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(manifest));
+    let token = plane.token_hex.clone();
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "violating",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: assessed.world.clone(),
+            genome_id: initial_candidate.genome_id.clone(),
+            reason: "Bootstrap.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+    let ResponseData::ArenaInvariants { invariants } = plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("record violating invariant evidence")
+    else {
+        panic!("invariant check should return its receipt");
+    };
+    assert!(!invariants.receipt.candidate_contract_satisfied);
+    assert_eq!(
+        invariants.receipt.regressions_within_budget,
+        regressions_within_budget
+    );
+    assert_champion_error(
+        champion_transition(
+            &mut plane,
+            &token,
+            "promote-violating",
+            Command::ChampionPromote {
+                transition_id: "promote-violating".to_owned(),
+                assessment_id: "violating-assessment".to_owned(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "invariant evidence does not satisfy the World contract",
+    );
+    assert_eq!(
+        champion_show(&mut plane, &token, &assessed.world)
+            .champion_genome_id
+            .as_deref(),
+        Some(initial_candidate.genome_id.as_str())
+    );
 }

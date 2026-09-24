@@ -6,9 +6,9 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
-    API_VERSION, ApiResponse, ArenaJobProgress, Client, Command, EvaluationRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord,
-    InvariantRecord, JobState, ResponseData, SelectionRecord, WorldRecord,
+    API_VERSION, ApiResponse, ArenaJobProgress, ChampionRecord, ChampionTransitionRecord, Client,
+    Command, EvaluationRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
+    GenomeRecord, InvariantRecord, JobState, ResponseData, SelectionRecord, WorldRecord,
     data_dir_from_environment,
 };
 
@@ -84,6 +84,11 @@ enum CliCommand {
         #[arg(long, default_value_t = 0)]
         maximum_cost_microusd: u64,
     },
+    /// Seed, promote, roll back, and inspect the Champion of a World.
+    Champion {
+        #[command(subcommand)]
+        command: ChampionCommand,
+    },
     /// Run trusted paired evaluations.
     Arena {
         #[command(subcommand)]
@@ -154,6 +159,48 @@ enum GenomeCommand {
         /// Selection event from a new Arena evaluation of the proposed child.
         #[arg(long)]
         selection_event: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ChampionCommand {
+    /// Bootstrap the first Champion of a World by explicit operator authority.
+    Seed {
+        /// Stable idempotency key for this transition.
+        transition_id: String,
+        /// Registered World identity.
+        #[arg(long)]
+        world: String,
+        /// Registered Genome compiled under that World.
+        #[arg(long)]
+        genome: String,
+        /// Operator-authored reason for the bootstrap.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Promote an assessed child whose metrics and invariant evidence pass.
+    Promote {
+        /// Stable idempotency key for this transition.
+        transition_id: String,
+        /// Forge assessment of the child against the current Champion.
+        #[arg(long)]
+        assessment: String,
+    },
+    /// Restore the previous Champion and quarantine the current one.
+    Rollback {
+        /// Stable idempotency key for this transition.
+        transition_id: String,
+        /// Registered World identity.
+        #[arg(long)]
+        world: String,
+        /// Operator-authored reason for the rollback.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Show the current Champion and transition history of a World.
+    Show {
+        /// Registered World identity.
+        world_id: String,
     },
 }
 
@@ -634,6 +681,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Arena {
             command: ArenaCommand::Invariants { evaluation_id },
         } => Command::ArenaInvariants { evaluation_id },
+        CliCommand::Champion { command } => champion_command_from_cli(command),
         CliCommand::Replay => Command::Replay,
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
@@ -641,6 +689,39 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Init { .. } => return Err("init is a local command"),
         CliCommand::Tui => return Err("tui is a local interactive command"),
     })
+}
+
+fn champion_command_from_cli(command: ChampionCommand) -> Command {
+    match command {
+        ChampionCommand::Seed {
+            transition_id,
+            world,
+            genome,
+            reason,
+        } => Command::ChampionSeed {
+            transition_id,
+            world_id: world,
+            genome_id: genome,
+            reason,
+        },
+        ChampionCommand::Promote {
+            transition_id,
+            assessment,
+        } => Command::ChampionPromote {
+            transition_id,
+            assessment_id: assessment,
+        },
+        ChampionCommand::Rollback {
+            transition_id,
+            world,
+            reason,
+        } => Command::ChampionRollback {
+            transition_id,
+            world_id: world,
+            reason,
+        },
+        ChampionCommand::Show { world_id } => Command::ChampionShow { world_id },
+    }
 }
 
 fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static str> {
@@ -768,6 +849,12 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::ArenaJob { job }), None) => {
             println!("{}", arena_job_human(job));
         }
+        (Some(ResponseData::ChampionTransition { transition }), None) => {
+            println!("{}", champion_transition_human(transition));
+        }
+        (Some(ResponseData::Champion { champion }), None) => {
+            println!("{}", champion_human(champion));
+        }
         (
             Some(ResponseData::Replay {
                 event_count,
@@ -782,6 +869,37 @@ fn print_human(response: &ApiResponse) {
         (_, Some(error)) => eprintln!("{:?}: {}", error.code, error.message),
         _ => eprintln!("invalid daemon response"),
     }
+}
+
+fn champion_transition_human(transition: &ChampionTransitionRecord) -> String {
+    format!(
+        "transition={} world={} kind={:?} champion={} previous={} event={} sequence={} hash={}",
+        transition.payload.transition_id,
+        transition.payload.world_id,
+        transition.payload.kind,
+        transition.payload.champion_genome_id,
+        transition
+            .payload
+            .previous_champion_genome_id
+            .as_deref()
+            .unwrap_or("none"),
+        transition.event.event_id,
+        transition.event.sequence,
+        transition.event.event_hash,
+    )
+}
+
+fn champion_human(champion: &ChampionRecord) -> String {
+    let mut lines = vec![format!(
+        "world={} champion={} standby={} quarantined={} transitions={}",
+        champion.world_id,
+        champion.champion_genome_id.as_deref().unwrap_or("none"),
+        champion.standby_genome_ids.len(),
+        champion.quarantined_genome_ids.len(),
+        champion.transitions.len(),
+    )];
+    lines.extend(champion.transitions.iter().map(champion_transition_human));
+    lines.join("\n")
 }
 
 fn arena_job_human(job: &ArenaJobProgress) -> String {
@@ -954,6 +1072,75 @@ mod tests {
                 assessment_id: "assessment-1".to_owned(),
                 proposal_id: "proposal-1".to_owned(),
                 selection_event_id: "selection-event-1".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn champion_commands_map_flags_to_authenticated_commands() {
+        let parse = |arguments: &[&str]| {
+            command_from_cli(
+                Arguments::try_parse_from(arguments)
+                    .expect("CLI parses")
+                    .command,
+            )
+            .expect("command maps")
+        };
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "champion",
+                "seed",
+                "seed-1",
+                "--world",
+                "world-1",
+                "--genome",
+                "genome-1",
+                "--reason",
+                "initial"
+            ]),
+            Command::ChampionSeed {
+                transition_id: "seed-1".to_owned(),
+                world_id: "world-1".to_owned(),
+                genome_id: "genome-1".to_owned(),
+                reason: "initial".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "champion",
+                "promote",
+                "promote-1",
+                "--assessment",
+                "assessment-1"
+            ]),
+            Command::ChampionPromote {
+                transition_id: "promote-1".to_owned(),
+                assessment_id: "assessment-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "champion",
+                "rollback",
+                "rollback-1",
+                "--world",
+                "world-1",
+                "--reason",
+                "regressed"
+            ]),
+            Command::ChampionRollback {
+                transition_id: "rollback-1".to_owned(),
+                world_id: "world-1".to_owned(),
+                reason: "regressed".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "champion", "show", "world-1"]),
+            Command::ChampionShow {
+                world_id: "world-1".to_owned(),
             }
         );
     }

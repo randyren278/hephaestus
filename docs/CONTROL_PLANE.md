@@ -45,6 +45,10 @@ hephaestus evaluate <genome-id> --task-id <id> --input <text> --seed <u64> \
 hephaestus arena evaluate <evaluation-id> <parent-id> <candidate-id>
 hephaestus arena select <evaluation-id>
 hephaestus arena invariants <evaluation-id>
+hephaestus champion seed <transition-id> --world <world-id> --genome <genome-id> --reason <text>
+hephaestus champion promote <transition-id> --assessment <assessment-id>
+hephaestus champion rollback <transition-id> --world <world-id> --reason <text>
+hephaestus champion show <world-id>
 hephaestus replay
 hephaestus daemon stop
 ```
@@ -64,6 +68,8 @@ After every append the daemon rebuilds its projection from verified history thro
 `arena invariants <evaluation-id>` checks the paired run outputs against the registered World's reference-output invariants. The command resolves the World from the exact rehydrated Arena evaluation, and returns operator-only aggregate counts by predicate; it does not expose task IDs or raw outputs. Missing or unauthenticated trial evidence is an error; authenticated unsuccessful trials count as completion-predicate violations. The deterministic receipt and `invariants.recorded` event are idempotent, verified at startup and replay, and unavailable while another job is active. This evidence does not rewrite a selection or Forge assessment, set their invariant flags, or authorize promotion.
 
 `genome assess <assessment-id> --proposal <proposal-id> --selection-event <event-id>` records assessment-only evidence for a proposed child. The supplied selection must come from a new paired evaluation of the proposal's exact parent and child; the selection that preceded the proposal cannot assess it. The receipt's `metrics_eligible` value determines `metrics_passed` or `metrics_rejected`. Assessment is permitted while frozen and refused while an async job is active. It binds the proposal and selection hashes in an idempotent ledger event, but never changes Genome lineage, declares a winner, or promotes; invariant verification and promotion eligibility remain false.
+
+`champion seed|promote|rollback` are the only commands that change which Genome is a World's Champion, and each appends one idempotent `champion.transitioned` event (details in [GENOMES.md](GENOMES.md#champion-transitions)). Seed and promote are refused while frozen; rollback is a safety action and is allowed while frozen. All three are refused while an async job is active. `champion show <world-id>` reconstructs the World's Champion projection from verified history. Startup, explicit `replay`, and every projection refresh recompute each transition from the history that preceded it.
 
 For ordinary synchronous reference runs, the daemon fixes the source repository at startup, resolves its current `HEAD` to one immutable commit before sandbox creation, generates the run ID, derives the environment fingerprint, narrows authority to read-only/offline, and hands exclusive ownership of the canonical ledger and CAS to the evidence recorder. The deterministic adapter inventories an isolated worktree at that exact commit; source revision and runtime-owned experiment context are recorded in the signed result alongside lifecycle evidence, output inventory, CLI response, and replay validation. The daemon stores bounded stdout/stderr in CAS, signs and appends the provenance-bound result, and uses a cleanup guard so every result path attempts worktree removal before returning terminal metadata and artifact IDs. Trace lifecycle receipts drive active-run projection and remain terminal after restart.
 

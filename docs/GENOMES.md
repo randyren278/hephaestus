@@ -75,6 +75,23 @@ The daemon verifies that the selection event belongs to an evaluation of the exa
 
 An assessment records measured evidence only. `invariant_gate_verified` and `promotion_eligible` remain false for both outcomes. `metrics_passed` does not declare a winner, change lineage state, or promote a Genome.
 
+## Champion transitions
+
+A World has at most one Champion. Three operator commands change it, and each records one `champion.transitioned` event keyed by a caller-chosen transition ID. Retrying the same ID with identical inputs returns the recorded transition; reusing it with different inputs fails closed.
+
+```sh
+hephaestus champion seed <transition-id> --world <world-id> --genome <genome-id> --reason <text>
+hephaestus champion promote <transition-id> --assessment <assessment-id>
+hephaestus champion rollback <transition-id> --world <world-id> --reason <text>
+hephaestus champion show <world-id>
+```
+
+- **Seed** bootstraps the first Champion by explicit operator authority. The Genome must be registered under that World, and the World must have no Champion history. Refused while frozen.
+- **Promote** is deterministic and evidence-bound. The assessment outcome must be `metrics_passed`. Its parent must be the current Champion; a stale parent is refused. Its child must never have held or lost the Champion role. An `invariants.recorded` receipt for the same evaluation must exist and verify, with `regressions_within_budget` and `candidate_contract_satisfied` both true. The event binds all of that evidence by ID and hash. Refused while frozen. A model may recommend a child, but only this authenticated operator command can promote it.
+- **Rollback** restores the Champion that preceded the current one and quarantines the replaced Genome, which can never be promoted again. The seed Champion cannot be rolled back. Rollback is allowed while frozen.
+
+Superseded Champions stay on a standby list and nothing is deleted: every Genome remains registered and reconstructable from its canonical CAS bytes. The existing selection and assessment receipts are unchanged; their `invariant_gate_verified` and `promotion_eligible` fields remain false because the promotion decision lives in the transition event, not in those receipts. Rollback is an operator action. Automatic detection of a live regression is not part of this slice; canary-driven automatic rollback is roadmap item 12.
+
 ## Compilation contract
 
 Compilation rejects unknown fields and schema versions, source documents larger than 1 MiB, blank stable names or model fields, malformed or unverifiable artifact addresses, unresolved parents, spoofed parent lookup keys, and authority wider than either the World or any parent. Parent and objective ordering is normalized before hashing.

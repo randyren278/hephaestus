@@ -154,6 +154,38 @@ pub enum Command {
         /// Stable Arena evaluation identity whose authenticated outputs are checked.
         evaluation_id: String,
     },
+    /// Bootstrap the first Champion of a World by explicit operator authority.
+    ChampionSeed {
+        /// Stable idempotency key for this Champion transition.
+        transition_id: String,
+        /// Registered World whose Champion is seeded.
+        world_id: String,
+        /// Registered Genome compiled under that World.
+        genome_id: String,
+        /// Operator-authored, bounded reason for the bootstrap.
+        reason: String,
+    },
+    /// Promote a Forge child whose assessment and invariant evidence pass World policy.
+    ChampionPromote {
+        /// Stable idempotency key for this Champion transition.
+        transition_id: String,
+        /// Durable Forge assessment of the child against the current Champion.
+        assessment_id: String,
+    },
+    /// Restore the previous Champion of a World and quarantine the current one.
+    ChampionRollback {
+        /// Stable idempotency key for this Champion transition.
+        transition_id: String,
+        /// World whose current Champion is rolled back.
+        world_id: String,
+        /// Operator-authored, bounded reason for the rollback.
+        reason: String,
+    },
+    /// Inspect the Champion projection and transition history of one World.
+    ChampionShow {
+        /// Registered World identity.
+        world_id: String,
+    },
     /// Verify and replay canonical history into a fresh projection.
     Replay,
     /// Stop the local daemon after acknowledging the audited request.
@@ -325,6 +357,16 @@ pub enum ResponseData {
     ArenaInvariants {
         /// Aggregate checks and payload-free canonical invariant event metadata.
         invariants: Box<InvariantRecord>,
+    },
+    /// One durable, policy-checked Champion transition.
+    ChampionTransition {
+        /// Transition payload and canonical event metadata.
+        transition: Box<ChampionTransitionRecord>,
+    },
+    /// Champion projection of one World reconstructed from verified history.
+    Champion {
+        /// Current Champion, archived predecessors, and transition history.
+        champion: Box<ChampionRecord>,
     },
     /// Result of a fresh verified replay.
     Replay {
@@ -624,6 +666,106 @@ pub struct SelectionRecord {
     pub receipt: SelectionReceipt,
     /// Payload-free canonical event metadata binding the receipt artifact.
     pub event: SelectionEventRecord,
+}
+
+/// Kind of one deterministic Champion transition.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChampionTransitionKind {
+    /// Operator bootstrap of the first Champion of a World.
+    Seeded,
+    /// Evidence-backed replacement of the current Champion by a Forge child.
+    Promoted,
+    /// Restoration of the previous Champion; the replaced one is quarantined.
+    RolledBack,
+}
+
+/// Exact evidence a promotion joined under the deterministic promotion policy.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChampionPromotionEvidence {
+    /// Forge assessment whose metrics outcome passed.
+    pub assessment_id: String,
+    /// Exact Forge assessment event identity.
+    pub assessment_event_id: String,
+    /// Hash of the exact Forge assessment event.
+    pub assessment_event_hash: String,
+    /// Paired child evaluation shared by the assessment and invariant receipt.
+    pub evaluation_id: String,
+    /// Content address of the verified `SelectionReceipt`.
+    pub selection_receipt_artifact_id: String,
+    /// Exact invariant event identity for the same evaluation.
+    pub invariant_event_id: String,
+    /// Hash of the exact invariant event.
+    pub invariant_event_hash: String,
+    /// Content address of the verified `InvariantReceipt`.
+    pub invariant_receipt_artifact_id: String,
+}
+
+/// Canonical payload of one Champion transition event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChampionTransitionPayload {
+    /// Transition payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub transition_id: String,
+    /// World whose Champion changed.
+    pub world_id: String,
+    /// Transition kind.
+    pub kind: ChampionTransitionKind,
+    /// Champion after this transition.
+    pub champion_genome_id: String,
+    /// Champion before this transition; absent only for a seed.
+    pub previous_champion_genome_id: Option<String>,
+    /// Prior transition of this World; absent only for a seed.
+    pub previous_transition_event_id: Option<String>,
+    /// Hash of the prior transition event; absent only for a seed.
+    pub previous_transition_event_hash: Option<String>,
+    /// Joined evidence; present exactly for a promotion.
+    pub promotion: Option<ChampionPromotionEvidence>,
+    /// Operator reason; present exactly for a seed or rollback.
+    pub reason: Option<String>,
+}
+
+/// Canonical event metadata accompanying a Champion transition.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChampionEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Per-World Champion aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Operator-visible Champion transition and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChampionTransitionRecord {
+    /// Canonical transition payload.
+    pub payload: ChampionTransitionPayload,
+    /// Canonical event metadata.
+    pub event: ChampionEventRecord,
+}
+
+/// Champion projection of one World reconstructed from verified history.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChampionRecord {
+    /// Registered World identity.
+    pub world_id: String,
+    /// Current Champion, absent until a seed.
+    pub champion_genome_id: Option<String>,
+    /// Superseded Champions that a rollback can restore, oldest first.
+    pub standby_genome_ids: Vec<String>,
+    /// Champions removed by rollback; they cannot be promoted again.
+    pub quarantined_genome_ids: Vec<String>,
+    /// Every transition of this World in ledger order.
+    pub transitions: Vec<ChampionTransitionRecord>,
 }
 
 /// Operator-visible aggregate invariant receipt and its canonical event.

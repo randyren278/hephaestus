@@ -52,7 +52,8 @@
     "crates/hephaestus-runtime/src/reference_instruction.rs",
     "crates/hephaestus-runtime/src/guardian.rs",
     "crates/hephaestus-experience/src/sink.rs",
-    "crates/hephaestus-arena/src/invariants.rs"
+    "crates/hephaestus-arena/src/invariants.rs",
+    "crates/hephaestus-control/src/champion.rs"
   ],
   "mutations": [
     {
@@ -1802,8 +1803,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2147,6 +2148,76 @@
       "invariant": "Invariant checks cannot consume canonical storage while a direct or Arena job is active.",
       "find": "                | Command::ArenaInvariants { .. }\n                | Command::GenomeRegister { .. }",
       "replace": "                // mutation: allow invariant check during active work\n                | Command::GenomeRegister { .. }"
+    },
+    {
+      "id": "control-champion-promotion-requires-metrics-pass",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Promotion requires a metrics_passed Forge assessment.",
+      "find": "    if assessment.outcome != ForgeAssessmentOutcome::MetricsPassed {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-champion-promotion-rejects-stale-parent",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Promotion requires the assessment parent to be the current Champion.",
+      "find": "    if assessment.parent_genome_id != current {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-champion-promotion-requires-invariant-contract",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Promotion requires invariant regressions within budget and a satisfied candidate contract.",
+      "find": "    if !(receipt.regressions_within_budget && receipt.candidate_contract_satisfied) {",
+      "replace": "    if !receipt.regressions_within_budget {"
+    },
+    {
+      "id": "control-champion-promotion-refused-while-frozen",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Promotion is refused while evolution is frozen.",
+      "find": "        .map_err(|_| ExecuteError::Invalid(\"assessment_id is invalid\"))?;\n    if frozen_after(history) {",
+      "replace": "        .map_err(|_| ExecuteError::Invalid(\"assessment_id is invalid\"))?;\n    if false {"
+    },
+    {
+      "id": "control-champion-seed-requires-empty-history",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "A World can be seeded only before any Champion transition.",
+      "find": "    if !projection.transitions.is_empty() {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-champion-rollback-quarantines-replaced",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Rollback quarantines the replaced Champion so it can never be promoted again.",
+      "find": "                if let Some(removed) = lineage.pop() {\n                    quarantined.push(removed);\n                }",
+      "replace": "                if let Some(_removed) = lineage.pop() {}"
+    },
+    {
+      "id": "control-champion-replay-recomputes-transition",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Replay rejects a transition that differs from its recomputation.",
+      "find": "        if payload != expected {",
+      "replace": "        if false {"
+    },
+    {
+      "id": "control-champion-replay-detects-retyped-events",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Replay recognizes Champion events by identity, not only by event type.",
+      "find": "    event.event_type == CHAMPION_EVENT_TYPE\n        || event.event_id.starts_with(CHAMPION_PREFIX)\n        || event.aggregate_id.starts_with(CHAMPION_PREFIX)",
+      "replace": "    event.event_type == CHAMPION_EVENT_TYPE"
+    },
+    {
+      "id": "control-champion-transition-binds-previous-hash",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "Each transition binds the prior transition event hash.",
+      "find": "            Some(last.event.event_hash.clone()),",
+      "replace": "            Some(last.event.event_id.clone()),"
+    },
+    {
+      "id": "control-champion-child-cannot-regain-role",
+      "file": "crates/hephaestus-control/src/champion.rs",
+      "invariant": "A quarantined or former Champion cannot be promoted again.",
+      "find": "            .quarantined_genome_ids\n            .contains(&assessment.child_genome_id)",
+      "replace": "            .quarantined_genome_ids\n            .is_empty()"
     }
   ]
 }
