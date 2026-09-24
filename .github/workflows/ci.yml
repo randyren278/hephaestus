@@ -130,10 +130,30 @@ jobs:
             prefix: crates/hephaestus-genome/
             minimum: 30
             timeout_minutes: 20
-          - scope: hephaestus-control
+          - scope: hephaestus-control-1
             prefix: crates/hephaestus-control/
-            minimum: 48
-            timeout_minutes: 60
+            shard_index: 0
+            shard_count: 4
+            minimum: 12
+            timeout_minutes: 30
+          - scope: hephaestus-control-2
+            prefix: crates/hephaestus-control/
+            shard_index: 1
+            shard_count: 4
+            minimum: 12
+            timeout_minutes: 30
+          - scope: hephaestus-control-3
+            prefix: crates/hephaestus-control/
+            shard_index: 2
+            shard_count: 4
+            minimum: 12
+            timeout_minutes: 30
+          - scope: hephaestus-control-4
+            prefix: crates/hephaestus-control/
+            shard_index: 3
+            shard_count: 4
+            minimum: 12
+            timeout_minutes: 30
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs
             minimum: 5
@@ -205,5 +225,7 @@ jobs:
           python checks/mutation_guard.py
           --manifest checks/checks.json
           --file-prefix ${{ matrix.prefix }}
+          --shard-index ${{ matrix.shard_index || 0 }}
+          --shard-count ${{ matrix.shard_count || 1 }}
           --assert-min ${{ matrix.minimum }}
           --skip-baseline

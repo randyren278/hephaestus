@@ -285,6 +285,26 @@ def mutation_timeout(entry: dict, data: dict, default: float) -> float:
     return timeout
 
 
+def shard_entries(
+    entries: list[dict], shard_index: int | None, shard_count: int | None
+) -> list[dict]:
+    """Select one deterministic round-robin partition of the filtered entries."""
+    if shard_index is None and shard_count is None:
+        return entries
+    if shard_index is None or shard_count is None:
+        raise ManifestError("mutation shard index and count must be provided together")
+    if (
+        isinstance(shard_index, bool)
+        or not isinstance(shard_index, int)
+        or isinstance(shard_count, bool)
+        or not isinstance(shard_count, int)
+    ):
+        raise ManifestError("mutation shard index and count must be integers")
+    if shard_count < 1 or shard_index < 0 or shard_index >= shard_count:
+        raise ManifestError("mutation shard index must be within a positive shard count")
+    return entries[shard_index::shard_count]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -307,6 +327,10 @@ def main(argv=None) -> int:
                         help="run only this mutation ID; repeat for a focused local rerun")
     parser.add_argument("--file-prefix", default=None,
                         help="run only mutations whose source path starts with this prefix")
+    parser.add_argument("--shard-index", type=int, default=None,
+                        help="zero-based index of a deterministic mutation shard")
+    parser.add_argument("--shard-count", type=int, default=None,
+                        help="number of deterministic mutation shards")
     args = parser.parse_args(argv)
 
     try:
@@ -325,6 +349,7 @@ def main(argv=None) -> int:
                 entry for entry in entries
                 if entry["file"].startswith(args.file_prefix)
             ]
+        entries = shard_entries(entries, args.shard_index, args.shard_count)
     except ManifestError as error:
         print(f"MANIFEST ERROR: {error}", file=sys.stderr)
         return 1
@@ -363,6 +388,9 @@ def main(argv=None) -> int:
         f"{value:.0f}s" for value in sorted(set(entry_timeouts.values())))
     print(f"timeout: {timeout:.0f}s default; selected mutation timeout(s): "
           f"{selected_timeouts}")
+    if args.shard_count is not None:
+        print(f"shard:   {args.shard_index + 1}/{args.shard_count} "
+              f"({len(entries)} mutations)")
     print()
 
     if not args.skip_baseline:

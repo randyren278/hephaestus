@@ -18,16 +18,53 @@ from unittest import mock
 CHECKS = pathlib.Path(__file__).resolve().parents[2] / "checks"
 sys.path.insert(0, str(CHECKS))
 
-from manifest import ManifestError  # noqa: E402
+from manifest import ManifestError, load, mutations  # noqa: E402
 from mutation_guard import (  # noqa: E402
     apply_mutation,
     main,
     mutation_command,
     mutation_timeout,
+    shard_entries,
     ProcessCleanupError,
     _process_group_members,
     _signal_process_group,
 )
+
+
+class MutationShardingTests(unittest.TestCase):
+    def test_control_mutations_are_partitioned_once_across_four_shards(self) -> None:
+        manifest_path = CHECKS / "checks.json"
+        control = [
+            entry
+            for entry in mutations(load(manifest_path), manifest_path)
+            if entry["file"].startswith("crates/hephaestus-control/")
+        ]
+        expected_ids = [entry["id"] for entry in control]
+        self.assertEqual(len(expected_ids), 48)
+        self.assertEqual(len(set(expected_ids)), len(expected_ids))
+
+        shards = [shard_entries(control, index, 4) for index in range(4)]
+        sharded_ids = [entry["id"] for shard in shards for entry in shard]
+
+        self.assertEqual([len(shard) for shard in shards], [12, 12, 12, 12])
+        self.assertCountEqual(sharded_ids, expected_ids)
+        self.assertEqual(len(sharded_ids), len(set(sharded_ids)))
+        self.assertEqual(shards, [shard_entries(control, index, 4) for index in range(4)])
+
+    def test_unsharded_selection_preserves_entries_and_invalid_shards_fail(self) -> None:
+        entries = [{"id": "one"}, {"id": "two"}]
+        self.assertIs(shard_entries(entries, None, None), entries)
+
+        for shard_index, shard_count in (
+            (None, 4),
+            (0, None),
+            (-1, 4),
+            (4, 4),
+            (0, 0),
+        ):
+            with self.subTest(shard_index=shard_index, shard_count=shard_count):
+                with self.assertRaises(ManifestError):
+                    shard_entries(entries, shard_index, shard_count)
 
 
 class MutationTimeoutTests(unittest.TestCase):
