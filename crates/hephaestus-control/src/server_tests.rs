@@ -2190,6 +2190,229 @@ fn paired_admission_rejects_world_missing_sealed_manifest() {
 }
 
 #[test]
+fn paired_admission_rejects_world_missing_evaluator_after_valid_manifests() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let visible = TrustedManifest::new(
+        "visible-without-evaluator",
+        Visibility::Visible,
+        vec![TrustedTask::new("visible-task", "visible", "VISIBLE").expect("visible task")],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "sealed-without-evaluator",
+        Visibility::Sealed,
+        vec![TrustedTask::new("sealed-task", "sealed", "SEALED").expect("sealed task")],
+    )
+    .expect("sealed manifest");
+    let world = register_manifest_world(
+        &mut plane,
+        &token,
+        &directory,
+        "missing-evaluator",
+        &visible,
+        &sealed,
+        false,
+    );
+    let parent = register_identity_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &world,
+        "missing-evaluator-parent",
+        "[]",
+    );
+    let candidate = register_identity_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &world,
+        "missing-evaluator-candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    assert!(matches!(
+        plane.submit_arena_job("missing-evaluator", &parent.genome_id, &candidate.genome_id),
+        Err(ExecuteError::Rejected(message)) if message == "World does not declare arena.evaluator"
+    ));
+    assert!(!plane.state.arena_jobs.contains_key("missing-evaluator"));
+    assert_no_arena_admission(&plane, "missing-evaluator");
+}
+
+#[test]
+fn paired_admission_rejects_combined_manifest_tasks_above_bound() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let visible_tasks = (0..1_000)
+        .map(|index| {
+            TrustedTask::new(format!("visible-{index}"), "visible input", "VISIBLE")
+                .expect("valid visible task")
+        })
+        .collect();
+    let visible = TrustedManifest::new(
+        "maximum-visible-manifest",
+        Visibility::Visible,
+        visible_tasks,
+    )
+    .expect("manifest at individual task limit");
+    let sealed = TrustedManifest::new(
+        "one-sealed-task",
+        Visibility::Sealed,
+        vec![TrustedTask::new("sealed-task", "sealed", "SEALED").expect("sealed task")],
+    )
+    .expect("sealed manifest");
+    let world = register_manifest_world(
+        &mut plane,
+        &token,
+        &directory,
+        "combined-over-limit",
+        &visible,
+        &sealed,
+        true,
+    );
+    let parent = register_identity_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &world,
+        "combined-limit-parent",
+        "[]",
+    );
+    let candidate = register_identity_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &world,
+        "combined-limit-candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    assert!(matches!(
+        plane.submit_arena_job("combined-over-limit", &parent.genome_id, &candidate.genome_id),
+        Err(ExecuteError::Invalid(message))
+            if message == "paired task count is outside the bounded range"
+    ));
+    assert!(!plane.state.arena_jobs.contains_key("combined-over-limit"));
+    assert_no_arena_admission(&plane, "combined-over-limit");
+}
+
+fn register_manifest_world(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    name: &str,
+    visible: &TrustedManifest,
+    sealed: &TrustedManifest,
+    include_evaluator: bool,
+) -> WorldRecord {
+    let artifacts = ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical CAS");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator_fields = if include_evaluator {
+        let evaluator = env::current_exe().expect("locate test evaluator executable");
+        let evaluator_id = artifacts
+            .put(&fs::read(evaluator).expect("read test evaluator"))
+            .expect("store test evaluator");
+        let verifier_id = artifacts
+            .put(&plane.run_result_verifier.public_key_bytes())
+            .expect("store run result verifier");
+        format!(
+            r#","arena.evaluator":"{}","arena.runtime_verifier":"{}""#,
+            evaluator_id.as_str(),
+            verifier_id.as_str()
+        )
+    } else {
+        String::new()
+    };
+    drop(artifacts);
+    let world_path = directory.path().join(format!("{name}.json"));
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"{name}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}"{evaluator_fields}}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+        ),
+    )
+    .expect("write World source");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        &format!("register-{name}"),
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("World registration should succeed");
+    };
+    world
+}
+
+fn register_identity_genome(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    world: &WorldRecord,
+    name: &str,
+    parents: &str,
+) -> GenomeRecord {
+    let path = directory.path().join(format!("{name}.md"));
+    fs::write(
+        &path,
+        format!(
+            "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+        ),
+    )
+    .expect("write reference Genome");
+    let Some(ResponseData::Genome { genome }) = dispatch_call(
+        plane,
+        token,
+        &format!("register-{name}"),
+        Command::GenomeRegister {
+            path: path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("Genome registration should succeed");
+    };
+    genome
+}
+
+fn assert_no_arena_admission(plane: &ControlPlane, evaluation_id: &str) {
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify admission rejection history");
+    assert!(!history.iter().any(|event| {
+        event.event_type == "arena.job.admitted"
+            && event.aggregate_id == format!("arena-job:{evaluation_id}")
+    }));
+}
+
+#[test]
 fn late_arena_worker_messages_are_ignored_or_rejected_after_job_closes() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
@@ -4834,6 +5057,28 @@ fn synchronous_json_run_reference_inventories_committed_repository_and_replays()
         dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
             .error
             .is_none()
+    );
+
+    let async_response = dispatch_call(
+        &mut plane,
+        &token,
+        "submit-json-no-prompt",
+        Command::RunSubmit {
+            job_id: "json-no-prompt-async".to_owned(),
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    let error = async_response
+        .error
+        .expect("prompt-free JSON Genome cannot be submitted asynchronously");
+    assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+    assert_eq!(
+        error.message,
+        "async reference jobs require a supported reference instruction"
+    );
+    assert!(
+        !plane.state.jobs.contains_key("json-no-prompt-async"),
+        "unsupported admission must not persist a job"
     );
 
     let response = dispatch_call(
