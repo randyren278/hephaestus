@@ -3,7 +3,7 @@ use std::{
     os::unix::fs::{PermissionsExt, symlink},
 };
 
-use hephaestus_experience::{Provenance, TraceKind, TraceReceipt};
+use hephaestus_experience::{Provenance, TraceInput, TraceKind, TraceReceipt};
 use hephaestus_genome::{SourceFormat, compile_world};
 use hephaestus_ledger::{EventInput, EventStore};
 use tempfile::tempdir;
@@ -768,6 +768,102 @@ fn canonical_writer_unavailable_cancels_and_fails_an_admitted_direct_job() {
     assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
     assert!(matches!(
         plane.replay_response().expect("replay failed direct job"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+fn canonical_writer_cas_failure_rejects_trace_and_cancels_admitted_job() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (world, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    plane
+        .submit_job("cas-failure", &genome.genome_id)
+        .expect("admit direct reference job");
+    let run_id = plane
+        .active_job
+        .as_ref()
+        .expect("active direct job")
+        .spec
+        .run_id()
+        .to_owned();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (reply, result) = mpsc::channel();
+    sender
+        .send(EvidenceRequest::RecordTrace {
+            input: TraceInput::new(
+                "trace:cas-failure",
+                Provenance::new(run_id, genome.genome_id.clone(), world.world_id)
+                    .expect("valid admitted provenance"),
+                TraceKind::LifecycleStarted,
+                timestamp_millis().expect("valid timestamp"),
+                BTreeMap::new(),
+            )
+            .expect("valid trace input"),
+            reserved_after: 0,
+            reply,
+        })
+        .expect("queue admitted trace");
+    plane.job_evidence_receiver = Some(receiver);
+
+    let blobs = plane.data_dir.join("blobs");
+    let saved_blobs = plane.data_dir.join("blobs-before-trace-failure");
+    fs::rename(&blobs, &saved_blobs).expect("temporarily hide canonical artifacts");
+    fs::write(&blobs, b"blocked").expect("make artifact root unwritable as a directory");
+    plane
+        .service_async_messages()
+        .expect("reject trace after actual CAS write failure");
+    assert!(
+        result
+            .recv_timeout(Duration::from_secs(1))
+            .expect("executor receives negative durable acknowledgement")
+            .is_err()
+    );
+    assert!(
+        plane
+            .active_job
+            .as_ref()
+            .expect("job stays active until executor cleanup")
+            .cancel
+            .load(Ordering::Acquire)
+    );
+    fs::remove_file(&blobs).expect("remove temporary blocker");
+    fs::rename(saved_blobs, blobs).expect("restore canonical artifacts");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist failed direct job terminal");
+        assert!(Instant::now() < deadline, "cancelled job did not terminate");
+        thread::sleep(Duration::from_millis(2));
+    }
+    let terminal = &plane.state.jobs["cas-failure"];
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert!(
+        !plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verified failure history")
+            .iter()
+            .any(|event| event.event_id == "trace:cas-failure"),
+        "failed CAS write must not publish a trace receipt"
+    );
+    exercise_dispatch_job(&mut plane, &genome.genome_id);
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay after restored artifact storage"),
         ResponseData::Replay { .. }
     ));
 }
