@@ -5602,6 +5602,11 @@ mod tests {
             "hephaestus-reference-worker{}",
             std::env::consts::EXE_SUFFIX
         ));
+        assert!(
+            evaluator.is_file(),
+            "Cargo evaluator binary missing: {evaluator:?}"
+        );
+        assert!(worker.is_file(), "Cargo worker binary missing: {worker:?}");
         let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
             &data_dir,
             &repository,
@@ -5617,12 +5622,57 @@ mod tests {
                 .error
                 .is_none()
         );
+        let registered_world = plane
+            .registered_world(&world.world_id)
+            .expect("registered Arena World");
+        let evaluator_id = registered_world
+            .evaluator_artifact("arena.evaluator")
+            .expect("World evaluator artifact");
+        plane
+            .open_evaluator(
+                evaluator_id,
+                WorkerLimits::new(
+                    Duration::from_millis(PAIRED_EVALUATION_WALL_MILLIS),
+                    16 * 1024 * 1024,
+                    128 * 1024,
+                )
+                .expect("evaluator limits"),
+            )
+            .expect("preflight evaluator identity and sandbox");
+        plane
+            .pin_reference_worker()
+            .expect("preflight reference worker snapshot");
+        plane
+            .paired_revision("admission-preflight")
+            .expect("preflight pinned Git revision");
         assert!(matches!(
             plane
                 .submit_arena_job("channel-drop", &parent.genome_id, &candidate.genome_id)
                 .expect("admit channel-drop job"),
             ResponseData::ArenaJob { job } if job.state == JobState::Running
         ));
+        let (trial_reply, trial_response) = mpsc::channel();
+        plane
+            .arena_message_sender
+            .as_ref()
+            .expect("Arena worker channel")
+            .send(ArenaWorkerMessage::Trial {
+                job_id: "channel-drop".to_owned(),
+                index: 1,
+                output: Err("out of order fixture trial".to_owned()),
+                reply: trial_reply,
+            })
+            .expect("queue out-of-order trial");
+        plane
+            .service_arena_message()
+            .expect("reject out-of-order Arena trial");
+        assert_eq!(
+            trial_response
+                .recv_timeout(Duration::from_secs(1))
+                .expect("worker receives order rejection")
+                .expect_err("out-of-order trial must fail closed"),
+            "paired trial arrived outside admitted order"
+        );
         plane
             .active_arena_job
             .as_ref()
@@ -5723,6 +5773,43 @@ mod tests {
             plane
                 .replay_response()
                 .expect("replay cancelled Arena terminal"),
+            ResponseData::Replay { .. }
+        ));
+
+        assert!(matches!(
+            plane
+                .submit_arena_job("scoring-success", &parent.genome_id, &candidate.genome_id)
+                .expect("admit successful Arena job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        assert!(plane.start_arena_scoring().is_err());
+        assert!(
+            plane
+                .finish_arena_scoring("other-pair", Err("wrong identity".to_owned()))
+                .is_err()
+        );
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while plane.active_arena_job.is_some() {
+            plane
+                .service_async_messages()
+                .expect("persist Arena trials and scoring result");
+            assert!(
+                Instant::now() < deadline,
+                "successful Arena scoring did not complete"
+            );
+            if plane.active_arena_job.is_some() {
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+        let succeeded = &plane.state.arena_jobs["scoring-success"];
+        assert_eq!(succeeded.state, JobState::Succeeded);
+        assert_eq!(succeeded.terminal, Some(JobTerminal::Succeeded));
+        assert_eq!(succeeded.completed_trials, succeeded.total_trials);
+        assert!(succeeded.evaluation.is_some());
+        assert!(matches!(
+            plane
+                .replay_response()
+                .expect("replay successful Arena commit"),
             ResponseData::Replay { .. }
         ));
     }
