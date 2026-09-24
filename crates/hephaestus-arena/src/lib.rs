@@ -3,6 +3,7 @@
 mod error;
 #[doc(hidden)]
 pub mod evaluator_protocol;
+mod invariants;
 mod isolated_evaluator;
 mod selection;
 
@@ -14,6 +15,11 @@ use hephaestus_experience::{
 };
 use hephaestus_genome::CompiledWorld;
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
+pub use invariants::{
+    InvariantEvent, InvariantPredicateResult, InvariantReceipt, OperatorInvariantCheck,
+    check_reference_output_invariants, invariant_event_references,
+    load_reference_output_invariants, verify_reference_output_invariant_event,
+};
 pub use isolated_evaluator::IsolatedEvaluator;
 pub use selection::{
     OperatorSelection, SelectionEvent, SelectionReceipt, load_selection, select_and_record,

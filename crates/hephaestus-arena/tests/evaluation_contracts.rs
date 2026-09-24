@@ -11,9 +11,10 @@ use std::{
 use hephaestus_arena::{
     ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
     IsolatedEvaluator, OperatorEvaluation, ReceiptContext, SelectionReceipt, TrialPlan,
-    TrustedManifest, TrustedTask, Visibility, evaluate_and_record, evaluate_and_record_scored,
-    load_operator_evaluation, load_selection, prepare_evaluation, select_and_record,
-    verify_selection_event,
+    TrustedManifest, TrustedTask, Visibility, check_reference_output_invariants,
+    evaluate_and_record, evaluate_and_record_scored, load_operator_evaluation,
+    load_reference_output_invariants, load_selection, prepare_evaluation, select_and_record,
+    verify_reference_output_invariant_event, verify_selection_event,
 };
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
@@ -243,6 +244,23 @@ fn make_fixture_with_evaluator_and_confidence(
     evaluator_path: PathBuf,
     confidence_bps: u16,
 ) -> Fixture {
+    make_fixture_with_options(
+        directory,
+        evaluator_path,
+        confidence_bps,
+        None,
+        &BTreeMap::new(),
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn make_fixture_with_options(
+    directory: &TempDir,
+    evaluator_path: PathBuf,
+    confidence_bps: u16,
+    invariant_manifest: Option<&[u8]>,
+    output_overrides: &BTreeMap<String, (RunCompletionReason, Vec<u8>)>,
+) -> Fixture {
     let mut stores = EvaluationStores::open(
         directory.path().join("events.sqlite3"),
         directory.path().join("blobs"),
@@ -274,13 +292,51 @@ fn make_fixture_with_evaluator_and_confidence(
         .artifacts
         .put(&signer.verifier().public_key_bytes())
         .unwrap();
-    let source = format!(
-        r#"{{"schema_version":1,"name":"arena-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":100}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":1,"maximum_regressions":0,"confidence_bps":{confidence_bps}}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
-        visible_id.as_str(),
-        sealed_id.as_str(),
-        evaluator_id.as_str(),
-        verifier_id.as_str()
-    );
+    let invariant_manifest_id =
+        invariant_manifest.map(|bytes| stores.artifacts.put(bytes).unwrap().as_str().to_owned());
+    let mut evaluator_artifacts = serde_json::Map::from_iter([
+        (
+            "arena.visible_manifest".to_owned(),
+            serde_json::Value::String(visible_id.as_str().to_owned()),
+        ),
+        (
+            "arena.sealed_manifest".to_owned(),
+            serde_json::Value::String(sealed_id.as_str().to_owned()),
+        ),
+        (
+            "arena.evaluator".to_owned(),
+            serde_json::Value::String(evaluator_id.as_str().to_owned()),
+        ),
+        (
+            "arena.runtime_verifier".to_owned(),
+            serde_json::Value::String(verifier_id.as_str().to_owned()),
+        ),
+    ]);
+    if let Some(invariant_manifest_id) = invariant_manifest_id {
+        evaluator_artifacts.insert(
+            "arena.invariant_manifest".to_owned(),
+            serde_json::Value::String(invariant_manifest_id),
+        );
+    }
+    let source = serde_json::json!({
+        "schema_version": 1,
+        "name": "arena-world",
+        "laws": {
+            "candidate_network": false,
+            "candidate_evaluator_access": false,
+            "maximum_cost_microusd": 100
+        },
+        "authority_ceiling": {"workspace_write": false, "network": false},
+        "mutation_scope": ["harness"],
+        "promotion": {
+            "minimum_delta_bps": 1,
+            "maximum_regressions": 0,
+            "confidence_bps": confidence_bps
+        },
+        "objectives": ["correctness"],
+        "evaluator_artifacts": evaluator_artifacts
+    })
+    .to_string();
     let world = compile_world(&source, SourceFormat::Json, &stores.artifacts).unwrap();
     let parent_genome = compile_genome(
         r#"{"schema_version":1,"name":"parent","parents":[],"model":{"provider":"deterministic","family":"v1"},"authority":{"workspace_write":false,"network":false},"artifacts":{}}"#,
@@ -312,6 +368,20 @@ fn make_fixture_with_evaluator_and_confidence(
         ("task-sealed-b", "Z", "Z"),
     ];
     for (task, parent_output, candidate_output) in outputs {
+        let parent_default = (
+            RunCompletionReason::Success,
+            parent_output.as_bytes().to_vec(),
+        );
+        let candidate_default = (
+            RunCompletionReason::Success,
+            candidate_output.as_bytes().to_vec(),
+        );
+        let (parent_reason, parent_bytes) = output_overrides
+            .get(&format!("parent-{task}"))
+            .unwrap_or(&parent_default);
+        let (candidate_reason, candidate_bytes) = output_overrides
+            .get(&format!("candidate-{task}"))
+            .unwrap_or(&candidate_default);
         append_run(
             &mut stores,
             &signer,
@@ -322,8 +392,8 @@ fn make_fixture_with_evaluator_and_confidence(
             &revision,
             task,
             task_input(task),
-            RunCompletionReason::Success,
-            parent_output.as_bytes(),
+            *parent_reason,
+            parent_bytes,
         );
         append_run(
             &mut stores,
@@ -335,8 +405,8 @@ fn make_fixture_with_evaluator_and_confidence(
             &revision,
             task,
             task_input(task),
-            RunCompletionReason::Success,
-            candidate_output.as_bytes(),
+            *candidate_reason,
+            candidate_bytes,
         );
     }
     let binding = EvaluationBinding::new(
@@ -363,6 +433,46 @@ fn make_fixture_with_evaluator_and_confidence(
         revision,
         alternate_revision,
     }
+}
+
+fn make_invariant_fixture(directory: &TempDir) -> Fixture {
+    make_invariant_fixture_with_manifest(
+        directory,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4,"forbidden_ascii_bytes":[0,33]}"#,
+    )
+}
+
+fn make_invariant_fixture_with_manifest(directory: &TempDir, manifest: &[u8]) -> Fixture {
+    let evaluator_path = directory.path().join("hephaestus-evaluator");
+    fs::copy(env!("CARGO_BIN_EXE_hephaestus-evaluator"), &evaluator_path).unwrap();
+    fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
+    let overrides = BTreeMap::from([
+        (
+            "parent-task-visible-b".to_owned(),
+            (RunCompletionReason::Success, b"abcdef".to_vec()),
+        ),
+        (
+            "candidate-task-visible-a".to_owned(),
+            (RunCompletionReason::Success, b"a\0".to_vec()),
+        ),
+        (
+            "candidate-task-visible-b".to_owned(),
+            (RunCompletionReason::Success, "éé".as_bytes().to_vec()),
+        ),
+        (
+            "parent-task-sealed-a".to_owned(),
+            (RunCompletionReason::ProviderFailure, b"bad".to_vec()),
+        ),
+        (
+            "candidate-task-sealed-a".to_owned(),
+            (RunCompletionReason::Success, b"yes".to_vec()),
+        ),
+        (
+            "candidate-task-sealed-b".to_owned(),
+            (RunCompletionReason::IoFailure, b"bad\0long".to_vec()),
+        ),
+    ]);
+    make_fixture_with_options(directory, evaluator_path, 9_500, Some(manifest), &overrides)
 }
 
 fn budget_receipt() -> RunBudgetReceipt {
@@ -456,6 +566,222 @@ fn evaluate(fixture: Fixture) -> Result<OperatorEvaluation, ArenaError> {
             evaluator: &fixture.evaluator,
         },
     )
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reference_output_invariants_record_operator_aggregates_and_replay() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let evaluation = evaluate(fixture).unwrap();
+    let stores = evaluation.into_stores();
+    let check =
+        check_reference_output_invariants(stores, "evaluation-001", &world, 1_788_000_123_500)
+            .unwrap();
+
+    assert_eq!(
+        check.event().event_id,
+        "arena:invariants:evaluation-001:checked"
+    );
+    assert_eq!(
+        check.event().aggregate_id,
+        "arena:invariants:evaluation-001"
+    );
+    assert_eq!(check.event().event_type, "invariants.recorded");
+    assert_eq!(check.event().actor, "arena-plane");
+    let receipt = serde_json::to_value(check.receipt()).unwrap();
+    assert_eq!(receipt["algorithm"], "reference-output-invariants-v1");
+    assert_eq!(
+        receipt["evaluation_event_id"],
+        "arena:evaluation:evaluation-001:recorded"
+    );
+    assert_eq!(receipt["world_id"], world.id());
+    assert_eq!(receipt["total_evaluated_trials"], 4);
+    assert_eq!(receipt["total_checks"], 32);
+    assert_eq!(receipt["maximum_regressions"], 0);
+    assert_eq!(receipt["total_paired_regressions"], 4);
+    assert_eq!(receipt["regressions_within_budget"], false);
+    assert_eq!(receipt["total_candidate_violations"], 4);
+    assert_eq!(receipt["candidate_contract_satisfied"], false);
+    assert!(receipt["manifest_artifact_id"].as_str().is_some());
+    assert!(receipt["parent_submission_artifact_id"].as_str().is_some());
+    assert!(
+        receipt["candidate_submission_artifact_id"]
+            .as_str()
+            .is_some()
+    );
+    let receipt_bytes = serde_json::to_vec(&receipt).unwrap();
+    for secret in [
+        "task-visible-a",
+        "task-visible-b",
+        "task-sealed-a",
+        "task-sealed-b",
+        "bad\\u0000long",
+        "abcdef",
+    ] {
+        assert!(
+            !receipt_bytes
+                .windows(secret.len())
+                .any(|window| window == secret.as_bytes())
+        );
+    }
+    assert_eq!(
+        receipt["predicates"],
+        serde_json::json!([
+            {
+                "predicate": "successful_terminal",
+                "forbidden_ascii_byte": null,
+                "parent_violations": 1,
+                "candidate_violations": 1,
+                "paired_regressions": 1
+            },
+            {
+                "predicate": "maximum_output_bytes",
+                "forbidden_ascii_byte": null,
+                "parent_violations": 2,
+                "candidate_violations": 1,
+                "paired_regressions": 1
+            },
+            {
+                "predicate": "forbidden_ascii_byte",
+                "forbidden_ascii_byte": 0,
+                "parent_violations": 0,
+                "candidate_violations": 2,
+                "paired_regressions": 2
+            },
+            {
+                "predicate": "forbidden_ascii_byte",
+                "forbidden_ascii_byte": 33,
+                "parent_violations": 0,
+                "candidate_violations": 0,
+                "paired_regressions": 0
+            }
+        ])
+    );
+
+    let expected_receipt = check.receipt().clone();
+    let expected_event = check.event().clone();
+    let stores = check.into_stores();
+    let retry =
+        check_reference_output_invariants(stores, "evaluation-001", &world, 1_788_000_123_501)
+            .unwrap();
+    assert_eq!(retry.receipt(), &expected_receipt);
+    assert_eq!(retry.event(), &expected_event);
+    let stores = retry.into_stores();
+    let event = stores
+        .events
+        .replay_verified()
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_id == "arena:invariants:evaluation-001:checked")
+        .unwrap();
+    for task_id in ["task-visible-a", "task-sealed-a"] {
+        assert!(
+            !event
+                .payload
+                .windows(task_id.len())
+                .any(|window| window == task_id.as_bytes())
+        );
+    }
+    let verified = verify_reference_output_invariant_event(stores, &event, &world).unwrap();
+    assert_eq!(verified.receipt(), &expected_receipt);
+    let mut stores = verified.into_stores();
+    let spoofed_event = stores
+        .events
+        .append(EventInput::new(
+            "arena:invariants:evaluation-001:spoofed",
+            "arena:invariants:evaluation-001",
+            "invariants.recorded",
+            "untrusted-actor",
+            1_788_000_123_502,
+            &event.payload,
+        ))
+        .unwrap();
+    assert!(matches!(
+        verify_reference_output_invariant_event(stores, &spoofed_event, &world),
+        Err(ArenaError::InvalidInvariantEvent)
+    ));
+
+    let mut stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let wrong_type_event = stores
+        .events
+        .append(EventInput::new(
+            "arena:invariants:evaluation-001:wrong-type",
+            "arena:invariants:evaluation-001",
+            "unrelated.recorded",
+            "arena-plane",
+            1_788_000_123_503,
+            &event.payload,
+        ))
+        .unwrap();
+    assert!(matches!(
+        verify_reference_output_invariant_event(stores, &wrong_type_event, &world),
+        Err(ArenaError::InvalidInvariantEvent)
+    ));
+
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let reloaded = load_reference_output_invariants(stores, "evaluation-001", &world).unwrap();
+    assert_eq!(reloaded.receipt(), &expected_receipt);
+    assert_eq!(reloaded.event(), &expected_event);
+    drop(reloaded);
+
+    let artifact_id = ArtifactId::parse(expected_event.receipt_artifact_id.clone()).unwrap();
+    let artifact_path = directory
+        .path()
+        .join("blobs")
+        .join(&artifact_id.as_str()[..2])
+        .join(artifact_id.as_str());
+    fs::write(artifact_path, b"tampered invariant receipt").unwrap();
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    assert!(load_reference_output_invariants(stores, "evaluation-001", &world).is_err());
+}
+
+#[test]
+fn reference_output_invariant_manifest_is_required_canonical_bounded_and_ordered() {
+    let invalid_manifests: &[&[u8]] = &[
+        br#"{ "schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4,"forbidden_ascii_bytes":[0]}"#,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4,"forbidden_ascii_bytes":[0,0]}"#,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4,"forbidden_ascii_bytes":[33,0]}"#,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":0,"forbidden_ascii_bytes":[0]}"#,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4097,"forbidden_ascii_bytes":[0]}"#,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4,"forbidden_ascii_bytes":[128]}"#,
+    ];
+    for manifest in invalid_manifests {
+        let directory = TempDir::new().unwrap();
+        let fixture = make_invariant_fixture_with_manifest(&directory, manifest);
+        let world = fixture.world.clone();
+        let stores = evaluate(fixture).unwrap().into_stores();
+        let error =
+            check_reference_output_invariants(stores, "evaluation-001", &world, 1_788_000_123_500)
+                .err()
+                .expect("invalid World invariant manifest must fail closed");
+        assert!(matches!(
+            error,
+            ArenaError::InvalidStoredReceipt("invariant manifest")
+        ));
+    }
+
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let stores = evaluate(fixture).unwrap().into_stores();
+    assert!(matches!(
+        check_reference_output_invariants(stores, "evaluation-001", &world, 1_788_000_123_500),
+        Err(ArenaError::MissingWorldArtifact("arena.invariant_manifest"))
+    ));
 }
 
 fn assert_selection_receipt_getters_match_json(receipt: &SelectionReceipt, world_id: &str) {

@@ -79,6 +79,12 @@ pub enum ArenaError {
     SelectionConflict(String),
     /// A selection event envelope or canonical payload is invalid.
     InvalidSelectionEvent,
+    /// No durable invariant receipt exists for the requested evaluation.
+    UnknownInvariantCheck(String),
+    /// A deterministic invariant event conflicts with recomputed evidence.
+    InvariantConflict(String),
+    /// An invariant event envelope or canonical payload is invalid.
+    InvalidInvariantEvent,
     /// Canonical JSON encoding failed.
     Serialization(serde_json::Error),
     /// Evaluator executable inspection failed.
