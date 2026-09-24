@@ -3146,6 +3146,9 @@ fn map_invariant_error(error: ArenaError) -> ExecuteError {
         ArenaError::UnknownEvaluation(_) | ArenaError::UnknownInvariantCheck(_) => {
             ExecuteError::NotFound
         }
+        ArenaError::MissingWorldArtifact("arena.invariant_manifest") => ExecuteError::Rejected(
+            "registered World has no reference-output invariant profile".to_owned(),
+        ),
         ArenaError::InvariantConflict(message) => ExecuteError::Rejected(message),
         _ => ExecuteError::Internal,
     }
