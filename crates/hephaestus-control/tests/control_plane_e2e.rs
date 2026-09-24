@@ -2822,6 +2822,171 @@ fn reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
+fn synchronous_reference_run_uses_private_worker_snapshot_after_public_replacement() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"pinned worker fixture\n")
+        .expect("write repository fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let genome_source = directory.path().join("reference.md");
+    fs::write(
+        &genome_source,
+        "---\nschema_version: 1\nname: pinned-reference\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write reference Genome");
+    let ResponseData::Genome { genome } = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_source.to_str().expect("UTF-8 Genome path"),
+            "--world",
+            &world.world_id,
+        ],
+    ))
+    .data
+    .expect("registered Genome response") else {
+        panic!("unexpected Genome registration response");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    let ready = directory.path().join("worktree-hook-ready");
+    let release = directory.path().join("worktree-hook-release");
+    let hook = repository.join(".git/hooks/post-checkout");
+    fs::write(
+        &hook,
+        "#!/bin/sh\nhook_root=$(cd \"$(dirname \"$0\")/../../..\" && pwd)\nprintf ready > \"$hook_root/worktree-hook-ready\"\nwhile [ ! -f \"$hook_root/worktree-hook-release\" ]; do sleep 0.01; done\n",
+    )
+    .expect("write bounded worktree hook");
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).expect("enable test hook");
+
+    let deployed_worker = data_dir.join("reference-worker");
+    let worker_bytes = fs::read(&deployed_worker).expect("read deployed worker");
+    let incompatible_worker = fs::read("/bin/cat").expect("read alternate executable");
+    let mut request = ProcessCommand::new(CLI);
+    request
+        .arg("--data-dir")
+        .arg(&data_dir)
+        .arg("--json")
+        .args(["run", &genome.genome_id])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut request = request.spawn().expect("start bounded reference request");
+    let request_deadline = Instant::now() + Duration::from_secs(15);
+    let mut hook_started = false;
+    let mut private_snapshot_matches = false;
+    let mut request_status = None;
+    while Instant::now() < request_deadline {
+        if !hook_started && ready.exists() {
+            hook_started = true;
+            private_snapshot_matches = fs::read_dir(&data_dir)
+                .expect("read worker snapshot directory")
+                .flatten()
+                .find(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("reference-worker-")
+                })
+                .and_then(|entry| fs::read(entry.path().join("worker")).ok())
+                .is_some_and(|bytes| bytes == worker_bytes);
+            fs::write(&deployed_worker, &incompatible_worker)
+                .expect("replace public worker while worktree hook is paused");
+            fs::set_permissions(&deployed_worker, fs::Permissions::from_mode(0o700))
+                .expect("keep replacement executable");
+            fs::write(&release, b"continue").expect("release worktree hook");
+        }
+        if let Some(status) = request.try_wait().expect("poll reference request") {
+            request_status = Some(status);
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    if !hook_started {
+        fs::write(&release, b"continue").expect("release worktree hook");
+    }
+    let request_timed_out = request_status.is_none();
+    let run = if request_timed_out {
+        request.kill().expect("stop hung reference request");
+        let _status = request.wait().expect("reap timed-out reference request");
+        None
+    } else {
+        Some(
+            request
+                .wait_with_output()
+                .expect("collect reference request"),
+        )
+    };
+    fs::write(&deployed_worker, &worker_bytes).expect("restore deployed worker");
+    fs::set_permissions(&deployed_worker, fs::Permissions::from_mode(0o700))
+        .expect("restore worker permissions");
+    if request_timed_out {
+        daemon.crash();
+        panic!("reference request exceeded its 15 second test bound");
+    }
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open event ledger")
+        .replay_verified();
+    let replay = cli(&data_dir, &["replay"]);
+    daemon.stop();
+    assert!(
+        hook_started,
+        "worktree hook did not pause execution after pinning"
+    );
+    assert!(
+        private_snapshot_matches,
+        "paused worktree hook did not follow creation of the original private snapshot"
+    );
+    assert!(
+        request_status.expect("reference request status").success(),
+        "reference request failed: {}",
+        String::from_utf8_lossy(&run.as_ref().expect("reference request output").stderr)
+    );
+    let run = response(&run.expect("reference request output"));
+    let Some(ResponseData::Run {
+        completion_reason: RunCompletionReason::Success,
+        stdout_artifact_id,
+        ..
+    }) = run.data
+    else {
+        panic!("synchronous run did not succeed with the private worker snapshot");
+    };
+    let stdout = ArtifactStore::open(data_dir.join("blobs"))
+        .expect("open artifact store")
+        .get(&ArtifactId::parse(stdout_artifact_id).expect("parse stdout artifact ID"))
+        .expect("read reference output");
+    assert_eq!(
+        stdout,
+        b"Inventory the isolated repository without modifying it or using the network."
+    );
+    let history = history.expect("verify run history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == "run.result_recorded")
+            .count(),
+        1
+    );
+    assert!(matches!(
+        response(&replay).data,
+        Some(ResponseData::Replay { .. })
+    ));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
 fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death() {
     let directory = tempdir().expect("temporary directory");
     let data_dir = directory.path().join("data");
