@@ -1882,22 +1882,26 @@ fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
     fs::write(&blobs, b"injected artifact-store failure").expect("block artifact writes");
 
     let terminal_deadline = Instant::now() + Duration::from_secs(8);
-    let terminal = loop {
-        let status = response(&cli(&data_dir, &["job", "status", "store-failure"]));
-        let Some(ResponseData::Job { job, .. }) = status.data else {
-            panic!("expected job status");
-        };
-        if matches!(job.state, JobState::Failed | JobState::Interrupted) {
-            break job;
+    loop {
+        let history = EventStore::open(data_dir.join("events.sqlite3"))
+            .expect("open canonical ledger")
+            .replay_verified()
+            .expect("verify job history");
+        if history.iter().any(|event| {
+            event.event_type == "job.terminal" && event.aggregate_id == "job:store-failure"
+        }) {
+            break;
         }
-        assert!(
-            Instant::now() < terminal_deadline,
-            "worker did not terminate"
-        );
+        assert!(Instant::now() < terminal_deadline, "job did not terminate");
         thread::sleep(Duration::from_millis(10));
-    };
+    }
     fs::remove_file(&blobs).expect("remove artifact-store blocker");
     fs::rename(&saved_blobs, &blobs).expect("restore canonical artifacts");
+
+    let status = response(&cli(&data_dir, &["job", "status", "store-failure"]));
+    let Some(ResponseData::Job { job: terminal, .. }) = status.data else {
+        panic!("expected job status");
+    };
     assert_eq!(terminal.state, JobState::Failed);
     assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
     let worker_alive = ProcessCommand::new("/bin/kill")
