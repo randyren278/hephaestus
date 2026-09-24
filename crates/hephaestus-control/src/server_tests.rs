@@ -3424,6 +3424,60 @@ fn selection_history_rejects_unregistered_world_reference() {
     ));
 }
 
+fn invariant_event_payload(
+    evaluation_id: &str,
+    world_id: &str,
+    receipt_artifact_id: &str,
+) -> Vec<u8> {
+    format!(
+        r#"{{"schema_version":1,"evaluation_id":"{evaluation_id}","world_id":"{world_id}","receipt_artifact_id":"{receipt_artifact_id}"}}"#
+    )
+    .into_bytes()
+}
+
+fn invariant_checked_event(evaluation_id: &str, payload: Vec<u8>) -> StoredEvent {
+    StoredEvent {
+        sequence: 1,
+        event_id: format!("arena:invariants:{evaluation_id}:checked"),
+        aggregate_id: format!("arena:invariants:{evaluation_id}"),
+        event_type: "invariants.recorded".to_owned(),
+        actor: "arena-plane".to_owned(),
+        timestamp_millis: 1,
+        payload,
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    }
+}
+
+#[test]
+fn invariant_history_rejects_unregistered_world_and_unknown_evaluation() {
+    let directory = tempdir().expect("daemon directory");
+    let plane = open_projection_test_plane(&directory);
+    let unregistered_world =
+        "hephaestus:world:3333333333333333333333333333333333333333333333333333333333333333";
+    let receipt_artifact_id = "4444444444444444444444444444444444444444444444444444444444444444";
+    let event = invariant_checked_event(
+        "forged-invariants",
+        invariant_event_payload("forged-invariants", unregistered_world, receipt_artifact_id),
+    );
+    assert!(matches!(
+        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "invariant World is not registered"
+    ));
+
+    let mut plane = plane;
+    let token = plane.token_hex.clone();
+    let (world, _genome, _task) = register_dispatch_objects(&mut plane, &token, &directory);
+    let event = invariant_checked_event(
+        "no-such-evaluation",
+        invariant_event_payload("no-such-evaluation", &world.world_id, receipt_artifact_id),
+    );
+    assert!(matches!(
+        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "canonical invariant receipt is invalid"
+    ));
+}
+
 #[test]
 fn signed_success_result_without_completed_run_rejects_job_terminal() {
     let directory = tempdir().expect("daemon directory");
@@ -6713,6 +6767,12 @@ fn arena_selection_and_invariant_commands_validate_and_map_real_errors() {
     assert!(matches!(
         plane.check_arena_invariants("missing-evaluation"),
         Err(ExecuteError::NotFound)
+    ));
+    // require_command_fields already rejects a blank selection_event_id before
+    // dispatch reaches this method; only a direct call exercises its own guard.
+    assert!(matches!(
+        plane.assess_genome("assessment", "proposal", ""),
+        Err(ExecuteError::Invalid("selection_event_id is required"))
     ));
 
     for (request_id, command) in [
