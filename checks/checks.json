@@ -9,7 +9,7 @@
     "crates/hephaestus-genome/": "cargo test -p hephaestus-genome --quiet",
     "crates/hephaestus-ledger/": "cargo test -p hephaestus-ledger --quiet",
     "crates/hephaestus-runtime/": "cargo test -p hephaestus-runtime --all-features --quiet",
-    "crates/hephaestus-runtime/src/guardian.rs": "cargo test -p hephaestus-control --all-features --test control_plane_e2e guardian_monitors_eof_during_large_stdin_and_reaps_leader_descendants -- --exact",
+    "crates/hephaestus-runtime/src/guardian.rs": "cargo test -p hephaestus-runtime --lib guardian::tests::guardian_kills_descendants_when_worker_leader_exits -- --exact",
     "python/": "env PYTHONPATH=python python3 -m unittest discover -s python/tests -v"
   },
   "timeout_seconds": 120,
