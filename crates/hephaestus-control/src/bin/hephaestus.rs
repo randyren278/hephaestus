@@ -194,15 +194,8 @@ enum JobCommand {
 
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
-    if matches!(&arguments.command, CliCommand::Tui) {
-        if arguments.json {
-            eprintln!("hephaestus: --json does not apply to the interactive TUI");
-            return ExitCode::FAILURE;
-        }
-        return launch_tui(arguments.data_dir);
-    }
-    if let CliCommand::Init { fixture, path } = &arguments.command {
-        return initialize_fixture(fixture, path, arguments.json);
+    if let Some(exit) = handle_local_command(&arguments) {
+        return exit;
     }
     let data_dir = match arguments
         .data_dir
@@ -293,6 +286,20 @@ fn main() -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
+    match &arguments.command {
+        CliCommand::Tui if arguments.json => {
+            eprintln!("hephaestus: --json does not apply to the interactive TUI");
+            Some(ExitCode::FAILURE)
+        }
+        CliCommand::Tui => Some(launch_tui(arguments.data_dir.clone())),
+        CliCommand::Init { fixture, path } => {
+            Some(initialize_fixture(fixture, path, arguments.json))
+        }
+        _ => None,
     }
 }
 
