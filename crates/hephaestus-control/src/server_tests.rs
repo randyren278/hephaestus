@@ -1179,6 +1179,36 @@ fn open_projection_test_plane(directory: &TempDir) -> ControlPlane {
     .expect("open control plane with explicit test executables")
 }
 
+fn append_projection_event(plane: &mut ControlPlane, event: StoredEvent) {
+    plane
+        .storage
+        .as_mut()
+        .expect("canonical storage")
+        .ledger
+        .append(EventInput::new(
+            event.event_id,
+            event.aggregate_id,
+            event.event_type,
+            event.actor,
+            event.timestamp_millis,
+            event.payload,
+        ))
+        .expect("append malformed domain event with a valid hash chain");
+}
+
+fn assert_restart_rejects(directory: &TempDir) {
+    assert!(
+        ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            directory.path(),
+            env::current_dir().expect("repository working directory"),
+            env::current_exe().expect("test evaluator executable"),
+            env::current_exe().expect("test worker executable"),
+        )
+        .is_err(),
+        "restart must reject malformed canonical Arena history"
+    );
+}
+
 fn register_thread_failure_arena_objects(
     plane: &mut ControlPlane,
     token: &str,
@@ -1269,6 +1299,90 @@ fn register_thread_failure_arena_objects(
         &format!("[\"{}\"]", parent.genome_id),
     );
     (world, parent, candidate)
+}
+
+#[test]
+fn arena_restart_rejects_malformed_evaluation_and_job_history() {
+    for (index, malformed_payload) in [br"{}".as_slice(), br#"{"evaluation_id":7}"#.as_slice()]
+        .into_iter()
+        .enumerate()
+    {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = open_projection_test_plane(&directory);
+        let token = plane.token_hex.clone();
+        let _ = register_thread_failure_arena_objects(&mut plane, &token, &directory);
+        let mut event = stored_event(
+            0,
+            "evaluation.recorded",
+            "arena:evaluation:malformed",
+            "arena-plane",
+            malformed_payload,
+        );
+        event.event_id = format!("evaluation.recorded:malformed:{index}");
+        append_projection_event(&mut plane, event);
+        drop(plane);
+        assert_restart_rejects(&directory);
+    }
+
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let _ = register_thread_failure_arena_objects(&mut plane, &token, &directory);
+    for index in 0..2 {
+        let mut event = stored_event(
+            0,
+            "evaluation.recorded",
+            "arena:evaluation:duplicate",
+            "arena-plane",
+            br#"{"evaluation_id":"duplicate-evaluation"}"#,
+        );
+        event.event_id = format!("evaluation.recorded:duplicate:{index}");
+        append_projection_event(&mut plane, event);
+    }
+    drop(plane);
+    assert_restart_rejects(&directory);
+
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (world, parent, candidate) =
+        register_thread_failure_arena_objects(&mut plane, &token, &directory);
+    let mut running = admitted_arena_record(
+        "orphan-running",
+        world.world_id,
+        parent.genome_id,
+        candidate.genome_id,
+    );
+    running.state = JobState::Running;
+    running.phase = ArenaJobPhase::ParentTrials;
+    let mut event = admitted_arena_event(&running);
+    event.event_type = "arena.job.running".to_owned();
+    event.event_id = format!("arena-job:{}:running", running.evaluation_id);
+    append_projection_event(&mut plane, event);
+    drop(plane);
+    assert_restart_rejects(&directory);
+
+    for malformed_plan in ["zero-trial-budget", "invalid-worker-digest"] {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = open_projection_test_plane(&directory);
+        let token = plane.token_hex.clone();
+        let (world, parent, candidate) =
+            register_thread_failure_arena_objects(&mut plane, &token, &directory);
+        let mut record = admitted_arena_record(
+            malformed_plan,
+            world.world_id,
+            parent.genome_id,
+            candidate.genome_id,
+        );
+        if malformed_plan == "zero-trial-budget" {
+            record.trial_budget.wall_millis = 0;
+        } else {
+            record.worker_digest = "g".repeat(64);
+        }
+        append_projection_event(&mut plane, admitted_arena_event(&record));
+        drop(plane);
+        assert_restart_rejects(&directory);
+    }
 }
 
 #[test]
