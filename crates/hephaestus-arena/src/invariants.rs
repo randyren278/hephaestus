@@ -143,9 +143,9 @@ struct InvariantEventPayload {
     receipt_artifact_id: String,
 }
 
-struct VerifiedTrialOutput {
-    completion_reason: RunCompletionReason,
-    stdout: Vec<u8>,
+pub(crate) struct VerifiedTrialOutput {
+    pub(crate) completion_reason: RunCompletionReason,
+    pub(crate) stdout: Vec<u8>,
 }
 
 /// Checks authenticated outputs and durably records one deterministic receipt.
@@ -380,7 +380,7 @@ fn compute_receipt(
     })
 }
 
-fn verified_submission_outputs(
+pub(crate) fn verified_submission_outputs(
     operator: &OperatorEvaluation,
     submission_artifact_id: &str,
     genome_id: &str,

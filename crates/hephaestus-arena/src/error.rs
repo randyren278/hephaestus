@@ -85,6 +85,12 @@ pub enum ArenaError {
     InvariantConflict(String),
     /// An invariant event envelope or canonical payload is invalid.
     InvalidInvariantEvent,
+    /// No durable cluster analysis exists for the requested analysis identity.
+    UnknownClusterAnalysis(String),
+    /// A deterministic cluster analysis conflicts with recomputed evidence.
+    ClusterConflict(String),
+    /// A cluster-analysis event envelope or canonical payload is invalid.
+    InvalidClusterEvent,
     /// Canonical JSON encoding failed.
     Serialization(serde_json::Error),
     /// Evaluator executable inspection failed.
