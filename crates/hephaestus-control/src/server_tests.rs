@@ -1736,11 +1736,13 @@ fn arena_restart_rejects_malformed_evaluation_and_job_history() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn direct_thread_launch_failure_persists_interruption_and_releases_slot() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = open_projection_test_plane(&directory);
     let token = plane.token_hex.clone();
-    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let (_, genome, candidate) =
+        register_thread_failure_arena_objects(&mut plane, &token, &directory);
     assert!(
         dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
             .error
@@ -1798,12 +1800,106 @@ fn direct_thread_launch_failure_persists_interruption_and_releases_slot() {
         ResponseData::Replay { .. }
     ));
 
+    let failed_terminal_id = "launch-failed-terminal-write";
+    let database = rusqlite::Connection::open(directory.path().join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_direct_launch_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'job:launch-failed-terminal-write:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture direct launch terminal failure'); END;",
+        )
+        .expect("reject direct launch terminal append");
+    plane.thread_spawn_failures.direct = true;
+    assert!(matches!(
+        plane.submit_job(failed_terminal_id, &genome.genome_id),
+        Err(ExecuteError::Internal)
+    ));
+    let still_running = &plane.state.jobs[failed_terminal_id];
+    assert_eq!(still_running.state, JobState::Running);
+    assert_eq!(still_running.terminal, None);
+    assert!(plane.active_job.is_none());
+    assert!(plane.job_result_receiver.is_none());
+    assert!(plane.job_evidence_receiver.is_none());
+    let events_before_arena = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify direct launch failure history");
+    assert!(events_before_arena.iter().any(|event| {
+        event.event_id == format!("job:{failed_terminal_id}:running")
+            && event.event_type == "job.running"
+    }));
+    assert!(
+        !events_before_arena
+            .iter()
+            .any(|event| event.event_id == format!("job:{failed_terminal_id}:terminal"))
+    );
+
+    let admission = dispatch_call(
+        &mut plane,
+        &token,
+        "arena-blocked-by-running-history",
+        Command::EvaluatePair {
+            evaluation_id: "blocked-after-launch-failure".to_owned(),
+            parent_genome_id: genome.genome_id.clone(),
+            candidate_genome_id: candidate.genome_id.clone(),
+        },
+    );
+    assert_eq!(
+        admission
+            .error
+            .expect("running durable job blocks Arena")
+            .code,
+        ApiErrorCode::Busy
+    );
+    assert!(
+        !plane
+            .state
+            .arena_jobs
+            .contains_key("blocked-after-launch-failure")
+    );
+    assert!(
+        !plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify denied Arena admission")
+            .iter()
+            .any(|event| event.event_id == "arena-job:blocked-after-launch-failure:admitted")
+    );
+
+    database
+        .execute_batch("DROP TRIGGER reject_direct_launch_terminal;")
+        .expect("restore direct job terminal writes");
+    drop(database);
+
     drop(plane);
     let reopened = open_projection_test_plane(&directory);
     for job_id in ["launch-failed-one", "launch-failed-two"] {
         assert_eq!(reopened.state.jobs[job_id].state, JobState::Interrupted);
     }
     assert!(reopened.active_job.is_none());
+    let recovered = &reopened.state.jobs[failed_terminal_id];
+    assert_eq!(recovered.state, JobState::Interrupted);
+    assert_eq!(recovered.terminal, Some(JobTerminal::Interrupted));
+    assert_eq!(
+        reopened
+            .storage
+            .as_ref()
+            .expect("reopened canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify recovered direct launch terminal")
+            .iter()
+            .filter(|event| event.event_id == format!("job:{failed_terminal_id}:terminal"))
+            .count(),
+        1
+    );
 }
 
 #[test]
