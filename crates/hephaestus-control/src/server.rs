@@ -5380,6 +5380,76 @@ mod tests {
     }
 
     #[test]
+    fn canonical_writer_unavailable_cancels_and_fails_an_admitted_direct_job() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let token = plane.token_hex.clone();
+        let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+        assert!(
+            dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+                .error
+                .is_none()
+        );
+        plane
+            .submit_job("writer-unavailable", &genome.genome_id)
+            .expect("admit direct reference job");
+        let run_id = plane
+            .active_job
+            .as_ref()
+            .expect("active direct job")
+            .spec
+            .run_id()
+            .to_owned();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (reply, result) = mpsc::channel();
+        sender
+            .send(EvidenceRequest::EnsureCapacity {
+                run_id,
+                needed: 2,
+                reply,
+            })
+            .expect("queue admitted evidence request");
+        plane.job_evidence_receiver = Some(receiver);
+        let storage = plane.storage.take().expect("canonical storage");
+        plane
+            .service_async_messages()
+            .expect("reject evidence while canonical writer is unavailable");
+        assert!(
+            result
+                .recv_timeout(Duration::from_secs(1))
+                .expect("executor receives writer rejection")
+                .is_err()
+        );
+        plane.storage = Some(storage);
+        assert!(
+            plane
+                .active_job
+                .as_ref()
+                .expect("job remains active until executor unwinds")
+                .cancel
+                .load(Ordering::Acquire)
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while plane.active_job.is_some() {
+            plane
+                .service_async_messages()
+                .expect("persist cancelled direct job terminal");
+            assert!(Instant::now() < deadline, "writer cancellation stalled");
+            if plane.active_job.is_some() {
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+        let terminal = &plane.state.jobs["writer-unavailable"];
+        assert_eq!(terminal.state, JobState::Failed);
+        assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+        assert!(matches!(
+            plane.replay_response().expect("replay failed direct job"),
+            ResponseData::Replay { .. }
+        ));
+    }
+
+    #[test]
     fn arena_job_record_validation_rejects_plan_and_event_tampering() {
         let directory = tempdir().expect("fixture directory");
         let artifacts = ArtifactStore::open(directory.path().join("blobs"))
@@ -5782,6 +5852,34 @@ mod tests {
 
         assert!(matches!(
             plane
+                .submit_arena_job("scoring-timeout", &parent.genome_id, &candidate.genome_id)
+                .expect("admit scoring-timeout job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        plane
+            .active_arena_job
+            .as_mut()
+            .expect("active scoring-timeout job")
+            .overall_deadline = Instant::now() - Duration::from_millis(1);
+        plane
+            .finish_arena_scoring(
+                "scoring-timeout",
+                Err("scorer completed after the overall deadline".to_owned()),
+            )
+            .expect("persist deadline terminal after late scorer result");
+        let timed_out = &plane.state.arena_jobs["scoring-timeout"];
+        assert_eq!(timed_out.state, JobState::Failed);
+        assert_eq!(timed_out.terminal, Some(JobTerminal::Failed));
+        assert!(timed_out.evaluation.is_none());
+        assert!(matches!(
+            plane
+                .replay_response()
+                .expect("replay timed-out Arena terminal"),
+            ResponseData::Replay { .. }
+        ));
+
+        assert!(matches!(
+            plane
                 .submit_arena_job("scoring-success", &parent.genome_id, &candidate.genome_id)
                 .expect("admit successful Arena job"),
             ResponseData::ArenaJob { job } if job.state == JobState::Running
@@ -5814,6 +5912,74 @@ mod tests {
             plane
                 .replay_response()
                 .expect("replay successful Arena commit"),
+            ResponseData::Replay { .. }
+        ));
+
+        assert!(matches!(
+            plane
+                .submit_arena_job("scoring-commit-failure", &parent.genome_id, &candidate.genome_id)
+                .expect("admit scoring-commit-failure job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while plane
+            .active_arena_job
+            .as_ref()
+            .is_some_and(|active| active.record.phase != ArenaJobPhase::Scoring)
+        {
+            plane
+                .service_async_messages()
+                .expect("persist trials before scorer completion");
+            assert!(
+                Instant::now() < deadline,
+                "Arena trials did not reach scoring"
+            );
+            if plane
+                .active_arena_job
+                .as_ref()
+                .is_some_and(|active| active.record.phase != ArenaJobPhase::Scoring)
+            {
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+        let scored = loop {
+            let message = plane
+                .arena_message_receiver
+                .as_ref()
+                .expect("Arena scorer channel")
+                .try_recv();
+            match message {
+                Ok(ArenaWorkerMessage::Scoring { job_id, result }) => break (job_id, result),
+                Ok(_) => panic!("unexpected message after scoring began"),
+                Err(mpsc::TryRecvError::Disconnected) => panic!("Arena scorer disconnected"),
+                Err(mpsc::TryRecvError::Empty) => {
+                    assert!(Instant::now() < deadline, "Arena scoring did not finish");
+                    thread::sleep(Duration::from_millis(2));
+                }
+            }
+        };
+        assert_eq!(scored.0, "scoring-commit-failure");
+        assert!(
+            scored.1.is_ok(),
+            "fixture evaluator must produce valid scores"
+        );
+        let blobs = plane.data_dir.join("blobs");
+        let saved_blobs = plane.data_dir.join("blobs-before-commit-failure");
+        fs::rename(&blobs, &saved_blobs)
+            .expect("temporarily hide fixture blobs to force receipt commit failure");
+        plane
+            .finish_arena_scoring(&scored.0, scored.1)
+            .expect("persist failed commit terminal after reopening storage");
+        fs::remove_dir_all(&blobs).expect("remove reopened empty blob directory");
+        fs::rename(saved_blobs, blobs).expect("restore fixture blobs for verified replay");
+        let commit_failed = &plane.state.arena_jobs["scoring-commit-failure"];
+        assert_eq!(commit_failed.state, JobState::Failed);
+        assert_eq!(commit_failed.terminal, Some(JobTerminal::Failed));
+        assert!(commit_failed.evaluation.is_none());
+        assert!(matches!(
+            plane
+                .replay_response()
+                .expect("replay failed Arena receipt commit"),
             ResponseData::Replay { .. }
         ));
     }
