@@ -1800,8 +1800,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2026,6 +2026,48 @@
       "invariant": "Forge replay binds every proposal to the exact canonical selection event hash.",
       "find": "        if payload.selection_event_hash != expected_hash\n",
       "replace": "        if false && payload.selection_event_hash != expected_hash\n"
+    },
+    {
+      "id": "forge-assessment-replay-payload-comparison-weakened",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Assessment replay compares every recorded field with the recomputed proposal and verified selection evidence.",
+      "find": "        if selection_event.sequence >= event.sequence || payload != expected {",
+      "replace": "        if selection_event.sequence >= event.sequence || payload.assessment_id != expected.assessment_id {"
+    },
+    {
+      "id": "forge-assessment-directed-child-check-skipped",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An assessment selection must identify the exact proposed child Genome.",
+      "find": "        || receipt.candidate_genome_id() != proposal.child.genome_id",
+      "replace": "        || false"
+    },
+    {
+      "id": "forge-assessment-conflicting-retry-condition-weakened",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An assessment id cannot be reused with a different proposal or selection event.",
+      "find": "                || existing.selection_event_id != selection_event_id",
+      "replace": "                && existing.selection_event_id != selection_event_id"
+    },
+    {
+      "id": "forge-assessment-outcome-eligibility-inverted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Assessment outcome is derived from verified receipt metrics eligibility.",
+      "find": "        outcome: if receipt.metrics_eligible() {",
+      "replace": "        outcome: if !receipt.metrics_eligible() {"
+    },
+    {
+      "id": "forge-assessment-promotion-authorized",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A metrics-only Forge assessment never verifies invariant evidence or authorizes promotion.",
+      "find": "        invariant_gate_verified: false,\n        promotion_eligible: false,",
+      "replace": "        invariant_gate_verified: false,\n        promotion_eligible: true,"
+    },
+    {
+      "id": "forge-assessment-evidence-order-bypassed",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "The proposal must precede its evaluated child selection in canonical event history.",
+      "find": "    if proposal_event.sequence >= evaluation_event.sequence\n        || evaluation_event.sequence >= selection_sequence\n    {",
+      "replace": "    if false {"
     }
   ]
 }
