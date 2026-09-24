@@ -52,6 +52,29 @@ jobs:
           python checks/docs_gate.py --root . README.md AUDIT.md ROADMAP.md docs/*.md
           python checks/docs_gate.py --root . --skip-claims --min-diagrams 1 README.md docs/ARCHITECTURE.md
 
+  tui:
+    name: Ink TUI checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/hephaestus-tui
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
   mutation:
     name: Mutation guard (${{ matrix.scope }})
     needs: deterministic
