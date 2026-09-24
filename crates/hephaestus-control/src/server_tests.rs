@@ -2048,13 +2048,64 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let (closed_sender, closed_receiver) = mpsc::sync_channel(1);
     drop(closed_sender);
     plane.arena_message_receiver = Some(closed_receiver);
+    let disconnect_database = rusqlite::Connection::open(data_dir.join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    disconnect_database
+        .execute_batch(
+            "CREATE TRIGGER reject_channel_drop_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:channel-drop:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture disconnect terminal failure'); END;",
+        )
+        .expect("reject disconnect terminal append");
+    assert!(matches!(
+        plane.service_arena_message(),
+        Err(ControlError::Projection(message))
+            if message == "interrupted Arena job could not be recorded"
+    ));
+    assert_eq!(
+        plane.state.arena_jobs["channel-drop"].state,
+        JobState::Running
+    );
+    assert!(plane.active_arena_job.is_some());
+    assert!(plane.arena_message_receiver.is_some());
+    assert!(
+        !plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify history after rejected disconnect terminal")
+            .iter()
+            .any(|event| event.event_id == "arena-job:channel-drop:terminal")
+    );
+
+    disconnect_database
+        .execute_batch("DROP TRIGGER reject_channel_drop_terminal;")
+        .expect("restore fixture terminal writes");
     plane
         .service_arena_message()
-        .expect("record unexpected worker disconnect");
+        .expect("retry unexpected worker disconnect terminal");
     assert_eq!(
         plane.state.arena_jobs["channel-drop"].terminal,
         Some(JobTerminal::Interrupted)
     );
+    assert!(plane.active_arena_job.is_none());
+    assert!(plane.arena_message_receiver.is_none());
+    assert_eq!(
+        plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify recovered disconnect terminal")
+            .iter()
+            .filter(|event| event.event_id == "arena-job:channel-drop:terminal")
+            .count(),
+        1
+    );
+    drop(disconnect_database);
     assert!(matches!(
         plane
             .submit_arena_job("scoring-failure", &parent.genome_id, &candidate.genome_id)
