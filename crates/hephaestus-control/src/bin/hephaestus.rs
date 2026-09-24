@@ -785,7 +785,7 @@ fn selection_human(selection: &SelectionRecord) -> String {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
-    use std::{fs, path::PathBuf, time::SystemTime};
+    use std::{fs, path::Path, time::SystemTime};
 
     use super::{
         Arguments, command_from_cli, copy_fixture_into_new_destination, evaluation_human,
@@ -828,7 +828,7 @@ mod tests {
 
         assert!(
             matches!(arguments.command, super::CliCommand::Init { fixture, path }
-            if fixture == "quickstart" && path == PathBuf::from("/tmp/quickstart"))
+            if fixture == "quickstart" && path.as_path() == Path::new("/tmp/quickstart"))
         );
     }
 
