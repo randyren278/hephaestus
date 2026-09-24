@@ -71,6 +71,20 @@ fn forge_history_with_payload_edit(
     tampered
 }
 
+fn forge_history_with_selection_edit(
+    history: &[StoredEvent],
+    selection_event_id: &str,
+    edit: impl FnOnce(&mut StoredEvent),
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == selection_event_id)
+        .expect("selection event exists in canonical history");
+    edit(event);
+    tampered
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
@@ -101,6 +115,38 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         plane.state.arena_jobs[evaluation_id].terminal,
         Some(JobTerminal::Succeeded)
     );
+
+    let mismatched_record = {
+        let job = plane
+            .state
+            .arena_jobs
+            .get_mut(evaluation_id)
+            .expect("completed Arena record");
+        job.evaluation.take()
+    };
+    assert!(matches!(
+        verify_arena_evaluation_records(&plane.data_dir, &plane.state),
+        Err(ControlError::Projection(message))
+            if message == "Arena terminal differs from trusted evaluation evidence"
+    ));
+    plane
+        .state
+        .arena_jobs
+        .get_mut(evaluation_id)
+        .expect("completed Arena record")
+        .evaluation = mismatched_record;
+
+    let unavailable_data = directory.path().join("unavailable-evidence");
+    fs::create_dir(&unavailable_data).expect("create unavailable evidence fixture");
+    symlink(plane.data_dir.join("blobs"), unavailable_data.join("blobs"))
+        .expect("reuse canonical evidence artifacts");
+    fs::create_dir(unavailable_data.join("events.sqlite3")).expect("block evaluation store path");
+    let unavailable = verify_arena_evaluation_records(&unavailable_data, &plane.state);
+    assert!(matches!(
+        unavailable,
+        Err(ControlError::Projection(message))
+            if message == "Arena evidence stores are unavailable"
+    ));
 
     let ResponseData::Selection { selection } = plane
         .select_arena_evaluation(evaluation_id)
@@ -141,7 +187,6 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         Err(ExecuteError::Rejected(message))
             if message == "the parent must be the selected candidate under the same World"
     ));
-
     let proposal_id = "forge-projection-child";
     let ResponseData::ForgeProposal { proposal } = plane
         .propose_genome(
@@ -170,6 +215,19 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         .expect("verify genuine selection and proposal history");
     verify_forge_history(&plane.data_dir, &history, &plane.state.registered)
         .expect("valid Forge proposal replays against its selection receipt");
+
+    let selection_event_id = selection.event.event_id.clone();
+
+    assert!(matches!(
+        plane.propose_genome(
+            "forge-event-is-not-selection",
+            &forge_event_id,
+            &selected_candidate,
+            "Flip the supported reference operation.",
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "selection_event_id does not identify a selection"
+    ));
 
     let duplicate = plane
         .propose_genome(
@@ -215,6 +273,65 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         ),
         "unexpected missing-selection replay result: {missing_selection_result:?}"
     );
+
+    let invalid_selection_envelope =
+        forge_history_with_selection_edit(&history, &selection_event_id, |event| {
+            event.payload.push(b' ');
+        });
+    assert!(matches!(
+        verify_forge_history(
+            &plane.data_dir,
+            &invalid_selection_envelope,
+            &plane.state.registered
+        ),
+        Err(ControlError::Projection(message))
+            if message == "Forge source selection is invalid"
+    ));
+
+    let mut wrong_world = history.clone();
+    let selection_event = wrong_world
+        .iter_mut()
+        .find(|event| event.event_id == selection_event_id)
+        .expect("selection event exists");
+    // Preserve the typed payload's field order while changing only its routed World.
+    let old_payload =
+        std::str::from_utf8(&selection_event.payload).expect("selection payload is UTF-8");
+    let old_world = selection.receipt.world_id();
+    let replacement = old_payload.replace(old_world, "world:missing");
+    selection_event.payload = replacement.into_bytes();
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &wrong_world, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge source World is not registered"
+    ));
+
+    let unverified_selection =
+        forge_history_with_selection_edit(&history, &selection_event_id, |event| {
+            event.hash[0] ^= 0xff;
+        });
+    assert!(matches!(
+        verify_forge_history(
+            &plane.data_dir,
+            &unverified_selection,
+            &plane.state.registered
+        ),
+        Err(ControlError::Projection(message))
+            if message == "Forge source selection is unverified"
+    ));
+
+    let noncanonical_proposal =
+        forge_history_with_selection_edit(&history, &forge_event_id, |event| {
+            event.payload.push(b' ');
+        });
+    assert!(matches!(
+        verify_forge_history(
+            &plane.data_dir,
+            &noncanonical_proposal,
+            &plane.state.registered
+        ),
+        Err(ControlError::Projection(message))
+            if message == "Forge proposal payload is not canonical"
+    ));
 
     let wrong_parent = forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
         payload.parent_genome_id = parent.genome_id.clone();
@@ -301,6 +418,86 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     assert!(matches!(
         reopened.replay_response().expect("replay after restart"),
         ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (world, _, _) = register_dispatch_objects(&mut plane, &token, &directory);
+
+    let promptless_path = directory.path().join("forge-promptless.json");
+    fs::write(
+        &promptless_path,
+        r#"{"schema_version":1,"name":"forge-promptless","parents":[],"model":{"provider":"deterministic","family":"reference"},"authority":{"workspace_write":false,"network":false},"artifacts":{}}"#,
+    )
+    .expect("write promptless Genome");
+    let Some(ResponseData::Genome { genome: promptless }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-forge-promptless",
+        Command::GenomeRegister {
+            path: promptless_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("promptless Genome should register");
+    };
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical Forge artifacts");
+    assert!(matches!(
+        forge_prompt_mutation(
+            &artifacts,
+            &plane.state.registered,
+            &promptless.genome_id,
+            &world.world_id
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "the selected candidate has no supported prompt to mutate"
+    ));
+
+    let unsupported = register_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "forge-unsupported-prompt",
+        b"plain unsupported prompt\n",
+    );
+    assert!(matches!(
+        forge_prompt_mutation(
+            &artifacts,
+            &plane.state.registered,
+            &unsupported.genome_id,
+            &world.world_id
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "the selected candidate prompt is outside the supported mutation language"
+    ));
+
+    let reformatted =
+        reference_instruction_document(ReferenceInstruction::Identity).replace(',', ", ");
+    let out_of_scope = register_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "forge-reformatted-prompt",
+        reformatted.as_bytes(),
+    );
+    assert!(matches!(
+        forge_prompt_mutation(
+            &artifacts,
+            &plane.state.registered,
+            &out_of_scope.genome_id,
+            &world.world_id
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "the selected candidate prompt is outside the Forge mutation scope"
     ));
 }
 
