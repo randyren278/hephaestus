@@ -985,17 +985,45 @@ fn missing_direct_result_after_real_execution_records_interruption_and_releases_
     );
 
     plane.drop_next_direct_result_after_execution = true;
+    let database = rusqlite::Connection::open(directory.path().join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_lost_result_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'job:lost-result:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture interrupted terminal append failure'); END;",
+        )
+        .expect("reject interrupted terminal append");
     plane
         .submit_job("lost-result", &genome.genome_id)
         .expect("admit direct reference job");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while plane.active_job.is_some() {
-        plane
-            .service_async_messages()
-            .expect("persist evidence and detect closed result channel");
-        assert!(Instant::now() < deadline, "executor did not finish");
-        thread::sleep(Duration::from_millis(2));
-    }
+    assert_interrupted_terminal_append_failure(&mut plane);
+    database
+        .execute_batch("DROP TRIGGER reject_lost_result_terminal;")
+        .expect("restore interrupted terminal writes");
+    drop(database);
+    plane
+        .service_async_messages()
+        .expect("retry interrupted terminal after storage recovers");
+    assert!(
+        plane.active_job.is_none(),
+        "successful retry releases the active slot"
+    );
+    let terminal_history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify retried terminal history");
+    assert_eq!(
+        terminal_history
+            .iter()
+            .filter(|event| event.event_id == "job:lost-result:terminal")
+            .count(),
+        1,
+        "retry must persist exactly one interruption terminal"
+    );
     let interrupted = &plane.state.jobs["lost-result"];
     assert_eq!(interrupted.state, JobState::Interrupted);
     assert_eq!(interrupted.terminal, Some(JobTerminal::Interrupted));
@@ -1017,6 +1045,58 @@ fn missing_direct_result_after_real_execution_records_interruption_and_releases_
     assert_eq!(
         reopened.state.jobs["dispatch-run"].state,
         JobState::Succeeded
+    );
+}
+
+fn assert_interrupted_terminal_append_failure(plane: &mut ControlPlane) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut terminal_append_rejected = false;
+    while plane.active_job.is_some() {
+        match plane.service_async_messages() {
+            Ok(()) => {}
+            Err(ControlError::Projection(message))
+                if message == "interrupted job could not be recorded" =>
+            {
+                terminal_append_rejected = true;
+                break;
+            }
+            Err(error) => panic!("unexpected direct-job service failure: {error}"),
+        }
+        assert!(Instant::now() < deadline, "executor did not finish");
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert!(
+        terminal_append_rejected,
+        "injected terminal append must fail"
+    );
+    assert!(
+        matches!(
+            plane
+                .job_result_receiver
+                .as_ref()
+                .expect("result receiver remains available")
+                .try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        ),
+        "executor and supervisor must fully unwind before terminal retry"
+    );
+    assert!(
+        plane.active_job.is_some(),
+        "failed append retains the active projection"
+    );
+    let history_before_retry = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after rejected terminal append");
+    assert!(
+        !history_before_retry
+            .iter()
+            .any(|event| { event.event_id == "job:lost-result:terminal" })
     );
 }
 
