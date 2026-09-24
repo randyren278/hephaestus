@@ -25,7 +25,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          cache-on-failure: true
+          prefix-key: v1-hephaestus
+          shared-key: ubuntu-stable-dependencies
+          cache-bin: "false"
+          save-if: "true"
+          cache-on-failure: "false"
 
       - uses: actions/setup-python@v6
         with:
@@ -56,6 +60,9 @@ jobs:
         run: >-
           python checks/coverage_gate.py
           --manifest checks/checks.json --report lcov.info
+
+      - name: Prepare mutation build dependencies
+        run: cargo test --workspace --all-features --no-run
 
       - name: Preserve Rust coverage report
         if: always()
@@ -178,6 +185,15 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+        if: matrix.scope != 'mutation-checks' && matrix.scope != 'python-statistics'
+
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.scope != 'mutation-checks' && matrix.scope != 'python-statistics'
+        with:
+          prefix-key: v1-hephaestus
+          shared-key: ubuntu-stable-dependencies
+          cache-bin: "false"
+          save-if: "false"
 
       - uses: actions/setup-python@v6
         with:
