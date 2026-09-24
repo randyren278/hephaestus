@@ -772,6 +772,180 @@ fn reference_output_invariants_record_operator_aggregates_and_replay() {
     assert!(load_reference_output_invariants(stores, "evaluation-001", &world).is_err());
 }
 
+fn append_history_except(
+    stores: &mut EvaluationStores,
+    history: &[StoredEvent],
+    skip_event_id: &str,
+) {
+    for event in history
+        .iter()
+        .filter(|event| event.event_id != skip_event_id)
+    {
+        stores
+            .events
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                &event.payload,
+            ))
+            .unwrap();
+    }
+}
+
+/// Rebuilds `history` in a new hash-valid ledger with the invariant event's
+/// payload rewritten, so only content verification can reject it.
+fn forged_invariant_ledger(
+    directory: &TempDir,
+    name: &str,
+    history: &[StoredEvent],
+    original: &StoredEvent,
+    payload: String,
+) -> EvaluationStores {
+    let mut stores = EvaluationStores::open(
+        directory.path().join(format!("{name}.sqlite3")),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    append_history_except(&mut stores, history, &original.event_id);
+    stores
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            payload,
+        ))
+        .unwrap();
+    stores
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reference_output_invariants_reject_cross_world_and_hash_valid_forgeries() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let mut wrong_source: serde_json::Value =
+        serde_json::from_slice(world.canonical_json()).unwrap();
+    wrong_source["name"] = serde_json::json!("different-invariant-world");
+    let wrong_world = compile_world(
+        &wrong_source.to_string(),
+        SourceFormat::Json,
+        &fixture.stores.artifacts,
+    )
+    .unwrap();
+    let stores = evaluate(fixture).unwrap().into_stores();
+    assert!(matches!(
+        check_reference_output_invariants(
+            stores,
+            "evaluation-001",
+            &wrong_world,
+            1_788_000_123_500
+        ),
+        Err(ArenaError::WorldArtifactMismatch(
+            "arena.invariant_manifest"
+        ))
+    ));
+
+    let open = || {
+        EvaluationStores::open(
+            directory.path().join("events.sqlite3"),
+            directory.path().join("blobs"),
+        )
+        .unwrap()
+    };
+    let check =
+        check_reference_output_invariants(open(), "evaluation-001", &world, 1_788_000_123_500)
+            .unwrap();
+    let receipt_artifact = check.event().receipt_artifact_id.clone();
+    let receipt = check.receipt().clone();
+    let history = check.into_stores().events.replay_verified().unwrap();
+    let original = history
+        .iter()
+        .find(|event| event.event_id == "arena:invariants:evaluation-001:checked")
+        .unwrap()
+        .clone();
+    assert!(matches!(
+        verify_reference_output_invariant_event(open(), &original, &wrong_world),
+        Err(ArenaError::WorldArtifactMismatch(
+            "arena.invariant_manifest"
+        ))
+    ));
+
+    // A hash-valid receipt artifact with different aggregates is a conflict.
+    let mut forged_receipt = receipt.clone();
+    forged_receipt.total_checks += 1;
+    let forged_bytes = serde_json::to_vec(&forged_receipt).unwrap();
+    let forged_artifact = open().artifacts.put(&forged_bytes).unwrap();
+    let forged_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&receipt_artifact, forged_artifact.as_str());
+    let stores = forged_invariant_ledger(
+        &directory,
+        "forged-receipt",
+        &history,
+        &original,
+        forged_payload,
+    );
+    assert!(matches!(
+        load_reference_output_invariants(stores, "evaluation-001", &world),
+        Err(ArenaError::InvariantConflict(evaluation)) if evaluation == "evaluation-001"
+    ));
+
+    // An envelope naming another World cannot rebind the recorded evaluation.
+    let foreign_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(world.id(), wrong_world.id());
+    let stores = forged_invariant_ledger(
+        &directory,
+        "foreign-world",
+        &history,
+        &original,
+        foreign_payload,
+    );
+    assert!(matches!(
+        load_reference_output_invariants(stores, "evaluation-001", &world),
+        Err(ArenaError::InvariantConflict(evaluation)) if evaluation == "evaluation-001"
+    ));
+
+    // An invariant event recorded before its source evaluation is a conflict.
+    let evaluation_index = history
+        .iter()
+        .position(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap();
+    let mut reordered = EvaluationStores::open(
+        directory.path().join("reordered.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let mut order: Vec<&StoredEvent> = history[..evaluation_index].iter().collect();
+    order.push(&original);
+    order.extend(
+        history[evaluation_index..]
+            .iter()
+            .filter(|event| event.event_id != original.event_id),
+    );
+    for event in order {
+        reordered
+            .events
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                &event.payload,
+            ))
+            .unwrap();
+    }
+    assert!(load_reference_output_invariants(reordered, "evaluation-001", &world).is_err());
+}
+
 #[test]
 fn reference_output_invariant_manifest_is_required_canonical_bounded_and_ordered() {
     let invalid_manifests: &[&[u8]] = &[
