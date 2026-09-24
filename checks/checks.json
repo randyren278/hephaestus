@@ -915,6 +915,20 @@
       "replace": "            RunCompletionReason::Success\n                | RunCompletionReason::OutputBudgetExceeded"
     },
     {
+      "id": "run-result-operator-interrupt-rejected",
+      "file": "crates/hephaestus-experience/src/run_result.rs",
+      "invariant": "A daemon-signed operator interruption can be verified and used to recover an unfinished job.",
+      "find": "                | RunCompletionReason::ProviderFailure\n                | RunCompletionReason::OperatorInterrupt\n",
+      "replace": "                | RunCompletionReason::ProviderFailure\n"
+    },
+    {
+      "id": "control-operator-interrupt-marked-cancelled",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A runtime OperatorInterrupt without a durable cancellation request recovers as Interrupted, not Cancelled.",
+      "find": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Interrupted",
+      "replace": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Cancelled"
+    },
+    {
       "id": "run-result-supervisor-timeout-and-io-failure-rejected",
       "file": "crates/hephaestus-experience/src/run_result.rs",
       "invariant": "A trusted supervisor's wall-budget and I/O terminal outcomes can be signed and replayed.",

@@ -347,6 +347,7 @@ impl RunResultReceipt {
             self.completion_reason,
             RunCompletionReason::Success
                 | RunCompletionReason::ProviderFailure
+                | RunCompletionReason::OperatorInterrupt
                 | RunCompletionReason::OutputBudgetExceeded
                 | RunCompletionReason::WallBudgetExceeded
                 | RunCompletionReason::IoFailure

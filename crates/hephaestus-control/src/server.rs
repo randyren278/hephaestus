@@ -1652,7 +1652,7 @@ impl ControlPlane {
                 JobTerminal::Succeeded
             } else if completion_reason == RunCompletionReason::OperatorInterrupt {
                 record.state = JobState::Interrupted;
-                JobTerminal::Cancelled
+                JobTerminal::Interrupted
             } else {
                 record.state = JobState::Failed;
                 JobTerminal::Failed

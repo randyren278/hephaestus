@@ -223,9 +223,6 @@ fn parser_rejects_unknown_schema_fields_and_invalid_runtime_claims() {
         .is_err()
     );
 
-    let mut interrupted = receipt();
-    interrupted.completion_reason = RunCompletionReason::OperatorInterrupt;
-    assert!(signer().issue(interrupted, 1).is_err());
     let mut too_many_traces = receipt();
     too_many_traces.trace_artifact_ids = vec![artifact; 1_025];
     assert!(signer().issue(too_many_traces, 1).is_err());
@@ -242,6 +239,27 @@ fn parser_rejects_unknown_schema_fields_and_invalid_runtime_claims() {
     let mut invalid_output = receipt();
     invalid_output.stdout_artifact_id = "not-an-artifact".to_owned();
     assert!(signer().issue(invalid_output, 1).is_err());
+}
+
+#[test]
+fn operator_interrupt_receipt_is_signed_and_cannot_be_upgraded_to_success() {
+    let mut interrupted = receipt();
+    interrupted.completion_reason = RunCompletionReason::OperatorInterrupt;
+    let interrupted_event = stored(interrupted);
+    let interrupted_receipt =
+        RunResultReceipt::parse_from_event(&interrupted_event, &signer().verifier())
+            .expect("signed operator interruption should verify");
+    assert_eq!(
+        interrupted_receipt.completion_reason,
+        RunCompletionReason::OperatorInterrupt
+    );
+
+    let mut changed_to_success = interrupted_event;
+    let payload = String::from_utf8(changed_to_success.payload.clone()).expect("UTF-8 envelope");
+    changed_to_success.payload = payload
+        .replace("\"operator_interrupt\"", "\"success\"")
+        .into_bytes();
+    assert!(RunResultReceipt::parse_from_event(&changed_to_success, &signer().verifier()).is_err());
 }
 
 #[test]

@@ -1700,6 +1700,8 @@ fn signed_success_result_without_completed_run_rejects_job_terminal() {
         })
         .expect("persist valid running transition");
 
+    let (stdout_artifact_id, stderr_artifact_id) =
+        put_fixture_output_artifacts(&plane, b"signed success stdout", b"signed success stderr");
     let receipt = RunResultReceipt {
         schema_version: RUN_RESULT_SCHEMA_VERSION,
         run_id: run_id.clone(),
@@ -1714,8 +1716,8 @@ fn signed_success_result_without_completed_run_rejects_job_terminal() {
         completion_reason: RunCompletionReason::Success,
         latency_millis: 1,
         actual_cost_microusd: 0,
-        stdout_artifact_id: "3".repeat(64),
-        stderr_artifact_id: "4".repeat(64),
+        stdout_artifact_id,
+        stderr_artifact_id,
         trace_artifact_ids: vec![],
     };
     let signed_event = plane
@@ -1740,31 +1742,307 @@ fn signed_success_result_without_completed_run_rejects_job_terminal() {
     assert!(plane.state.run_results.contains_key(&run_id));
     assert!(!plane.state.completed_runs.contains(&run_id));
 
+    reject_success_terminal_without_lifecycle(&mut plane, &base);
+}
+
+fn reject_success_terminal_without_lifecycle(plane: &mut ControlPlane, base: &JobRecord) {
     let terminal = JobRecord {
         state: JobState::Succeeded,
         terminal: Some(JobTerminal::Succeeded),
-        ..base
+        ..base.clone()
     };
-    let terminal_event = StoredEvent {
-        sequence: plane.state.event_count + 1,
-        event_id: format!("job:{job_id}:terminal"),
-        aggregate_id: format!("job:{job_id}"),
-        event_type: "job.terminal".to_owned(),
-        actor: RUNTIME_ACTOR.to_owned(),
-        timestamp_millis: 2,
-        payload: serde_json::to_vec(&terminal).expect("serialize successful terminal"),
-        previous_hash: [0; 32],
-        hash: [0; 32],
-    };
+    let mut event = stored_event(
+        plane.state.event_count + 1,
+        "job.terminal",
+        &format!("job:{}", base.job_id),
+        RUNTIME_ACTOR,
+        &serde_json::to_vec(&terminal).expect("serialize successful terminal"),
+    );
+    event.event_id = format!("job:{}:terminal", base.job_id);
     assert!(matches!(
-        plane.state.apply(
-            &terminal_event,
-            &plane.operator_token,
-            &plane.run_result_verifier,
-        ),
+        plane
+            .state
+            .apply(&event, &plane.operator_token, &plane.run_result_verifier),
         Err(ControlError::Projection(message))
             if message == "successful job terminal lacks matching signed result and lifecycle completion"
     ));
+}
+
+#[allow(clippy::too_many_lines)]
+fn append_interrupted_result_fixture(
+    plane: &mut ControlPlane,
+    genome: &GenomeRecord,
+    cancellation_requested: bool,
+    mismatch_source_revision: bool,
+) -> JobRecord {
+    let job_id = "interrupted-recovery";
+    let run_id = job_run_id(job_id);
+    let input = "Inventory the isolated repository without modifying it or using the network.";
+    let base = JobRecord {
+        job_id: job_id.to_owned(),
+        genome_id: genome.genome_id.clone(),
+        run_id: run_id.clone(),
+        source_revision: "1".repeat(40),
+        world_id: genome.world_id.clone(),
+        task_id: "repository-inventory-v1".to_owned(),
+        input_commitment: blake3::hash(input.as_bytes()).to_hex().to_string(),
+        seed: 0,
+        environment_id: format!("reference-v1.{}", "2".repeat(64)),
+        budget: RunBudgetReceipt {
+            wall_millis: 10_000,
+            maximum_output_bytes: 1_048_576,
+            maximum_cost_microusd: 0,
+        },
+        state: JobState::Admitted,
+        terminal: None,
+    };
+    plane
+        .append_job_record(&base)
+        .expect("persist valid job admission");
+    plane
+        .append_job_record(&JobRecord {
+            state: JobState::Running,
+            ..base.clone()
+        })
+        .expect("persist valid running transition");
+    if cancellation_requested {
+        plane
+            .append_job_record(&JobRecord {
+                state: JobState::CancellationRequested,
+                ..base.clone()
+            })
+            .expect("persist cancellation request");
+    }
+
+    let (stdout_artifact_id, stderr_artifact_id) = put_fixture_output_artifacts(
+        plane,
+        b"signed interrupted stdout",
+        b"signed interrupted stderr",
+    );
+    let receipt = RunResultReceipt {
+        schema_version: RUN_RESULT_SCHEMA_VERSION,
+        run_id,
+        genome_id: base.genome_id.clone(),
+        world_id: base.world_id.clone(),
+        source_revision: if mismatch_source_revision {
+            "6".repeat(40)
+        } else {
+            base.source_revision.clone()
+        },
+        task_id: base.task_id.clone(),
+        input_commitment: base.input_commitment.clone(),
+        seed: base.seed,
+        environment_id: base.environment_id.clone(),
+        budget: base.budget,
+        completion_reason: RunCompletionReason::OperatorInterrupt,
+        latency_millis: 1,
+        actual_cost_microusd: 0,
+        stdout_artifact_id,
+        stderr_artifact_id,
+        trace_artifact_ids: Vec::new(),
+    };
+    let signed_event = plane
+        .run_result_signer
+        .issue(receipt, 1)
+        .expect("sign interrupted run result");
+    let stored_result = plane
+        .storage
+        .as_mut()
+        .expect("canonical storage")
+        .ledger
+        .append(signed_event)
+        .expect("persist signed interrupted run result");
+    plane
+        .state
+        .apply(
+            &stored_result,
+            &plane.operator_token,
+            &plane.run_result_verifier,
+        )
+        .expect("project signed interrupted run result");
+    base
+}
+
+fn put_fixture_output_artifacts(
+    plane: &ControlPlane,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> (String, String) {
+    let artifacts = ArtifactStore::open(plane.data_dir.join("blobs")).expect("open CAS");
+    let stdout_id = artifacts
+        .put(stdout)
+        .expect("store stdout")
+        .as_str()
+        .to_owned();
+    let stderr_id = artifacts
+        .put(stderr)
+        .expect("store stderr")
+        .as_str()
+        .to_owned();
+    (stdout_id, stderr_id)
+}
+
+#[test]
+fn non_cancellation_operator_interrupt_completes_as_interrupted() {
+    let directory = tempdir().expect("daemon directory");
+    let slow_worker = directory.path().join("interrupt-worker");
+    fs::write(&slow_worker, "#!/bin/sh\nexec /bin/sleep 60\n").expect("write slow worker");
+    fs::set_permissions(&slow_worker, fs::Permissions::from_mode(0o700))
+        .expect("make slow worker executable");
+    let executable = env::current_exe().expect("test executable");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        directory.path(),
+        env::current_dir().expect("repository working directory"),
+        &executable,
+        &slow_worker,
+    )
+    .expect("open control plane with slow worker");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let job_id = "operator-interrupt-completion";
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    plane
+        .submit_job(job_id, &genome.genome_id)
+        .expect("admit direct job");
+    let cancel = Arc::clone(&plane.active_job.as_ref().expect("active direct job").cancel);
+    thread::sleep(Duration::from_millis(100));
+    cancel.store(true, Ordering::Release);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("service interrupted worker");
+        assert!(Instant::now() < deadline, "interrupted worker stalled");
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let terminal = plane.state.jobs.get(job_id).expect("terminal job");
+    assert_eq!(terminal.state, JobState::Interrupted);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Interrupted));
+    let run_id = job_run_id(job_id);
+    assert_eq!(
+        plane.state.run_results[&run_id].completion_reason,
+        RunCompletionReason::OperatorInterrupt
+    );
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify interrupted history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| {
+                event.event_type == "job.terminal" && event.aggregate_id == format!("job:{job_id}")
+            })
+            .count(),
+        1
+    );
+    assert!(plane.active_job.is_none(), "interrupted job releases slot");
+}
+
+#[test]
+fn signed_interrupted_result_recovers_once_and_preserves_cancellation() {
+    for (cancellation_requested, terminal) in [
+        (false, JobTerminal::Interrupted),
+        (true, JobTerminal::Cancelled),
+    ] {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = open_projection_test_plane(&directory);
+        let token = plane.token_hex.clone();
+        let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+        let job =
+            append_interrupted_result_fixture(&mut plane, &genome, cancellation_requested, false);
+        let before_forged_terminal = plane.state.snapshot();
+        let mut forged_success = plane.state.jobs[&job.job_id].clone();
+        forged_success.state = JobState::Succeeded;
+        forged_success.terminal = Some(JobTerminal::Succeeded);
+        let mut event = stored_event(
+            before_forged_terminal.event_count + 1,
+            "job.terminal",
+            &format!("job:{}", job.job_id),
+            RUNTIME_ACTOR,
+            &serde_json::to_vec(&forged_success).expect("serialize forged success"),
+        );
+        event.event_id = format!("job:{}:terminal", job.job_id);
+        assert!(matches!(
+            plane
+                .state
+                .apply(&event, &plane.operator_token, &plane.run_result_verifier),
+            Err(ControlError::Projection(message))
+                if message == "successful job terminal lacks matching signed result and lifecycle completion"
+        ));
+        assert!(plane.state.snapshot() == before_forged_terminal);
+        drop(plane);
+
+        for _ in 0..2 {
+            let reopened = open_projection_test_plane(&directory);
+            let recovered = reopened.state.jobs.get(&job.job_id).expect("recovered job");
+            assert_eq!(recovered.state, JobState::Interrupted);
+            assert_eq!(recovered.terminal, Some(terminal));
+            let history = EventStore::open(directory.path().join("events.sqlite3"))
+                .expect("open recovered history")
+                .replay_verified()
+                .expect("verify recovered history");
+            assert_eq!(
+                history
+                    .iter()
+                    .filter(|event| {
+                        event.event_type == "job.terminal"
+                            && event.aggregate_id == format!("job:{}", job.job_id)
+                    })
+                    .count(),
+                1,
+                "recovery must append exactly one terminal event"
+            );
+            drop(reopened);
+        }
+    }
+}
+
+#[test]
+fn mismatched_signed_interrupted_result_fails_recovery_without_terminal_append() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let job = append_interrupted_result_fixture(&mut plane, &genome, false, true);
+    let before = EventStore::open(directory.path().join("events.sqlite3"))
+        .expect("open pre-recovery history")
+        .replay_verified()
+        .expect("verify pre-recovery history");
+    assert!(!before.iter().any(|event| {
+        event.event_type == "job.terminal" && event.aggregate_id == format!("job:{}", job.job_id)
+    }));
+    drop(plane);
+
+    let executable = env::current_exe().expect("test executable");
+    let reopen = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        directory.path(),
+        env::current_dir().expect("repository working directory"),
+        &executable,
+        &executable,
+    );
+    assert!(matches!(
+        reopen,
+        Err(ControlError::Projection(message))
+            if message == "signed job result differs from its admitted spec"
+    ));
+    let after = EventStore::open(directory.path().join("events.sqlite3"))
+        .expect("open history after rejected recovery")
+        .replay_verified()
+        .expect("verify history after rejected recovery");
+    assert_eq!(after.len(), before.len());
+    assert!(!after.iter().any(|event| {
+        event.event_type == "job.terminal" && event.aggregate_id == format!("job:{}", job.job_id)
+    }));
 }
 
 #[test]
@@ -3318,6 +3596,18 @@ fn job_transition_rules_cover_admission_running_cancellation_and_terminal_edges(
         !state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
             &event("job.terminal"),
             &record(JobState::Succeeded, Some(JobTerminal::Succeeded))
+        )
+    );
+    assert!(
+        !state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
+            &event("job.terminal"),
+            &record(JobState::Interrupted, Some(JobTerminal::Cancelled))
+        )
+    );
+    assert!(
+        state_with(Some(record(JobState::Running, None))).job_transition_is_valid(
+            &event("job.terminal"),
+            &record(JobState::Interrupted, Some(JobTerminal::Interrupted))
         )
     );
     assert!(
