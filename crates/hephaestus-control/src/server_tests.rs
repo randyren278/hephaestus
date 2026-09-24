@@ -2052,6 +2052,78 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
         ResponseData::Replay { .. }
     ));
 
+    let phase_id = "scoring-phase-write-failure";
+    assert!(matches!(
+        plane
+            .submit_arena_job(phase_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit scoring-phase write fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while plane
+        .active_arena_job
+        .as_ref()
+        .is_some_and(|active| active.record.completed_trials < active.record.total_trials)
+    {
+        plane
+            .service_async_messages()
+            .expect("persist real signed Arena trials");
+        assert!(Instant::now() < deadline, "Arena trials did not complete");
+        thread::sleep(Duration::from_millis(2));
+    }
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_fixture_scoring_phase BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:scoring-phase-write-failure:scoring'
+             BEGIN SELECT RAISE(ABORT, 'fixture scoring phase write failure'); END;",
+        )
+        .expect("reject scoring phase append");
+    loop {
+        match plane.service_arena_message() {
+            Err(ControlError::Projection(message)) => {
+                assert_eq!(message, "Arena scoring phase could not be recorded");
+                break;
+            }
+            Ok(()) => {
+                assert!(
+                    Instant::now() < deadline,
+                    "Arena completion was not delivered"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(error) => panic!("unexpected Arena scoring failure: {error}"),
+        }
+    }
+    let before_restart = &plane.state.arena_jobs[phase_id];
+    assert_eq!(before_restart.completed_trials, before_restart.total_trials);
+    assert_ne!(before_restart.phase, ArenaJobPhase::Scoring);
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after scoring phase rejection");
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("arena-job:{phase_id}:scoring")
+            || event.event_id == format!("arena:evaluation:{phase_id}:recorded")
+    }));
+    database
+        .execute_batch("DROP TRIGGER reject_fixture_scoring_phase;")
+        .expect("restore scoring phase writes");
+    drop(plane);
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("restart after scoring phase write failure");
+    let interrupted = &plane.state.arena_jobs[phase_id];
+    assert_eq!(interrupted.state, JobState::Interrupted);
+    assert_eq!(interrupted.terminal, Some(JobTerminal::Interrupted));
+    assert!(interrupted.evaluation.is_none());
+
     let recovery_id = "scored-terminal-write-failure";
     assert!(matches!(
         plane
