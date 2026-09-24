@@ -1529,6 +1529,139 @@ fn arena_replay_rejects_admitted_plan_without_its_registered_bindings() {
 }
 
 #[test]
+fn control_projection_rejects_arena_admission_without_mutating_state() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (world, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let candidate_path = directory.path().join("unbound-admission-candidate.md");
+    fs::write(
+        &candidate_path,
+        "---\nschema_version: 1\nname: unbound-admission-candidate\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write candidate Genome");
+    let Some(ResponseData::Genome { genome: candidate }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-unbound-admission-candidate",
+        Command::GenomeRegister {
+            path: candidate_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("candidate Genome should register");
+    };
+    let before = plane.state.snapshot();
+    let record = admitted_arena_record(
+        "unbound-arena-admission",
+        world.world_id,
+        genome.genome_id,
+        candidate.genome_id,
+    );
+    let mut event = admitted_arena_event(&record);
+    event.sequence = before.event_count + 1;
+
+    assert!(matches!(
+        plane
+            .state
+            .apply(&event, &plane.operator_token, &plane.run_result_verifier),
+        Err(ControlError::Projection(message))
+            if message == "Arena job differs from registered World and Genome bindings"
+    ));
+    assert!(plane.state.snapshot() == before);
+}
+
+#[test]
+fn arena_trial_source_rejection_preserves_admitted_progress() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (world, parent, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let candidate_path = directory.path().join("trial-candidate.md");
+    fs::write(
+        &candidate_path,
+        "---\nschema_version: 1\nname: trial-candidate\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write candidate Genome");
+    let Some(ResponseData::Genome { genome: candidate }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-trial-candidate",
+        Command::GenomeRegister {
+            path: candidate_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("candidate Genome should register");
+    };
+    let mut job = admitted_arena_record(
+        "trial-source-mismatch",
+        world.world_id.clone(),
+        parent.genome_id,
+        candidate.genome_id.clone(),
+    );
+    job.state = JobState::Running;
+    job.phase = ArenaJobPhase::ParentTrials;
+    job.completed_trials = 0;
+    plane
+        .state
+        .arena_jobs
+        .insert(job.evaluation_id.clone(), job.clone());
+    let receipt = RunResultReceipt {
+        schema_version: RUN_RESULT_SCHEMA_VERSION,
+        run_id: job.ordered_trial_run_ids[0].clone(),
+        genome_id: job.parent_genome_id.clone(),
+        world_id: job.world_id.clone(),
+        source_revision: "e".repeat(40),
+        task_id: "reference-inventory-v1".to_owned(),
+        input_commitment: "1".repeat(64),
+        seed: job.seed,
+        environment_id: job.environment_id.clone(),
+        budget: job.trial_budget,
+        completion_reason: RunCompletionReason::Success,
+        latency_millis: 1,
+        actual_cost_microusd: 0,
+        stdout_artifact_id: "2".repeat(64),
+        stderr_artifact_id: "3".repeat(64),
+        trace_artifact_ids: Vec::new(),
+    };
+
+    assert!(matches!(
+        plane.state.advance_arena_trial(&receipt),
+        Err(ControlError::Projection(message))
+            if message == "Arena run receipt differs from its admitted source"
+    ));
+    assert_eq!(plane.state.arena_jobs[&job.evaluation_id], job);
+}
+
+#[test]
+fn selection_history_rejects_unregistered_world_reference() {
+    let directory = tempdir().expect("daemon directory");
+    let plane = open_projection_test_plane(&directory);
+    let payload = br#"{"schema_version":1,"evaluation_id":"forged-selection","world_id":"hephaestus:world:1111111111111111111111111111111111111111111111111111111111111111","receipt_artifact_id":"2222222222222222222222222222222222222222222222222222222222222222"}"#;
+    let event = StoredEvent {
+        sequence: 1,
+        event_id: "arena:selection:forged-selection:selected".to_owned(),
+        aggregate_id: "arena:selection:forged-selection".to_owned(),
+        event_type: "selection.recorded".to_owned(),
+        actor: "arena-plane".to_owned(),
+        timestamp_millis: 1,
+        payload: payload.to_vec(),
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    };
+
+    assert!(matches!(
+        verify_selection_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "selection World is not registered"
+    ));
+}
+
+#[test]
 fn signed_success_result_without_completed_run_rejects_job_terminal() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = open_projection_test_plane(&directory);
@@ -3318,6 +3451,28 @@ fn admitted_job_projection_binds_the_runtime_actor_and_immutable_spec() {
     let mut event = stored_event(1, "job.admitted", "job:validated-job", RUNTIME_ACTOR, b"{}");
     event.event_id = "job:validated-job:admitted".to_owned();
     assert!(plane.state.validate_job_record(&event, &job).is_ok());
+
+    event.payload = serde_json::to_vec(&job).expect("serialize admitted job");
+    plane
+        .state
+        .apply_job_record(&event)
+        .expect("valid admitted job projects");
+    let before = plane.state.snapshot();
+    let mut forged_running = job.clone();
+    forged_running.state = JobState::Running;
+    forged_running.budget.maximum_output_bytes += 1;
+    let mut running_event = event.clone();
+    running_event.sequence += 1;
+    running_event.event_id = "job:validated-job:running".to_owned();
+    running_event.event_type = "job.running".to_owned();
+    running_event.payload =
+        serde_json::to_vec(&forged_running).expect("serialize forged running job");
+    assert!(matches!(
+        plane.state.apply_job_record(&running_event),
+        Err(ControlError::Projection(message)) if message == "job spec binding is invalid"
+    ));
+    assert!(plane.state.snapshot() == before);
+
     event.actor = "untrusted-actor".to_owned();
     assert!(plane.state.validate_job_record(&event, &job).is_err());
 }
