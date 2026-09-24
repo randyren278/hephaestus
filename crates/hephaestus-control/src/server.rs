@@ -3956,10 +3956,11 @@ fn verify_invariant_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
-    for event in history
-        .iter()
-        .filter(|event| event.event_type == "invariants.recorded")
-    {
+    for event in history.iter().filter(|event| {
+        event.event_type == "invariants.recorded"
+            || event.event_id.starts_with("arena:invariants:")
+            || event.aggregate_id.starts_with("arena:invariants:")
+    }) {
         let (evaluation_id, world_id) = invariant_event_references(event).map_err(|_| {
             ControlError::Projection("canonical invariant event envelope is invalid".to_owned())
         })?;

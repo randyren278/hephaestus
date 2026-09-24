@@ -1079,6 +1079,22 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         reloaded_invariants.event.event_id,
         "arena:invariants:daemon-owned-pair:checked"
     );
+    restarted.stop();
+    rewrite_ledger_event_type(
+        &data_dir,
+        "arena:invariants:daemon-owned-pair:checked",
+        "control.status",
+    );
+    assert!(
+        ControlPlane::open_with_repository(&data_dir, &repository).is_err(),
+        "replay must reject an invariant identity with a rewritten event type"
+    );
+    rewrite_ledger_event_type(
+        &data_dir,
+        "arena:invariants:daemon-owned-pair:checked",
+        "invariants.recorded",
+    );
+    restarted = Daemon::start_with_repository(&data_dir, &repository);
     let recovered = Client::new(&data_dir)
         .request(Command::JobStatus {
             job_id: "daemon-owned-pair".to_owned(),
@@ -4020,6 +4036,39 @@ fn rewrite_ledger_event_payload(
     fs::remove_file(&ledger_path).expect("remove source ledger");
     fs::rename(data_dir.join("events.rebuilt.sqlite3"), &ledger_path)
         .expect("install rewritten ledger");
+}
+
+fn rewrite_ledger_event_type(data_dir: &Path, event_id: &str, event_type: &str) {
+    let ledger_path = data_dir.join("events.sqlite3");
+    let history = EventStore::open(&ledger_path)
+        .expect("open ledger before event-type rewrite")
+        .replay_verified()
+        .expect("verify ledger before event-type rewrite");
+    let mut rebuilt =
+        EventStore::open(data_dir.join("events.rebuilt.sqlite3")).expect("open rebuilt ledger");
+    for event in &history {
+        rebuilt
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                if event.event_id == event_id {
+                    event_type.to_owned()
+                } else {
+                    event.event_type.clone()
+                },
+                event.actor.clone(),
+                event.timestamp_millis,
+                event.payload.clone(),
+            ))
+            .expect("reappend history with modified event type");
+    }
+    drop(rebuilt);
+    for suffix in ["-wal", "-shm"] {
+        let _ignored = fs::remove_file(format!("{}{suffix}", ledger_path.display()));
+    }
+    fs::remove_file(&ledger_path).expect("remove pre-rewrite ledger");
+    fs::rename(data_dir.join("events.rebuilt.sqlite3"), &ledger_path)
+        .expect("install event-type rewrite");
 }
 
 #[test]
