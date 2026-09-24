@@ -906,6 +906,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 .count(),
             "an untrusted evaluator must fail before candidate scheduling"
         );
+
         fs::write(&deployed_evaluator, fs::read(REFERENCE_EVALUATOR).unwrap()).unwrap();
         fs::set_permissions(&deployed_evaluator, fs::Permissions::from_mode(0o700)).unwrap();
         assert!(cli(&data_dir, &["replay"]).status.success());
@@ -926,6 +927,78 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         ));
     }
     daemon.stop();
+    #[cfg(feature = "test-support")]
+    {
+        let prior_revision_id = "prior-revision-pair";
+        let prior_prefix = format!(
+            "paired-{}",
+            &blake3::hash(prior_revision_id.as_bytes())
+                .to_hex()
+                .to_string()[..24]
+        );
+        let history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        let signer = RunResultSigner::from_seed([17_u8; 32]);
+        let existing_receipts = history
+            .iter()
+            .filter(|event| event.event_id.starts_with("result:paired-"))
+            .map(|event| RunResultReceipt::parse_from_event(event, &signer.verifier()).unwrap())
+            .take(2)
+            .collect::<Vec<_>>();
+        assert_eq!(existing_receipts.len(), 2);
+        let mut first_prior_result = existing_receipts[0].clone();
+        first_prior_result.run_id = format!("{prior_prefix}-parent-0");
+        first_prior_result.source_revision = "a".repeat(40);
+        let mut second_prior_result = existing_receipts[1].clone();
+        second_prior_result.run_id = format!("{prior_prefix}-parent-1");
+        second_prior_result.source_revision = "b".repeat(40);
+        let prior_timestamp = history
+            .last()
+            .expect("paired history has events")
+            .timestamp_millis
+            + 1;
+        let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
+        ledger
+            .append(signer.issue(first_prior_result, prior_timestamp).unwrap())
+            .unwrap();
+        ledger
+            .append(
+                signer
+                    .issue(second_prior_result, prior_timestamp + 1)
+                    .unwrap(),
+            )
+            .unwrap();
+        drop(ledger);
+
+        let revision_daemon = Daemon::start_with_repository(&data_dir, &repository);
+        let conflicting_revision = cli(
+            &data_dir,
+            &[
+                "arena",
+                "evaluate",
+                prior_revision_id,
+                &parent.genome_id,
+                &candidate.genome_id,
+            ],
+        );
+        assert!(!conflicting_revision.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&conflicting_revision.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::Internal,
+            "paired admission must reject prior results with conflicting pinned revisions"
+        );
+        revision_daemon.stop();
+        rebuild_ledger_without(&data_dir, |event| {
+            event.event_id == format!("result:{prior_prefix}-parent-0")
+                || event.event_id == format!("result:{prior_prefix}-parent-1")
+        });
+    }
     // Simulate a daemon crash after the authenticated evaluation receipt was
     // committed but before its final Arena lifecycle event was persisted.
     rebuild_ledger_without(&data_dir, |event| {
@@ -965,6 +1038,23 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
 
     #[cfg(feature = "test-support")]
     {
+        let mismatch_daemon = Daemon::start_with_repository(&data_dir, &repository);
+        assert!(matches!(
+            response(&cli(
+                &data_dir,
+                &[
+                    "arena",
+                    "evaluate",
+                    "trial-mismatch-pair",
+                    &parent.genome_id,
+                    &candidate.genome_id,
+                ],
+            ))
+            .data,
+            Some(ResponseData::Evaluation { .. })
+        ));
+        mismatch_daemon.stop();
+
         #[derive(Clone, serde::Serialize)]
         struct RestartedArenaJob {
             job_id: String,
@@ -1373,6 +1463,70 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             ControlPlane::open_with_repository(&data_dir, &repository).is_err(),
             "a failed Arena terminal must not claim a committed evaluation record"
         );
+
+        let mismatch_pair_id = "trial-mismatch-pair";
+        let daemon_pair_prefix = format!(
+            "paired-{}",
+            &blake3::hash(mismatch_pair_id.as_bytes())
+                .to_hex()
+                .to_string()[..24]
+        );
+        let mismatched_trial_id = format!("result:{daemon_pair_prefix}-parent-0");
+        for suffix in ["", "-wal", "-shm"] {
+            let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+        }
+        let mut ledger = EventStore::open(&events_path).unwrap();
+        let mut altered_trial = false;
+        for event in &recovered_history {
+            if event.event_id == mismatched_trial_id {
+                let mut receipt = RunResultReceipt::parse_from_event(event, &signer.verifier())
+                    .expect("valid fixture trial receipt");
+                receipt.genome_id = candidate.genome_id.clone();
+                ledger
+                    .append(signer.issue(receipt, event.timestamp_millis).unwrap())
+                    .unwrap();
+                altered_trial = true;
+            } else {
+                ledger
+                    .append(EventInput::new(
+                        event.event_id.clone(),
+                        event.aggregate_id.clone(),
+                        event.event_type.clone(),
+                        event.actor.clone(),
+                        event.timestamp_millis,
+                        event.payload.clone(),
+                    ))
+                    .unwrap();
+            }
+        }
+        assert!(altered_trial, "tampered one signed parent-trial claim");
+        drop(ledger);
+        let trial_mismatch = ControlPlane::open_with_repository(&data_dir, &repository)
+            .err()
+            .expect("replay must reject a signed trial bound to the wrong Genome");
+        assert!(
+            trial_mismatch
+                .to_string()
+                .contains("Arena run receipt differs from its admitted source"),
+            "unexpected trial mismatch rejection: {trial_mismatch}"
+        );
+        for suffix in ["", "-wal", "-shm"] {
+            let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+        }
+        let mut ledger = EventStore::open(&events_path).unwrap();
+        for event in &recovered_history {
+            ledger
+                .append(EventInput::new(
+                    event.event_id.clone(),
+                    event.aggregate_id.clone(),
+                    event.event_type.clone(),
+                    event.actor.clone(),
+                    event.timestamp_millis,
+                    event.payload.clone(),
+                ))
+                .unwrap();
+        }
+        drop(ledger);
     }
 
     let binding = EvaluationBinding::new(
@@ -2415,6 +2569,9 @@ fn rebuild_ledger_without(
             .expect("reappend authenticated history without job terminal");
     }
     drop(rebuilt);
+    for suffix in ["-wal", "-shm"] {
+        let _ignored = fs::remove_file(format!("{}{suffix}", ledger_path.display()));
+    }
     fs::remove_file(&ledger_path).expect("remove pre-recovery ledger");
     fs::rename(data_dir.join("events.rebuilt.sqlite3"), &ledger_path)
         .expect("install pre-recovery ledger");
