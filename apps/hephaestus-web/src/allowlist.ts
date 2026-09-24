@@ -21,38 +21,18 @@ export type ReadOnlyCommandTag = (typeof READ_ONLY_COMMANDS)[number];
 const READ_ONLY_SET: ReadonlySet<string> = new Set(READ_ONLY_COMMANDS);
 
 /**
- * Every other command the daemon protocol currently defines: commands that
- * mutate canonical state (`freeze`, `champion_promote`, ...) plus read
- * commands this first console slice does not yet expose (`world_show`).
- * Never used to grant access (the allowlist above does that); kept only so
- * a reviewer can see at a glance that this list and the allowlist
- * partition the daemon's full command set with no overlap and no gaps
- * against `protocol.ts`.
+ * Every other command `apps/hephaestus-tui/src/protocol.ts` currently
+ * defines, all of which mutate canonical daemon state. Never used to grant
+ * access (the allowlist above does that); kept only so a reviewer can see
+ * at a glance that this list and the allowlist partition the TUI client's
+ * full `Command` union with no overlap and no gaps.
  */
 export const NOT_ALLOWED_COMMANDS = [
 	'freeze',
 	'unfreeze',
 	'kill_all',
 	'job_kill',
-	'world_show',
-	'genome_register',
-	'genome_propose',
-	'genome_assess',
-	'world_register',
-	'manifest_put',
-	'artifact_put',
-	'verifier_show',
-	'run_submit',
-	'run_reference',
-	'run_evaluation',
-	'evaluate_pair',
-	'arena_select',
-	'arena_invariants',
-	'champion_seed',
-	'champion_promote',
 	'champion_rollback',
-	'replay',
-	'daemon_stop',
 ] as const;
 
 export type CommandRequestBody = {command: unknown; genome_id?: unknown; job_id?: unknown; world_id?: unknown};
@@ -75,17 +55,18 @@ export function toAllowedCommand(body: unknown): Command | undefined {
 	const record = body as CommandRequestBody;
 	const tag = record.command;
 	if (typeof tag !== 'string' || !READ_ONLY_SET.has(tag)) return undefined;
-	switch (tag as ReadOnlyCommandTag) {
+	const commandTag = tag as ReadOnlyCommandTag;
+	switch (commandTag) {
 		case 'status':
 		case 'world_list':
 		case 'genome_list':
-			return {command: tag};
+			return {command: commandTag};
 		case 'genome_show':
 		case 'genome_prompt':
-			return isId(record.genome_id) ? {command: tag, genome_id: record.genome_id} : undefined;
+			return isId(record.genome_id) ? {command: commandTag, genome_id: record.genome_id} : undefined;
 		case 'champion_show':
-			return isId(record.world_id) ? {command: tag, world_id: record.world_id} : undefined;
+			return isId(record.world_id) ? {command: commandTag, world_id: record.world_id} : undefined;
 		case 'job_status':
-			return isId(record.job_id) ? {command: tag, job_id: record.job_id} : undefined;
+			return isId(record.job_id) ? {command: commandTag, job_id: record.job_id} : undefined;
 	}
 }

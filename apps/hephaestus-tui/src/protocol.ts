@@ -6,6 +6,7 @@ export type Command =
 	| {command: 'job_status'; job_id: string}
 	| {command: 'job_kill'; job_id: string}
 	| {command: 'genome_list'}
+	| {command: 'genome_show'; genome_id: string}
 	| {command: 'world_list'}
 	| {command: 'genome_prompt'; genome_id: string}
 	| {command: 'champion_show'; world_id: string}
@@ -42,6 +43,7 @@ export type ResponseData =
 	| {type: 'acknowledged'; frozen: boolean; killed_runs: number}
 	| {type: 'job'; job: Job; progress: {trace_events: number; last_event_sequence: number | null; last_phase: string | null}}
 	| {type: 'arena_job'; job: ArenaJobProgress}
+	| {type: 'genome'; genome: Genome}
 	| {type: 'genomes'; genomes: Genome[]}
 	| {type: 'worlds'; worlds: World[]}
 	| {type: 'genome_prompt'; genome_id: string; prompt: string}
@@ -206,6 +208,11 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 					visible_total: evaluation['visible_total'] as number,
 				}} : {}),
 			}}};
+		}
+		case 'genome': {
+			const genome = parseGenome(data['genome']);
+			if (!genome) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genome', genome}};
 		}
 		case 'genomes': {
 			if (!Array.isArray(data['genomes']) || data['genomes'].length > MAX_LIST_ITEMS) break;

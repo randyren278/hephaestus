@@ -6,12 +6,13 @@ import {createWebServer} from './server.js';
 import {generateSessionToken} from './security.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// `src/main.ts` ships its static console from `src/web/`; the bundled
-// `dist/main.mjs` produced by `npm run build` ships it from `public/`
-// next to itself. Prefer whichever exists next to this file.
+// `src/main.ts` ships its static console from the sibling `web/` directory;
+// `npm run build` bundles `dist/main.mjs` next to a copy of `web/`, so this
+// resolves correctly whether run in dev (`npm start`) or packaged.
 const staticRoot = join(here, 'web');
 
-const client = new ControlClient({dataDir: process.env['HEPHAESTUS_HOME']});
+const homeOverride = process.env['HEPHAESTUS_HOME'];
+const client = new ControlClient(homeOverride === undefined ? {} : {dataDir: homeOverride});
 const sessionToken = generateSessionToken();
 
 const requestedPort = process.env['HEPHAESTUS_WEB_PORT'] ? Number(process.env['HEPHAESTUS_WEB_PORT']) : undefined;

@@ -37,16 +37,20 @@ function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const chunks: Buffer[] = [];
 		let received = 0;
+		let tooLarge = false;
 		req.on('data', (chunk: Buffer) => {
 			received += chunk.length;
 			if (received > maxBytes) {
-				reject(new Error('request body exceeds limit'));
-				req.destroy();
+				// Keep draining the socket instead of destroying it mid-request:
+				// the client is still writing, and cutting the connection here
+				// would surface as a bare connection reset rather than the 413
+				// this request earned.
+				tooLarge = true;
 				return;
 			}
 			chunks.push(chunk);
 		});
-		req.on('end', () => resolve(Buffer.concat(chunks)));
+		req.on('end', () => (tooLarge ? reject(new Error('request body exceeds limit')) : resolve(Buffer.concat(chunks))));
 		req.on('error', reject);
 	});
 }
