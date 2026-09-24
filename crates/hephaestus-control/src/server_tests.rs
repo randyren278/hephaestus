@@ -786,6 +786,13 @@ fn canonical_writer_cancels_active_job_on_cross_run_evidence() {
     plane
         .submit_job("evidence-cancel", &genome.genome_id)
         .expect("admit bounded reference job");
+    let cancel = Arc::clone(
+        &plane
+            .active_job
+            .as_ref()
+            .expect("active reference job")
+            .cancel,
+    );
 
     let (sender, receiver) = mpsc::sync_channel(1);
     let (reply, result) = mpsc::channel();
@@ -807,12 +814,7 @@ fn canonical_writer_cancels_active_job_on_cross_run_evidence() {
             .is_err()
     );
     assert!(
-        plane
-            .active_job
-            .as_ref()
-            .expect("admitted job remains active while cancellation propagates")
-            .cancel
-            .load(Ordering::Acquire),
+        cancel.load(Ordering::Acquire),
         "cross-run evidence cancels the active worker"
     );
 
@@ -1672,6 +1674,132 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
             .expect("replay recovered Arena write failures"),
         ResponseData::Replay { .. }
     ));
+
+    let recovery_id = "scored-terminal-write-failure";
+    assert!(matches!(
+        plane
+            .submit_arena_job(recovery_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit scored terminal write fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while plane
+        .active_arena_job
+        .as_ref()
+        .is_some_and(|active| active.record.phase != ArenaJobPhase::Scoring)
+    {
+        plane
+            .service_async_messages()
+            .expect("persist signed trials before scoring");
+        assert!(
+            Instant::now() < deadline,
+            "Arena trials did not reach scoring"
+        );
+        if plane
+            .active_arena_job
+            .as_ref()
+            .is_some_and(|active| active.record.phase != ArenaJobPhase::Scoring)
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let scored = loop {
+        match plane
+            .arena_message_receiver
+            .as_ref()
+            .expect("Arena scorer channel")
+            .try_recv()
+        {
+            Ok(ArenaWorkerMessage::Scoring { job_id, result }) => break (job_id, result),
+            Ok(_) => panic!("unexpected message after scoring began"),
+            Err(mpsc::TryRecvError::Disconnected) => panic!("Arena scorer disconnected"),
+            Err(mpsc::TryRecvError::Empty) => {
+                assert!(Instant::now() < deadline, "Arena scoring did not finish");
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    };
+    assert_eq!(scored.0, recovery_id);
+    assert!(
+        scored.1.is_ok(),
+        "fixture evaluator must produce valid scores"
+    );
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_fixture_scored_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:scored-terminal-write-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture scored terminal write failure'); END;",
+        )
+        .expect("reject successful terminal append");
+    assert!(
+        plane.finish_arena_scoring(&scored.0, scored.1).is_err(),
+        "committed evaluation must not imply an acknowledged terminal"
+    );
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after terminal rejection");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == format!("arena:evaluation:{recovery_id}:recorded"))
+            .count(),
+        1,
+        "the evaluation receipt is durable before terminal acknowledgement"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == format!("arena-job:{recovery_id}:terminal"))
+            .count(),
+        0,
+        "the failed terminal append leaves no terminal event"
+    );
+    let recorded = load_recorded_evaluation(
+        plane
+            .open_arena_stores()
+            .expect("open committed evaluation stores"),
+        recovery_id,
+    )
+    .expect("verify committed evaluation receipt");
+    let expected_evaluation = evaluation_record_from_recorded(&recorded);
+    database
+        .execute_batch("DROP TRIGGER reject_fixture_scored_terminal;")
+        .expect("restore successful terminal writes");
+    drop(plane);
+
+    for restart in 0..2 {
+        let recovered = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &data_dir,
+            &repository,
+            &evaluator,
+            &worker,
+        )
+        .expect("reopen and reconcile committed Arena evaluation");
+        let terminal = &recovered.state.arena_jobs[recovery_id];
+        assert_eq!(terminal.state, JobState::Succeeded);
+        assert_eq!(terminal.terminal, Some(JobTerminal::Succeeded));
+        assert_eq!(terminal.completed_trials, terminal.total_trials);
+        assert_eq!(terminal.evaluation.as_ref(), Some(&expected_evaluation));
+        let history = recovered
+            .storage
+            .as_ref()
+            .expect("recovered canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify recovered history");
+        assert_eq!(
+            history
+                .iter()
+                .filter(|event| event.event_id == format!("arena-job:{recovery_id}:terminal"))
+                .count(),
+            1,
+            "restart {restart} must leave exactly one terminal event"
+        );
+    }
 }
 
 fn register_dispatch_arena_objects(
