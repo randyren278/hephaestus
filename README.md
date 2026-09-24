@@ -111,9 +111,15 @@ and that decision is itself a ledgered event.
   daemon refuses to launch candidate processes rather than running them
   unsandboxed. Registration, replay, and inspection work everywhere.
 - **The Ink TUI is a local operator console.** macOS packages bundle its
-  JavaScript and pinned Node runtime; source checkouts use Node/npm. The TUI
-  provides local status and controls, while full Arena and lineage views remain
-  roadmap work. See [the setup guide](apps/hephaestus-tui/README.md) and
+  JavaScript and pinned Node runtime; source checkouts use Node/npm. Besides
+  local status, freeze/kill controls, and Arena progress by known evaluation
+  ID, it now has a Lineage and Champions screen: a World list, a Genome
+  ancestry tree marking Champion/standby/quarantined rows, a Genome detail
+  panel with a prompt diff against the parent, and an operator-confirmed
+  Champion rollback. It still has no runs, evidence receipt, cost, or denial
+  screens, and no packaged-install authoring flow (author/validate/register a
+  Markdown agent from the TUI); those remain roadmap item 9 work. See
+  [the setup guide](apps/hephaestus-tui/README.md) and
   [macOS package instructions](docs/MACOS_INSTALL.md). There is no web console,
   Gene Bank, drift detection, or autonomous loop yet.
 
