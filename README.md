@@ -239,6 +239,9 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
 | `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
 | `hephaestus replay` | Verify history and compare it with live state |
+| `hephaestus runs --limit <n>` | Recent direct runs and jobs, newest first, bounded (default 20, max 200) |
+| `hephaestus evaluations --limit <n>` | Recent Arena evaluations with selection, invariant, and Forge evidence references, newest first |
+| `hephaestus denials --limit <n>` | Recent refused operator requests and recorded runtime denials, newest first |
 | `hephaestus daemon stop` | Audited graceful stop |
 
 Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).

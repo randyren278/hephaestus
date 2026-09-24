@@ -9453,6 +9453,25 @@ fn evidence_evaluation_list_references_forge_assessment_and_orders_newest_first(
         "the source evaluation is oldest and must sort last"
     );
     assert!(evaluations[1].forge_assessment.is_none());
+
+    let Some(ResponseData::EvaluationList {
+        evaluations: bounded,
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "evaluation-list-forge-bounded",
+        Command::EvaluationList { limit: 1 },
+    )
+    .data
+    else {
+        panic!("bounded evaluation list should succeed");
+    };
+    assert_eq!(
+        bounded.len(),
+        1,
+        "the limit must bound the returned entries"
+    );
+    assert_eq!(bounded[0].evaluation.evaluation_id, assessed.evaluation);
 }
 
 #[test]
