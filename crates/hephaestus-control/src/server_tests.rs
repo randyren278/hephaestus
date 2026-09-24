@@ -3759,10 +3759,126 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     )
     .expect("verify committed evaluation receipt");
     let expected_evaluation = evaluation_record_from_recorded(&recorded);
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify committed evaluation event");
+    let recorded_event = history
+        .iter()
+        .find(|event| event.event_id == format!("arena:evaluation:{recovery_id}:recorded"))
+        .expect("canonical evaluation event");
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&recorded_event.payload).expect("parse private receipt fixture");
+    let artifact_store =
+        ArtifactStore::open(data_dir.join("blobs")).expect("open committed evaluation CAS");
+    let candidate_submission_id = ArtifactId::parse(
+        receipt["candidate_submission_artifact_id"]
+            .as_str()
+            .expect("candidate submission CAS identity")
+            .to_owned(),
+    )
+    .expect("parse candidate submission CAS identity");
+    let candidate_submission_path = artifact_store.path_for(&candidate_submission_id);
+    let candidate_submission_bytes =
+        fs::read(&candidate_submission_path).expect("read candidate submission CAS blob");
+    assert_eq!(
+        ArtifactId::for_bytes(&candidate_submission_bytes),
+        candidate_submission_id,
+        "the removed blob is the exact receipt-bound candidate submission"
+    );
+    for field in [
+        "visible_manifest_artifact_id",
+        "sealed_manifest_artifact_id",
+        "parent_submission_artifact_id",
+    ] {
+        let id = ArtifactId::parse(
+            receipt[field]
+                .as_str()
+                .expect("receipt-bound preserved artifact identity")
+                .to_owned(),
+        )
+        .expect("parse preserved artifact identity");
+        artifact_store
+            .get(&id)
+            .expect("other receipt-bound evaluation evidence remains present");
+    }
+    let world_artifact_id = ArtifactId::parse(world.artifact_id.clone())
+        .expect("parse registered World artifact identity");
+    artifact_store
+        .get(&world_artifact_id)
+        .expect("registered World artifact remains present");
+    ControlState::verify_artifacts(&history, &artifact_store, &plane.run_result_verifier)
+        .expect("signed trial outputs and traces remain intact");
+    let prior_event_hashes = history.iter().map(|event| event.hash).collect::<Vec<_>>();
+    let run_result_verifier = plane.run_result_verifier.clone();
     database
         .execute_batch("DROP TRIGGER reject_fixture_scored_terminal;")
         .expect("restore successful terminal writes");
+    drop(database);
     drop(plane);
+
+    fs::remove_file(&candidate_submission_path).expect("remove only candidate submission blob");
+    assert!(!candidate_submission_path.exists());
+    for field in [
+        "visible_manifest_artifact_id",
+        "sealed_manifest_artifact_id",
+        "parent_submission_artifact_id",
+    ] {
+        let id = ArtifactId::parse(
+            receipt[field]
+                .as_str()
+                .expect("preserved artifact identity")
+                .to_owned(),
+        )
+        .expect("parse preserved artifact identity");
+        artifact_store
+            .get(&id)
+            .expect("preserved evaluation artifact must survive candidate removal");
+    }
+    assert!(artifact_store.get(&world_artifact_id).is_ok());
+    ControlState::verify_artifacts(&history, &artifact_store, &run_result_verifier)
+        .expect("signed trial outputs and traces survive candidate removal");
+    let failed_recovery = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    );
+    assert!(matches!(
+        failed_recovery,
+        Err(ControlError::Projection(message))
+            if message == "Arena recovery receipt failed verification"
+    ));
+    let history_after_failed_recovery = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open history after missing-blob rejection")
+        .replay_verified()
+        .expect("verify unchanged history");
+    assert_eq!(
+        history_after_failed_recovery
+            .iter()
+            .map(|event| event.hash)
+            .collect::<Vec<_>>(),
+        prior_event_hashes,
+        "failed recovery must not append or rewrite canonical events"
+    );
+    assert!(
+        !history_after_failed_recovery
+            .iter()
+            .any(|event| { event.event_id == format!("arena-job:{recovery_id}:terminal") })
+    );
+
+    fs::write(&candidate_submission_path, &candidate_submission_bytes)
+        .expect("restore exact candidate submission CAS blob");
+    assert_eq!(
+        artifact_store
+            .get(&candidate_submission_id)
+            .expect("verify restored candidate submission")
+            .as_slice(),
+        candidate_submission_bytes.as_slice()
+    );
 
     for restart in 0..2 {
         let recovered = ControlPlane::open_with_repository_evaluator_and_reference_worker(
