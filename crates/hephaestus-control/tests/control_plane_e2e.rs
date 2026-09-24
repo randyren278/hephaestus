@@ -965,7 +965,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
 
     #[cfg(feature = "test-support")]
     {
-        #[derive(serde::Serialize)]
+        #[derive(Clone, serde::Serialize)]
         struct RestartedArenaJob {
             job_id: String,
             evaluation_id: String,
@@ -1100,6 +1100,150 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         assert_eq!(recovered["state"], "interrupted");
         assert_eq!(recovered["terminal"], "interrupted");
         drop(ControlPlane::open_with_repository(&data_dir, &repository).unwrap());
+
+        let incomplete_id = "incomplete-recovery";
+        let incomplete_prefix = format!(
+            "paired-{}",
+            &blake3::hash(incomplete_id.as_bytes()).to_hex().to_string()[..24]
+        );
+        let incomplete_run_ids = vec![
+            format!("{incomplete_prefix}-parent-0"),
+            format!("{incomplete_prefix}-parent-1"),
+            format!("{incomplete_prefix}-candidate-0"),
+            format!("{incomplete_prefix}-candidate-1"),
+        ];
+        let incomplete_commitment = blake3::hash(
+            &serde_json::to_vec(&(
+                incomplete_id,
+                &parent.genome_id,
+                &candidate.genome_id,
+                world.id(),
+                visible_id.as_str(),
+                sealed_id.as_str(),
+                &interrupted.source_revision,
+                &interrupted.environment_id,
+                &incomplete_run_ids,
+            ))
+            .unwrap(),
+        )
+        .to_hex()
+        .to_string();
+        let incomplete = RestartedArenaJob {
+            job_id: incomplete_id.to_owned(),
+            evaluation_id: incomplete_id.to_owned(),
+            ordered_trial_run_ids: incomplete_run_ids,
+            plan_commitment: incomplete_commitment,
+            ..interrupted.clone()
+        };
+        let receipt_timestamp = recovered_history
+            .last()
+            .expect("recovered history has events")
+            .timestamp_millis
+            + 1;
+        let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
+        ledger
+            .append(EventInput::new(
+                format!("arena-job:{incomplete_id}:admitted"),
+                format!("arena-job:{incomplete_id}"),
+                "arena.job.admitted",
+                "daemon-runtime",
+                receipt_timestamp,
+                serde_json::to_vec(&incomplete).unwrap(),
+            ))
+            .unwrap();
+        ledger
+            .append(EventInput::new(
+                format!("arena:evaluation:{incomplete_id}:recorded"),
+                format!("arena-evaluation:{incomplete_id}"),
+                "evaluation.recorded",
+                "daemon-runtime",
+                receipt_timestamp + 1,
+                serde_json::to_vec(&serde_json::json!({"evaluation_id": incomplete_id})).unwrap(),
+            ))
+            .unwrap();
+        drop(ledger);
+        assert!(matches!(
+            ControlPlane::open_with_repository(&data_dir, &repository),
+            Err(ControlError::Projection(message))
+                if message.contains("Arena receipt is missing complete signed trial evidence")
+        ));
+
+        let cancelled_id = "cancelled-recovery";
+        let cancelled_prefix = format!(
+            "paired-{}",
+            &blake3::hash(cancelled_id.as_bytes()).to_hex().to_string()[..24]
+        );
+        let cancelled_run_ids = vec![
+            format!("{cancelled_prefix}-parent-0"),
+            format!("{cancelled_prefix}-parent-1"),
+            format!("{cancelled_prefix}-candidate-0"),
+            format!("{cancelled_prefix}-candidate-1"),
+        ];
+        let cancelled_commitment = blake3::hash(
+            &serde_json::to_vec(&(
+                cancelled_id,
+                &parent.genome_id,
+                &candidate.genome_id,
+                world.id(),
+                visible_id.as_str(),
+                sealed_id.as_str(),
+                &interrupted.source_revision,
+                &interrupted.environment_id,
+                &cancelled_run_ids,
+            ))
+            .unwrap(),
+        )
+        .to_hex()
+        .to_string();
+        let cancelled = RestartedArenaJob {
+            job_id: cancelled_id.to_owned(),
+            evaluation_id: cancelled_id.to_owned(),
+            ordered_trial_run_ids: cancelled_run_ids,
+            plan_commitment: cancelled_commitment,
+            state: JobState::CancellationRequested,
+            ..incomplete
+        };
+        let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
+        ledger
+            .append(EventInput::new(
+                format!("arena-job:{cancelled_id}:admitted"),
+                format!("arena-job:{cancelled_id}"),
+                "arena.job.admitted",
+                "daemon-runtime",
+                receipt_timestamp + 2,
+                serde_json::to_vec(&RestartedArenaJob {
+                    state: JobState::Admitted,
+                    ..cancelled.clone()
+                })
+                .unwrap(),
+            ))
+            .unwrap();
+        ledger
+            .append(EventInput::new(
+                format!("arena-job:{cancelled_id}:cancellation_requested"),
+                format!("arena-job:{cancelled_id}"),
+                "arena.job.cancellation_requested",
+                "daemon-runtime",
+                receipt_timestamp + 3,
+                serde_json::to_vec(&cancelled).unwrap(),
+            ))
+            .unwrap();
+        ledger
+            .append(EventInput::new(
+                format!("arena:evaluation:{cancelled_id}:recorded"),
+                format!("arena-evaluation:{cancelled_id}"),
+                "evaluation.recorded",
+                "daemon-runtime",
+                receipt_timestamp + 4,
+                serde_json::to_vec(&serde_json::json!({"evaluation_id": cancelled_id})).unwrap(),
+            ))
+            .unwrap();
+        drop(ledger);
+        assert!(matches!(
+            ControlPlane::open_with_repository(&data_dir, &repository),
+            Err(ControlError::Projection(message))
+                if message.contains("cancelled Arena job has a committed evaluation receipt")
+        ));
 
         let events_path = data_dir.join("events.sqlite3");
         let assert_tamper_rejected = |field: &str, from: &str, to: &str| {
@@ -1494,6 +1638,46 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
         cancelled.data,
         Some(ResponseData::ArenaJob { job }) if job.state == JobState::Running
     ));
+    let same_pair_retry = Client::new(&data_dir)
+        .request(Command::EvaluatePair {
+            evaluation_id: "cancelled-pair".to_owned(),
+            parent_genome_id: parent.genome_id.clone(),
+            candidate_genome_id: candidate.genome_id.clone(),
+        })
+        .unwrap();
+    assert!(matches!(
+        same_pair_retry.data,
+        Some(ResponseData::ArenaJob { job }) if job.state == JobState::Running
+    ));
+    let conflicting_pair = Client::new(&data_dir)
+        .request(Command::EvaluatePair {
+            evaluation_id: "cancelled-pair".to_owned(),
+            parent_genome_id: candidate.genome_id.clone(),
+            candidate_genome_id: parent.genome_id.clone(),
+        })
+        .unwrap();
+    assert!(conflicting_pair.error.is_some());
+    let second_pair = Client::new(&data_dir)
+        .request(Command::EvaluatePair {
+            evaluation_id: "second-pair".to_owned(),
+            parent_genome_id: parent.genome_id.clone(),
+            candidate_genome_id: candidate.genome_id.clone(),
+        })
+        .unwrap();
+    assert_eq!(
+        second_pair.error.map(|error| error.code),
+        Some(ApiErrorCode::Busy)
+    );
+    let direct_while_paired = Client::new(&data_dir)
+        .request(Command::RunSubmit {
+            job_id: "busy-direct".to_owned(),
+            genome_id: parent.genome_id.clone(),
+        })
+        .unwrap();
+    assert_eq!(
+        direct_while_paired.error.map(|error| error.code),
+        Some(ApiErrorCode::Busy)
+    );
     let cancellation = Client::new(&data_dir)
         .request(Command::JobKill {
             job_id: "cancelled-pair".to_owned(),
@@ -1998,12 +2182,27 @@ fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
             panic!("expected kill acknowledgement");
         };
         assert_eq!(killed_runs, 0, "a signal is not terminal confirmation");
+        let named_kill = response(&cli(&data_dir, &["job", "kill", "slow-job"]));
+        assert!(matches!(
+            named_kill.data,
+            Some(ResponseData::Job { job, .. })
+                if job.state == JobState::CancellationRequested && job.terminal.is_none()
+        ));
+        let repeated_named_kill = response(&cli(&data_dir, &["job", "kill", "slow-job"]));
+        assert!(matches!(
+            repeated_named_kill.data,
+            Some(ResponseData::Job { job, .. })
+                if job.state == JobState::CancellationRequested && job.terminal.is_none()
+        ));
         let requested = match response(&cli(&data_dir, &["job", "status", "slow-job"])).data {
             Some(ResponseData::Job { job, .. }) => job,
             other => panic!("expected cancellation state, got {other:?}"),
         };
-        assert_eq!(requested.state, JobState::CancellationRequested);
-        assert_eq!(requested.terminal, None);
+        assert!(matches!(
+            (requested.state, requested.terminal),
+            (JobState::CancellationRequested, None)
+                | (JobState::Interrupted, Some(JobTerminal::Cancelled))
+        ));
     }
     let terminal_deadline = Instant::now() + Duration::from_secs(2);
     loop {
