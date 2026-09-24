@@ -9,9 +9,10 @@ use std::{
 };
 
 use hephaestus_arena::{
-    ArenaError, EvaluationBinding, EvaluationInputs, EvaluationStores, IsolatedEvaluator,
-    OperatorEvaluation, ReceiptContext, SelectionReceipt, TrialPlan, TrustedManifest, TrustedTask,
-    Visibility, evaluate_and_record, load_operator_evaluation, load_selection, select_and_record,
+    ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
+    IsolatedEvaluator, OperatorEvaluation, ReceiptContext, SelectionReceipt, TrialPlan,
+    TrustedManifest, TrustedTask, Visibility, evaluate_and_record, evaluate_and_record_scored,
+    load_operator_evaluation, load_selection, prepare_evaluation, select_and_record,
     verify_selection_event,
 };
 use hephaestus_core::authority::CapabilitySet;
@@ -792,6 +793,102 @@ fn terminal_failure_is_paired_as_unreliable_incorrect_with_cost_and_latency() {
     assert_eq!(evidence.correctness_outcomes().regressions(), 2);
     assert_eq!(evidence.correctness_outcomes().unchanged(), 1);
     assert_eq!(evidence.correctness_outcomes().improvements(), 1);
+}
+
+#[test]
+fn prepared_evaluator_scores_commit_only_for_the_same_canonical_pair() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let prepared = prepare_evaluation(
+        &fixture.stores,
+        &context(),
+        &fixture.world,
+        EvaluationSources {
+            binding: &fixture.binding,
+            visible: &fixture.visible,
+            sealed: &fixture.sealed,
+            parent: &fixture.parent,
+            candidate: &fixture.candidate,
+        },
+    )
+    .unwrap();
+    let scored = prepared.score(&fixture.evaluator).unwrap();
+    let operator = evaluate_and_record_scored(
+        fixture.stores,
+        context(),
+        &fixture.world,
+        EvaluationInputs {
+            binding: &fixture.binding,
+            visible: &fixture.visible,
+            sealed: &fixture.sealed,
+            parent: &fixture.parent,
+            candidate: &fixture.candidate,
+            evaluator: &fixture.evaluator,
+        },
+        scored,
+    )
+    .unwrap();
+    assert_eq!(
+        operator
+            .candidate_result()
+            .summary
+            .candidate_visible_correct,
+        2
+    );
+    assert_eq!(
+        operator.candidate_result().summary.parent_visible_correct,
+        1
+    );
+    drop(operator.into_stores());
+
+    let second_directory = TempDir::new().unwrap();
+    let mut fixture = make_fixture(&second_directory);
+    let prepared = prepare_evaluation(
+        &fixture.stores,
+        &context(),
+        &fixture.world,
+        EvaluationSources {
+            binding: &fixture.binding,
+            visible: &fixture.visible,
+            sealed: &fixture.sealed,
+            parent: &fixture.parent,
+            candidate: &fixture.candidate,
+        },
+    )
+    .unwrap();
+    let scored = prepared.score(&fixture.evaluator).unwrap();
+    let alternate = append_run(
+        &mut fixture.stores,
+        &fixture.signer,
+        &fixture.repository,
+        "candidate-alternate-visible-a",
+        &fixture.candidate_genome_id,
+        fixture.world.id(),
+        &fixture.revision,
+        "task-visible-a",
+        task_input("task-visible-a"),
+        RunCompletionReason::Success,
+        VISIBLE_SECRET.as_bytes(),
+    );
+    fixture.candidate = plan("candidate", Some(("task-visible-a", &alternate)));
+    let result = evaluate_and_record_scored(
+        fixture.stores,
+        context(),
+        &fixture.world,
+        EvaluationInputs {
+            binding: &fixture.binding,
+            visible: &fixture.visible,
+            sealed: &fixture.sealed,
+            parent: &fixture.parent,
+            candidate: &fixture.candidate,
+            evaluator: &fixture.evaluator,
+        },
+        scored,
+    );
+    assert!(matches!(
+        result,
+        Err(ArenaError::BindingMismatch("prepared evaluation sources"))
+    ));
 }
 
 #[test]

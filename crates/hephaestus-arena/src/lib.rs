@@ -921,6 +921,60 @@ pub struct EvaluationInputs<'a> {
     pub evaluator: &'a IsolatedEvaluator,
 }
 
+/// Canonical, evaluator-only inputs for preparing paired evaluation scoring.
+#[derive(Clone, Copy)]
+pub struct EvaluationSources<'a> {
+    /// World, seed, environment, and evaluator provenance.
+    pub binding: &'a EvaluationBinding,
+    /// Candidate-visible task manifest.
+    pub visible: &'a TrustedManifest,
+    /// Evaluator-only sealed task manifest.
+    pub sealed: &'a TrustedManifest,
+    /// Baseline task-to-runtime-event plan.
+    pub parent: &'a TrialPlan,
+    /// Proposed replacement task-to-runtime-event plan.
+    pub candidate: &'a TrialPlan,
+}
+
+/// Prepared trusted evaluator request. It is an in-memory capability with no
+/// public constructor or deserialization path; its sealed inputs must never be
+/// included in job status or progress responses.
+pub struct PreparedEvaluation {
+    request: EvaluatorRequest,
+    source_commitment: String,
+}
+
+/// Verified evaluator scores bound to the exact prepared request bytes.
+pub struct ScoredEvaluation {
+    evaluation_id: String,
+    request_artifact_id: String,
+    source_commitment: String,
+    scores: OperatorScores,
+}
+
+impl PreparedEvaluation {
+    /// Scores this sealed evaluator request with its registered isolated evaluator.
+    ///
+    /// # Errors
+    ///
+    /// Rejects evaluator execution, protocol, binding, or score validation errors.
+    pub fn score(self, evaluator: &IsolatedEvaluator) -> Result<ScoredEvaluation, ArenaError> {
+        let request_bytes = serde_json::to_vec(&self.request)?;
+        let request_artifact_id = ArtifactId::for_bytes(&request_bytes).as_str().to_owned();
+        let evaluation_id = self.request.evaluation_id.clone();
+        let scores = evaluator
+            .evaluate(&evaluation_id, &self.request)?
+            .scores
+            .into();
+        Ok(ScoredEvaluation {
+            evaluation_id,
+            request_artifact_id,
+            source_commitment: self.source_commitment,
+            scores,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SubmissionEvidence {
@@ -993,10 +1047,87 @@ impl PreparedArtifacts {
 /// Fails closed on provenance, manifest, task-set, serialization, or storage errors.
 #[allow(clippy::too_many_lines)]
 pub fn evaluate_and_record(
+    owned_stores: EvaluationStores,
+    context: ReceiptContext,
+    world: &CompiledWorld,
+    inputs: EvaluationInputs<'_>,
+) -> Result<OperatorEvaluation, ArenaError> {
+    evaluate_and_record_inner(owned_stores, context, world, inputs, None)
+}
+
+/// Validates canonical paired-run evidence and prepares an opaque evaluator request.
+///
+/// The returned value may be moved to a bounded background task. It contains
+/// evaluator-only task material and must never be serialized into public job state.
+///
+/// # Errors
+///
+/// Fails closed on provenance, manifest, task-set, artifact, or storage errors.
+pub fn prepare_evaluation(
+    stores: &EvaluationStores,
+    context: &ReceiptContext,
+    world: &CompiledWorld,
+    sources: EvaluationSources<'_>,
+) -> Result<PreparedEvaluation, ArenaError> {
+    context.validate()?;
+    let EvaluationSources {
+        binding,
+        visible,
+        sealed,
+        parent,
+        candidate,
+    } = sources;
+    let task_inputs = validate_evaluation_inputs(world, binding, visible, sealed)?;
+    validate_world_evaluator_artifacts(world, &stores.artifacts, binding, visible, sealed)?;
+    let verifier = run_result_verifier(world, &stores.artifacts)?;
+    let history = stores.events.replay_verified()?;
+    let ResolvedPair { parent, candidate } = resolve_pair(
+        parent,
+        candidate,
+        &task_inputs,
+        binding,
+        &history,
+        &stores.artifacts,
+        &verifier,
+    )?;
+    let artifacts = prepare_artifacts(visible, sealed, &parent, &candidate)?;
+    let source_commitment = source_commitment(context, world, binding, &artifacts)?;
+    Ok(PreparedEvaluation {
+        request: make_evaluator_request(
+            &context.evaluation_id,
+            binding,
+            visible,
+            sealed,
+            &parent,
+            &candidate,
+        ),
+        source_commitment,
+    })
+}
+
+/// Commits scores returned by [`PreparedEvaluation::score`] after revalidating
+/// the request against current canonical evidence.
+///
+/// # Errors
+///
+/// Rejects stale or cross-bound evaluator output and all normal receipt failures.
+pub fn evaluate_and_record_scored(
+    owned_stores: EvaluationStores,
+    context: ReceiptContext,
+    world: &CompiledWorld,
+    inputs: EvaluationInputs<'_>,
+    scored: ScoredEvaluation,
+) -> Result<OperatorEvaluation, ArenaError> {
+    evaluate_and_record_inner(owned_stores, context, world, inputs, Some(scored))
+}
+
+#[allow(clippy::too_many_lines)]
+fn evaluate_and_record_inner(
     mut owned_stores: EvaluationStores,
     context: ReceiptContext,
     world: &CompiledWorld,
     inputs: EvaluationInputs<'_>,
+    scored: Option<ScoredEvaluation>,
 ) -> Result<OperatorEvaluation, ArenaError> {
     let EvaluationInputs {
         binding,
@@ -1023,15 +1154,32 @@ pub fn evaluate_and_record(
 
     let prepared = prepare_artifacts(visible, sealed, &parent, &candidate)?;
 
-    let aggregate = score_isolated(
-        evaluator,
+    let request = make_evaluator_request(
         &context.evaluation_id,
         binding,
         visible,
         sealed,
         &parent,
         &candidate,
-    )?;
+    );
+    let aggregate = if let Some(scored) = scored {
+        let request_bytes = serde_json::to_vec(&request)?;
+        if scored.evaluation_id != context.evaluation_id
+            || scored.request_artifact_id != ArtifactId::for_bytes(&request_bytes).as_str()
+        {
+            return Err(ArenaError::BindingMismatch("prepared evaluator request"));
+        }
+        let current_source_commitment = source_commitment(&context, world, binding, &prepared)?;
+        if scored.source_commitment != current_source_commitment {
+            return Err(ArenaError::BindingMismatch("prepared evaluation sources"));
+        }
+        scored.scores
+    } else {
+        evaluator
+            .evaluate(&context.evaluation_id, &request)?
+            .scores
+            .into()
+    };
     let summary = EvaluationSummary {
         schema_version: 1,
         evaluation_id: context.evaluation_id.clone(),
@@ -1205,6 +1353,32 @@ fn prepare_artifacts(
         candidate_submission,
     };
     Ok(prepared)
+}
+
+fn source_commitment(
+    context: &ReceiptContext,
+    world: &CompiledWorld,
+    binding: &EvaluationBinding,
+    artifacts: &PreparedArtifacts,
+) -> Result<String, ArenaError> {
+    // Submission artifact IDs commit the signed event IDs/hashes, Genome
+    // identities, source revisions, outputs, reliability, and fitness metrics.
+    // World and binding fields prevent score reuse across otherwise identical
+    // evaluator requests with different execution provenance.
+    let canonical = serde_json::to_vec(&(
+        1_u16,
+        &context.event_id,
+        &context.evaluation_id,
+        &context.caller_id,
+        context.timestamp_millis,
+        world.id(),
+        binding,
+        artifacts.visible_manifest_id.as_str(),
+        artifacts.sealed_manifest_id.as_str(),
+        artifacts.parent_submission_id.as_str(),
+        artifacts.candidate_submission_id.as_str(),
+    ))?;
+    Ok(ArtifactId::for_bytes(&canonical).as_str().to_owned())
 }
 
 fn validate_world_evaluator_artifacts(
@@ -1689,15 +1863,14 @@ fn verify_world_artifact(
     Ok(())
 }
 
-fn score_isolated(
-    evaluator: &IsolatedEvaluator,
+fn make_evaluator_request(
     evaluation_id: &str,
     binding: &EvaluationBinding,
     visible: &TrustedManifest,
     sealed: &TrustedManifest,
     parent: &ResolvedSubmission,
     candidate: &ResolvedSubmission,
-) -> Result<OperatorScores, ArenaError> {
+) -> EvaluatorRequest {
     let make_trials = |manifest: &TrustedManifest| {
         manifest
             .tasks
@@ -1712,14 +1885,13 @@ fn score_isolated(
             })
             .collect()
     };
-    let request = EvaluatorRequest {
+    EvaluatorRequest {
         schema_version: 1,
         evaluation_id: evaluation_id.to_owned(),
         evaluator_id: binding.evaluator_id.clone(),
         visible: make_trials(visible),
         sealed: make_trials(sealed),
-    };
-    Ok(evaluator.evaluate(evaluation_id, &request)?.scores.into())
+    }
 }
 
 fn validate_world_id(value: &str) -> Result<(), ArenaError> {
