@@ -1310,8 +1310,8 @@
       "id": "control-world-bound-evaluator-bypassed",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon verifies the exact World-bound evaluator executable before candidate scheduling.",
-      "find": "        let evaluator = self.open_evaluator(evaluator_id, evaluator_limits)?;",
-      "replace": "        let evaluator = IsolatedEvaluator::in_process_for_testing(evaluator_id)\n            .map_err(|_| ExecuteError::Internal)?;"
+      "find": "        let evaluator = Arc::new(self.open_evaluator(&evaluator_id, evaluator_limits)?);",
+      "replace": "        let evaluator = Arc::new(\n            IsolatedEvaluator::in_process_for_testing(evaluator_id.clone())\n                .map_err(|_| ExecuteError::Internal)?,\n        );"
     },
     {
       "id": "control-sealed-tasks-not-scheduled",
@@ -1331,15 +1331,15 @@
       "id": "control-paired-seed-diverges",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Every candidate trial uses the same daemon-owned seed committed by the paired evaluation binding.",
-      "find": "        let experiment = ExperimentContext::new(\n            task_id,\n            input.as_bytes(),\n            PAIRED_EVALUATION_SEED,",
-      "replace": "        let experiment = ExperimentContext::new(\n            task_id,\n            input.as_bytes(),\n            0,"
+      "find": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    PAIRED_EVALUATION_SEED,",
+      "replace": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    0,"
     },
     {
       "id": "control-candidate-process-not-supervised",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Paired candidate trials execute through the supervised offline process adapter.",
-      "find": "        let runtime = SupervisedRuntime::deterministic(isolation, &worker.executable, [])",
-      "replace": "        let runtime = SupervisedRuntime::deterministic(isolation, \"/usr/bin/true\", [])"
+      "find": "    let runtime = SupervisedRuntime::deterministic_guarded(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n        &guardian,\n    )",
+      "replace": "    let _guardian = guardian;\n    let runtime = SupervisedRuntime::deterministic(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n    )"
     },
     {
       "id": "arena-evaluator-reliability-ignored",
@@ -1926,8 +1926,8 @@
       "id": "reference-worker-bypassed-for-arena-candidates",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Paired Arena candidates execute through the configured bounded reference worker.",
-      "find": "        let runtime = SupervisedRuntime::deterministic(isolation, &worker.executable, [])",
-      "replace": "        let runtime = SupervisedRuntime::deterministic(isolation, \"/bin/cat\", [])"
+      "find": "        &worker.executable,\n        [],\n        &guardian,",
+      "replace": "        \"/bin/cat\",\n        [],\n        &guardian,"
     },
     {
       "id": "reference-task-input-bound-checked-before-run",
