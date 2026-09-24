@@ -21,10 +21,12 @@ use std::{
 use fs2::FileExt;
 use hephaestus_arena::{
     ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
-    IsolatedEvaluator, ReceiptContext, ScoredEvaluation, SelectionEvent, SelectionReceipt,
-    TrialPlan, TrustedManifest, Visibility, evaluate_and_record_scored, load_operator_evaluation,
-    load_recorded_evaluation, prepare_evaluation, select_and_record, selection_event_references,
-    verify_selection_event,
+    InvariantEvent, InvariantReceipt, IsolatedEvaluator, OperatorInvariantCheck, ReceiptContext,
+    ScoredEvaluation, SelectionEvent, SelectionReceipt, TrialPlan, TrustedManifest, Visibility,
+    check_reference_output_invariants, evaluate_and_record_scored, invariant_event_references,
+    load_operator_evaluation, load_recorded_evaluation, load_reference_output_invariants,
+    prepare_evaluation, select_and_record, selection_event_references,
+    verify_reference_output_invariant_event, verify_selection_event,
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
 use hephaestus_experience::{
@@ -50,8 +52,9 @@ use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
     EvaluationEventRecord, EvaluationRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
     ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
-    ForgeProposalRecord, GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData,
-    RunCompletionReason, SelectionEventRecord, SelectionRecord, WorldRecord,
+    ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
+    JobTerminal, ResponseData, RunCompletionReason, SelectionEventRecord, SelectionRecord,
+    WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -527,6 +530,7 @@ impl ControlPlane {
         verify_selection_history(&data_dir, &history, &registered)?;
         verify_forge_history(&data_dir, &history, &registered)?;
         verify_forge_assessment_history(&data_dir, &history, &registered)?;
+        verify_invariant_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -785,6 +789,9 @@ impl ControlPlane {
                 candidate_genome_id,
             } => self.submit_arena_job(&evaluation_id, &parent_genome_id, &candidate_genome_id),
             Command::ArenaSelect { evaluation_id } => self.select_arena_evaluation(&evaluation_id),
+            Command::ArenaInvariants { evaluation_id } => {
+                self.check_arena_invariants(&evaluation_id)
+            }
             Command::Replay => self.replay_response(),
             Command::DaemonStop => self.request_daemon_stop(),
         }
@@ -838,6 +845,7 @@ impl ControlPlane {
             Command::RunReference { .. }
                 | Command::RunEvaluation { .. }
                 | Command::ArenaSelect { .. }
+                | Command::ArenaInvariants { .. }
                 | Command::GenomeRegister { .. }
                 | Command::GenomePropose { .. }
                 | Command::GenomeAssess { .. }
@@ -1754,6 +1762,8 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_forge_assessment_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_invariant_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
             registered,
@@ -2261,6 +2271,73 @@ impl ControlPlane {
         self.refresh_projection()?;
         Ok(ResponseData::Selection {
             selection: Box::new(record),
+        })
+    }
+
+    fn check_arena_invariants(
+        &mut self,
+        evaluation_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if evaluation_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("evaluation_id is required"));
+        }
+
+        // Resolve policy from the exact persisted evaluation receipt. The
+        // caller cannot choose a World or substitute another evaluation.
+        let operator = load_operator_evaluation(self.open_arena_stores()?, evaluation_id)
+            .map_err(map_invariant_error)?;
+        let world_id = operator.selection_evidence().world_id().to_owned();
+        drop(operator.into_stores());
+        let world = self
+            .state
+            .registered
+            .world(&world_id)
+            .map(|registered| registered.compiled().clone())
+            .ok_or(ExecuteError::NotFound)?;
+
+        // An existing deterministic receipt is a verified idempotent retry.
+        match load_reference_output_invariants(self.open_arena_stores()?, evaluation_id, &world) {
+            Ok(check) => return self.finish_invariant_check(check),
+            Err(ArenaError::UnknownInvariantCheck(_)) => {}
+            Err(error) => return Err(map_invariant_error(error)),
+        }
+
+        // Arena consumes storage on either outcome. Restore the daemon handles
+        // before refreshing or returning an error.
+        let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
+        let checked = check_reference_output_invariants(
+            EvaluationStores {
+                events: storage.ledger,
+                artifacts: storage.artifacts,
+            },
+            evaluation_id,
+            &world,
+            timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+        );
+        let check = match checked {
+            Ok(check) => check,
+            Err(error) => {
+                self.reopen_storage()?;
+                self.refresh_projection()?;
+                return Err(map_invariant_error(error));
+            }
+        };
+        self.finish_invariant_check(check)
+    }
+
+    fn finish_invariant_check(
+        &mut self,
+        check: OperatorInvariantCheck,
+    ) -> Result<ResponseData, ExecuteError> {
+        let record = invariant_record(check.receipt(), check.event());
+        let stores = check.into_stores();
+        self.storage = Some(CanonicalStorage {
+            ledger: stores.events,
+            artifacts: stores.artifacts,
+        });
+        self.refresh_projection()?;
+        Ok(ResponseData::ArenaInvariants {
+            invariants: Box::new(record),
         })
     }
 
@@ -3011,6 +3088,8 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_forge_assessment_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_invariant_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
             registered,
@@ -3062,6 +3141,16 @@ fn map_selection_error(error: &ArenaError) -> ExecuteError {
     }
 }
 
+fn map_invariant_error(error: ArenaError) -> ExecuteError {
+    match error {
+        ArenaError::UnknownEvaluation(_) | ArenaError::UnknownInvariantCheck(_) => {
+            ExecuteError::NotFound
+        }
+        ArenaError::InvariantConflict(message) => ExecuteError::Rejected(message),
+        _ => ExecuteError::Internal,
+    }
+}
+
 fn selection_record(
     world_id: &str,
     receipt: &SelectionReceipt,
@@ -3080,6 +3169,13 @@ fn selection_record(
             event_hash: event.event_hash.clone(),
             receipt_artifact_id: event.receipt_artifact_id.clone(),
         },
+    }
+}
+
+fn invariant_record(receipt: &InvariantReceipt, event: &InvariantEvent) -> InvariantRecord {
+    InvariantRecord {
+        receipt: receipt.clone(),
+        event: event.clone(),
     }
 }
 
@@ -3843,6 +3939,67 @@ fn verify_selection_history(
     Ok(())
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct InvariantEventEnvelope {
+    schema_version: u16,
+    evaluation_id: String,
+    world_id: String,
+    receipt_artifact_id: String,
+}
+
+fn verify_invariant_history(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+) -> Result<(), ControlError> {
+    for event in history
+        .iter()
+        .filter(|event| event.event_type == "invariants.recorded")
+    {
+        let (evaluation_id, world_id) = invariant_event_references(event).map_err(|_| {
+            ControlError::Projection("canonical invariant event envelope is invalid".to_owned())
+        })?;
+        let envelope: InvariantEventEnvelope =
+            serde_json::from_slice(&event.payload).map_err(|_| {
+                ControlError::Projection("canonical invariant event envelope is invalid".to_owned())
+            })?;
+        if envelope.schema_version != 1
+            || envelope.evaluation_id != evaluation_id
+            || envelope.world_id != world_id
+            || envelope.receipt_artifact_id.trim().is_empty()
+        {
+            return Err(ControlError::Projection(
+                "canonical invariant event identity is invalid".to_owned(),
+            ));
+        }
+        let world = registered.world(&world_id).ok_or_else(|| {
+            ControlError::Projection("invariant World is not registered".to_owned())
+        })?;
+        let stores =
+            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                .map_err(|_| {
+                    ControlError::Projection(
+                        "invariant evidence stores could not be opened".to_owned(),
+                    )
+                })?;
+        let verified = verify_reference_output_invariant_event(stores, event, world.compiled())
+            .map_err(|_| {
+                ControlError::Projection("canonical invariant receipt is invalid".to_owned())
+            })?;
+        if verified.receipt().evaluation_id != evaluation_id
+            || verified.receipt().world_id != world_id
+            || verified.event().receipt_artifact_id != envelope.receipt_artifact_id
+        {
+            return Err(ControlError::Projection(
+                "canonical invariant event differs from verified receipt".to_owned(),
+            ));
+        }
+        drop(verified.into_stores());
+    }
+    Ok(())
+}
+
 fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     if let Command::GenomeShow { genome_id } | Command::GenomePrompt { genome_id } = command
         && genome_id.trim().is_empty()
@@ -3920,6 +4077,11 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         ));
     }
     if let Command::ArenaSelect { evaluation_id } = command
+        && evaluation_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("evaluation_id is required"));
+    }
+    if let Command::ArenaInvariants { evaluation_id } = command
         && evaluation_id.trim().is_empty()
     {
         return Err(ExecuteError::Invalid("evaluation_id is required"));
@@ -5366,6 +5528,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::RunEvaluation { .. } => "control.run_evaluation",
         Command::EvaluatePair { .. } => "control.evaluate_pair",
         Command::ArenaSelect { .. } => "control.arena_select",
+        Command::ArenaInvariants { .. } => "control.arena_invariants",
         Command::Replay => "control.replay",
         Command::DaemonStop => "control.daemon_stop",
     }

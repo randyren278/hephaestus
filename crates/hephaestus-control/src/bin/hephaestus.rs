@@ -7,8 +7,9 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, Client, Command, EvaluationRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord, JobState,
-    ResponseData, SelectionRecord, WorldRecord, data_dir_from_environment,
+    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord,
+    InvariantRecord, JobState, ResponseData, SelectionRecord, WorldRecord,
+    data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -199,6 +200,11 @@ enum ArenaCommand {
     },
     /// Calculate and persist the trusted metrics outcome for one evaluation.
     Select {
+        /// Stable Arena evaluation identity.
+        evaluation_id: String,
+    },
+    /// Verify and persist aggregate reference-output invariant evidence.
+    Invariants {
         /// Stable Arena evaluation identity.
         evaluation_id: String,
     },
@@ -625,6 +631,9 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Arena {
             command: ArenaCommand::Select { evaluation_id },
         } => Command::ArenaSelect { evaluation_id },
+        CliCommand::Arena {
+            command: ArenaCommand::Invariants { evaluation_id },
+        } => Command::ArenaInvariants { evaluation_id },
         CliCommand::Replay => Command::Replay,
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
@@ -753,6 +762,9 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Selection { selection }), None) => {
             println!("{}", selection_human(selection));
         }
+        (Some(ResponseData::ArenaInvariants { invariants }), None) => {
+            println!("{}", invariants_human(invariants));
+        }
         (Some(ResponseData::ArenaJob { job }), None) => {
             println!("{}", arena_job_human(job));
         }
@@ -872,6 +884,45 @@ fn selection_human(selection: &SelectionRecord) -> String {
     )
 }
 
+fn invariants_human(invariants: &InvariantRecord) -> String {
+    let receipt = &invariants.receipt;
+    let predicates = receipt
+        .predicates
+        .iter()
+        .map(|predicate| {
+            let suffix = predicate
+                .forbidden_ascii_byte
+                .map_or_else(String::new, |byte| format!("_byte_{byte}"));
+            format!(
+                "{}{}:parent={},candidate={},regressions={}",
+                predicate.predicate,
+                suffix,
+                predicate.parent_violations,
+                predicate.candidate_violations,
+                predicate.paired_regressions
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!(
+        "invariants evaluation={} world={} checks={} trials={} candidate_violations={} paired_regressions={} maximum_regressions={} regressions_within_budget={} candidate_contract_satisfied={} predicates=[{}] event={} sequence={} hash={} receipt={}",
+        receipt.evaluation_id,
+        receipt.world_id,
+        receipt.total_checks,
+        receipt.total_evaluated_trials,
+        receipt.total_candidate_violations,
+        receipt.total_paired_regressions,
+        receipt.maximum_regressions,
+        receipt.regressions_within_budget,
+        receipt.candidate_contract_satisfied,
+        predicates,
+        invariants.event.event_id,
+        invariants.event.sequence,
+        invariants.event.event_hash,
+        invariants.event.receipt_artifact_id,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
@@ -903,6 +954,20 @@ mod tests {
                 assessment_id: "assessment-1".to_owned(),
                 proposal_id: "proposal-1".to_owned(),
                 selection_event_id: "selection-event-1".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn arena_invariants_maps_evaluation_identity_to_authenticated_command() {
+        let arguments =
+            Arguments::try_parse_from(["hephaestus", "arena", "invariants", "evaluation-1"])
+                .expect("CLI parses");
+
+        assert_eq!(
+            command_from_cli(arguments.command).expect("command maps"),
+            Command::ArenaInvariants {
+                evaluation_id: "evaluation-1".to_owned(),
             }
         );
     }

@@ -1,4 +1,4 @@
-use hephaestus_arena::SelectionReceipt;
+use hephaestus_arena::{InvariantEvent, InvariantReceipt, SelectionReceipt};
 use hephaestus_experience::RunBudgetReceipt;
 pub use hephaestus_experience::RunCompletionReason;
 pub use hephaestus_genome::{GenomeRecord, WorldRecord};
@@ -147,6 +147,11 @@ pub enum Command {
     /// Select from one exact persisted Arena evaluation using its registered World's policy.
     ArenaSelect {
         /// Stable Arena evaluation identity.
+        evaluation_id: String,
+    },
+    /// Check and persist aggregate reference-output invariants for one Arena evaluation.
+    ArenaInvariants {
+        /// Stable Arena evaluation identity whose authenticated outputs are checked.
         evaluation_id: String,
     },
     /// Verify and replay canonical history into a fresh projection.
@@ -315,6 +320,11 @@ pub enum ResponseData {
     Selection {
         /// Aggregate measurements and payload-free canonical selection event metadata.
         selection: Box<SelectionRecord>,
+    },
+    /// Operator-only aggregate reference-output invariant receipt and event.
+    ArenaInvariants {
+        /// Aggregate checks and payload-free canonical invariant event metadata.
+        invariants: Box<InvariantRecord>,
     },
     /// Result of a fresh verified replay.
     Replay {
@@ -614,6 +624,16 @@ pub struct SelectionRecord {
     pub receipt: SelectionReceipt,
     /// Payload-free canonical event metadata binding the receipt artifact.
     pub event: SelectionEventRecord,
+}
+
+/// Operator-visible aggregate invariant receipt and its canonical event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvariantRecord {
+    /// Deterministically recomputed aggregate predicates and counts.
+    pub receipt: InvariantReceipt,
+    /// Canonical event metadata and receipt content address.
+    pub event: InvariantEvent,
 }
 
 /// Payload-free canonical ledger metadata for a selection receipt.

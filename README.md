@@ -36,9 +36,9 @@ are scored by an evaluator the candidate can never read, and the result lands in
 a hash-linked ledger signed by the daemon. Kill the daemon, restart it, and it
 rebuilds the exact same state from history or refuses to start.
 
-Named for the god who forged things that lasted. Protected Arena evaluation
-and deterministic measured selection are available; trusted invariant checks
-and promotion authorization remain separate work.
+Named for the god who forged things that lasted. Protected Arena evaluation,
+deterministic measured selection, and recorded reference-output invariant checks
+are available. Promotion authorization remains separate work.
 
 ---
 
@@ -100,9 +100,10 @@ and that decision is itself a ledgered event.
 
 ## What it doesn't do (yet)
 
-- **No promotion or rollback.** Arena has a deterministic measured-selection
-  receipt, but invariant evidence is not yet checked and promotion always fails
-  closed. That remains part of roadmap item 8.
+- **No promotion or rollback.** Arena records deterministic measured-selection
+  and reference-output invariant receipts, but does not combine them into a
+  promotion decision. Promotion always fails closed; rollback remains roadmap
+  item 8 work.
 - **No hosted-model runs.** The Codex and Claude invocation contracts exist and
   are tested inert; only the deterministic reference runtime executes. Billable
   runs require an explicit permit that does not exist yet.
@@ -195,6 +196,7 @@ hephaestus unfreeze
 hephaestus run hephaestus:genome:<parent>
 hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>
 hephaestus arena select eval-001
+hephaestus arena invariants eval-001
 hephaestus replay
 ```
 
@@ -231,6 +233,7 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus tui` | Open the source-checkout Ink operator console (Node.js 22+ and `npm ci` required) |
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
 | `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
+| `hephaestus arena invariants <id>` | Record aggregate reference-output invariant evidence; never promotes |
 | `hephaestus replay` | Verify history and compare it with live state |
 | `hephaestus daemon stop` | Audited graceful stop |
 

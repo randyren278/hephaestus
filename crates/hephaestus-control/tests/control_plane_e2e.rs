@@ -499,12 +499,18 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     let verifier_id = artifacts
         .put(&signer.verifier().public_key_bytes())
         .unwrap();
+    let invariant_manifest_id = artifacts
+        .put(
+            br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[88]}"#,
+        )
+        .unwrap();
     let world_source = format!(
-        r#"{{"schema_version":1,"name":"daemon-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+        r#"{{"schema_version":1,"name":"daemon-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
         visible_id.as_str(),
         sealed_id.as_str(),
         evaluator_id.as_str(),
-        verifier_id.as_str()
+        verifier_id.as_str(),
+        invariant_manifest_id.as_str()
     );
     let world = compile_world(&world_source, SourceFormat::Json, &artifacts).unwrap();
     let world_artifact = artifacts.put(world.canonical_json()).unwrap();
@@ -798,6 +804,58 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         assert_eq!(selection.receipt.correctness_improvements(), 2);
         recorded_selections.push(selection.clone());
 
+        let invariants = match response(&cli(
+            &data_dir,
+            &["arena", "invariants", "daemon-owned-pair"],
+        ))
+        .data
+        .unwrap()
+        {
+            ResponseData::ArenaInvariants { invariants } => invariants,
+            other => panic!("unexpected invariant response: {other:?}"),
+        };
+        assert_eq!(invariants.receipt.evaluation_id, "daemon-owned-pair");
+        assert_eq!(invariants.receipt.world_id, world.id());
+        assert_eq!(invariants.receipt.total_evaluated_trials, 2);
+        assert!(invariants.receipt.total_checks > 0);
+        assert!(invariants.receipt.candidate_contract_satisfied);
+        let safe_json = serde_json::to_string(&invariants).unwrap();
+        for private in [
+            "visible-task",
+            "sealed-task",
+            "visible input",
+            "sealed input",
+            "VISIBLE INPUT",
+            "SEALED INPUT",
+        ] {
+            assert!(
+                !safe_json.contains(private),
+                "invariant API leaked {private}"
+            );
+        }
+        let retried_invariants = match response(&cli(
+            &data_dir,
+            &["arena", "invariants", "daemon-owned-pair"],
+        ))
+        .data
+        .unwrap()
+        {
+            ResponseData::ArenaInvariants { invariants } => invariants,
+            other => panic!("unexpected invariant retry response: {other:?}"),
+        };
+        assert_eq!(retried_invariants.as_ref(), invariants.as_ref());
+        let invariant_events = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == "invariants.recorded")
+            .count();
+        assert_eq!(
+            invariant_events, 1,
+            "idempotent retry duplicated the receipt"
+        );
+
         // Force Arena's consumed-store error path by removing the durable
         // selection receipt bytes while leaving the verified event in history.
         let receipt_id = ArtifactId::parse(selection.event.receipt_artifact_id.clone()).unwrap();
@@ -1007,6 +1065,20 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     });
     let mut restarted = Daemon::start_with_repository(&data_dir, &repository);
     assert!(cli(&data_dir, &["replay"]).status.success());
+    let reloaded_invariants = match response(&cli(
+        &data_dir,
+        &["arena", "invariants", "daemon-owned-pair"],
+    ))
+    .data
+    .unwrap()
+    {
+        ResponseData::ArenaInvariants { invariants } => invariants,
+        other => panic!("restart did not rehydrate invariant receipt: {other:?}"),
+    };
+    assert_eq!(
+        reloaded_invariants.event.event_id,
+        "arena:invariants:daemon-owned-pair:checked"
+    );
     let recovered = Client::new(&data_dir)
         .request(Command::JobStatus {
             job_id: "daemon-owned-pair".to_owned(),
@@ -1814,6 +1886,17 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             ApiErrorCode::Busy,
             "assessment is refused while a job is active"
         );
+        let invariants_while_active = cli(&data_dir, &["arena", "invariants", "anything"]);
+        assert!(!invariants_while_active.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&invariants_while_active.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::Busy,
+            "invariant checking is refused while a job is active"
+        );
         let active_history = EventStore::open(data_dir.join("events.sqlite3"))
             .expect("open active assessment ledger")
             .replay_verified()
@@ -1825,6 +1908,11 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 .count(),
             1,
             "a busy assessment must not append an event"
+        );
+        assert!(
+            !active_history
+                .iter()
+                .any(|event| event.event_type == "control.arena_invariants")
         );
         assert!(matches!(
             response(&cli(&data_dir, &["kill", "--all"])).data,
