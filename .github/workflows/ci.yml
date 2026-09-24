@@ -50,6 +50,15 @@ jobs:
           python checks/coverage_gate.py
           --manifest checks/checks.json --report lcov.info
 
+      - name: Preserve Rust coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-lcov-${{ github.run_attempt }}
+          path: lcov.info
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Documentation gate
         run: |
           python checks/docs_gate.py --root . README.md AUDIT.md ROADMAP.md docs/*.md
