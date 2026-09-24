@@ -1247,15 +1247,15 @@
       "id": "worker-input-limit-bypassed",
       "file": "crates/hephaestus-runtime/src/worker.rs",
       "invariant": "An isolated worker rejects oversized IPC before creating its private execution root.",
-      "find": "        if input.len() > self.limits.maximum_input_bytes {",
-      "replace": "        if false && input.len() > self.limits.maximum_input_bytes {"
+      "find": "    pub fn execute(&self, worker_id: &str, input: &[u8]) -> Result<WorkerOutput, RuntimeError> {\n        validate_worker_id(worker_id)?;\n        if input.len() > self.limits.maximum_input_bytes {",
+      "replace": "    pub fn execute(&self, worker_id: &str, input: &[u8]) -> Result<WorkerOutput, RuntimeError> {\n        validate_worker_id(worker_id)?;\n        if false && input.len() > self.limits.maximum_input_bytes {"
     },
     {
       "id": "worker-root-replacement-accepted",
       "file": "crates/hephaestus-runtime/src/worker.rs",
       "invariant": "Worker execution rejects a private-root path whose directory identity changed after open.",
-      "find": "        self.validate_root()?;",
-      "replace": "        // Replaced worker root incorrectly accepted."
+      "find": "        self.validate_root()?;\n        let run_root = self\n            .root\n            .join(format!(\"{}-{worker_id}\", self.domain.prefix()));\n        fs::create_dir(&run_root)?;\n        fs::set_permissions(&run_root, fs::Permissions::from_mode(0o700))?;\n        let mut cleanup = WorkerRoot::new(run_root);\n        let stdout_path = cleanup.path().join(\"stdout\");\n        let stderr_path = cleanup.path().join(\"stderr\");\n        let invocation =\n            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), input)?;\n        let mut command = self.isolation.worker_command(&invocation, cleanup.path())?;\n        command.env_clear();\n        if let Some(path) = std::env::var_os(\"PATH\") {",
+      "replace": "        let run_root = self\n            .root\n            .join(format!(\"{}-{worker_id}\", self.domain.prefix()));\n        fs::create_dir(&run_root)?;\n        fs::set_permissions(&run_root, fs::Permissions::from_mode(0o700))?;\n        let mut cleanup = WorkerRoot::new(run_root);\n        let stdout_path = cleanup.path().join(\"stdout\");\n        let stderr_path = cleanup.path().join(\"stderr\");\n        let invocation =\n            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), input)?;\n        let mut command = self.isolation.worker_command(&invocation, cleanup.path())?;\n        command.env_clear();\n        if let Some(path) = std::env::var_os(\"PATH\") {"
     },
     {
       "id": "worker-drop-cleanup-disabled",
@@ -1275,8 +1275,8 @@
       "id": "worker-isolation-policy-bypassed",
       "file": "crates/hephaestus-runtime/src/worker.rs",
       "invariant": "Every candidate and evaluator process is constructed through the mandatory offline isolation policy.",
-      "find": "        let mut command = self.isolation.worker_command(&invocation, cleanup.path())?;",
-      "replace": "        let mut command = std::process::Command::new(invocation.program());\n        command.args(invocation.arguments());\n        command.current_dir(cleanup.path());"
+      "find": "        let mut command = self.isolation.worker_command(&invocation, cleanup.path())?;\n        command.env_clear();\n        if let Some(path) = std::env::var_os(\"PATH\") {",
+      "replace": "        let mut command = std::process::Command::new(invocation.program());\n        command.args(invocation.arguments());\n        command.current_dir(cleanup.path());\n        command.env_clear();\n        if let Some(path) = std::env::var_os(\"PATH\") {"
     },
     {
       "id": "arena-manifest-schema-check-bypassed",
