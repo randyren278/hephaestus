@@ -3,6 +3,7 @@ use std::{
     os::unix::fs::{PermissionsExt, symlink},
 };
 
+use hephaestus_arena::TrustedTask;
 use hephaestus_experience::{Provenance, TraceInput, TraceKind, TraceReceipt};
 use hephaestus_genome::{SourceFormat, compile_world};
 use hephaestus_ledger::{EventInput, EventStore};
@@ -1083,6 +1084,383 @@ fn arena_job_record_validation_rejects_plan_and_event_tampering() {
     let mut wrong_event = event_for(&record);
     wrong_event.actor = "operator".to_owned();
     assert!(validate_arena_job_record(&wrong_event, &record).is_err());
+}
+
+fn admitted_arena_record(
+    evaluation_id: &str,
+    world_id: String,
+    parent_genome_id: String,
+    candidate_genome_id: String,
+) -> ArenaJobRecord {
+    let visible_manifest_id = "a".repeat(64);
+    let sealed_manifest_id = "b".repeat(64);
+    let environment_digest = "c".repeat(64);
+    let environment_id = format!("reference-v1.{environment_digest}");
+    let ordered_trial_run_ids = vec![
+        paired_run_id(evaluation_id, "parent", 0),
+        paired_run_id(evaluation_id, "candidate", 0),
+    ];
+    let source_revision = "d".repeat(40);
+    let plan_commitment = blake3::hash(
+        &serde_json::to_vec(&(
+            evaluation_id,
+            &parent_genome_id,
+            &candidate_genome_id,
+            &world_id,
+            &visible_manifest_id,
+            &sealed_manifest_id,
+            &source_revision,
+            &environment_id,
+            &ordered_trial_run_ids,
+        ))
+        .expect("serialize admitted plan"),
+    )
+    .to_hex()
+    .to_string();
+    ArenaJobRecord {
+        job_id: evaluation_id.to_owned(),
+        evaluation_id: evaluation_id.to_owned(),
+        parent_genome_id,
+        candidate_genome_id,
+        world_id,
+        visible_manifest_id,
+        sealed_manifest_id,
+        evaluator_id: "e".repeat(64),
+        source_revision,
+        worker_digest: "f".repeat(64),
+        environment_id,
+        seed: PAIRED_EVALUATION_SEED,
+        trial_budget: RunBudgetReceipt {
+            wall_millis: 10_000,
+            maximum_output_bytes: 1_048_576,
+            maximum_cost_microusd: 0,
+        },
+        overall_budget: RunBudgetReceipt {
+            wall_millis: 50_000,
+            maximum_output_bytes: 4_194_304,
+            maximum_cost_microusd: 0,
+        },
+        ordered_trial_run_ids,
+        parent_trial_count: 1,
+        total_trials: 2,
+        plan_commitment,
+        caller_id: "control-daemon".to_owned(),
+        receipt_timestamp_millis: 1,
+        completed_trials: 0,
+        phase: ArenaJobPhase::Preparing,
+        state: JobState::Admitted,
+        terminal: None,
+        evaluation: None,
+    }
+}
+
+fn admitted_arena_event(record: &ArenaJobRecord) -> StoredEvent {
+    StoredEvent {
+        sequence: 1,
+        event_id: format!("arena-job:{}:admitted", record.evaluation_id),
+        aggregate_id: format!("arena-job:{}", record.evaluation_id),
+        event_type: "arena.job.admitted".to_owned(),
+        actor: RUNTIME_ACTOR.to_owned(),
+        timestamp_millis: 1,
+        payload: serde_json::to_vec(record).expect("serialize Arena job"),
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    }
+}
+
+fn open_projection_test_plane(directory: &TempDir) -> ControlPlane {
+    let executable = env::current_exe().expect("test executable");
+    ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        directory.path(),
+        env::current_dir().expect("repository working directory"),
+        &executable,
+        &executable,
+    )
+    .expect("open control plane with explicit test executables")
+}
+
+#[test]
+fn arena_replay_rejects_admitted_plan_without_its_registered_bindings() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let missing_id = |kind: &str| format!("hephaestus:{kind}:{}", "1".repeat(64));
+
+    let missing_world = admitted_arena_record(
+        "missing-world",
+        missing_id("world"),
+        missing_id("genome"),
+        format!("hephaestus:genome:{}", "2".repeat(64)),
+    );
+    let event = admitted_arena_event(&missing_world);
+    plane
+        .storage
+        .as_mut()
+        .expect("canonical storage")
+        .ledger
+        .append(EventInput::new(
+            event.event_id,
+            event.aggregate_id,
+            event.event_type,
+            event.actor,
+            event.timestamp_millis,
+            event.payload,
+        ))
+        .expect("persist structurally valid Arena admission");
+    assert!(matches!(
+        plane.replay_response(),
+        Err(ExecuteError::Internal)
+    ));
+
+    drop(plane);
+    let directory = tempdir().expect("clean daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (world, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let missing_parent = admitted_arena_record(
+        "missing-parent",
+        world.world_id.clone(),
+        missing_id("genome"),
+        format!("hephaestus:genome:{}", "2".repeat(64)),
+    );
+    assert!(matches!(
+        plane
+            .state
+            .apply_arena_job_record(&admitted_arena_event(&missing_parent)),
+        Err(ControlError::Projection(message)) if message == "Arena parent Genome is not registered"
+    ));
+
+    let missing_candidate = admitted_arena_record(
+        "missing-candidate",
+        world.world_id.clone(),
+        genome.genome_id.clone(),
+        format!("hephaestus:genome:{}", "2".repeat(64)),
+    );
+    assert!(matches!(
+        plane
+            .state
+            .apply_arena_job_record(&admitted_arena_event(&missing_candidate)),
+        Err(ControlError::Projection(message)) if message == "Arena candidate Genome is not registered"
+    ));
+
+    let candidate_path = directory.path().join("bound-candidate.md");
+    fs::write(
+        &candidate_path,
+        "---\nschema_version: 1\nname: bound-candidate\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write bound candidate Genome");
+    let Some(ResponseData::Genome { genome: candidate }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-bound-candidate",
+        Command::GenomeRegister {
+            path: candidate_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("candidate Genome should register");
+    };
+    let mismatched_world_artifact_binding = admitted_arena_record(
+        "mismatched-world-artifact-binding",
+        world.world_id.clone(),
+        genome.genome_id.clone(),
+        candidate.genome_id,
+    );
+    assert!(matches!(
+        plane
+            .state
+            .apply_arena_job_record(&admitted_arena_event(&mismatched_world_artifact_binding)),
+        Err(ControlError::Projection(message))
+            if message == "Arena job differs from registered World and Genome bindings"
+    ));
+}
+
+#[test]
+fn signed_success_result_without_completed_run_rejects_job_terminal() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let job_id = "signed-terminal";
+    let run_id = job_run_id(job_id);
+    let source_revision = "1".repeat(40);
+    let environment_id = format!("reference-v1.{}", "2".repeat(64));
+    let input = "Inventory the isolated repository without modifying it or using the network.";
+    let base = JobRecord {
+        job_id: job_id.to_owned(),
+        genome_id: genome.genome_id,
+        run_id: run_id.clone(),
+        source_revision,
+        world_id: genome.world_id,
+        task_id: "repository-inventory-v1".to_owned(),
+        input_commitment: blake3::hash(input.as_bytes()).to_hex().to_string(),
+        seed: 0,
+        environment_id: environment_id.clone(),
+        budget: RunBudgetReceipt {
+            wall_millis: 10_000,
+            maximum_output_bytes: 1_048_576,
+            maximum_cost_microusd: 0,
+        },
+        state: JobState::Admitted,
+        terminal: None,
+    };
+    plane
+        .append_job_record(&base)
+        .expect("persist valid job admission");
+    let running = JobRecord {
+        state: JobState::Running,
+        ..base.clone()
+    };
+    plane
+        .append_job_record(&running)
+        .expect("persist valid running transition");
+
+    let receipt = RunResultReceipt {
+        schema_version: RUN_RESULT_SCHEMA_VERSION,
+        run_id: run_id.clone(),
+        genome_id: base.genome_id.clone(),
+        world_id: base.world_id.clone(),
+        source_revision: base.source_revision.clone(),
+        task_id: base.task_id.clone(),
+        input_commitment: base.input_commitment.clone(),
+        seed: base.seed,
+        environment_id,
+        budget: base.budget,
+        completion_reason: RunCompletionReason::Success,
+        latency_millis: 1,
+        actual_cost_microusd: 0,
+        stdout_artifact_id: "3".repeat(64),
+        stderr_artifact_id: "4".repeat(64),
+        trace_artifact_ids: vec![],
+    };
+    let signed_event = plane
+        .run_result_signer
+        .issue(receipt, 1)
+        .expect("sign valid run result");
+    let stored_result = plane
+        .storage
+        .as_mut()
+        .expect("canonical storage")
+        .ledger
+        .append(signed_event)
+        .expect("persist signed run result");
+    plane
+        .state
+        .apply(
+            &stored_result,
+            &plane.operator_token,
+            &plane.run_result_verifier,
+        )
+        .expect("replay signed success result");
+    assert!(plane.state.run_results.contains_key(&run_id));
+    assert!(!plane.state.completed_runs.contains(&run_id));
+
+    let terminal = JobRecord {
+        state: JobState::Succeeded,
+        terminal: Some(JobTerminal::Succeeded),
+        ..base
+    };
+    let terminal_event = StoredEvent {
+        sequence: plane.state.event_count + 1,
+        event_id: format!("job:{job_id}:terminal"),
+        aggregate_id: format!("job:{job_id}"),
+        event_type: "job.terminal".to_owned(),
+        actor: RUNTIME_ACTOR.to_owned(),
+        timestamp_millis: 2,
+        payload: serde_json::to_vec(&terminal).expect("serialize successful terminal"),
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    };
+    assert!(matches!(
+        plane.state.apply(
+            &terminal_event,
+            &plane.operator_token,
+            &plane.run_result_verifier,
+        ),
+        Err(ControlError::Projection(message))
+            if message == "successful job terminal lacks matching signed result and lifecycle completion"
+    ));
+}
+
+#[test]
+fn paired_admission_rejects_world_missing_sealed_manifest() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        "visible-only",
+        Visibility::Visible,
+        vec![TrustedTask::new("visible-task", "visible", "VISIBLE").expect("visible task")],
+    )
+    .expect("visible manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    drop(artifacts);
+
+    let world_path = directory.path().join("visible-only-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"visible-only-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}"}}}}"#,
+            visible_id.as_str()
+        ),
+    )
+    .expect("write visible-only World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "visible-only-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("World should register");
+    };
+
+    let register_genome = |plane: &mut ControlPlane, name: &str| {
+        let path = directory.path().join(format!("{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: {name}\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+            ),
+        )
+        .expect("write paired Genome");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            &token,
+            name,
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Genome should register");
+        };
+        genome
+    };
+    let parent = register_genome(&mut plane, "visible-only-parent");
+    let candidate = register_genome(&mut plane, "visible-only-candidate");
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    assert!(matches!(
+        plane.submit_arena_job("missing-sealed", &parent.genome_id, &candidate.genome_id),
+        Err(ExecuteError::Rejected(message))
+            if message == "World does not declare arena.sealed_manifest"
+    ));
+    assert!(!plane.state.arena_jobs.contains_key("missing-sealed"));
 }
 
 #[test]
