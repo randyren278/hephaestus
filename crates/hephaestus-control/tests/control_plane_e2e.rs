@@ -4610,6 +4610,139 @@ fn seed_compiled_genome(data_dir: &Path) -> (WorldRecord, GenomeRecord) {
     (world, genome)
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"validation fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let (world, parent) = seed_compiled_genome(&data_dir);
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let client = Client::new(&data_dir);
+
+    let empty_selection = client
+        .request(Command::ArenaSelect {
+            evaluation_id: " ".to_owned(),
+        })
+        .expect("empty selection response");
+    assert_eq!(
+        empty_selection.error.expect("empty selection error").code,
+        ApiErrorCode::InvalidRequest
+    );
+
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open CAS");
+    let unsupported_prompt = artifacts
+        .put(b"ordinary prose is not a reference-worker program\n")
+        .expect("store unsupported prompt");
+    let unsupported_source = directory.path().join("unsupported.json");
+    fs::write(
+        &unsupported_source,
+        serde_json::json!({
+            "schema_version": 1,
+            "name": "unsupported-reference-instruction",
+            "parents": [parent.genome_id],
+            "model": { "provider": "deterministic", "family": "reference" },
+            "authority": { "workspace_write": false, "network": false },
+            "artifacts": { "agent.prompt": unsupported_prompt.as_str() }
+        })
+        .to_string(),
+    )
+    .expect("write unsupported Genome");
+    let ResponseData::Genome {
+        genome: unsupported,
+    } = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            unsupported_source.to_str().expect("UTF-8 source path"),
+            "--world",
+            &world.world_id,
+        ],
+    ))
+    .data
+    .expect("registered Genome response")
+    else {
+        panic!("unexpected Genome registration response");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let rejected_run = client
+        .request(Command::RunReference {
+            genome_id: unsupported.genome_id,
+        })
+        .expect("unsupported prompt response");
+    let run_error = rejected_run.error.expect("unsupported prompt error");
+    assert_eq!(run_error.code, ApiErrorCode::InvalidRequest);
+    assert_eq!(
+        run_error.message,
+        "registered reference instruction is invalid"
+    );
+
+    let second_source = directory.path().join("second.json");
+    fs::write(
+        &second_source,
+        serde_json::json!({
+            "schema_version": 1,
+            "name": "unpaired-candidate",
+            "parents": [parent.genome_id],
+            "model": { "provider": "deterministic", "family": "reference" },
+            "authority": { "workspace_write": false, "network": false },
+            "artifacts": {}
+        })
+        .to_string(),
+    )
+    .expect("write unpaired Genome");
+    let ResponseData::Genome { genome: candidate } = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            second_source.to_str().expect("UTF-8 source path"),
+            "--world",
+            &world.world_id,
+        ],
+    ))
+    .data
+    .expect("registered candidate response") else {
+        panic!("unexpected candidate registration response");
+    };
+    let rejected_pair = client
+        .request(Command::EvaluatePair {
+            evaluation_id: "unpaired-evaluation".to_owned(),
+            parent_genome_id: parent.genome_id,
+            candidate_genome_id: candidate.genome_id,
+        })
+        .expect("unpaired evaluation response");
+    let pair_error = rejected_pair.error.expect("unpaired evaluation error");
+    assert_eq!(pair_error.code, ApiErrorCode::InvalidRequest);
+    assert_eq!(
+        pair_error.message,
+        "World does not declare arena.visible_manifest"
+    );
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open event ledger")
+        .replay_verified()
+        .expect("verify event history");
+    assert!(history.iter().all(|event| {
+        !matches!(
+            event.event_type.as_str(),
+            "run.result_recorded" | "arena.job.admitted"
+        )
+    }));
+    daemon.stop();
+}
+
 fn git(repository: &Path, arguments: &[&str]) {
     let output = ProcessCommand::new("git")
         .arg("-C")
