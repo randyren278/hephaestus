@@ -5860,7 +5860,9 @@ mod tests {
             .active_arena_job
             .as_mut()
             .expect("active scoring-timeout job")
-            .overall_deadline = Instant::now() - Duration::from_millis(1);
+            .overall_deadline = Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .expect("monotonic clock supports one millisecond lookback");
         plane
             .finish_arena_scoring(
                 "scoring-timeout",
