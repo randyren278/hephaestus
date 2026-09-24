@@ -15,8 +15,8 @@ use hephaestus_arena::{
 };
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError, ControlPlane,
-    ForgeAssessmentOutcome, GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal,
-    ResponseData, RunCompletionReason, WorldRecord,
+    DenialKind, ForgeAssessmentOutcome, GenomeRecord, JobProgress, JobRecord, JobState,
+    JobTerminal, ResponseData, RunCompletionReason, WorldRecord,
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client};
@@ -5924,5 +5924,109 @@ fn operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them() {
         Some(ResponseData::Genome { genome }) => assert_eq!(genome.parent_ids, vec![parent_id]),
         other => panic!("unexpected genome show: {other:?}"),
     }
+    daemon.stop();
+}
+
+#[test]
+fn evidence_cli_lists_runs_and_denials_newest_first_and_bounded() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"evidence api fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let (world, genome) = seed_compiled_genome(&data_dir);
+
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    let run = response(&cli(&data_dir, &["run", &genome.genome_id]));
+    let run_id = match run.data.expect("reference run response") {
+        ResponseData::Run {
+            run_id,
+            completion_reason: RunCompletionReason::Success,
+            ..
+        } => run_id,
+        other => panic!("unexpected reference run response: {other:?}"),
+    };
+
+    let listed = response(&cli(&data_dir, &["runs", "--limit", "10"]));
+    let runs = match listed.data.clone().expect("run list response") {
+        ResponseData::RunList { runs } => runs,
+        other => panic!("unexpected run list response: {other:?}"),
+    };
+    assert_eq!(runs.len(), 1, "the reference run must be listed");
+    assert_eq!(runs[0].run_id, run_id);
+    assert_eq!(runs[0].job_id, None);
+    assert_eq!(runs[0].genome_id, genome.genome_id);
+    assert_eq!(runs[0].world_id.as_deref(), Some(world.world_id.as_str()));
+    assert_eq!(
+        runs[0].completion_reason,
+        Some(RunCompletionReason::Success)
+    );
+
+    let oversized = cli(&data_dir, &["runs", "--limit", "500"]);
+    assert!(
+        !oversized.status.success(),
+        "an out-of-bounds limit must be refused"
+    );
+    let oversized_response: ApiResponse =
+        serde_json::from_slice(&oversized.stdout).expect("decode oversized limit response");
+    assert_eq!(
+        oversized_response.error.expect("bounded limit error").code,
+        ApiErrorCode::InvalidRequest
+    );
+
+    let evaluations = response(&cli(&data_dir, &["evaluations", "--limit", "5"]));
+    assert!(matches!(
+        evaluations.data,
+        Some(ResponseData::EvaluationList { evaluations }) if evaluations.is_empty()
+    ));
+
+    let socket = data_dir.join("control.sock");
+    let token = fs::read_to_string(data_dir.join("operator.token")).expect("read token");
+    let denied = raw_request(
+        &socket,
+        &serde_json::to_vec(&ApiRequest {
+            version: API_VERSION,
+            request_id: String::new(),
+            token,
+            command: Command::Status,
+        })
+        .expect("encode empty-request-id request"),
+    );
+    assert_eq!(
+        denied.error.expect("empty request_id is refused").code,
+        ApiErrorCode::InvalidRequest
+    );
+
+    let listed_denials = response(&cli(&data_dir, &["denials", "--limit", "5"]));
+    let denials = match listed_denials.data.expect("denial list response") {
+        ResponseData::DenialList { denials } => denials,
+        other => panic!("unexpected denial list response: {other:?}"),
+    };
+    assert!(
+        denials
+            .iter()
+            .any(|denial| denial.kind == DenialKind::RequestRejected
+                && denial.command.as_deref() == Some("status")),
+        "the refused status request must be ledgered and listed"
+    );
+
+    // Consistency with replay: a fresh verified replay does not change what is listed.
+    assert!(response(&cli(&data_dir, &["replay"])).data.is_some());
+    let replayed_runs = response(&cli(&data_dir, &["runs", "--limit", "10"]));
+    assert_eq!(
+        replayed_runs.data, listed.data,
+        "run listing must be stable across a verified replay"
+    );
+
     daemon.stop();
 }
