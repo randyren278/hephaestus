@@ -4611,6 +4611,78 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
             "restart {restart} must preserve one scorer launch terminal"
         );
     }
+
+    fs::remove_file(&candidate_submission_path)
+        .expect("remove receipt-bound candidate submission after terminal commit");
+    assert!(matches!(
+        ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &data_dir,
+            &repository,
+            &evaluator,
+            &worker,
+        ),
+        Err(ControlError::Projection(message))
+            if message == "Arena terminal lacks trusted evaluation evidence"
+    ));
+    fs::write(&candidate_submission_path, &candidate_submission_bytes)
+        .expect("restore exact candidate submission for completed terminal verification");
+    assert_eq!(
+        artifact_store
+            .get(&candidate_submission_id)
+            .expect("verify restored candidate submission")
+            .as_slice(),
+        candidate_submission_bytes.as_slice()
+    );
+    let mut recovered = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("reopen after restoring terminal-bound evidence");
+    assert_eq!(
+        recovered.state.arena_jobs[recovery_id].terminal,
+        Some(JobTerminal::Succeeded)
+    );
+
+    let token = recovered.token_hex.clone();
+    assert!(matches!(
+        dispatch_call(
+            &mut recovered,
+            &token,
+            "select-recovered-evaluation",
+            Command::ArenaSelect {
+                evaluation_id: recovery_id.to_owned(),
+            },
+        )
+        .data,
+        Some(ResponseData::Selection { .. })
+    ));
+    recovered
+        .storage
+        .as_mut()
+        .expect("canonical selection storage")
+        .ledger
+        .append(EventInput::new(
+            "selection:malformed-envelope-fixture",
+            "arena:selection:malformed-envelope-fixture",
+            "selection.recorded",
+            "arena-plane",
+            timestamp_millis().expect("selection fixture timestamp"),
+            b"not-json",
+        ))
+        .expect("append malformed selection envelope to valid hash chain");
+    drop(recovered);
+    assert!(matches!(
+        ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &data_dir,
+            &repository,
+            &evaluator,
+            &worker,
+        ),
+        Err(ControlError::Projection(message))
+            if message == "canonical selection event is invalid"
+    ));
 }
 
 fn register_dispatch_arena_objects(
