@@ -1119,6 +1119,96 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         };
         assert_tamper_rejected("candidate_visible_correct", "1", "0");
         assert_tamper_rejected("completed_trials", "4", "3");
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+        }
+        let mut ledger = EventStore::open(&events_path).unwrap();
+        let committing = recovered_history
+            .iter()
+            .find(|event| {
+                event.event_type == "arena.job.committing"
+                    && event.event_id == "arena-job:daemon-owned-pair:committing"
+            })
+            .expect("the paired evaluation has a committing phase");
+        let cancellation_payload = String::from_utf8(committing.payload.clone())
+            .unwrap()
+            .replace(
+                "\"state\":\"running\"",
+                "\"state\":\"cancellation_requested\"",
+            );
+        assert!(cancellation_payload.contains("\"state\":\"cancellation_requested\""));
+        let mut inserted_cancellation = false;
+        for event in &recovered_history {
+            if !inserted_cancellation
+                && event.event_type == "evaluation.recorded"
+                && event.event_id == "arena:evaluation:daemon-owned-pair:recorded"
+            {
+                ledger
+                    .append(EventInput::new(
+                        "arena-job:daemon-owned-pair:cancellation_requested",
+                        "arena-job:daemon-owned-pair",
+                        "arena.job.cancellation_requested",
+                        "daemon-runtime",
+                        event.timestamp_millis,
+                        cancellation_payload.as_bytes(),
+                    ))
+                    .unwrap();
+                inserted_cancellation = true;
+            }
+            ledger
+                .append(EventInput::new(
+                    event.event_id.clone(),
+                    event.aggregate_id.clone(),
+                    event.event_type.clone(),
+                    event.actor.clone(),
+                    event.timestamp_millis,
+                    event.payload.clone(),
+                ))
+                .unwrap();
+        }
+        assert!(
+            inserted_cancellation,
+            "inserted canonical cancellation before the evaluation receipt"
+        );
+        drop(ledger);
+        assert!(
+            ControlPlane::open_with_repository(&data_dir, &repository).is_err(),
+            "a canonical succeeded Arena terminal must not follow cancellation"
+        );
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+        }
+        let mut ledger = EventStore::open(&events_path).unwrap();
+        for event in &recovered_history {
+            let payload = if event.event_type == "arena.job.terminal"
+                && event.event_id == "arena-job:daemon-owned-pair:terminal"
+            {
+                String::from_utf8(event.payload.clone())
+                    .unwrap()
+                    .replace("\"state\":\"succeeded\"", "\"state\":\"failed\"")
+                    .replace("\"terminal\":\"succeeded\"", "\"terminal\":\"failed\"")
+                    .into_bytes()
+            } else {
+                event.payload.clone()
+            };
+            ledger
+                .append(EventInput::new(
+                    event.event_id.clone(),
+                    event.aggregate_id.clone(),
+                    event.event_type.clone(),
+                    event.actor.clone(),
+                    event.timestamp_millis,
+                    payload,
+                ))
+                .unwrap();
+        }
+        drop(ledger);
+        assert!(
+            ControlPlane::open_with_repository(&data_dir, &repository).is_err(),
+            "a failed Arena terminal must not claim a committed evaluation record"
+        );
     }
 
     let binding = EvaluationBinding::new(

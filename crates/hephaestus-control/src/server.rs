@@ -3709,7 +3709,9 @@ impl ControlState {
                 prior_active
                     && valid_terminal
                     && (record.state != JobState::Succeeded
-                        || (matching_evaluation
+                        || (previous.is_some_and(|old| {
+                            old.state == JobState::Running && old.phase == ArenaJobPhase::Committing
+                        }) && matching_evaluation
                             && record.completed_trials == record.total_trials
                             && record.evaluation.as_ref().is_some_and(|evaluation| {
                                 evaluation.evaluation_id == record.evaluation_id
@@ -3717,6 +3719,7 @@ impl ControlState {
                                     && evaluation.parent_genome_id == record.parent_genome_id
                                     && evaluation.candidate_genome_id == record.candidate_genome_id
                             })))
+                    && (record.state == JobState::Succeeded || record.evaluation.is_none())
             }
             _ => false,
         };
