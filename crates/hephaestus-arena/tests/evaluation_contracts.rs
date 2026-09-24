@@ -12,9 +12,9 @@ use hephaestus_arena::{
     ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
     IsolatedEvaluator, OperatorEvaluation, ReceiptContext, SelectionReceipt, TrialPlan,
     TrustedManifest, TrustedTask, Visibility, check_reference_output_invariants,
-    evaluate_and_record, evaluate_and_record_scored, load_operator_evaluation,
-    load_reference_output_invariants, load_selection, prepare_evaluation, select_and_record,
-    verify_reference_output_invariant_event, verify_selection_event,
+    evaluate_and_record, evaluate_and_record_scored, invariant_event_references,
+    load_operator_evaluation, load_reference_output_invariants, load_selection, prepare_evaluation,
+    select_and_record, verify_reference_output_invariant_event, verify_selection_event,
 };
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
@@ -448,6 +448,10 @@ fn make_invariant_fixture_with_manifest(directory: &TempDir, manifest: &[u8]) ->
     fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
     let overrides = BTreeMap::from([
         (
+            "parent-task-visible-a".to_owned(),
+            (RunCompletionReason::Success, b"a\0".to_vec()),
+        ),
+        (
             "parent-task-visible-b".to_owned(),
             (RunCompletionReason::Success, b"abcdef".to_vec()),
         ),
@@ -600,7 +604,7 @@ fn reference_output_invariants_record_operator_aggregates_and_replay() {
     assert_eq!(receipt["total_evaluated_trials"], 4);
     assert_eq!(receipt["total_checks"], 32);
     assert_eq!(receipt["maximum_regressions"], 0);
-    assert_eq!(receipt["total_paired_regressions"], 4);
+    assert_eq!(receipt["total_paired_regressions"], 3);
     assert_eq!(receipt["regressions_within_budget"], false);
     assert_eq!(receipt["total_candidate_violations"], 4);
     assert_eq!(receipt["candidate_contract_satisfied"], false);
@@ -639,16 +643,16 @@ fn reference_output_invariants_record_operator_aggregates_and_replay() {
             {
                 "predicate": "maximum_output_bytes",
                 "forbidden_ascii_byte": null,
-                "parent_violations": 2,
+                "parent_violations": 1,
                 "candidate_violations": 1,
                 "paired_regressions": 1
             },
             {
                 "predicate": "forbidden_ascii_byte",
                 "forbidden_ascii_byte": 0,
-                "parent_violations": 0,
+                "parent_violations": 1,
                 "candidate_violations": 2,
-                "paired_regressions": 2
+                "paired_regressions": 1
             },
             {
                 "predicate": "forbidden_ascii_byte",
@@ -721,6 +725,25 @@ fn reference_output_invariants_record_operator_aggregates_and_replay() {
         .unwrap();
     assert!(matches!(
         verify_reference_output_invariant_event(stores, &wrong_type_event, &world),
+        Err(ArenaError::InvalidInvariantEvent)
+    ));
+
+    let mut wrong_actor_event = event.clone();
+    wrong_actor_event.actor = "untrusted-actor".to_owned();
+    assert!(matches!(
+        invariant_event_references(&wrong_actor_event),
+        Err(ArenaError::InvalidInvariantEvent)
+    ));
+
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let mut altered_snapshot = event.clone();
+    altered_snapshot.timestamp_millis += 1;
+    assert!(matches!(
+        verify_reference_output_invariant_event(stores, &altered_snapshot, &world),
         Err(ArenaError::InvalidInvariantEvent)
     ));
 

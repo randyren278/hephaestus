@@ -10,7 +10,8 @@
     "crates/hephaestus-ledger/": "cargo test -p hephaestus-ledger --quiet",
     "crates/hephaestus-runtime/": "cargo test -p hephaestus-runtime --all-features --quiet",
     "crates/hephaestus-runtime/src/guardian.rs": "cargo test -p hephaestus-runtime --lib guardian::tests::guardian_kills_descendants_when_worker_leader_exits -- --exact",
-    "python/": "env PYTHONPATH=python python3 -m unittest discover -s python/tests -v"
+    "python/": "env PYTHONPATH=python python3 -m unittest discover -s python/tests -v",
+    "crates/hephaestus-arena/src/invariants.rs": "cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture"
   },
   "timeout_seconds": 120,
   "mutation_timeout_seconds": {
@@ -50,7 +51,8 @@
     "crates/hephaestus-genome/src/registry.rs",
     "crates/hephaestus-runtime/src/reference_instruction.rs",
     "crates/hephaestus-runtime/src/guardian.rs",
-    "crates/hephaestus-experience/src/sink.rs"
+    "crates/hephaestus-experience/src/sink.rs",
+    "crates/hephaestus-arena/src/invariants.rs"
   ],
   "mutations": [
     {
@@ -1800,8 +1802,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2068,6 +2070,83 @@
       "invariant": "The proposal must precede its evaluated child selection in canonical event history.",
       "find": "    if proposal_event.sequence >= evaluation_event.sequence\n        || evaluation_event.sequence >= selection_sequence\n    {",
       "replace": "    if false {"
+    },
+    {
+      "id": "arena-invariant-successful-terminal-required",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "Invariant successes require a signed successful terminal result.",
+      "find": "        |trial| trial.completion_reason == RunCompletionReason::Success,",
+      "replace": "        |_trial| true,"
+    },
+    {
+      "id": "arena-invariant-output-cap-is-inclusive",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "The World invariant output ceiling accepts outputs at the cap and rejects longer bytes.",
+      "find": "        |trial| trial.stdout.len() <= manifest.maximum_output_bytes,",
+      "replace": "        |trial| trial.stdout.len() < manifest.maximum_output_bytes,"
+    },
+    {
+      "id": "arena-invariant-forbidden-byte-detected",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "Every World forbidden ASCII byte is checked in both parent and candidate outputs.",
+      "find": "            |trial| !trial.stdout.contains(byte),",
+      "replace": "            |_trial| true,"
+    },
+    {
+      "id": "arena-invariant-paired-regressions-require-parent-pass",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "Only a parent pass followed by candidate violation counts as a paired regression.",
+      "find": "            .checked_add(u32::from(!parent_violates && candidate_violates))",
+      "replace": "            .checked_add(u32::from(candidate_violates))"
+    },
+    {
+      "id": "arena-invariant-total-checks-count-both-genomes",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "Invariant check totals count parent and candidate predicates for every trial.",
+      "find": "        .and_then(|count| count.checked_mul(2))",
+      "replace": "        .and_then(|count| count.checked_mul(1))"
+    },
+    {
+      "id": "arena-invariant-candidate-contract-requires-zero-violations",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "Candidate contract satisfaction requires zero candidate invariant violations.",
+      "find": "        candidate_contract_satisfied: total_candidate_violations == 0,",
+      "replace": "        candidate_contract_satisfied: true,"
+    },
+    {
+      "id": "arena-invariant-event-rejects-altered-snapshot",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "A supplied invariant event snapshot must equal the verified canonical stored event.",
+      "find": "    if canonical != *event {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "arena-invariant-event-actor-is-fixed",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "Only the invariant checker actor can author canonical invariant events.",
+      "find": "        || event.actor != EVENT_ACTOR",
+      "replace": "        || false"
+    },
+    {
+      "id": "arena-invariant-manifest-output-bound-is-limited",
+      "file": "crates/hephaestus-arena/src/invariants.rs",
+      "invariant": "The World invariant manifest output bound remains within the documented safe range.",
+      "find": "        || !(1..=4_096).contains(&manifest.maximum_output_bytes)",
+      "replace": "        || false"
+    },
+    {
+      "id": "control-invariant-history-unverified-at-startup",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Daemon startup verifies every invariant receipt against its exact canonical event, World, and evaluation evidence.",
+      "find": "        verify_invariant_history(&data_dir, &history, &registered)?;",
+      "replace": "        // mutation: skip invariant history verification at startup"
+    },
+    {
+      "id": "control-arena-invariants-allowed-during-active-job",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Invariant checks cannot consume canonical storage while a direct or Arena job is active.",
+      "find": "                | Command::ArenaInvariants { .. }\n                | Command::GenomeRegister { .. }",
+      "replace": "                // mutation: allow invariant check during active work\n                | Command::GenomeRegister { .. }"
     }
   ]
 }

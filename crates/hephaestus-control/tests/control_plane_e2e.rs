@@ -1094,6 +1094,30 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         "arena:invariants:daemon-owned-pair:checked",
         "invariants.recorded",
     );
+    let invariant_payload = EventStore::open(data_dir.join("events.sqlite3"))
+        .unwrap()
+        .replay_verified()
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_id == "arena:invariants:daemon-owned-pair:checked")
+        .expect("restored invariant event")
+        .payload;
+    rewrite_ledger_event_payload(
+        &data_dir,
+        "arena:invariants:daemon-owned-pair:checked",
+        &invariant_payload,
+        Some("untrusted-actor"),
+    );
+    assert!(
+        ControlPlane::open_with_repository(&data_dir, &repository).is_err(),
+        "startup must reject a hash-valid invariant event from an untrusted actor"
+    );
+    rewrite_ledger_event_payload(
+        &data_dir,
+        "arena:invariants:daemon-owned-pair:checked",
+        &invariant_payload,
+        Some("arena-plane"),
+    );
     restarted = Daemon::start_with_repository(&data_dir, &repository);
     let recovered = Client::new(&data_dir)
         .request(Command::JobStatus {
