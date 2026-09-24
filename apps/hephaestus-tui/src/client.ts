@@ -26,16 +26,21 @@ export class ControlClient {
 		}
 		if (!dir.isDirectory() || dir.uid !== process.getuid?.() || (dir.mode & 0o077) !== 0) throw new Error('data directory must be an owner-only directory (0700)');
 		const tokenPath = join(this.dataDir, 'operator.token');
-		let tokenStat: Stats;
-		let token: string;
-		try {
-			tokenStat = await fs.lstat(tokenPath);
-			token = (await fs.readFile(tokenPath, 'utf8')).trim();
-		} catch {
-			throw new Error('operator token is unavailable');
-		}
-		if (!tokenStat.isFile() || tokenStat.uid !== process.getuid?.() || (tokenStat.mode & 0o077) !== 0) throw new Error('operator token must be an owner-only file (0600)');
-		if (!/^[a-fA-F0-9]{64}$/.test(token)) throw new Error('operator token file is malformed');
+	let tokenStat: Stats;
+	let token: string;
+	try {
+		tokenStat = await fs.lstat(tokenPath);
+	} catch {
+		throw new Error('operator token is unavailable');
+	}
+	if (!tokenStat.isFile() || tokenStat.uid !== process.getuid?.() || (tokenStat.mode & 0o077) !== 0) throw new Error('operator token must be an owner-only file (0600)');
+	if (tokenStat.size !== 64) throw new Error('operator token file is malformed');
+	try {
+		token = await fs.readFile(tokenPath, 'utf8');
+	} catch {
+		throw new Error('operator token is unavailable');
+	}
+	if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('operator token file is malformed');
 		const request: ApiRequest = {version: 1, request_id: `tui-${process.pid}-${randomUUID()}`, token, command};
 		const payload = Buffer.from(JSON.stringify(request));
 		if (payload.length > this.maxFrameBytes) throw new Error('request exceeds protocol limit');
