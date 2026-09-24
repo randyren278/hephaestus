@@ -109,8 +109,10 @@ and that decision is itself a ledgered event.
 - **macOS only for execution.** Isolation is Seatbelt. On other hosts the
   daemon refuses to launch candidate processes rather than running them
   unsandboxed. Registration, replay, and inspection work everywhere.
-- **No TUI, web console, Gene Bank, drift detection, or autonomous loop.** See
-  [ROADMAP.md](ROADMAP.md) for the order they arrive in.
+- **The Ink TUI runs from a source checkout.** It provides local status and
+  controls, but clean-user packaging and the full Arena/lineage views are still
+  roadmap work. See [its setup guide](apps/hephaestus-tui/README.md). There is
+  no web console, Gene Bank, drift detection, or autonomous loop yet.
 
 ---
 
@@ -217,6 +219,7 @@ the job status becomes terminal only after supervised process termination.
 | `hephaestus submit <job-id> <genome>` | Submit a bounded async direct reference run |
 | `hephaestus job status <job-id>` | Inspect durable state and last recorded trace progress |
 | `hephaestus job kill <job-id>` | Request cancellation; confirm termination with `job status` |
+| `hephaestus tui` | Open the source-checkout Ink operator console (Node.js 22+ and `npm ci` required) |
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
 | `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
 | `hephaestus replay` | Verify history and compare it with live state |
