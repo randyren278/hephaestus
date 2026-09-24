@@ -48,9 +48,15 @@ pub(crate) struct GuardianLaunch {
 /// worker output/termination failure.
 pub fn run_process_guardian() -> Result<(), RuntimeError> {
     let control = BufReader::new(File::open("/dev/stdin")?);
+    run_process_guardian_with(control, std::env::current_exe()?)
+}
+
+fn run_process_guardian_with(
+    control: BufReader<File>,
+    anchor_executable: PathBuf,
+) -> Result<(), RuntimeError> {
     let (config, input, control) = read_launch(control)?;
 
-    let anchor_executable = std::env::current_exe()?;
     let mut anchor_command = Command::new(anchor_executable);
     anchor_command
         .arg("--hold-worker-group")
@@ -135,13 +141,29 @@ pub fn run_process_guardian() -> Result<(), RuntimeError> {
 /// Returns an error if the parent cannot establish the anchor handshake.
 pub fn hold_process_group_anchor() -> Result<(), RuntimeError> {
     let mut stdout = io::stdout().lock();
+    let mut stdin = io::stdin().lock();
+    let process_group = process_pid(std::process::id())?;
+    hold_anchor_with(&mut stdout, &mut stdin, process_group, |group| {
+        send_group_signal(group, Signal::Kill)
+    })
+}
+
+fn hold_anchor_with<W, R, F>(
+    stdout: &mut W,
+    stdin: &mut R,
+    process_group: Pid,
+    signal_group: F,
+) -> Result<(), RuntimeError>
+where
+    W: Write,
+    R: Read,
+    F: FnOnce(Pid) -> Result<(), Errno>,
+{
     stdout.write_all(b"R")?;
     stdout.flush()?;
-    let mut stdin = io::stdin().lock();
     let mut byte = [0_u8; 1];
     let _ = stdin.read(&mut byte);
-    let process_group = process_pid(std::process::id())?;
-    match send_group_signal(process_group, Signal::Kill) {
+    match signal_group(process_group) {
         Ok(()) | Err(Errno::SRCH) => Ok(()),
         Err(error) => Err(io::Error::from(error).into()),
     }
@@ -324,16 +346,22 @@ fn terminate_and_reap(
 #[cfg(test)]
 mod tests {
     use std::{
-        io::Cursor,
-        os::unix::process::CommandExt as _,
+        fs::{self, File},
+        io::{BufReader, Cursor, Seek as _, Write as _},
+        os::fd::OwnedFd,
+        os::unix::{fs::PermissionsExt as _, net::UnixStream, process::CommandExt as _},
+        path::PathBuf,
         process::{Command, Stdio},
         thread,
         time::Duration,
     };
 
+    use rustix::io::Errno;
+
     use super::{
-        GuardianLaunch, MAX_GUARDIAN_INPUT_BYTES, anchor_has_exited, kill_process_group,
-        read_launch, terminate_anchor,
+        GuardianLaunch, MAX_GUARDIAN_INPUT_BYTES, RuntimeError, anchor_has_exited,
+        hold_anchor_with, kill_process_group, process_pid, read_launch, run_process_guardian_with,
+        terminate_anchor, terminate_and_reap,
     };
 
     fn launch(input_bytes: usize) -> GuardianLaunch {
@@ -354,6 +382,58 @@ mod tests {
         bytes.extend_from_slice(input);
         bytes.push(separator);
         bytes
+    }
+
+    fn control_frame(program: &str, arguments: &[&str], input: &[u8]) -> BufReader<File> {
+        let config = GuardianLaunch {
+            program: program.to_owned(),
+            arguments: arguments
+                .iter()
+                .map(|argument| (*argument).to_owned())
+                .collect(),
+            current_dir: "/tmp".into(),
+            home: "/tmp".into(),
+            temp: "/tmp".into(),
+            path: None,
+            input_bytes: input.len(),
+        };
+        let mut bytes = frame(&config, input, b'\n');
+        bytes.extend_from_slice(b"continue\n");
+        let mut file = tempfile::tempfile().expect("create control frame");
+        file.write_all(&bytes).expect("write control frame");
+        file.rewind().expect("rewind control frame");
+        BufReader::new(file)
+    }
+
+    fn open_control_frame(
+        program: &str,
+        arguments: &[&str],
+        input: &[u8],
+    ) -> (BufReader<File>, UnixStream) {
+        let config = GuardianLaunch {
+            program: program.to_owned(),
+            arguments: arguments
+                .iter()
+                .map(|argument| (*argument).to_owned())
+                .collect(),
+            current_dir: "/tmp".into(),
+            home: "/tmp".into(),
+            temp: "/tmp".into(),
+            path: None,
+            input_bytes: input.len(),
+        };
+        let bytes = frame(&config, input, b'\n');
+        let (reader, mut writer) = UnixStream::pair().expect("create control pipe");
+        writer.write_all(&bytes).expect("write control frame");
+        (BufReader::new(File::from(OwnedFd::from(reader))), writer)
+    }
+
+    fn anchor_script(directory: &std::path::Path, script: &str) -> PathBuf {
+        let path = directory.join("anchor.sh");
+        fs::write(&path, format!("#!/bin/sh\n{script}\n")).expect("write anchor script");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+            .expect("make anchor executable");
+        path
     }
 
     #[test]
@@ -427,5 +507,121 @@ mod tests {
             thread::sleep(Duration::from_millis(1));
         }
         assert!(anchor.wait().expect("reap observed anchor").success());
+    }
+
+    #[test]
+    fn terminate_and_reap_kills_worker_group_and_reaps_both_children() {
+        let mut anchor = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("start process-group anchor");
+        let mut worker = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(i32::try_from(anchor.id()).expect("anchor pid fits pgid"))
+            .spawn()
+            .expect("start grouped worker");
+
+        terminate_and_reap(&mut worker, &mut anchor).expect("terminate group and reap children");
+
+        assert!(worker.try_wait().expect("poll reaped worker").is_some());
+        assert!(anchor.try_wait().expect("poll reaped anchor").is_some());
+    }
+
+    #[test]
+    fn guardian_reaps_anchor_that_fails_the_readiness_handshake() {
+        let directory = tempfile::tempdir().expect("anchor directory");
+        let error = run_process_guardian_with(
+            control_frame("/bin/cat", &[], b""),
+            anchor_script(directory.path(), "exit 1"),
+        )
+        .expect_err("failed anchor handshake");
+
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("guardian anchor failed to start")
+        ));
+    }
+
+    #[test]
+    fn guardian_reaps_anchor_when_worker_spawn_fails() {
+        let directory = tempfile::tempdir().expect("anchor directory");
+        let error = run_process_guardian_with(
+            control_frame("/missing/worker", &[], b""),
+            anchor_script(directory.path(), "printf R; exec /bin/sleep 30"),
+        )
+        .expect_err("missing worker executable");
+
+        assert!(matches!(error, RuntimeError::Io(_)));
+    }
+
+    #[test]
+    fn guardian_rejects_worker_that_closes_stdin_before_receiving_the_frame() {
+        let directory = tempfile::tempdir().expect("anchor directory");
+        let error = run_process_guardian_with(
+            control_frame("/usr/bin/true", &[], &vec![b'x'; 1_048_576]),
+            anchor_script(directory.path(), "printf R; exec /bin/sleep 30"),
+        )
+        .expect_err("worker did not receive its full request");
+
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("guardian worker exited unsuccessfully")
+        ));
+    }
+
+    #[test]
+    fn guardian_terminates_worker_when_anchor_exits_after_startup() {
+        let directory = tempfile::tempdir().expect("anchor directory");
+        let (control, _keep_control_open) = open_control_frame("/bin/sleep", &["30"], b"");
+        let error = run_process_guardian_with(
+            control,
+            anchor_script(directory.path(), "printf R; /bin/sleep 0.1"),
+        )
+        .expect_err("anchor exited before its worker");
+
+        assert!(
+            matches!(
+                error,
+                RuntimeError::InvalidSpec("guardian anchor exited early")
+            ),
+            "unexpected guardian error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn anchor_handshake_signals_only_after_readiness_and_control_eof() {
+        let process_group = process_pid(std::process::id()).expect("current pid");
+        let mut stdout = Vec::new();
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+        let mut signaled = None;
+
+        hold_anchor_with(&mut stdout, &mut stdin, process_group, |group| {
+            signaled = Some(group);
+            Ok(())
+        })
+        .expect("complete anchor handshake");
+
+        assert_eq!(stdout, b"R");
+        assert_eq!(signaled, Some(process_group));
+    }
+
+    #[test]
+    fn anchor_handshake_propagates_group_signal_failure() {
+        let process_group = process_pid(std::process::id()).expect("current pid");
+        let mut stdout = Vec::new();
+        let mut stdin = Cursor::new(Vec::<u8>::new());
+
+        let error = hold_anchor_with(&mut stdout, &mut stdin, process_group, |_| Err(Errno::PERM))
+            .expect_err("group signal failure");
+
+        assert!(matches!(error, RuntimeError::Io(_)));
+        assert_eq!(stdout, b"R");
     }
 }
