@@ -29,7 +29,7 @@ jobs:
           shared-key: ubuntu-stable-dependencies
           cache-bin: "false"
           save-if: "true"
-          cache-on-failure: "false"
+          cache-on-failure: "true"
 
       - uses: actions/setup-python@v6
         with:
@@ -53,6 +53,9 @@ jobs:
       - name: macOS package builder and installer contracts
         run: python -m unittest discover -s scripts/tests -p 'test_macos_package.py' -v
 
+      - name: Prepare mutation build dependencies
+        run: cargo test --workspace --all-features --no-run
+
       - name: Tests with coverage
         run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 
@@ -60,9 +63,6 @@ jobs:
         run: >-
           python checks/coverage_gate.py
           --manifest checks/checks.json --report lcov.info
-
-      - name: Prepare mutation build dependencies
-        run: cargo test --workspace --all-features --no-run
 
       - name: Preserve Rust coverage report
         if: always()
