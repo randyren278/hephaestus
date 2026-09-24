@@ -8509,11 +8509,17 @@ struct AssessedChild {
 
 /// Evaluates `parent` against `candidate`, proposes a one-flip child of
 /// `candidate`, evaluates and assesses that child against `candidate`.
+///
+/// Selection's Pareto gate compares measured wall-clock latency, so an
+/// improving child can measure as rejected on a slow scheduler tick. When
+/// `require_metrics_pass` is set, the paired child evaluation is repeated
+/// (bounded) until its verified receipt passes; every attempt stays in history.
 fn assessed_forge_child(
     plane: &mut ControlPlane,
     prefix: &str,
     parent: &str,
     candidate: &str,
+    require_metrics_pass: bool,
 ) -> AssessedChild {
     let source_evaluation = format!("{prefix}-source");
     complete_arena_test_job(plane, &source_evaluation, parent, candidate);
@@ -8534,18 +8540,29 @@ fn assessed_forge_child(
     else {
         panic!("proposal should return its durable record");
     };
-    let evaluation = format!("{prefix}-child");
-    complete_arena_test_job(
-        plane,
-        &evaluation,
-        candidate,
-        &proposal.payload.child.genome_id,
-    );
-    let ResponseData::Selection { selection: child } = plane
-        .select_arena_evaluation(&evaluation)
-        .expect("select child evaluation")
-    else {
-        panic!("child selection should produce a receipt");
+    let mut attempt = 0;
+    let (evaluation, child) = loop {
+        let evaluation = format!("{prefix}-child-{attempt}");
+        complete_arena_test_job(
+            plane,
+            &evaluation,
+            candidate,
+            &proposal.payload.child.genome_id,
+        );
+        let ResponseData::Selection { selection: child } = plane
+            .select_arena_evaluation(&evaluation)
+            .expect("select child evaluation")
+        else {
+            panic!("child selection should produce a receipt");
+        };
+        if !require_metrics_pass || child.receipt.metrics_eligible() {
+            break (evaluation, child);
+        }
+        attempt += 1;
+        assert!(
+            attempt < 12,
+            "an improving child never passed the measured gate"
+        );
     };
     plane
         .assess_genome(
@@ -8716,6 +8733,7 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         "improve",
         &initial_parent.genome_id,
         &initial_candidate.genome_id,
+        true,
     );
     let world_id = assessed.world.clone();
     let seed = |transition_id: &str, genome_id: &str| Command::ChampionSeed {
@@ -8972,6 +8990,7 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         "regress",
         &initial_candidate.genome_id,
         &assessed.child,
+        false,
     );
     assert_ne!(regressed.selection_event, assessed.selection_event);
     assert_champion_error(
@@ -9152,6 +9171,7 @@ fn assert_promotion_refused_by_invariants(manifest: &[u8], regressions_within_bu
         "violating",
         &initial_parent.genome_id,
         &initial_candidate.genome_id,
+        true,
     );
     champion_transition(
         &mut plane,
