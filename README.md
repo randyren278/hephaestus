@@ -142,7 +142,7 @@ language: the parent returns each input unchanged and the child uppercases it.
 Its release run checks for a visible score improvement from 0/1 to 1/1 and two
 total correctness improvements including the sealed task. Execution uses the
 release Seatbelt sandbox and produces signed receipts and CAS outputs.
-Promotion remains disabled until the independent invariant gate is verified.
+Promotion remains disabled until invariant evidence is joined to selection in a verified promotion decision.
 
 ## Daily use
 

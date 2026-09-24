@@ -38,7 +38,7 @@ hephaestus init --fixture quickstart ./hephaestus-quickstart
 
 This copies the World template, Markdown Genomes, task manifests, and instructions into the new directory. It also creates and commits a small Git repository in a `repository` subdirectory; use that folder as `--source-repository` when starting `hephaestusd`. Register the World and Genomes with the installed `hephaestus` CLI, then use `run`, `arena evaluate`, `arena select`, `replay`, and `tui` as described by the copied README.
 
-The package contains no hosted model credentials and does not invoke a paid provider. Its quickstart uses the bounded offline reference instruction language only. Promotion remains disabled until the independent invariant gate is verified.
+The package contains no hosted model credentials and does not invoke a paid provider. Its quickstart uses the bounded offline reference instruction language only. Promotion remains disabled until invariant evidence is joined to selection in a verified promotion decision.
 
 ## Platform and release limits
 
