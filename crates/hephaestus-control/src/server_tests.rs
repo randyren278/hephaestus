@@ -2748,6 +2748,71 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     );
     drop(trials_error_database);
 
+    let cross_run_id = "arena-cross-run-evidence";
+    assert!(matches!(
+        plane
+            .submit_arena_job(cross_run_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit cross-run Arena evidence fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let cross_run_cancel = Arc::clone(
+        &plane
+            .active_arena_job
+            .as_ref()
+            .expect("active cross-run Arena job")
+            .cancel,
+    );
+    let (cross_run_sender, cross_run_receiver) = mpsc::sync_channel(1);
+    let (cross_run_reply, cross_run_response) = mpsc::channel();
+    cross_run_sender
+        .send(EvidenceRequest::EnsureCapacity {
+            run_id: "foreign-arena-trial".to_owned(),
+            needed: 2,
+            reply: cross_run_reply,
+        })
+        .expect("queue evidence from a non-admitted run");
+    plane.job_evidence_receiver = Some(cross_run_receiver);
+    plane
+        .service_async_messages()
+        .expect("reject cross-run Arena evidence");
+    assert!(
+        cross_run_response
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer returns evidence rejection")
+            .is_err()
+    );
+    assert!(cross_run_cancel.load(Ordering::Acquire));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist failed terminal after cross-run Arena evidence");
+        assert!(
+            Instant::now() < deadline,
+            "cross-run Arena job did not unwind"
+        );
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let cross_run_terminal = &plane.state.arena_jobs[cross_run_id];
+    assert_eq!(cross_run_terminal.state, JobState::Failed);
+    assert_eq!(cross_run_terminal.terminal, Some(JobTerminal::Failed));
+    assert!(cross_run_terminal.evaluation.is_none());
+    assert_eq!(
+        plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify cross-run Arena failure")
+            .iter()
+            .filter(|event| event.event_id == format!("arena-job:{cross_run_id}:terminal"))
+            .count(),
+        1
+    );
+
     assert!(matches!(
         plane
             .submit_arena_job("scoring-failure", &parent.genome_id, &candidate.genome_id)
@@ -2968,6 +3033,131 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
         plane
             .replay_response()
             .expect("replay timed-out Arena terminal"),
+        ResponseData::Replay { .. }
+    ));
+
+    let deadline_replay_id = "deadline-terminal-replay";
+    assert!(matches!(
+        plane
+            .submit_arena_job(deadline_replay_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit Arena deadline replay fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    plane
+        .active_arena_job
+        .as_mut()
+        .expect("active Arena deadline replay fixture")
+        .overall_deadline = Instant::now()
+        .checked_sub(Duration::from_millis(1))
+        .expect("monotonic clock supports one millisecond lookback");
+    let deadline_database = rusqlite::Connection::open(data_dir.join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    deadline_database
+        .execute_batch(
+            "CREATE TRIGGER reject_deadline_cancellation BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:deadline-terminal-replay:cancellation_requested'
+             BEGIN SELECT RAISE(ABORT, 'fixture deadline append failure'); END;",
+        )
+        .expect("reject deadline cancellation append");
+    assert!(matches!(
+        plane.enforce_arena_deadline(),
+        Err(ControlError::Projection(message))
+            if message == "Arena deadline could not be persisted"
+    ));
+    assert_eq!(
+        plane.state.arena_jobs[deadline_replay_id].state,
+        JobState::Running
+    );
+    let active = plane
+        .active_arena_job
+        .as_ref()
+        .expect("deadline remains active after rejected append");
+    assert!(
+        !active.overall_timed_out,
+        "failed persistence remains retryable"
+    );
+    assert!(active.cancel.load(Ordering::Acquire));
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after rejected deadline append");
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("arena-job:{deadline_replay_id}:cancellation_requested")
+            || event.event_id == format!("arena-job:{deadline_replay_id}:terminal")
+    }));
+    deadline_database
+        .execute_batch("DROP TRIGGER reject_deadline_cancellation;")
+        .expect("restore fixture deadline writes");
+    plane
+        .enforce_arena_deadline()
+        .expect("retry and persist durable deadline cancellation request");
+    assert_eq!(
+        plane.state.arena_jobs[deadline_replay_id].state,
+        JobState::CancellationRequested
+    );
+    assert!(
+        plane
+            .active_arena_job
+            .as_ref()
+            .expect("active timed-out Arena job")
+            .overall_timed_out
+    );
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify durable deadline request");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| {
+                event.event_id == format!("arena-job:{deadline_replay_id}:cancellation_requested")
+            })
+            .count(),
+        1
+    );
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_id == format!("arena-job:{deadline_replay_id}:terminal"))
+    );
+    drop(deadline_database);
+    drop(plane);
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("recover timed-out Arena job after restart");
+    let recovered_deadline = &plane.state.arena_jobs[deadline_replay_id];
+    assert_eq!(recovered_deadline.state, JobState::Interrupted);
+    assert_eq!(recovered_deadline.terminal, Some(JobTerminal::Cancelled));
+    assert!(recovered_deadline.evaluation.is_none());
+    assert!(plane.active_arena_job.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify recovered deadline terminal");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == format!("arena-job:{deadline_replay_id}:terminal"))
+            .count(),
+        1
+    );
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay recovered Arena deadline terminal"),
         ResponseData::Replay { .. }
     ));
 

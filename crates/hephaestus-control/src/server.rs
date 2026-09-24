@@ -1234,7 +1234,6 @@ impl ControlPlane {
             let active = self.active_arena_job.as_mut().ok_or_else(|| {
                 ControlError::Projection("Arena job disappeared at its deadline".to_owned())
             })?;
-            active.overall_timed_out = true;
             active.cancel.store(true, Ordering::Release);
             let mut record = active.record.clone();
             record.state = JobState::CancellationRequested;
@@ -1243,6 +1242,9 @@ impl ControlPlane {
         self.append_arena_job_record(&record).map_err(|_| {
             ControlError::Projection("Arena deadline could not be persisted".to_owned())
         })?;
+        if let Some(active) = self.active_arena_job.as_mut() {
+            active.overall_timed_out = true;
+        }
         Ok(())
     }
 

@@ -1984,6 +1984,13 @@
       "invariant": "A scorer thread launch failure after signed trials is persisted as an interrupted Arena terminal before releasing the active slot.",
       "find": "            self.append_arena_job_record(&terminal).map_err(|_| {\n                ControlError::Projection(\n                    \"Arena scorer launch failure could not be recorded\".to_owned(),\n                )\n            })?;",
       "replace": "            let _ = terminal; // mutation: skip terminal append after scorer launch failure"
+    },
+    {
+      "id": "arena-deadline-append-failure-not-retried",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An expired Arena deadline remains retryable until its cancellation transition is durably appended.",
+      "find": "            !active.overall_timed_out\n                && active.record.state == JobState::Running",
+      "replace": "            !active.cancel.load(Ordering::Acquire)\n                && active.record.state == JobState::Running"
     }
   ]
 }
