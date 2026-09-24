@@ -5594,18 +5594,22 @@ mod tests {
             .and_then(Path::parent)
             .expect("locate Cargo binary directory")
             .to_owned();
-        let evaluator = bin_directory.join(format!(
+        let cargo_evaluator = bin_directory.join(format!(
             "hephaestus-reference-evaluator{}",
             std::env::consts::EXE_SUFFIX
         ));
+        assert!(
+            cargo_evaluator.is_file(),
+            "Cargo evaluator binary missing: {cargo_evaluator:?}"
+        );
+        let evaluator = directory.path().join("fixture-evaluator");
+        fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into a private inode");
+        fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+            .expect("mark fixture evaluator executable");
         let worker = bin_directory.join(format!(
             "hephaestus-reference-worker{}",
             std::env::consts::EXE_SUFFIX
         ));
-        assert!(
-            evaluator.is_file(),
-            "Cargo evaluator binary missing: {evaluator:?}"
-        );
         assert!(worker.is_file(), "Cargo worker binary missing: {worker:?}");
         let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
             &data_dir,
