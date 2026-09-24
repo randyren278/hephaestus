@@ -2870,6 +2870,219 @@ fn late_arena_worker_messages_are_ignored_or_rejected_after_job_closes() {
     assert!(plane.service_arena_message().is_err());
 }
 
+fn service_test_arena_evidence(plane: &mut ControlPlane) {
+    for _ in 0..8 {
+        let request = plane
+            .job_evidence_receiver
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok());
+        let Some(request) = request else { break };
+        let active = plane
+            .active_arena_job
+            .as_ref()
+            .expect("evidence belongs to active Arena job");
+        assert!(active.trials.iter().any(|trial| {
+            trial.spec.run_id() == request.run_id()
+                && request.provenance().is_none_or(|provenance| {
+                    provenance.run_id() == trial.spec.run_id()
+                        && provenance.genome_id() == trial.spec.genome_id()
+                        && provenance.world_id() == trial.spec.world_id()
+                })
+        }));
+
+        let storage = plane.storage.take().expect("canonical writer available");
+        let mut recorder = EvidenceRecorder::from_stores(
+            storage.ledger,
+            storage.artifacts,
+            RedactionPolicy::new([plane.token_hex.clone()]),
+            RetentionLimits::new(10_000, 65_536).expect("valid trace limits"),
+        );
+        let result = request.persist(&mut recorder);
+        let (ledger, artifacts) = recorder.into_stores();
+        plane.storage = Some(CanonicalStorage { ledger, artifacts });
+        result.expect("persist authentic worker evidence");
+        plane
+            .refresh_projection()
+            .expect("project authentic worker evidence");
+    }
+}
+
+fn wait_for_test_arena_trial(plane: &mut ControlPlane, deadline: Instant) -> ArenaWorkerMessage {
+    loop {
+        service_test_arena_evidence(plane);
+        match plane
+            .arena_message_receiver
+            .as_ref()
+            .expect("Arena worker channel")
+            .try_recv()
+        {
+            Ok(message @ ArenaWorkerMessage::Trial { .. }) => return message,
+            Ok(ArenaWorkerMessage::Trials { result, .. }) => {
+                panic!("worker finished before returning its first Trial: {result:?}");
+            }
+            Ok(ArenaWorkerMessage::Scoring { .. }) => {
+                panic!("worker scored before returning a Trial");
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                assert!(Instant::now() < deadline, "worker did not return a Trial");
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                panic!("Arena worker disconnected before returning a Trial");
+            }
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained() {
+    let directory = tempdir().expect("Arena fixture directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Arena handshake fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(
+        cargo_evaluator.is_file(),
+        "missing evaluator {cargo_evaluator:?}"
+    );
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open real worker fixture");
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) = register_dispatch_arena_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-handshake", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let job_id = "trial-ack-rejection";
+    let first_run_id = paired_run_id(job_id, "parent", 0);
+    let database = rusqlite::Connection::open(data_dir.join("events.sqlite3"))
+        .expect("open trial failure trigger connection");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_fixture_trial_result BEFORE INSERT ON events
+             WHEN NEW.event_id = 'result:{first_run_id}'
+             BEGIN SELECT RAISE(ABORT, 'fixture trial result rejection'); END;"
+        ))
+        .expect("reject the first trial result append");
+    assert!(matches!(
+        plane
+            .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit real Arena worker job"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let message = wait_for_test_arena_trial(&mut plane, deadline);
+    let ArenaWorkerMessage::Trial {
+        job_id: trial_job_id,
+        index,
+        output,
+        reply,
+    } = message
+    else {
+        unreachable!("helper returns only trial messages");
+    };
+    assert_eq!(trial_job_id, job_id);
+    assert_eq!(index, 0);
+    assert!(output.is_ok(), "real reference worker must return a Trial");
+    plane
+        .arena_message_sender
+        .as_ref()
+        .expect("Arena message sender")
+        .send(ArenaWorkerMessage::Trial {
+            job_id: trial_job_id,
+            index,
+            output,
+            reply,
+        })
+        .expect("return trial to canonical writer");
+    plane
+        .service_arena_message()
+        .expect("persist trial failure acknowledgement");
+    assert!(
+        plane
+            .active_arena_job
+            .as_ref()
+            .expect("failed acknowledgement retains active job until final message")
+            .cancel
+            .load(Ordering::Acquire),
+        "failed canonical trial append cancels the worker"
+    );
+
+    while plane.active_arena_job.is_some() {
+        service_test_arena_evidence(&mut plane);
+        plane
+            .service_arena_message()
+            .expect("drain worker's final Trials failure");
+        assert!(Instant::now() < deadline, "worker failure was not drained");
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let terminal = plane.state.arena_jobs.get(job_id).expect("failed job");
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert!(terminal.evaluation.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify failed worker handshake history");
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_id == format!("result:{first_run_id}"))
+    );
+    assert!(history.iter().any(|event| {
+        event.event_id == format!("arena-job:{job_id}:terminal")
+            && event.event_type == "arena.job.terminal"
+    }));
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("arena:evaluation:{job_id}:recorded")
+            && event.event_type == "evaluation.recorded"
+    }));
+    drop(database);
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
