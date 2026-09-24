@@ -3578,6 +3578,116 @@ fn arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained() 
 
 #[test]
 #[allow(clippy::too_many_lines)]
+fn arena_trial_acknowledgement_disconnect_fails_and_replays_without_next_trial() {
+    let directory = tempdir().expect("Arena fixture directory");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let job_id = "trial-ack-disconnected";
+    assert!(matches!(
+        plane
+            .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit real Arena worker job"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let message = wait_for_test_arena_trial(&mut plane, deadline);
+    let ArenaWorkerMessage::Trial {
+        job_id: trial_job_id,
+        index,
+        output,
+        reply,
+    } = message
+    else {
+        unreachable!("helper returns only trial messages");
+    };
+    assert_eq!(trial_job_id, job_id);
+    assert_eq!(index, 0);
+    assert!(output.is_ok(), "real reference worker must return a Trial");
+    drop(reply);
+
+    let final_message = loop {
+        service_test_arena_evidence(&mut plane);
+        match plane
+            .arena_message_receiver
+            .as_ref()
+            .expect("Arena worker channel")
+            .try_recv()
+        {
+            Ok(message @ ArenaWorkerMessage::Trials { .. }) => break message,
+            Ok(ArenaWorkerMessage::Trial { index, .. }) => {
+                panic!("worker returned unexpected second trial at index {index}");
+            }
+            Ok(ArenaWorkerMessage::Scoring { .. }) => {
+                panic!("worker scored after losing its trial acknowledgement");
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                assert!(Instant::now() < deadline, "worker failure was not drained");
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                panic!("Arena worker disconnected before its final failure message");
+            }
+        }
+    };
+    let ArenaWorkerMessage::Trials {
+        job_id: final_job_id,
+        result,
+    } = &final_message
+    else {
+        unreachable!("loop accepts only final Trials messages");
+    };
+    assert_eq!(final_job_id, job_id);
+    assert!(
+        result.is_err(),
+        "lost acknowledgement must fail worker execution"
+    );
+    plane
+        .arena_message_sender
+        .as_ref()
+        .expect("Arena message sender")
+        .send(final_message)
+        .expect("return actual worker failure to canonical writer");
+    plane
+        .service_arena_message()
+        .expect("persist failed worker terminal");
+
+    let terminal = plane.state.arena_jobs.get(job_id).expect("failed job");
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert_eq!(terminal.completed_trials, 0);
+    assert!(terminal.evaluation.is_none());
+    assert!(plane.active_arena_job.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify failed worker handshake history");
+    let first_run_id = paired_run_id(job_id, "parent", 0);
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("result:{first_run_id}")
+            || event.event_type == "evaluation.recorded"
+    }));
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| {
+                event.event_id == format!("arena-job:{job_id}:terminal")
+                    && event.event_type == "arena.job.terminal"
+            })
+            .count(),
+        1,
+        "one durable terminal record"
+    );
+    assert!(matches!(
+        plane.replay_response().expect("replay failed job history"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
 fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let directory = tempdir().expect("fixture directory");
     let data_dir = directory.path().join("data");
