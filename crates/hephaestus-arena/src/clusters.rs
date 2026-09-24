@@ -187,7 +187,10 @@ pub fn cluster_trials(
     for trial in visible {
         match completion_signature(trial.completion_reason) {
             Some(key) => bump(key, false),
-            None => bump(shape_signature(&trial.expected_output, &trial.actual_output), false),
+            None => bump(
+                shape_signature(&trial.expected_output, &trial.actual_output),
+                false,
+            ),
         }
     }
     for reason in sealed {
@@ -361,7 +364,14 @@ pub fn check_failure_clusters(
     world: &CompiledWorld,
     timestamp_millis: i64,
 ) -> Result<OperatorClusterAnalysis, ArenaError> {
-    check(stores, analysis_id, evaluation_id, world, timestamp_millis, true)
+    check(
+        stores,
+        analysis_id,
+        evaluation_id,
+        world,
+        timestamp_millis,
+        true,
+    )
 }
 
 /// Recomputes an existing cluster analysis without appending an event.
@@ -491,7 +501,10 @@ fn compute_analysis(
         visible_expected.insert(task.task_id.clone(), task.expected_output.clone());
     }
     for task in &sealed.tasks {
-        if task_inputs.insert(task.task_id.clone(), task.input.clone()).is_some() {
+        if task_inputs
+            .insert(task.task_id.clone(), task.input.clone())
+            .is_some()
+        {
             return Err(ArenaError::InvalidStoredReceipt("cluster task set"));
         }
         sealed_ids.insert(task.task_id.clone());
@@ -532,8 +545,13 @@ fn compute_analysis(
     let clusters = cluster_trials(&visible_trials, &sealed_reasons);
     let total_visible_failed_trials =
         u32::try_from(visible_trials.len()).map_err(|_| ArenaError::TooManyTasks)?;
-    let total_sealed_failed_trials =
-        u32::try_from(sealed_reasons.len()).map_err(|_| ArenaError::TooManyTasks)?;
+    let total_sealed_failed_trials = u32::try_from(
+        sealed_reasons
+            .iter()
+            .filter(|reason| completion_signature(**reason).is_some())
+            .count(),
+    )
+    .map_err(|_| ArenaError::TooManyTasks)?;
 
     Ok(ClusterAnalysis {
         schema_version: RECEIPT_SCHEMA_VERSION,
@@ -632,7 +650,11 @@ pub const CLUSTER_EVENT_PREFIX: &str = EVENT_ID_PREFIX;
 mod tests {
     use super::*;
 
-    fn visible(completion_reason: RunCompletionReason, expected: &str, actual: &str) -> VisibleTrial {
+    fn visible(
+        completion_reason: RunCompletionReason,
+        expected: &str,
+        actual: &str,
+    ) -> VisibleTrial {
         VisibleTrial {
             completion_reason,
             expected_output: expected.to_owned(),
@@ -656,7 +678,11 @@ mod tests {
 
     #[test]
     fn whitespace_difference_has_no_supported_mutation() {
-        let trials = vec![visible(RunCompletionReason::Success, "hello world", "hello  world\n")];
+        let trials = vec![visible(
+            RunCompletionReason::Success,
+            "hello world",
+            "hello  world\n",
+        )];
         let clusters = cluster_trials(&trials, &[]);
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].signature, "shape_whitespace");
@@ -665,7 +691,11 @@ mod tests {
 
     #[test]
     fn truncated_output_is_classified_and_unsupported() {
-        let trials = vec![visible(RunCompletionReason::Success, "hello world", "hello")];
+        let trials = vec![visible(
+            RunCompletionReason::Success,
+            "hello world",
+            "hello",
+        )];
         let clusters = cluster_trials(&trials, &[]);
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].signature, "shape_truncation");
@@ -718,7 +748,10 @@ mod tests {
         ];
         let clusters = cluster_trials(&trials, &[]);
         let signatures: Vec<_> = clusters.iter().map(|c| c.signature.as_str()).collect();
-        assert_eq!(signatures, vec!["budget_output_exceeded", "budget_wall_exceeded"]);
+        assert_eq!(
+            signatures,
+            vec!["budget_output_exceeded", "budget_wall_exceeded"]
+        );
     }
 
     #[test]

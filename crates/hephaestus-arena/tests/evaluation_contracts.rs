@@ -10,11 +10,12 @@ use std::{
 
 use hephaestus_arena::{
     ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
-    IsolatedEvaluator, OperatorEvaluation, ReceiptContext, SelectionReceipt, TrialPlan,
-    TrustedManifest, TrustedTask, Visibility, check_reference_output_invariants,
-    evaluate_and_record, evaluate_and_record_scored, invariant_event_references,
-    load_operator_evaluation, load_reference_output_invariants, load_selection, prepare_evaluation,
-    select_and_record, verify_reference_output_invariant_event, verify_selection_event,
+    IsolatedEvaluator, OperatorEvaluation, ReceiptContext, SelectionReceipt, SuggestedMutation,
+    TrialPlan, TrustedManifest, TrustedTask, Visibility, check_failure_clusters,
+    check_reference_output_invariants, evaluate_and_record, evaluate_and_record_scored,
+    invariant_event_references, load_failure_clusters, load_operator_evaluation,
+    load_reference_output_invariants, load_selection, prepare_evaluation, select_and_record,
+    verify_cluster_event, verify_reference_output_invariant_event, verify_selection_event,
 };
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
@@ -2363,4 +2364,183 @@ fn wrong_event_identity_and_conflicting_retry_fail_before_writes() {
     );
     assert!(matches!(result, Err(ArenaError::EvaluationConflict(_))));
     assert_eq!(artifact_file_count(&directory), before);
+}
+
+fn make_cluster_fixture(directory: &TempDir) -> Fixture {
+    let evaluator_path = directory.path().join("hephaestus-evaluator");
+    fs::copy(env!("CARGO_BIN_EXE_hephaestus-evaluator"), &evaluator_path).unwrap();
+    fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
+    let overrides = BTreeMap::from([
+        (
+            "candidate-task-visible-a".to_owned(),
+            (
+                RunCompletionReason::Success,
+                VISIBLE_SECRET.to_uppercase().into_bytes(),
+            ),
+        ),
+        (
+            "candidate-task-visible-b".to_owned(),
+            (RunCompletionReason::ProviderFailure, Vec::new()),
+        ),
+        (
+            "candidate-task-sealed-a".to_owned(),
+            (RunCompletionReason::IoFailure, Vec::new()),
+        ),
+    ]);
+    make_fixture_with_options(directory, evaluator_path, 9_500, None, &overrides)
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn failure_clusters_record_operator_aggregates_and_replay() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_cluster_fixture(&directory);
+    let world = fixture.world.clone();
+    let evaluation = evaluate(fixture).unwrap();
+    let stores = evaluation.into_stores();
+    let check = check_failure_clusters(
+        stores,
+        "analysis-001",
+        "evaluation-001",
+        &world,
+        1_788_000_123_500,
+    )
+    .unwrap();
+
+    assert_eq!(
+        check.event().event_id,
+        "forge:analysis:analysis-001:clustered"
+    );
+    assert_eq!(check.event().aggregate_id, "forge:analysis:analysis-001");
+    assert_eq!(check.event().event_type, "forge.clustered");
+    assert_eq!(check.event().actor, "arena-plane");
+
+    let analysis = check.analysis().clone();
+    assert_eq!(analysis.algorithm, "failure-cluster-v1");
+    assert_eq!(analysis.analysis_id, "analysis-001");
+    assert_eq!(analysis.evaluation_id, "evaluation-001");
+    assert_eq!(analysis.world_id, world.id());
+    assert_eq!(analysis.total_visible_failed_trials, 2);
+    assert_eq!(analysis.total_sealed_failed_trials, 1);
+    assert_eq!(analysis.clusters.len(), 3);
+
+    let by_signature: BTreeMap<_, _> = analysis
+        .clusters
+        .iter()
+        .map(|cluster| (cluster.signature.clone(), cluster))
+        .collect();
+    let case_mismatch = by_signature["shape_case_mismatch"];
+    assert_eq!(case_mismatch.visible_count, 1);
+    assert_eq!(case_mismatch.sealed_count, 0);
+    assert_eq!(
+        case_mismatch.suggested_mutation,
+        Some(SuggestedMutation::ReferenceOperationFlip)
+    );
+    let provider_failure = by_signature["completion_provider_failure"];
+    assert_eq!(provider_failure.visible_count, 1);
+    assert_eq!(provider_failure.suggested_mutation, None);
+    let io_failure = by_signature["completion_io_failure"];
+    assert_eq!(io_failure.visible_count, 0);
+    assert_eq!(io_failure.sealed_count, 1);
+    assert_eq!(io_failure.suggested_mutation, None);
+
+    // Sealed task identities, inputs, and expected outputs never leave the
+    // analysis, even though the sealed candidate's I/O failure is counted.
+    let analysis_bytes = serde_json::to_vec(&analysis).unwrap();
+    for secret in [
+        SEALED_SECRET,
+        "task-sealed-a",
+        "task-sealed-b",
+        "sealed prompt 204",
+        "sealed prompt 517",
+    ] {
+        assert!(
+            !analysis_bytes
+                .windows(secret.len())
+                .any(|window| window == secret.as_bytes())
+        );
+    }
+
+    // An exact retry recomputes and returns the identical event and analysis.
+    let expected_analysis = analysis.clone();
+    let expected_event = check.event().clone();
+    let stores = check.into_stores();
+    let retry = check_failure_clusters(
+        stores,
+        "analysis-001",
+        "evaluation-001",
+        &world,
+        1_788_000_123_501,
+    )
+    .unwrap();
+    assert_eq!(retry.analysis(), &expected_analysis);
+    assert_eq!(retry.event(), &expected_event);
+
+    // Startup/replay-style verification recomputes byte-identical evidence.
+    let stores = retry.into_stores();
+    let event = stores
+        .events
+        .replay_verified()
+        .unwrap()
+        .into_iter()
+        .find(|event| event.event_id == "forge:analysis:analysis-001:clustered")
+        .unwrap();
+    let verified = verify_cluster_event(stores, &event, &world).unwrap();
+    assert_eq!(verified.analysis(), &expected_analysis);
+
+    // A rewritten event type is rejected even though the ID prefix matches.
+    let mut stores = verified.into_stores();
+    let wrong_type_event = stores
+        .events
+        .append(EventInput::new(
+            "forge:analysis:analysis-001:wrong-type",
+            "forge:analysis:analysis-001",
+            "unrelated.recorded",
+            "arena-plane",
+            1_788_000_123_502,
+            &event.payload,
+        ))
+        .unwrap();
+    assert!(matches!(
+        verify_cluster_event(stores, &wrong_type_event, &world),
+        Err(ArenaError::InvalidClusterEvent)
+    ));
+
+    // A forged actor on an otherwise-canonical event is rejected.
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let mut spoofed_event = event.clone();
+    spoofed_event.actor = "untrusted-actor".to_owned();
+    assert!(matches!(
+        verify_cluster_event(stores, &spoofed_event, &world),
+        Err(ArenaError::InvalidClusterEvent)
+    ));
+
+    // Loading from fresh stores recomputes the same canonical analysis.
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let reloaded = load_failure_clusters(stores, "analysis-001", "evaluation-001", &world).unwrap();
+    assert_eq!(reloaded.analysis(), &expected_analysis);
+    drop(reloaded);
+
+    // A tampered analysis artifact fails closed on reload.
+    let artifact_id = ArtifactId::parse(expected_event.analysis_artifact_id.clone()).unwrap();
+    let artifact_path = directory
+        .path()
+        .join("blobs")
+        .join(&artifact_id.as_str()[..2])
+        .join(artifact_id.as_str());
+    fs::write(artifact_path, b"tampered cluster analysis").unwrap();
+    let stores = EvaluationStores::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    assert!(load_failure_clusters(stores, "analysis-001", "evaluation-001", &world).is_err());
 }
