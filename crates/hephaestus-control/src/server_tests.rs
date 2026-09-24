@@ -7,7 +7,7 @@ use hephaestus_arena::TrustedTask;
 use hephaestus_experience::{Provenance, TraceInput, TraceKind, TraceReceipt};
 use hephaestus_genome::{SourceFormat, compile_world};
 use hephaestus_ledger::{EventInput, EventStore};
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir};
 
 use super::*;
 
@@ -6604,6 +6604,158 @@ fn daemon_stop_cancels_active_job_before_acknowledging_shutdown() {
     assert_eq!(plane.state.jobs["stop-active"].state, JobState::Interrupted);
     assert!(plane.request_daemon_stop().is_ok());
     assert!(plane.shutdown_requested);
+}
+
+fn wait_for_recorded_run_start(plane: &mut ControlPlane, run_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !plane.state.active_runs.contains(run_id) {
+        plane
+            .service_async_messages()
+            .expect("persist run start evidence");
+        assert!(Instant::now() < deadline, "runtime did not start");
+        if !plane.state.active_runs.contains(run_id) {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+}
+
+fn assert_cancellation_terminal_replays_once(
+    plane: ControlPlane,
+    directory: &TempDir,
+    repository: PathBuf,
+    executable: &Path,
+    worker: &Path,
+    job_id: &str,
+) {
+    assert_eq!(plane.state.jobs[job_id].state, JobState::Interrupted);
+    assert_eq!(
+        plane.state.jobs[job_id].terminal,
+        Some(JobTerminal::Cancelled)
+    );
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify cancellation history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == format!("job:{job_id}:cancellation_requested"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == format!("job:{job_id}:terminal"))
+            .count(),
+        1
+    );
+    drop(plane);
+
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        directory.path(),
+        repository,
+        executable,
+        worker,
+    )
+    .expect("replay confirmed cancellation");
+    assert_eq!(reopened.state.jobs[job_id].state, JobState::Interrupted);
+    assert_eq!(
+        reopened.state.jobs[job_id].terminal,
+        Some(JobTerminal::Cancelled)
+    );
+    let replayed_history = reopened
+        .storage
+        .as_ref()
+        .expect("reopened canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify replayed cancellation history");
+    assert_eq!(
+        replayed_history
+            .iter()
+            .filter(|event| event.event_id == format!("job:{job_id}:terminal"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn kill_all_signals_active_runtime_and_replays_confirmed_cancellation() {
+    let directory = tempdir().expect("daemon directory");
+    let slow_worker = directory.path().join("kill-all-worker");
+    fs::write(&slow_worker, "#!/bin/sh\nexec /bin/sleep 60\n").expect("write slow worker");
+    fs::set_permissions(&slow_worker, fs::Permissions::from_mode(0o700))
+        .expect("make slow worker executable");
+    let executable = env::current_exe().expect("test executable");
+    let repository = env::current_dir().expect("repository working directory");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        directory.path(),
+        repository.clone(),
+        &executable,
+        &slow_worker,
+    )
+    .expect("open control plane with slow worker");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    let job_id = "kill-all-runtime-cancel";
+    plane
+        .submit_job(job_id, &genome.genome_id)
+        .expect("admit slow direct job");
+    wait_for_recorded_run_start(&mut plane, &job_run_id(job_id));
+    let runtime_cancel = Arc::clone(
+        &plane
+            .active_job
+            .as_ref()
+            .expect("active direct runtime")
+            .cancel,
+    );
+    assert!(!runtime_cancel.load(Ordering::Acquire));
+
+    assert!(matches!(
+        plane.execute("kill-all-runtime-cancel-request", Command::KillAll),
+        Ok(ResponseData::Acknowledged { killed_runs: 0, .. })
+    ));
+    assert!(runtime_cancel.load(Ordering::Acquire));
+    assert_eq!(
+        plane.state.jobs[job_id].state,
+        JobState::CancellationRequested
+    );
+    assert_eq!(plane.state.jobs[job_id].terminal, None);
+    assert!(
+        plane.active_job.is_some(),
+        "signal is not terminal confirmation"
+    );
+
+    let terminal_deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist confirmed runtime cancellation");
+        assert!(
+            Instant::now() < terminal_deadline,
+            "worker cancellation stalled"
+        );
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_cancellation_terminal_replays_once(
+        plane,
+        &directory,
+        repository,
+        &executable,
+        &slow_worker,
+        job_id,
+    );
 }
 
 #[test]
