@@ -26,6 +26,7 @@ tempfile = "3"
 [dev-dependencies]
 hephaestus-arena = { path = "../hephaestus-arena", features = ["test-support"] }
 hephaestus-runtime = { path = "../hephaestus-runtime", features = ["test-support"] }
+rusqlite = "0.37"
 
 [lints]
 workspace = true

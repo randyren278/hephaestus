@@ -1449,6 +1449,166 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
             .expect("replay failed Arena receipt commit"),
         ResponseData::Replay { .. }
     ));
+
+    assert!(matches!(
+        plane
+            .submit_arena_job("terminal-write-failure", &parent.genome_id, &candidate.genome_id)
+            .expect("admit terminal-write-failure job"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let cancel = Arc::clone(
+        &plane
+            .active_arena_job
+            .as_ref()
+            .expect("active terminal-write-failure job")
+            .cancel,
+    );
+    let database = rusqlite::Connection::open(data_dir.join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_fixture_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:terminal-write-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture terminal write failure'); END;",
+        )
+        .expect("reject fixture terminal append");
+    assert!(
+        plane
+            .finish_arena_scoring(
+                "terminal-write-failure",
+                Err("fixture scoring failure".to_owned()),
+            )
+            .is_err(),
+        "a rejected terminal append must not be acknowledged"
+    );
+    assert_eq!(
+        plane.state.arena_jobs["terminal-write-failure"].state,
+        JobState::Running
+    );
+    assert!(
+        !plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify history after failed append")
+            .iter()
+            .any(|event| event.event_id == "arena-job:terminal-write-failure:terminal"),
+        "the failed append must leave no canonical terminal event"
+    );
+    database
+        .execute_batch("DROP TRIGGER reject_fixture_terminal;")
+        .expect("restore fixture ledger writes");
+    plane
+        .finish_arena_scoring(
+            "terminal-write-failure",
+            Err("fixture scoring failure".to_owned()),
+        )
+        .expect("persist failed terminal after storage recovers");
+    cancel.store(true, Ordering::Release);
+    let terminal = &plane.state.arena_jobs["terminal-write-failure"];
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert!(terminal.evaluation.is_none());
+    assert!(matches!(
+        plane.replay_response().expect("replay recovered terminal"),
+        ResponseData::Replay { .. }
+    ));
+
+    assert!(matches!(
+        plane
+            .submit_arena_job("cancel-terminal-write-failure", &parent.genome_id, &candidate.genome_id)
+            .expect("admit cancellation write fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    plane
+        .kill_job("cancel-terminal-write-failure")
+        .expect("persist cancellation request");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_fixture_cancel_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:cancel-terminal-write-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture cancellation terminal write failure'); END;",
+        )
+        .expect("reject cancellation terminal append");
+    assert!(
+        plane
+            .finish_arena_scoring(
+                "cancel-terminal-write-failure",
+                Err("late scorer result".to_owned()),
+            )
+            .is_err()
+    );
+    assert_eq!(
+        plane.state.arena_jobs["cancel-terminal-write-failure"].state,
+        JobState::CancellationRequested
+    );
+    database
+        .execute_batch("DROP TRIGGER reject_fixture_cancel_terminal;")
+        .expect("restore cancellation terminal writes");
+    plane
+        .finish_arena_scoring(
+            "cancel-terminal-write-failure",
+            Err("late scorer result".to_owned()),
+        )
+        .expect("persist cancelled terminal after storage recovers");
+    assert_eq!(
+        plane.state.arena_jobs["cancel-terminal-write-failure"].terminal,
+        Some(JobTerminal::Cancelled)
+    );
+
+    assert!(matches!(
+        plane
+            .submit_arena_job("timeout-terminal-write-failure", &parent.genome_id, &candidate.genome_id)
+            .expect("admit timeout write fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    plane
+        .active_arena_job
+        .as_mut()
+        .expect("active timeout write fixture")
+        .overall_deadline = Instant::now()
+        .checked_sub(Duration::from_millis(1))
+        .expect("monotonic clock supports one millisecond lookback");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_fixture_timeout_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:timeout-terminal-write-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture timeout terminal write failure'); END;",
+        )
+        .expect("reject timeout terminal append");
+    assert!(
+        plane
+            .finish_arena_scoring(
+                "timeout-terminal-write-failure",
+                Err("late scorer result".to_owned()),
+            )
+            .is_err()
+    );
+    assert_eq!(
+        plane.state.arena_jobs["timeout-terminal-write-failure"].state,
+        JobState::CancellationRequested
+    );
+    database
+        .execute_batch("DROP TRIGGER reject_fixture_timeout_terminal;")
+        .expect("restore timeout terminal writes");
+    plane
+        .finish_arena_scoring(
+            "timeout-terminal-write-failure",
+            Err("late scorer result".to_owned()),
+        )
+        .expect("persist timed-out terminal after storage recovers");
+    assert_eq!(
+        plane.state.arena_jobs["timeout-terminal-write-failure"].terminal,
+        Some(JobTerminal::Failed)
+    );
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay recovered Arena write failures"),
+        ResponseData::Replay { .. }
+    ));
 }
 
 fn register_dispatch_arena_objects(
