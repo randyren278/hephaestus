@@ -1,10 +1,10 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, useWindowSize} from 'ink';
 import {ControlClient} from './client.js';
-import {safeText, type ApiResponse, type Command, type ResponseData} from './protocol.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Command, type ResponseData} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID'] as const;
-type View = 'home' | 'job-id' | 'confirm-kill' | 'confirm-kill-all';
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID'] as const;
+type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all';
 type TuiClient = Pick<ControlClient, 'request'>;
 type Props = {client?: TuiClient; pollMs?: number};
 
@@ -38,11 +38,32 @@ function messageFor(response: ApiResponse): string {
 	}
 	if (response.data?.type === 'acknowledged') return `Acknowledged · evolution ${response.data.frozen ? 'frozen' : 'unfrozen'}`;
 	if (response.data?.type === 'job') return `${safeText(response.data.job.job_id)} · ${safeText(response.data.job.state)} · ${response.data.progress.trace_events} trace events`;
+	if (response.data?.type === 'arena_job') return `${safeText(response.data.job.evaluation_id)} · ${safeText(response.data.job.phase)} · ${response.data.job.completed_trials}/${response.data.job.total_trials} trials`;
 	return 'No response data';
 }
 
 function statusOf(data: ResponseData | undefined): string {
 	return data?.type === 'status' ? (data.frozen ? 'FROZEN' : 'RUNNING') : '—';
+}
+
+export function ArenaProgressPanel({job, stale, notice, compact = false}: {job?: ArenaJobProgress | undefined; stale: boolean; notice?: string; compact?: boolean}) {
+	if (!job) return <Box flexDirection="column" borderStyle="single" borderColor={stale ? 'red' : 'gray'} paddingX={1}>
+		<Text bold color="yellow">ARENA PROGRESS</Text>
+		<Text>{stale ? 'STALE · daemon unavailable' : safeText(notice ?? 'Enter an evaluation ID to inspect its durable progress.')}</Text>
+		<Text color="gray">The control API provides progress by known evaluation ID; it has no Arena job list.</Text>
+	</Box>;
+	const ratio = Math.max(0, Math.min(1, job.completed_trials / job.total_trials));
+	const filled = Math.round(ratio * 16);
+	return <Box flexDirection="column" borderStyle="single" borderColor={stale ? 'red' : 'gray'} paddingX={1}>
+		<Text bold color="yellow">ARENA / {safeText(job.evaluation_id)}</Text>
+		<Text color={stale ? 'red' : 'white'}>{stale ? 'STALE · ' : ''}{safeText(job.state.toUpperCase())} · {safeText(job.phase.replaceAll('_', ' ').toUpperCase())}</Text>
+		<Text>Trials {job.completed_trials}/{job.total_trials}  {`${'█'.repeat(filled)}${'·'.repeat(16 - filled)}`}</Text>
+		{!compact && <>
+			<Text>Parent    {safeText(job.parent_genome_id)}</Text>
+			<Text>Candidate {safeText(job.candidate_genome_id)}</Text>
+			{job.evaluation && <Text>Visible score {job.evaluation.parent_visible_correct} → {job.evaluation.candidate_visible_correct} / {job.evaluation.visible_total}</Text>}
+		</>}
+	</Box>;
 }
 
 export function App({client: providedClient, pollMs = 1500}: Props) {
@@ -53,6 +74,10 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [view, setView] = useState<View>('home');
 	const [jobId, setJobId] = useState('');
 	const [jobPromptAction, setJobPromptAction] = useState<'inspect' | 'cancel'>('inspect');
+	const [arenaInput, setArenaInput] = useState('');
+	const [arenaJobId, setArenaJobId] = useState('');
+	const [arenaJob, setArenaJob] = useState<ArenaJobProgress>();
+	const [arenaNotice, setArenaNotice] = useState('Enter an evaluation ID to inspect its durable progress.');
 	const [status, setStatus] = useState<ApiResponse>();
 	const [stale, setStale] = useState(false);
 	const [notice, setNotice] = useState('Connecting to the local control plane…');
@@ -60,6 +85,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [lifetime] = useState(() => new AbortController());
 	const closing = useRef(false);
 	const refreshing = useRef(false);
+	const arenaRefreshing = useRef(false);
 	const refresh = useCallback(async (announce = true): Promise<ApiResponse | undefined> => {
 		if (closing.current || refreshing.current) return undefined;
 		refreshing.current = true;
@@ -121,6 +147,35 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		}
 	};
 
+	const refreshArena = useCallback(async (evaluationId: string, announce = true) => {
+		if (closing.current || !evaluationId || arenaRefreshing.current) return;
+		arenaRefreshing.current = true;
+		try {
+			const response = await client.request({command: 'job_status', job_id: evaluationId}, lifetime.signal);
+			if (response.error) {
+				setArenaJob(undefined);
+				if (announce) setArenaNotice(`${safeText(response.error.code)} · ${safeText(response.error.message)}`);
+				return;
+			}
+			if (response.data?.type !== 'arena_job') {
+				setArenaJob(undefined);
+				if (announce) setArenaNotice('No Arena progress projection exists for that ID.');
+				return;
+			}
+			setArenaJob(response.data.job);
+			setArenaNotice('Live progress from the daemon.');
+		} catch (error) {
+			if (!lifetime.signal.aborted && announce) setArenaNotice(error instanceof Error ? safeText(error.message) : 'Arena progress unavailable');
+		} finally {
+			arenaRefreshing.current = false;
+		}
+	}, [client, lifetime]);
+	useEffect(() => {
+		if (view !== 'arena-progress' || !arenaJobId || !arenaJob || ['succeeded', 'failed', 'interrupted'].includes(arenaJob.state)) return;
+		const timer = setInterval(() => void refreshArena(arenaJobId, false), pollMs);
+		return () => clearInterval(timer);
+	}, [arenaJobId, arenaJob, pollMs, refreshArena, view]);
+
 	const quit = () => {
 		if (closing.current) return;
 		closing.current = true;
@@ -149,6 +204,33 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			}
 			return;
 		}
+		if (view === 'arena-id') {
+			if (key.escape) { setView('home'); return; }
+			if (key.return || input.includes('\r') || input.includes('\n')) {
+				const typed = input.replace(/[\r\n]/g, '').split('').filter(char => /^[a-zA-Z0-9._-]$/.test(char)).join('');
+				const cleaned = (arenaInput + typed).trim().slice(0, 128);
+				if (cleaned) {
+					setArenaJobId(cleaned);
+					setArenaJob(undefined);
+					setArenaNotice('Loading Arena progress…');
+					setView('arena-progress');
+					void refreshArena(cleaned);
+				} else setView('home');
+				return;
+			}
+			if (key.backspace || key.delete) setArenaInput(value => value.slice(0, -1));
+			else if (!key.ctrl && !key.meta) {
+				const typed = input.split('').filter(char => /^[a-zA-Z0-9._-]$/.test(char)).join('');
+				if (typed) setArenaInput(value => (value + typed).slice(0, 128));
+			}
+			return;
+		}
+		if (view === 'arena-progress') {
+			if (input.toLowerCase().includes('q')) { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (input.toLowerCase() === 'r') { void refreshArena(arenaJobId); return; }
+			return;
+		}
 		if (view === 'confirm-kill') {
 			if (input.toLowerCase() === 'y') { setView('home'); void act({command: 'job_kill', job_id: jobId}, 'Requesting cancellation…'); }
 			else if (input.toLowerCase() === 'n' || key.escape) { setView('home'); setNotice('Cancellation abandoned.'); }
@@ -169,6 +251,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 3: setView('confirm-kill-all'); break;
 				case 4: setJobPromptAction('inspect'); setView('job-id'); setJobId(''); break;
 				case 5: setJobPromptAction('cancel'); setView('job-id'); setJobId(''); break;
+				case 6: setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
 			}
 		}
 	});
@@ -188,15 +271,20 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				<Text color="gray">OPERATOR ACTIONS</Text>
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
 			</Box>
-			{!compact && <Box flexDirection="column" width="42%" borderStyle="single" borderColor="gray" paddingX={1}>
-				<Text color="gray">CANONICAL STATUS</Text>
-				<Text>Active runs  {status?.data?.type === 'status' ? status.data.active_runs : '—'}</Text>
-				<Text>Genomes      {status?.data?.type === 'status' ? status.data.genome_count : '—'}</Text>
-				<Text>Ledger events {status?.data?.type === 'status' ? status.data.event_count : '—'}</Text>
-			</Box>}
+			{!compact && (view === 'arena-progress'
+				? <Box flexDirection="column" width="42%"><ArenaProgressPanel job={arenaJob} stale={stale} notice={arenaNotice} /></Box>
+				: <Box flexDirection="column" width="42%" borderStyle="single" borderColor="gray" paddingX={1}>
+					<Text color="gray">CANONICAL STATUS</Text>
+					<Text>Active runs  {status?.data?.type === 'status' ? status.data.active_runs : '—'}</Text>
+					<Text>Genomes      {status?.data?.type === 'status' ? status.data.genome_count : '—'}</Text>
+					<Text>Ledger events {status?.data?.type === 'status' ? status.data.event_count : '—'}</Text>
+				</Box>)}
 		</Box>
+		{compact && view === 'arena-progress' && <ArenaProgressPanel job={arenaJob} stale={stale} notice={arenaNotice} compact />}
 		{view !== 'home' && <Box marginTop={1} borderStyle="round" borderColor="yellow" paddingX={1}>
 			{view === 'job-id' && <Text>Job ID: {jobId}<Text color="gray">  (Enter {jobPromptAction} · Esc cancel)</Text></Text>}
+			{view === 'arena-id' && <Text>Evaluation ID: {arenaInput}<Text color="gray">  (Enter inspect · Esc back)</Text></Text>}
+			{view === 'arena-progress' && <Text color="gray">Arena progress is read-only · Esc back · R refresh</Text>}
 			{view === 'confirm-kill' && <Text color="yellow">Cancel job {safeText(jobId)}? Press Y to request, N/Esc to back out.</Text>}
 			{view === 'confirm-kill-all' && <Text color="red">Cancel ALL active work? Press Y to request, N/Esc to back out.</Text>}
 		</Box>}
@@ -204,6 +292,6 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		<Box borderStyle="single" borderColor="gray" paddingX={1}>
 			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · Y/N confirm · Q quit · daemon remains running</Text>
+		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' ? 'Esc back · R refresh' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }

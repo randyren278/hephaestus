@@ -14,10 +14,17 @@ export type Job = {
 	task_id: string; input_commitment: string; seed: number; environment_id: string;
 	budget: Record<string, unknown>; state: JobState; terminal: JobTerminal | null;
 };
+export type ArenaJobPhase = 'preparing' | 'parent_trials' | 'candidate_trials' | 'scoring' | 'committing' | 'terminal';
+export type ArenaJobProgress = {
+	evaluation_id: string; parent_genome_id: string; candidate_genome_id: string;
+	state: JobState; phase: ArenaJobPhase; completed_trials: number; total_trials: number;
+	evaluation?: {parent_visible_correct: number; candidate_visible_correct: number; visible_total: number};
+};
 export type ResponseData =
 	| {type: 'status'; frozen: boolean; active_runs: number; event_count: number; genome_count: number}
 	| {type: 'acknowledged'; frozen: boolean; killed_runs: number}
-	| {type: 'job'; job: Job; progress: {trace_events: number; last_event_sequence: number | null; last_phase: string | null}};
+	| {type: 'job'; job: Job; progress: {trace_events: number; last_event_sequence: number | null; last_phase: string | null}}
+	| {type: 'arena_job'; job: ArenaJobProgress};
 export type ApiResponse = {version: number; request_id: string; data?: ResponseData; error?: {code: string; message: string}};
 
 export const MAX_FRAME_BYTES = 7 * 1_048_576;
@@ -37,6 +44,10 @@ function boundedString(value: unknown, maximum: number): value is string {
 
 function safeInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function boundedCount(value: unknown): value is number {
+	return safeInteger(value) && value <= 0xffff_ffff;
 }
 
 function nonnegativeInteger(value: unknown): value is number {
@@ -92,6 +103,33 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 				|| !(progress['last_event_sequence'] === null || safeInteger(progress['last_event_sequence']))
 				|| !(progress['last_phase'] === null || boundedString(progress['last_phase'], 128))) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'job', job, progress: {trace_events: progress['trace_events'], last_event_sequence: progress['last_event_sequence'] as number | null, last_phase: progress['last_phase'] as string | null}}};
+		}
+		case 'arena_job': {
+			const job = data['job'];
+			const states: JobState[] = ['admitted', 'running', 'cancellation_requested', 'succeeded', 'failed', 'interrupted'];
+			const phases: ArenaJobPhase[] = ['preparing', 'parent_trials', 'candidate_trials', 'scoring', 'committing', 'terminal'];
+			const evaluation = job && record(job) ? job['evaluation'] : undefined;
+			if (!record(job) || !boundedString(job['evaluation_id'], 128) || !/^[a-zA-Z0-9._-]+$/.test(job['evaluation_id'])
+				|| !boundedString(job['parent_genome_id'], 128) || !boundedString(job['candidate_genome_id'], 128)
+				|| typeof job['state'] !== 'string' || !states.includes(job['state'] as JobState)
+				|| typeof job['phase'] !== 'string' || !phases.includes(job['phase'] as ArenaJobPhase)
+				|| !boundedCount(job['completed_trials']) || !boundedCount(job['total_trials'])
+				|| job['total_trials'] === 0 || job['completed_trials'] > job['total_trials']
+				|| (evaluation !== undefined && (!record(evaluation)
+					|| !boundedCount(evaluation['parent_visible_correct']) || !boundedCount(evaluation['candidate_visible_correct'])
+					|| !boundedCount(evaluation['visible_total']) || evaluation['visible_total'] === 0
+					|| evaluation['parent_visible_correct'] > evaluation['visible_total']
+					|| evaluation['candidate_visible_correct'] > evaluation['visible_total']))) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'arena_job', job: {
+				evaluation_id: job['evaluation_id'], parent_genome_id: job['parent_genome_id'], candidate_genome_id: job['candidate_genome_id'],
+				state: job['state'] as JobState, phase: job['phase'] as ArenaJobPhase,
+				completed_trials: job['completed_trials'], total_trials: job['total_trials'],
+				...(evaluation && record(evaluation) ? {evaluation: {
+					parent_visible_correct: evaluation['parent_visible_correct'] as number,
+					candidate_visible_correct: evaluation['candidate_visible_correct'] as number,
+					visible_total: evaluation['visible_total'] as number,
+				}} : {}),
+			}}};
 		}
 	}
 	throw new Error('daemon response variant is invalid');

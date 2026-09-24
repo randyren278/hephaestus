@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {renderToString} from 'ink';
 import {ControlClient} from '../src/client.js';
 import {parseResponse, safeText} from '../src/protocol.js';
-import {App} from '../src/ui.js';
+import {App, ArenaProgressPanel} from '../src/ui.js';
 
 test('client authenticates over the owner-only Unix socket without displaying its token', async () => {
 	const dataDir = await mkdtemp(join(tmpdir(), 'hephaestus-tui-'));
@@ -65,11 +65,44 @@ test('terminal text strips control characters and the interface renders a safe c
 	assert.throws(() => parseResponse(JSON.stringify({version: 1, request_id: 'request', data: {type: 'status', frozen: false, active_runs: 'many', event_count: 1, genome_count: 0}}), 'request'), /daemon response variant is invalid/);
 	const output = renderToString(<App client={{request: async () => ({version: 1, request_id: 'test', data: {type: 'status', frozen: true, active_runs: 0, event_count: 0, genome_count: 0}})}} />);
 	assert.match(output, /Kill all active work/);
-	assert.match(output, /daemon remains running/);
+	assert.match(output, /Arena progress by ID/);
+	assert.match(output, /Q quit/);
 });
 
 test('job projections accept full-width u64 seeds without displaying them', () => {
 	const response = parseResponse(`{"version":1,"request_id":"request","data":{"type":"job","job":{"job_id":"job-1","genome_id":"genome","run_id":"run","source_revision":"rev","world_id":"world","task_id":"task","input_commitment":"commit","seed":18446744073709551615,"environment_id":"env","budget":{},"state":"running","terminal":null},"progress":{"trace_events":0,"last_event_sequence":null,"last_phase":null}}}`, 'request');
 	assert.equal(response.data?.type, 'job');
 	if (response.data?.type === 'job') assert.equal(response.data.job.job_id, 'job-1');
+});
+
+test('Arena job progress accepts authoritative trial and visible-score projections only', () => {
+	const text = `{"version":1,"request_id":"request","data":{"type":"arena_job","job":{"evaluation_id":"eval-1","parent_genome_id":"parent-id","candidate_genome_id":"candidate-id","state":"running","phase":"candidate_trials","completed_trials":2,"total_trials":5}}}`;
+	const response = parseResponse(text, 'request');
+	assert.equal(response.data?.type, 'arena_job');
+	if (response.data?.type === 'arena_job') {
+		assert.equal(response.data.job.completed_trials, 2);
+		const frame = renderToString(<ArenaProgressPanel job={response.data.job} stale={false} />);
+		assert.match(frame, /CANDIDATE TRIALS/);
+		assert.match(frame, /Trials 2\/5/);
+		assert.match(frame, /candidate-id/);
+	}
+	assert.throws(() => parseResponse(text.replace('"completed_trials":2', '"completed_trials":7'), 'request'), /daemon response variant is invalid/);
+	assert.throws(() => parseResponse(text.replace('"total_trials":5', '"total_trials":4294967296'), 'request'), /daemon response variant is invalid/);
+});
+
+test('terminal Arena progress renders visible aggregate receipt fields without sealed metrics', () => {
+	const response = parseResponse(`{"version":1,"request_id":"request","data":{"type":"arena_job","job":{"evaluation_id":"eval-2","parent_genome_id":"p","candidate_genome_id":"c","state":"succeeded","phase":"terminal","completed_trials":4,"total_trials":4,"evaluation":{"evaluation_id":"eval-2","world_id":"world","parent_genome_id":"p","candidate_genome_id":"c","parent_visible_correct":1,"candidate_visible_correct":2,"visible_total":3,"event":{"sequence":7,"event_id":"e","aggregate_id":"a","event_type":"evaluation.completed","actor":"arena","timestamp_millis":1}}}}}`, 'request');
+	assert.equal(response.data?.type, 'arena_job');
+	if (response.data?.type === 'arena_job') {
+		const frame = renderToString(<ArenaProgressPanel job={response.data.job} stale={false} />);
+		assert.match(frame, /Visible score 1 → 2 \/ 3/);
+		assert.doesNotMatch(frame, /receipt|cost|sealed/i);
+	}
+});
+
+test('Arena progress shows an explicit stale state when the daemon is unavailable', () => {
+	const frame = renderToString(<ArenaProgressPanel stale notice="daemon socket is unavailable" />);
+	assert.match(frame, /STALE/);
+	assert.match(frame, /daemon unavailable/);
+	assert.match(frame, /job list\./i);
 });
