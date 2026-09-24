@@ -23,12 +23,16 @@ jobs:
         with:
           components: clippy, llvm-tools-preview, rustfmt
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Install coverage runner
-        run: cargo install cargo-llvm-cov --locked
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Formatting
         run: cargo fmt --all -- --check
