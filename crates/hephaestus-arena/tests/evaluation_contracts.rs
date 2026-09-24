@@ -1389,6 +1389,222 @@ fn selection_receipt_recomputes_and_retries_identically_after_restart() {
 }
 
 #[test]
+fn marginally_slower_but_better_child_is_eligible_under_the_tolerant_dominance_rule() {
+    // Regression test for the real product defect: a candidate that is
+    // strictly better on correctness must not be randomly rejected because
+    // it ran a few milliseconds slower on trivial reference tasks. The
+    // tolerance is `max(10% of parent latency, 50ms * paired task count)`;
+    // here parent total latency is 40ms (10ms * 4 tasks), so the tolerance
+    // is `max(4, 200) = 200ms`, and the candidate is only 20ms slower.
+    let directory = TempDir::new().unwrap();
+    let mut fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let expected_outputs = [
+        ("task-visible-a", VISIBLE_SECRET),
+        ("task-visible-b", "B"),
+        ("task-sealed-a", SEALED_SECRET),
+        ("task-sealed-b", "Z"),
+    ];
+    let mut parent_pairs = Vec::new();
+    let mut candidate_pairs = Vec::new();
+    for (task, expected) in expected_outputs {
+        let parent_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("marginal-parent-{task}"),
+            &fixture.parent_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            b"deliberately incorrect parent",
+            10,
+            0,
+        );
+        let candidate_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("marginal-candidate-{task}"),
+            &fixture.candidate_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            expected.as_bytes(),
+            15,
+            0,
+        );
+        parent_pairs.push((task.to_owned(), parent_event));
+        candidate_pairs.push((task.to_owned(), candidate_event));
+    }
+    fixture.parent = TrialPlan::new(parent_pairs).unwrap();
+    fixture.candidate = TrialPlan::new(candidate_pairs).unwrap();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    let receipt = selected.receipt();
+    assert_eq!(
+        receipt.algorithm(),
+        "histogram-bootstrap-pareto-tolerant-v2"
+    );
+    assert_eq!(receipt.parent_latency_millis(), 40);
+    assert_eq!(receipt.candidate_latency_millis(), 60);
+    assert!(receipt.candidate_correctness_bps() > receipt.parent_correctness_bps());
+    assert!(receipt.candidate_pareto_dominates());
+    assert!(receipt.metrics_eligible());
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn stored_v1_selection_receipt_still_verifies_under_the_strict_dominance_rule() {
+    // The same marginally-slower-but-better child as above, but this test
+    // proves the replay/verification path: an already-recorded receipt
+    // computed under the retired strict `histogram-bootstrap-v1` algorithm
+    // (candidate latency must be no worse than the parent's, at all) must
+    // still recompute byte-identically on replay, even though a fresh
+    // selection would use the new tolerant algorithm and reach the opposite
+    // eligibility verdict for the same measured evidence.
+    let directory = TempDir::new().unwrap();
+    let mut fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let expected_outputs = [
+        ("task-visible-a", VISIBLE_SECRET),
+        ("task-visible-b", "B"),
+        ("task-sealed-a", SEALED_SECRET),
+        ("task-sealed-b", "Z"),
+    ];
+    let mut parent_pairs = Vec::new();
+    let mut candidate_pairs = Vec::new();
+    for (task, expected) in expected_outputs {
+        let parent_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("v1replay-parent-{task}"),
+            &fixture.parent_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            b"deliberately incorrect parent",
+            10,
+            0,
+        );
+        let candidate_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("v1replay-candidate-{task}"),
+            &fixture.candidate_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            expected.as_bytes(),
+            15,
+            0,
+        );
+        parent_pairs.push((task.to_owned(), parent_event));
+        candidate_pairs.push((task.to_owned(), candidate_event));
+    }
+    fixture.parent = TrialPlan::new(parent_pairs).unwrap();
+    fixture.candidate = TrialPlan::new(candidate_pairs).unwrap();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    // Sanity check: the real (current-algorithm) receipt says eligible,
+    // exactly like the test above.
+    assert!(selected.receipt().metrics_eligible());
+    let history = selected.into_stores().events.replay_verified().unwrap();
+    let original = history
+        .iter()
+        .find(|event| event.event_type == "selection.recorded")
+        .unwrap()
+        .clone();
+    let original_payload: serde_json::Value = serde_json::from_slice(&original.payload).unwrap();
+    let original_artifact = original_payload["receipt_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let original_artifact_id = ArtifactId::parse(original_artifact.clone()).unwrap();
+    let artifact_root = directory.path().join("blobs");
+    let original_bytes = fs::read(
+        EvaluationStores::open(directory.path().join("events.sqlite3"), &artifact_root)
+            .unwrap()
+            .artifacts
+            .path_for(&original_artifact_id),
+    )
+    .unwrap();
+
+    // Rewrite the receipt to exactly what v1's strict latency comparison
+    // would have produced for this same measured evidence: latency-worse
+    // means the candidate does not dominate, so it is not eligible.
+    let mut v1_receipt: serde_json::Value = serde_json::from_slice(&original_bytes).unwrap();
+    v1_receipt["algorithm"] = serde_json::json!("histogram-bootstrap-v1");
+    v1_receipt["candidate_pareto_dominates"] = serde_json::json!(false);
+    v1_receipt["metrics_eligible"] = serde_json::json!(false);
+    let v1_receipt: SelectionReceipt = serde_json::from_value(v1_receipt).unwrap();
+    let v1_bytes = serde_json::to_vec(&v1_receipt).unwrap();
+    assert_ne!(v1_bytes, original_bytes);
+
+    let mut artifacts =
+        EvaluationStores::open(directory.path().join("v1.sqlite3"), &artifact_root).unwrap();
+    let v1_artifact = artifacts.artifacts.put(&v1_bytes).unwrap();
+    let v1_artifact = v1_artifact.as_str().to_owned();
+    append_non_selection_history(&mut artifacts, &history);
+    let v1_event_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&original_artifact, &v1_artifact);
+    assert!(v1_event_payload.contains(&v1_artifact));
+    artifacts
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            v1_event_payload,
+        ))
+        .unwrap();
+
+    let verified = load_selection(artifacts, "evaluation-001", &world)
+        .expect("a receipt recorded under the retired v1 algorithm still verifies");
+    assert_eq!(verified.receipt().algorithm(), "histogram-bootstrap-v1");
+    assert!(!verified.receipt().candidate_pareto_dominates());
+    assert!(!verified.receipt().metrics_eligible());
+    assert_eq!(serde_json::to_vec(verified.receipt()).unwrap(), v1_bytes);
+}
+
+#[test]
 fn selection_requires_the_evaluation_exact_compiled_world() {
     let directory = TempDir::new().unwrap();
     let fixture = make_fixture(&directory);
