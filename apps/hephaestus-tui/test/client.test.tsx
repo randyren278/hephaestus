@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 import {mkdtemp, chmod, writeFile, symlink, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -15,6 +16,9 @@ test('rejects oversized and non-regular operator tokens before socket access', a
 		await assert.rejects(client.request({command: 'status'}), /operator token file is malformed/);
 		await rm(tokenPath);
 		await symlink(join(dataDir, 'missing'), tokenPath);
+		await assert.rejects(client.request({command: 'status'}), /operator token must be an owner-only file/);
+		await rm(tokenPath);
+		execFileSync('mkfifo', [tokenPath]);
 		await assert.rejects(client.request({command: 'status'}), /operator token must be an owner-only file/);
 	} finally {
 		await rm(dataDir, {recursive: true, force: true});
