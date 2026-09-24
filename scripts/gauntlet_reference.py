@@ -82,10 +82,16 @@ def _kill_process_group(process: subprocess.Popen[Any]) -> None:
         pass
 
 
+def _require_waitid() -> None:
+    required = ("P_PID", "WEXITED", "WNOHANG", "WNOWAIT")
+    if not callable(getattr(os, "waitid", None)) or any(
+            not isinstance(getattr(os, name, None), int) for name in required):
+        raise RunnerError("safe owned process-group cleanup requires waitid(WNOWAIT)")
+
+
 def _leader_exited_unreaped(process: subprocess.Popen[Any]) -> bool:
     """Observe exit without releasing the PID/PGID before cleanup is decided."""
-    if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")):
-        raise RunnerError("safe owned process-group cleanup requires waitid(WNOWAIT)")
+    _require_waitid()
     try:
         status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
     except ChildProcessError as error:
@@ -94,22 +100,56 @@ def _leader_exited_unreaped(process: subprocess.Popen[Any]) -> bool:
 
 
 def _finish_killed_process(process: subprocess.Popen[Any], readers: list[threading.Thread]) -> None:
+    wait_error: OSError | subprocess.TimeoutExpired | None = None
     try:
-        process.wait(timeout=PROCESS_EXIT_SECONDS)
-    except subprocess.TimeoutExpired:
-        process.kill()
         try:
             process.wait(timeout=PROCESS_EXIT_SECONDS)
-        except subprocess.TimeoutExpired as error:
-            raise RunnerError("owned subprocess did not exit after process-group termination") from error
-    deadline = time.monotonic() + PIPE_DRAIN_SECONDS
-    for reader in readers:
-        reader.join(timeout=max(0.0, deadline - time.monotonic()))
-    for stream in (process.stdout, process.stderr):
-        if stream is not None:
-            stream.close()
-    for reader in readers:
-        reader.join(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                # It exited between the bounded wait and the direct signal.
+                pass
+            except OSError as error:
+                wait_error = error
+            try:
+                process.wait(timeout=PROCESS_EXIT_SECONDS)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                wait_error = wait_error or error
+    except OSError as error:
+        wait_error = error
+    finally:
+        deadline = time.monotonic() + PIPE_DRAIN_SECONDS
+        for reader in readers:
+            reader.join(timeout=max(0.0, deadline - time.monotonic()))
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+        for reader in readers:
+            reader.join(timeout=0.1)
+    if wait_error is not None:
+        raise RunnerError(f"owned subprocess wait/termination failed: {wait_error}") from wait_error
+
+
+def _terminate_process_group(process: subprocess.Popen[Any], readers: list[threading.Thread]) -> None:
+    """Signal the owned group and always reap the leader/drain its pipes."""
+    signal_error: OSError | None = None
+    try:
+        _kill_process_group(process)
+    except OSError as error:
+        signal_error = error
+    try:
+        _finish_killed_process(process, readers)
+    except RunnerError as cleanup_error:
+        if signal_error is not None:
+            raise RunnerError(
+                f"process-group signal failed ({signal_error}); subprocess cleanup also failed: {cleanup_error}"
+            ) from signal_error
+        raise
+    if signal_error is not None:
+        raise RunnerError(
+            f"process-group signal failed ({signal_error}); leader was killed and reaped directly"
+        ) from signal_error
 
 
 def _binary(value: str, label: str) -> Path:
@@ -133,6 +173,7 @@ def _scratch_root(requested: str | None) -> Path:
 
 
 def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) -> str:
+    _require_waitid()
     try:
         process = subprocess.Popen(
             command,
@@ -167,15 +208,13 @@ def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) ->
                 break
             time.sleep(0.01)
         if failure is not None:
-            _kill_process_group(process)
-            _finish_killed_process(process, readers)
+            _terminate_process_group(process, readers)
             raise RunnerError(failure)
         drain_deadline = time.monotonic() + PIPE_DRAIN_SECONDS
         for reader in readers:
             reader.join(timeout=max(0.0, drain_deadline - time.monotonic()))
         if any(reader.is_alive() for reader in readers):
-            _kill_process_group(process)
-            _finish_killed_process(process, readers)
+            _terminate_process_group(process, readers)
             raise RunnerError(f"command left a descendant holding its output pipe: {Path(command[0]).name}")
         if stdout.overflow.is_set() or stderr.overflow.is_set():
             process.wait(timeout=PROCESS_EXIT_SECONDS)
@@ -189,12 +228,16 @@ def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) ->
             raise RunnerError(f"{Path(command[0]).name} failed ({return_code}): {detail}")
         return output.strip()
     finally:
-        for stream in (process.stdout, process.stderr):
-            if stream is not None and not stream.closed:
-                stream.close()
-        for reader in readers:
-            if reader.is_alive():
-                reader.join(timeout=0.1)
+        try:
+            if process.returncode is None:
+                _terminate_process_group(process, readers)
+        finally:
+            for stream in (process.stdout, process.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
+            for reader in readers:
+                if reader.is_alive():
+                    reader.join(timeout=0.1)
 
 
 def _cli(cli: Path, data_dir: Path, *arguments: str, timeout: float = 20) -> dict[str, Any]:
@@ -235,6 +278,7 @@ def _daemon_command(daemon: Path, worker: Path, evaluator: Path,
 
 
 def _start_daemon(command: list[str], cli: Path, data_dir: Path) -> _OwnedDaemon:
+    _require_waitid()
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, start_new_session=True, bufsize=0)
     output_tail = _Capture(MAX_DAEMON_TAIL_BYTES, keep_tail=True)
@@ -264,8 +308,9 @@ def _terminate_owned(daemon: _OwnedDaemon | None) -> None:
         return
     process = daemon.process
     if not _leader_exited_unreaped(process) or daemon.reader.is_alive():
-        _kill_process_group(process)
-    _finish_killed_process(process, [daemon.reader])
+        _terminate_process_group(process, [daemon.reader])
+    else:
+        _finish_killed_process(process, [daemon.reader])
 
 
 def _write(path: Path, contents: str) -> None:
@@ -349,6 +394,7 @@ def _setup_scratch(root: Path) -> tuple[Path, Path, Path]:
 
 
 def run_fixture(args: argparse.Namespace) -> dict[str, Any]:
+    _require_waitid()
     if sys.platform != "darwin":
         raise RunnerError("candidate execution requires macOS Seatbelt isolation")
     daemon = _binary(args.daemon_bin, "--daemon-bin")

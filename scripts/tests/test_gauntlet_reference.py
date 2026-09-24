@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -124,6 +125,50 @@ class GauntletReferenceTests(unittest.TestCase):
                 gauntlet._run([sys.executable, "-c", parent, child, str(marker)], timeout=0.15)
             time.sleep(0.7)
             self.assertFalse(marker.exists(), "timed-out descendant survived its owned process group")
+
+    def test_waitid_support_is_checked_before_spawning(self):
+        with patch.object(gauntlet.os, "waitid", None), patch.object(gauntlet.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(gauntlet.RunnerError, r"waitid\(WNOWAIT\)"):
+                gauntlet._run([sys.executable, "-c", "pass"])
+            spawn.assert_not_called()
+
+    def test_run_reaps_direct_process_after_group_signal_failure(self):
+        spawned = []
+        real_popen = gauntlet.subprocess.Popen
+
+        def capture_process(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            spawned.append(process)
+            return process
+
+        with patch.object(gauntlet.subprocess, "Popen", side_effect=capture_process):
+            with patch.object(gauntlet, "_kill_process_group", side_effect=PermissionError("simulated EPERM")):
+                with self.assertRaisesRegex(gauntlet.RunnerError, "signal failed.*killed and reaped"):
+                    gauntlet._run([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.1)
+        self.assertEqual(len(spawned), 1)
+        self.assertIsNotNone(spawned[0].returncode)
+        self.assertTrue(spawned[0].stdout.closed)
+        self.assertTrue(spawned[0].stderr.closed)
+
+    def test_fixture_daemon_cleanup_reaps_and_drains_after_signal_failure(self):
+        process = gauntlet.subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+            stdin=gauntlet.subprocess.DEVNULL,
+            stdout=gauntlet.subprocess.PIPE,
+            stderr=gauntlet.subprocess.STDOUT,
+            start_new_session=True,
+            bufsize=0,
+        )
+        tail = gauntlet._Capture(gauntlet.MAX_DAEMON_TAIL_BYTES, keep_tail=True)
+        reader = threading.Thread(target=gauntlet._pump, args=(process.stdout, tail), daemon=True)
+        reader.start()
+        owned = gauntlet._OwnedDaemon(process, tail, reader)
+        with patch.object(gauntlet, "_kill_process_group", side_effect=PermissionError("simulated EPERM")):
+            with self.assertRaisesRegex(gauntlet.RunnerError, "signal failed.*killed and reaped"):
+                gauntlet._terminate_owned(owned)
+        self.assertIsNotNone(process.returncode)
+        self.assertTrue(process.stdout.closed)
+        self.assertFalse(reader.is_alive())
 
 
 if __name__ == "__main__":
