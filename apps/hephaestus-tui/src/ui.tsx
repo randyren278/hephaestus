@@ -77,6 +77,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [arenaInput, setArenaInput] = useState('');
 	const [arenaJobId, setArenaJobId] = useState('');
 	const [arenaJob, setArenaJob] = useState<ArenaJobProgress>();
+	const [arenaStale, setArenaStale] = useState(false);
 	const [arenaNotice, setArenaNotice] = useState('Enter an evaluation ID to inspect its durable progress.');
 	const [status, setStatus] = useState<ApiResponse>();
 	const [stale, setStale] = useState(false);
@@ -147,32 +148,38 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		}
 	};
 
-	const refreshArena = useCallback(async (evaluationId: string, announce = true) => {
+	const refreshArena = useCallback(async (evaluationId: string) => {
 		if (closing.current || !evaluationId || arenaRefreshing.current) return;
 		arenaRefreshing.current = true;
 		try {
 			const response = await client.request({command: 'job_status', job_id: evaluationId}, lifetime.signal);
 			if (response.error) {
 				setArenaJob(undefined);
-				if (announce) setArenaNotice(`${safeText(response.error.code)} · ${safeText(response.error.message)}`);
+				setArenaStale(false);
+				setArenaNotice(`${safeText(response.error.code)} · ${safeText(response.error.message)}`);
 				return;
 			}
 			if (response.data?.type !== 'arena_job') {
 				setArenaJob(undefined);
-				if (announce) setArenaNotice('No Arena progress projection exists for that ID.');
+				setArenaStale(false);
+				setArenaNotice('No Arena progress projection exists for that ID.');
 				return;
 			}
 			setArenaJob(response.data.job);
+			setArenaStale(false);
 			setArenaNotice('Live progress from the daemon.');
 		} catch (error) {
-			if (!lifetime.signal.aborted && announce) setArenaNotice(error instanceof Error ? safeText(error.message) : 'Arena progress unavailable');
+			if (!lifetime.signal.aborted) {
+				setArenaStale(true);
+				setArenaNotice(error instanceof Error ? safeText(error.message) : 'Arena progress unavailable');
+			}
 		} finally {
 			arenaRefreshing.current = false;
 		}
 	}, [client, lifetime]);
 	useEffect(() => {
 		if (view !== 'arena-progress' || !arenaJobId || !arenaJob || ['succeeded', 'failed', 'interrupted'].includes(arenaJob.state)) return;
-		const timer = setInterval(() => void refreshArena(arenaJobId, false), pollMs);
+		const timer = setInterval(() => void refreshArena(arenaJobId), pollMs);
 		return () => clearInterval(timer);
 	}, [arenaJobId, arenaJob, pollMs, refreshArena, view]);
 
@@ -212,6 +219,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				if (cleaned) {
 					setArenaJobId(cleaned);
 					setArenaJob(undefined);
+					setArenaStale(false);
 					setArenaNotice('Loading Arena progress…');
 					setView('arena-progress');
 					void refreshArena(cleaned);
@@ -251,7 +259,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 3: setView('confirm-kill-all'); break;
 				case 4: setJobPromptAction('inspect'); setView('job-id'); setJobId(''); break;
 				case 5: setJobPromptAction('cancel'); setView('job-id'); setJobId(''); break;
-				case 6: setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
+				case 6: setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
 			}
 		}
 	});
@@ -272,7 +280,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
 			</Box>
 			{!compact && (view === 'arena-progress'
-				? <Box flexDirection="column" width="42%"><ArenaProgressPanel job={arenaJob} stale={stale} notice={arenaNotice} /></Box>
+				? <Box flexDirection="column" width="42%"><ArenaProgressPanel job={arenaJob} stale={stale || arenaStale} notice={arenaNotice} /></Box>
 				: <Box flexDirection="column" width="42%" borderStyle="single" borderColor="gray" paddingX={1}>
 					<Text color="gray">CANONICAL STATUS</Text>
 					<Text>Active runs  {status?.data?.type === 'status' ? status.data.active_runs : '—'}</Text>
@@ -280,7 +288,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 					<Text>Ledger events {status?.data?.type === 'status' ? status.data.event_count : '—'}</Text>
 				</Box>)}
 		</Box>
-		{compact && view === 'arena-progress' && <ArenaProgressPanel job={arenaJob} stale={stale} notice={arenaNotice} compact />}
+		{compact && view === 'arena-progress' && <ArenaProgressPanel job={arenaJob} stale={stale || arenaStale} notice={arenaNotice} compact />}
 		{view !== 'home' && <Box marginTop={1} borderStyle="round" borderColor="yellow" paddingX={1}>
 			{view === 'job-id' && <Text>Job ID: {jobId}<Text color="gray">  (Enter {jobPromptAction} · Esc cancel)</Text></Text>}
 			{view === 'arena-id' && <Text>Evaluation ID: {arenaInput}<Text color="gray">  (Enter inspect · Esc back)</Text></Text>}
