@@ -222,6 +222,44 @@ fn bounded_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_cli
         "socket-request"
     );
 
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (server, mut client) = UnixStream::pair().expect("create dropped-reply socket pair");
+    client
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("bound dropped-reply response wait");
+    let active = Arc::new(AtomicUsize::new(1));
+    let handler_active = Arc::clone(&active);
+    let handler = thread::spawn(move || serve_connection(server, &sender, handler_active));
+    let request = ApiRequest {
+        version: API_VERSION,
+        request_id: "dropped-reply-request".to_owned(),
+        token: "token".to_owned(),
+        command: Command::Status,
+    };
+    client
+        .write_all(&serde_json::to_vec(&request).expect("encode dropped-reply request"))
+        .expect("write dropped-reply request");
+    client
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish dropped-reply request frame");
+    let queued = receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("writer receives dropped-reply request");
+    assert_eq!(queued.request, request);
+    drop(queued.reply);
+    let mut response_bytes = Vec::new();
+    client
+        .read_to_end(&mut response_bytes)
+        .expect("read immediate dropped-reply response");
+    handler.join().expect("join dropped-reply handler");
+    assert_eq!(active.load(Ordering::Acquire), 0);
+    let response: ApiResponse =
+        serde_json::from_slice(&response_bytes).expect("decode dropped-reply response");
+    assert_eq!(
+        response.error.expect("safe dropped-reply error").code,
+        ApiErrorCode::Internal
+    );
+
     let (sender, _receiver) = mpsc::sync_channel(1);
     let malformed = serve_test_connection(&sender, b"{");
     assert_eq!(
@@ -4956,6 +4994,64 @@ fn authenticated_failures_are_safe_and_replay_divergence_is_detected() {
         clean.replay_response(),
         Err(ExecuteError::Internal)
     ));
+}
+
+#[test]
+fn rejected_request_audit_failure_returns_safe_internal_and_recovers() {
+    let directory = tempdir().expect("temporary directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let database = rusqlite::Connection::open(directory.path().join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_control_request BEFORE INSERT ON events
+             WHEN NEW.event_type = 'control.request_rejected'
+             BEGIN SELECT RAISE(ABORT, 'fixture rejection append failure'); END;",
+        )
+        .expect("reject request rejection append");
+
+    let failed = plane.handle(ApiRequest {
+        version: API_VERSION,
+        request_id: String::new(),
+        token: plane.token_hex.clone(),
+        command: Command::Status,
+    });
+    let error = failed
+        .error
+        .expect("safe response to rejected audit failure");
+    assert_eq!(error.code, ApiErrorCode::Internal);
+    assert_eq!(error.message, "canonical operation failed");
+    assert!(
+        plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify ledger after rejected request append")
+            .is_empty()
+    );
+
+    database
+        .execute_batch("DROP TRIGGER reject_control_request;")
+        .expect("restore request audit writes");
+    let token = plane.token_hex.clone();
+    let recovered = dispatch_call(&mut plane, &token, "status-after-reject", Command::Status);
+    assert!(recovered.error.is_none());
+    assert!(matches!(recovered.data, Some(ResponseData::Status { .. })));
+    assert_eq!(
+        plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify valid request after trigger removal")
+            .iter()
+            .map(|event| event.event_type.as_str())
+            .collect::<Vec<_>>(),
+        ["control.status"]
+    );
 }
 
 #[test]
