@@ -63,6 +63,15 @@ pub enum Command {
         /// Operator-authored, bounded hypothesis for the one prompt change.
         hypothesis: String,
     },
+    /// Assess one proposed child against a verified Arena selection receipt.
+    GenomeAssess {
+        /// Stable idempotency key for the assessment event.
+        assessment_id: String,
+        /// Durable Forge proposal being assessed.
+        proposal_id: String,
+        /// Exact child-selection event whose receipt supplies the metrics outcome.
+        selection_event_id: String,
+    },
     /// Inspect one immutable World record.
     WorldShow {
         /// Content-derived World identity.
@@ -221,6 +230,11 @@ pub enum ResponseData {
         /// Proposal fields and compiler-verified child Genome registration.
         proposal: Box<ForgeProposalRecord>,
     },
+    /// One evidence-bound Forge assessment. It never authorizes promotion.
+    ForgeAssessment {
+        /// Assessment payload and canonical event metadata.
+        assessment: Box<ForgeAssessmentRecord>,
+    },
     /// Exact UTF-8 body bytes of a registered Genome's reserved prompt.
     GenomePrompt {
         /// Content-derived Genome identity.
@@ -373,6 +387,80 @@ pub struct ForgeProposalRecord {
     pub event: ForgeProposalEventRecord,
     /// This milestone never authorizes or performs promotion.
     pub promotion_eligible: bool,
+}
+
+/// Metrics-only Forge assessment outcome derived from a verified `SelectionReceipt`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeAssessmentOutcome {
+    /// The verified receipt passed its metrics eligibility policy.
+    MetricsPassed,
+    /// The verified receipt did not pass its metrics eligibility policy.
+    MetricsRejected,
+}
+
+/// Canonical payload of one evidence-bound Forge assessment event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeAssessmentPayload {
+    /// Assessment payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub assessment_id: String,
+    /// Forge proposal identifier being assessed.
+    pub proposal_id: String,
+    /// Exact prior Forge proposal event identity and hash.
+    pub proposal_event_id: String,
+    /// Hash of the exact Forge proposal event.
+    pub proposal_event_hash: String,
+    /// Exact child-selection event identity and hash.
+    pub selection_event_id: String,
+    /// Hash of the verified child-selection event.
+    pub selection_event_hash: String,
+    /// Content address of the exact verified `SelectionReceipt`.
+    pub selection_receipt_artifact_id: String,
+    /// Stable child evaluation identity from the verified receipt.
+    pub evaluation_id: String,
+    /// Exact source evaluation event identity and hash.
+    pub evaluation_event_id: String,
+    /// Hash of the exact source evaluation event.
+    pub evaluation_event_hash: String,
+    /// World identity shared by proposal and child evaluation.
+    pub world_id: String,
+    /// Parent Genome identity in the evaluated directed pair.
+    pub parent_genome_id: String,
+    /// Proposed child Genome identity in the evaluated directed pair.
+    pub child_genome_id: String,
+    /// Metrics-only outcome recomputed from the verified `SelectionReceipt`.
+    pub outcome: ForgeAssessmentOutcome,
+    /// This assessment does not include independent invariant evidence.
+    pub invariant_gate_verified: bool,
+    /// This assessment does not authorize or perform promotion.
+    pub promotion_eligible: bool,
+}
+
+/// Canonical event metadata accompanying a Forge assessment response.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeAssessmentEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent assessment event identity.
+    pub event_id: String,
+    /// Forge proposal aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Operator-visible assessment and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeAssessmentRecord {
+    /// Canonical assessment event payload.
+    pub payload: ForgeAssessmentPayload,
+    /// Canonical event metadata.
+    pub event: ForgeAssessmentEventRecord,
 }
 
 /// Durable lifecycle projection for one direct asynchronous reference run.

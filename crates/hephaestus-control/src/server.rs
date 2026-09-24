@@ -48,7 +48,8 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
-    EvaluationEventRecord, EvaluationRecord, ForgeProposalEventRecord, ForgeProposalPayload,
+    EvaluationEventRecord, EvaluationRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
+    ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
     ForgeProposalRecord, GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData,
     RunCompletionReason, SelectionEventRecord, SelectionRecord, WorldRecord,
 };
@@ -525,6 +526,7 @@ impl ControlPlane {
             RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;
         verify_selection_history(&data_dir, &history, &registered)?;
         verify_forge_history(&data_dir, &history, &registered)?;
+        verify_forge_assessment_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -729,6 +731,7 @@ impl ControlPlane {
             }),
             Command::GenomeRegister { path, world_id } => self.register_genome(&path, &world_id),
             command @ Command::GenomePropose { .. } => self.propose_genome_command(command),
+            command @ Command::GenomeAssess { .. } => self.assess_genome_command(command),
             Command::WorldShow { world_id } => self
                 .state
                 .registered
@@ -805,6 +808,18 @@ impl ControlPlane {
         )
     }
 
+    fn assess_genome_command(&mut self, command: Command) -> Result<ResponseData, ExecuteError> {
+        let Command::GenomeAssess {
+            assessment_id,
+            proposal_id,
+            selection_event_id,
+        } = command
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        self.assess_genome(&assessment_id, &proposal_id, &selection_event_id)
+    }
+
     fn request_daemon_stop(&mut self) -> Result<ResponseData, ExecuteError> {
         if self.active_job.is_some() || self.active_arena_job.is_some() {
             self.request_active_job_cancellation()?;
@@ -825,6 +840,7 @@ impl ControlPlane {
                 | Command::ArenaSelect { .. }
                 | Command::GenomeRegister { .. }
                 | Command::GenomePropose { .. }
+                | Command::GenomeAssess { .. }
                 | Command::WorldRegister { .. }
                 | Command::ManifestPut { .. }
                 | Command::ArtifactPut { .. }
@@ -1735,6 +1751,8 @@ impl ControlPlane {
         verify_selection_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_forge_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_assessment_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
@@ -2835,6 +2853,70 @@ impl ControlPlane {
         })
     }
 
+    fn assess_genome(
+        &mut self,
+        assessment_id: &str,
+        proposal_id: &str,
+        selection_event_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(assessment_id)
+            .map_err(|_| ExecuteError::Invalid("assessment_id is invalid"))?;
+        validate_job_id(proposal_id)
+            .map_err(|_| ExecuteError::Invalid("proposal_id is invalid"))?;
+        if selection_event_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("selection_event_id is required"));
+        }
+
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_history(&self.data_dir, &history, &self.state.registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_assessment_history(&self.data_dir, &history, &self.state.registered)
+            .map_err(|_| ExecuteError::Internal)?;
+
+        if let Some(existing) = existing_forge_assessment_response(
+            &history,
+            assessment_id,
+            proposal_id,
+            selection_event_id,
+        )? {
+            return Ok(existing);
+        }
+        let payload = forge_assessment_payload(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            assessment_id,
+            proposal_id,
+            selection_event_id,
+        )?;
+
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        let event = storage
+            .ledger
+            .append(EventInput::new(
+                forge_assessment_event_id(assessment_id),
+                forge_aggregate_id(proposal_id),
+                "forge.assessed",
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::ForgeAssessment {
+            assessment: Box::new(forge_assessment_record(payload, &event)),
+        })
+    }
+
     fn genome_prompt(&self, genome_id: &str) -> Result<ResponseData, ExecuteError> {
         let genome = self
             .state
@@ -2926,6 +3008,8 @@ impl ControlPlane {
         verify_selection_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_forge_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_assessment_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
@@ -3314,6 +3398,66 @@ fn decode_forge_proposal(event: &StoredEvent) -> Result<ForgeProposalPayload, Co
     Ok(payload)
 }
 
+fn verify_forge_assessment_history(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+) -> Result<(), ControlError> {
+    for event in history
+        .iter()
+        .filter(|event| event.event_type == "forge.assessed")
+    {
+        let payload = decode_forge_assessment(event)?;
+        if payload.schema_version != 1
+            || event.actor != OPERATOR_ACTOR
+            || event.event_id != forge_assessment_event_id(&payload.assessment_id)
+            || event.aggregate_id != forge_aggregate_id(&payload.proposal_id)
+        {
+            return Err(ControlError::Projection(
+                "Forge assessment event identity is invalid".to_owned(),
+            ));
+        }
+        validate_job_id(&payload.assessment_id)
+            .map_err(|_| ControlError::Projection("Forge assessment id is invalid".to_owned()))?;
+        validate_job_id(&payload.proposal_id).map_err(|_| {
+            ControlError::Projection("Forge assessment proposal id is invalid".to_owned())
+        })?;
+        let expected = forge_assessment_payload(
+            data_dir,
+            history,
+            registered,
+            &payload.assessment_id,
+            &payload.proposal_id,
+            &payload.selection_event_id,
+        )
+        .map_err(|_| ControlError::Projection("Forge assessment evidence is invalid".to_owned()))?;
+        let selection_event = history
+            .iter()
+            .find(|candidate| candidate.event_id == payload.selection_event_id)
+            .ok_or_else(|| {
+                ControlError::Projection("Forge assessment selection is missing".to_owned())
+            })?;
+        if selection_event.sequence >= event.sequence || payload != expected {
+            return Err(ControlError::Projection(
+                "Forge assessment differs from verified evidence".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn decode_forge_assessment(event: &StoredEvent) -> Result<ForgeAssessmentPayload, ControlError> {
+    let payload = serde_json::from_slice::<ForgeAssessmentPayload>(&event.payload)
+        .map_err(|_| ControlError::Projection("Forge assessment payload is invalid".to_owned()))?;
+    let canonical_value = serde_json::to_value(&payload)?;
+    if serde_json::to_vec(&canonical_value)? != event.payload {
+        return Err(ControlError::Projection(
+            "Forge assessment payload is not canonical".to_owned(),
+        ));
+    }
+    Ok(payload)
+}
+
 fn forge_proposal_record(
     payload: ForgeProposalPayload,
     event: &StoredEvent,
@@ -3328,6 +3472,148 @@ fn forge_proposal_record(
         },
         promotion_eligible: false,
     }
+}
+
+fn forge_assessment_event_id(assessment_id: &str) -> String {
+    format!("forge-assessment:{assessment_id}:recorded")
+}
+
+fn forge_assessment_record(
+    payload: ForgeAssessmentPayload,
+    event: &StoredEvent,
+) -> ForgeAssessmentRecord {
+    ForgeAssessmentRecord {
+        payload,
+        event: ForgeAssessmentEventRecord {
+            sequence: event.sequence,
+            event_id: event.event_id.clone(),
+            aggregate_id: event.aggregate_id.clone(),
+            event_hash: hex_encode(&event.hash),
+        },
+    }
+}
+
+fn existing_forge_assessment_response(
+    history: &[StoredEvent],
+    assessment_id: &str,
+    proposal_id: &str,
+    selection_event_id: &str,
+) -> Result<Option<ResponseData>, ExecuteError> {
+    for event in history
+        .iter()
+        .filter(|event| event.event_type == "forge.assessed")
+    {
+        let existing = decode_forge_assessment(event).map_err(|_| ExecuteError::Internal)?;
+        if existing.assessment_id == assessment_id {
+            if existing.proposal_id != proposal_id
+                || existing.selection_event_id != selection_event_id
+            {
+                return Err(ExecuteError::Rejected(
+                    "assessment_id is already bound to different assessment content".to_owned(),
+                ));
+            }
+            return Ok(Some(ResponseData::ForgeAssessment {
+                assessment: Box::new(forge_assessment_record(existing, event)),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+fn forge_assessment_payload(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    assessment_id: &str,
+    proposal_id: &str,
+    selection_event_id: &str,
+) -> Result<ForgeAssessmentPayload, ExecuteError> {
+    let proposal_event_id = forge_event_id(proposal_id);
+    let proposal_event = history
+        .iter()
+        .find(|event| event.event_id == proposal_event_id)
+        .ok_or(ExecuteError::NotFound)?;
+    let proposal = decode_forge_proposal(proposal_event).map_err(|_| ExecuteError::Internal)?;
+    validate_forge_event(proposal_event, &proposal).map_err(|_| ExecuteError::Internal)?;
+    if proposal.proposal_id != proposal_id {
+        return Err(ExecuteError::Internal);
+    }
+
+    let selection_event = history
+        .iter()
+        .find(|event| event.event_id == selection_event_id)
+        .ok_or(ExecuteError::NotFound)?;
+    if selection_event.event_type != "selection.recorded" {
+        return Err(ExecuteError::Rejected(
+            "selection_event_id does not identify a selection".to_owned(),
+        ));
+    }
+    let (routed_evaluation_id, routed_world_id) =
+        selection_event_references(selection_event).map_err(|_| ExecuteError::Internal)?;
+    let world = registered
+        .world(&routed_world_id)
+        .ok_or(ExecuteError::Internal)?;
+    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+        .map_err(|_| ExecuteError::Internal)?;
+    let selected = verify_selection_event(stores, selection_event, world.compiled())
+        .map_err(|_| ExecuteError::Internal)?;
+    let receipt = selected.receipt().clone();
+    let verified_selection_event_id = selected.event().event_id.clone();
+    let selection_event_hash = selected.event().event_hash.clone();
+    let selection_receipt_artifact_id = selected.event().receipt_artifact_id.clone();
+    let selection_sequence = selected.event().sequence;
+    drop(selected.into_stores());
+
+    let evaluation_event = history
+        .iter()
+        .find(|event| event.event_id == receipt.evaluation_event_id())
+        .ok_or(ExecuteError::Internal)?;
+    if evaluation_event.event_type != "evaluation.recorded"
+        || hex_encode(&evaluation_event.hash) != receipt.evaluation_event_hash()
+    {
+        return Err(ExecuteError::Internal);
+    }
+    if proposal_event.sequence >= evaluation_event.sequence
+        || evaluation_event.sequence >= selection_sequence
+    {
+        return Err(ExecuteError::Rejected(
+            "Forge assessment evidence is out of order".to_owned(),
+        ));
+    }
+    if routed_evaluation_id != receipt.evaluation_id()
+        || routed_world_id != receipt.world_id()
+        || receipt.world_id() != proposal.world_id
+        || receipt.parent_genome_id() != proposal.parent_genome_id
+        || receipt.candidate_genome_id() != proposal.child.genome_id
+    {
+        return Err(ExecuteError::Rejected(
+            "selection evidence does not match the proposed child".to_owned(),
+        ));
+    }
+
+    Ok(ForgeAssessmentPayload {
+        schema_version: 1,
+        assessment_id: assessment_id.to_owned(),
+        proposal_id: proposal_id.to_owned(),
+        proposal_event_id: proposal_event.event_id.clone(),
+        proposal_event_hash: hex_encode(&proposal_event.hash),
+        selection_event_id: verified_selection_event_id,
+        selection_event_hash,
+        selection_receipt_artifact_id,
+        evaluation_id: receipt.evaluation_id().to_owned(),
+        evaluation_event_id: receipt.evaluation_event_id().to_owned(),
+        evaluation_event_hash: receipt.evaluation_event_hash().to_owned(),
+        world_id: receipt.world_id().to_owned(),
+        parent_genome_id: receipt.parent_genome_id().to_owned(),
+        child_genome_id: receipt.candidate_genome_id().to_owned(),
+        outcome: if receipt.metrics_eligible() {
+            ForgeAssessmentOutcome::MetricsPassed
+        } else {
+            ForgeAssessmentOutcome::MetricsRejected
+        },
+        invariant_gate_verified: false,
+        promotion_eligible: false,
+    })
 }
 
 fn forge_event_id(proposal_id: &str) -> String {
@@ -3595,6 +3881,20 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
             ));
         }
         validate_hypothesis(hypothesis)?;
+    }
+    if let Command::GenomeAssess {
+        assessment_id,
+        proposal_id,
+        selection_event_id,
+    } = command
+    {
+        validate_job_id(assessment_id)
+            .map_err(|_| ExecuteError::Invalid("assessment_id is invalid"))?;
+        validate_job_id(proposal_id)
+            .map_err(|_| ExecuteError::Invalid("proposal_id is invalid"))?;
+        if selection_event_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("selection_event_id is required"));
+        }
     }
     if let Command::JobStatus { job_id } | Command::JobKill { job_id } = command
         && job_id.trim().is_empty()
@@ -5052,6 +5352,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::GenomeList => "control.genome_list",
         Command::GenomeRegister { .. } => "control.genome_register",
         Command::GenomePropose { .. } => "control.genome_propose",
+        Command::GenomeAssess { .. } => "control.genome_assess",
         Command::WorldShow { .. } => "control.world_show",
         Command::WorldList => "control.world_list",
         Command::WorldRegister { .. } => "control.world_register",

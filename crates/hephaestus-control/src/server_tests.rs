@@ -85,6 +85,323 @@ fn forge_history_with_selection_edit(
     tampered
 }
 
+fn complete_arena_test_job(
+    plane: &mut ControlPlane,
+    evaluation_id: &str,
+    parent_genome_id: &str,
+    candidate_genome_id: &str,
+) {
+    assert!(matches!(
+        plane
+            .submit_arena_job(evaluation_id, parent_genome_id, candidate_genome_id)
+            .expect("admit Arena evidence job"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    drain_active_arena_test_job(plane, evaluation_id);
+}
+
+fn drain_active_arena_test_job(plane: &mut ControlPlane, evaluation_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist Arena trials and score evidence");
+        assert!(
+            Instant::now() < deadline,
+            "Arena evidence job did not finish"
+        );
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_eq!(
+        plane.state.arena_jobs[evaluation_id].terminal,
+        Some(JobTerminal::Succeeded)
+    );
+}
+
+#[test]
+fn forge_assessment_records_verified_child_selection_and_replays() {
+    let directory = tempdir().expect("Forge assessment fixture");
+    let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    complete_arena_test_job(
+        &mut plane,
+        "assessment-source-evaluation",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    let ResponseData::Selection {
+        selection: source_selection,
+    } = plane
+        .select_arena_evaluation("assessment-source-evaluation")
+        .expect("select source candidate for proposal")
+    else {
+        panic!("source selection should produce a receipt");
+    };
+    let ResponseData::ForgeProposal { proposal } = plane
+        .propose_genome(
+            "assessment-proposal",
+            &source_selection.event.event_id,
+            &initial_candidate.genome_id,
+            "Assess a single causal prompt mutation.",
+        )
+        .expect("record compiler-backed Forge proposal")
+    else {
+        panic!("proposal should return its durable record");
+    };
+    let ResponseData::ForgeProposal {
+        proposal: sibling_proposal,
+    } = plane
+        .propose_genome(
+            "assessment-sibling-proposal",
+            &source_selection.event.event_id,
+            &initial_candidate.genome_id,
+            "Assess a distinct child of the same selected parent.",
+        )
+        .expect("record sibling Forge proposal for directed-pair rejection")
+    else {
+        panic!("sibling proposal should return its durable record");
+    };
+
+    let child = proposal.payload.child.clone();
+    assert!(matches!(
+        plane
+            .submit_arena_job(
+                "assessment-child-evaluation",
+                &initial_candidate.genome_id,
+                &child.genome_id
+            )
+            .expect("admit child evaluation"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let busy = dispatch_call(
+        &mut plane,
+        &token,
+        "assess-while-active",
+        Command::GenomeAssess {
+            assessment_id: "assessment-while-active".to_owned(),
+            proposal_id: "assessment-proposal".to_owned(),
+            selection_event_id: "selection:pending".to_owned(),
+        },
+    );
+    assert_eq!(
+        busy.error.expect("active Arena blocks assessment").code,
+        ApiErrorCode::Busy
+    );
+    drain_active_arena_test_job(&mut plane, "assessment-child-evaluation");
+    let ResponseData::Selection {
+        selection: child_selection,
+    } = plane
+        .select_arena_evaluation("assessment-child-evaluation")
+        .expect("select child evaluation receipt")
+    else {
+        panic!("child selection should produce a receipt");
+    };
+    assert_eq!(
+        child_selection.receipt.candidate_genome_id(),
+        child.genome_id
+    );
+
+    assert!(matches!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "freeze-before-assessment",
+            Command::Freeze
+        )
+        .data,
+        Some(ResponseData::Acknowledged { frozen: true, .. })
+    ));
+    assert_eq!(
+        sibling_proposal.payload.proposal_id,
+        "assessment-sibling-proposal"
+    );
+    let command = Command::GenomeAssess {
+        assessment_id: "assessment-child-result".to_owned(),
+        proposal_id: "assessment-proposal".to_owned(),
+        selection_event_id: child_selection.event.event_id.clone(),
+    };
+    let response = dispatch_call(&mut plane, &token, "assess-child", command.clone());
+    assert!(
+        response.error.is_none(),
+        "assessment failed: {:?}",
+        response.error
+    );
+    let Some(ResponseData::ForgeAssessment { assessment }) = response.data else {
+        panic!("assessment should return its canonical record");
+    };
+    assert_eq!(
+        assessment.payload.proposal_event_id,
+        proposal.event.event_id
+    );
+    assert_eq!(
+        assessment.payload.proposal_event_hash,
+        proposal.event.event_hash
+    );
+    assert_eq!(
+        assessment.payload.selection_event_id,
+        child_selection.event.event_id
+    );
+    assert_eq!(
+        assessment.payload.selection_event_hash,
+        child_selection.event.event_hash
+    );
+    assert_eq!(
+        assessment.payload.selection_receipt_artifact_id,
+        child_selection.event.receipt_artifact_id
+    );
+    assert_eq!(
+        assessment.payload.evaluation_id,
+        child_selection.receipt.evaluation_id()
+    );
+    assert_eq!(
+        assessment.payload.evaluation_event_id,
+        child_selection.receipt.evaluation_event_id()
+    );
+    assert_eq!(
+        assessment.payload.evaluation_event_hash,
+        child_selection.receipt.evaluation_event_hash()
+    );
+    assert_eq!(assessment.payload.world_id, proposal.payload.world_id);
+    assert_eq!(
+        assessment.payload.parent_genome_id,
+        proposal.payload.parent_genome_id
+    );
+    assert_eq!(assessment.payload.child_genome_id, child.genome_id);
+    assert_eq!(
+        assessment.payload.outcome,
+        if child_selection.receipt.metrics_eligible() {
+            ForgeAssessmentOutcome::MetricsPassed
+        } else {
+            ForgeAssessmentOutcome::MetricsRejected
+        }
+    );
+    assert!(!assessment.payload.invariant_gate_verified);
+    assert!(!assessment.payload.promotion_eligible);
+    assert!(proposal.event.sequence < child_selection.event.sequence);
+    assert!(child_selection.event.sequence < assessment.event.sequence);
+
+    let conflicting_retry = dispatch_call(
+        &mut plane,
+        &token,
+        "assess-child-conflict",
+        Command::GenomeAssess {
+            assessment_id: "assessment-child-result".to_owned(),
+            proposal_id: "assessment-sibling-proposal".to_owned(),
+            selection_event_id: child_selection.event.event_id.clone(),
+        },
+    );
+    assert!(matches!(
+        conflicting_retry.error,
+        Some(error)
+            if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "assessment_id is already bound to different assessment content"
+    ));
+    let wrong_pair = dispatch_call(
+        &mut plane,
+        &token,
+        "assess-sibling-against-primary-child",
+        Command::GenomeAssess {
+            assessment_id: "assessment-wrong-child".to_owned(),
+            proposal_id: "assessment-sibling-proposal".to_owned(),
+            selection_event_id: child_selection.event.event_id.clone(),
+        },
+    );
+    assert!(matches!(
+        wrong_pair.error,
+        Some(error)
+            if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "selection evidence does not match the proposed child"
+    ));
+
+    let before_retry = plane
+        .storage
+        .as_ref()
+        .expect("canonical Forge ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify assessment event")
+        .iter()
+        .filter(|event| event.event_type == "forge.assessed")
+        .count();
+    let retry = dispatch_call(&mut plane, &token, "assess-child-retry", command);
+    assert_eq!(
+        retry.data,
+        Some(ResponseData::ForgeAssessment {
+            assessment: assessment.clone()
+        })
+    );
+    let after_retry = plane
+        .storage
+        .as_ref()
+        .expect("canonical Forge ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify idempotent assessment retry")
+        .iter()
+        .filter(|event| event.event_type == "forge.assessed")
+        .count();
+    assert_eq!(before_retry, after_retry);
+    assert!(matches!(
+        dispatch_call(&mut plane, &token, "replay-assessment", Command::Replay).data,
+        Some(ResponseData::Replay { .. })
+    ));
+
+    let data_dir = plane.data_dir.clone();
+    let repository = plane.source_repository.clone();
+    let evaluator = plane.evaluator_executable.clone();
+    let worker = plane.reference_worker_executable.clone();
+    drop(plane);
+    let mut reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("startup verifies durable Forge assessment");
+    assert!(matches!(
+        reopened.replay_response().expect("replay assessed history"),
+        ResponseData::Replay { .. }
+    ));
+
+    let mut tampered = assessment.payload.clone();
+    tampered.assessment_id = "assessment-tampered".to_owned();
+    tampered.proposal_event_hash = "0".repeat(64);
+    let tampered_value = serde_json::to_value(&tampered).expect("canonical tampered payload");
+    let tampered_bytes = serde_json::to_vec(&tampered_value).expect("encode tampered payload");
+    reopened
+        .storage
+        .as_mut()
+        .expect("canonical ledger")
+        .ledger
+        .append(EventInput::new(
+            "forge-assessment:assessment-tampered:recorded",
+            "forge:assessment-proposal",
+            "forge.assessed",
+            OPERATOR_ACTOR,
+            timestamp_millis().expect("event timestamp"),
+            tampered_bytes,
+        ))
+        .expect("append domain-tampered event with a valid ledger hash chain");
+    assert!(matches!(
+        reopened.replay_response(),
+        Err(ExecuteError::Internal)
+    ));
+    drop(reopened);
+    assert!(matches!(
+        ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &data_dir,
+            &repository,
+            &evaluator,
+            &worker,
+        ),
+        Err(ControlError::Projection(message))
+            if message == "Forge assessment differs from verified evidence"
+    ));
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
