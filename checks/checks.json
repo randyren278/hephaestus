@@ -344,8 +344,8 @@
       "id": "frozen-reference-run-started",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The persistent operator freeze blocks all new reference execution.",
-      "find": "        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
-      "replace": "        if false && self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }"
+      "find": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
+      "replace": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if false && self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }"
     },
     {
       "id": "unregistered-world-executed",
@@ -408,7 +408,7 @@
       "file": "crates/hephaestus-runtime/src/spec.rs",
       "invariant": "Run identifiers cannot escape the sandbox root.",
       "find": "            || !run_id\n                .bytes()\n                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))",
-      "replace": "            || false"
+      "replace": "        || false"
     },
     {
       "id": "sandbox-capability-proof-bypassed",
@@ -1576,8 +1576,8 @@
       "id": "registry-noncanonical-payload-accepted",
       "file": "crates/hephaestus-genome/src/registry.rs",
       "invariant": "Registration payloads must be the exact canonical encoding of their typed record.",
-      "find": "    if canonical != event.payload {",
-      "replace": "    if false && canonical != event.payload {"
+      "find": "    let canonical = serde_json::to_vec(&record).map_err(|_| RegistrationError::InvalidPayload {\n        event_id: event.event_id.clone(),\n        kind,\n    })?;\n    if canonical != event.payload {",
+      "replace": "    let canonical = serde_json::to_vec(&record).map_err(|_| RegistrationError::InvalidPayload {\n        event_id: event.event_id.clone(),\n        kind,\n    })?;\n    if false && canonical != event.payload {"
     },
     {
       "id": "registry-aggregate-mismatch-accepted",
@@ -1800,8 +1800,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;",
-      "replace": "        // mutation: skip selection history verification during replay"
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2003,7 +2003,7 @@
       "id": "forge-proposal-parent-not-bound-to-selected-candidate",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A Forge child proposal can use only the candidate authenticated by its exact selection receipt.",
-      "find": "            || receipt.candidate_genome_id() != parent_genome_id",
+      "find": "        || receipt.candidate_genome_id() != parent_genome_id",
       "replace": "            || false"
     },
     {
