@@ -946,6 +946,125 @@ fn reference_output_invariants_reject_cross_world_and_hash_valid_forgeries() {
     assert!(load_reference_output_invariants(reordered, "evaluation-001", &world).is_err());
 }
 
+/// Rebuilds `history` in a new hash-valid ledger with `original`'s payload
+/// rewritten, so only deeper content verification (not the hash chain) can
+/// reject the forgery. Generic over which event is being replaced.
+fn forged_event_ledger(
+    directory: &TempDir,
+    name: &str,
+    history: &[StoredEvent],
+    original: &StoredEvent,
+    payload: String,
+) -> EvaluationStores {
+    let mut stores = EvaluationStores::open(
+        directory.path().join(format!("{name}.sqlite3")),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    append_history_except(&mut stores, history, &original.event_id);
+    stores
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            payload,
+        ))
+        .unwrap();
+    stores
+}
+
+#[test]
+fn reference_output_invariants_reject_out_of_manifest_tasks_and_relabeled_signed_outputs() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let evaluation = evaluate(fixture).unwrap();
+    let parent_submission_bytes = evaluation.operator_parent_submission().unwrap();
+    let parent_submission_id = ArtifactId::for_bytes(&parent_submission_bytes)
+        .as_str()
+        .to_owned();
+    let submission_text = String::from_utf8(parent_submission_bytes.clone()).unwrap();
+    let stores = evaluation.into_stores();
+    let history = stores.events.replay_verified().unwrap();
+    let evaluation_event = history
+        .iter()
+        .find(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap()
+        .clone();
+    let original_payload = String::from_utf8(evaluation_event.payload.clone()).unwrap();
+    // The evaluation event's payload names the parent submission artifact twice
+    // (a business identity and a CAS pointer, kept equal by construction), so a
+    // single unqualified replace retargets both consistently.
+    assert_eq!(original_payload.matches(&parent_submission_id).count(), 2);
+
+    // A submission whose trial keys diverge from the World's manifest task set,
+    // with every referenced signed-run binding otherwise untouched, is rejected
+    // even though it is byte-canonical and every artifact it names exists.
+    let renamed_task_text = submission_text.replace("\"task-visible-b\":", "\"task-visible-x\":");
+    assert_ne!(renamed_task_text, submission_text);
+    let renamed_task_id = stores.artifacts.put(renamed_task_text.as_bytes()).unwrap();
+    let renamed_task_payload =
+        original_payload.replace(&parent_submission_id, renamed_task_id.as_str());
+    let renamed_task_stores = forged_event_ledger(
+        &directory,
+        "renamed-task",
+        &history,
+        &evaluation_event,
+        renamed_task_payload,
+    );
+    assert!(matches!(
+        check_reference_output_invariants(
+            renamed_task_stores,
+            "evaluation-001",
+            &world,
+            1_788_000_123_600,
+        ),
+        Err(ArenaError::InvalidStoredReceipt(
+            "invariant submission evidence"
+        ))
+    ));
+
+    // A submission that relabels one task's signed stdout onto another task's
+    // trial: every artifact it names still exists and resolves, but no longer
+    // matches what that task's own signed run actually produced.
+    let submission_value: serde_json::Value =
+        serde_json::from_slice(&parent_submission_bytes).unwrap();
+    let stdout_a = submission_value["trials"]["task-visible-a"]["stdout_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let stdout_b = submission_value["trials"]["task-visible-b"]["stdout_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(stdout_a, stdout_b);
+    let relabeled_text = submission_text.replacen(&stdout_b, &stdout_a, 1);
+    assert_ne!(relabeled_text, submission_text);
+    let relabeled_id = stores.artifacts.put(relabeled_text.as_bytes()).unwrap();
+    let relabeled_payload = original_payload.replace(&parent_submission_id, relabeled_id.as_str());
+    let relabeled_stores = forged_event_ledger(
+        &directory,
+        "relabeled-output",
+        &history,
+        &evaluation_event,
+        relabeled_payload,
+    );
+    assert!(matches!(
+        check_reference_output_invariants(
+            relabeled_stores,
+            "evaluation-001",
+            &world,
+            1_788_000_123_601,
+        ),
+        Err(ArenaError::InvalidStoredReceipt(
+            "invariant signed run binding"
+        ))
+    ));
+}
+
 #[test]
 fn reference_output_invariant_manifest_is_required_canonical_bounded_and_ordered() {
     let invalid_manifests: &[&[u8]] = &[
