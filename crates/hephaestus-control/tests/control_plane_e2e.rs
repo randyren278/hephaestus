@@ -1350,18 +1350,69 @@ fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
         !second.status.success(),
         "second job must be rejected while busy"
     );
-    let kill = response(&cli(&data_dir, &["kill", "--all"]));
-    let ResponseData::Acknowledged { killed_runs, .. } = kill.data.expect("kill acknowledgement")
-    else {
-        panic!("expected kill acknowledgement");
-    };
-    assert_eq!(killed_runs, 0, "a signal is not terminal confirmation");
-    let requested = match response(&cli(&data_dir, &["job", "status", "slow-job"])).data {
-        Some(ResponseData::Job { job, .. }) => job,
-        other => panic!("expected cancellation state, got {other:?}"),
-    };
-    assert_eq!(requested.state, JobState::CancellationRequested);
-    assert_eq!(requested.terminal, None);
+    if std::env::var_os("HEPHAESTUS_TUI_PTY_E2E").is_some() {
+        let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/hephaestus-tui");
+        let caller_directory = directory.path();
+        let other_data_dir = caller_directory.join("other-daemon");
+        let other_daemon = Daemon::start_with_repository(&other_data_dir, &repository);
+        let before_events = match response(&cli(&data_dir, &["status"])).data {
+            Some(ResponseData::Status { event_count, .. }) => event_count,
+            other => panic!("expected status before TUI launch, got {other:?}"),
+        };
+        let output = ProcessCommand::new("python3")
+            .arg(app.join("scripts/pty_smoke.py"))
+            .arg(&app)
+            .arg(&data_dir)
+            .arg("slow-job")
+            .arg(CLI)
+            .arg(caller_directory)
+            .arg("data")
+            .arg(&other_data_dir)
+            .output()
+            .expect("run Ink TUI pseudo-terminal test");
+        let other_status = response(&cli(&other_data_dir, &["status"]));
+        other_daemon.stop();
+        assert!(
+            output.status.success(),
+            "Ink TUI pseudo-terminal test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("Daemon confirmed slow-job terminal"),
+            "PTY test did not report daemon confirmation"
+        );
+        assert!(
+            matches!(
+                other_status.data,
+                Some(ResponseData::Status { active_runs: 0, .. })
+            ),
+            "the selected relative data directory must leave the default daemon untouched"
+        );
+        let after_events = match response(&cli(&data_dir, &["status"])).data {
+            Some(ResponseData::Status { event_count, .. }) => event_count,
+            other => panic!("expected status after TUI exit, got {other:?}"),
+        };
+        assert!(
+            after_events.saturating_sub(before_events) <= 15,
+            "polling must be bounded while the TUI is open; observed {} events",
+            after_events.saturating_sub(before_events)
+        );
+    } else {
+        let kill = response(&cli(&data_dir, &["kill", "--all"]));
+        let ResponseData::Acknowledged { killed_runs, .. } =
+            kill.data.expect("kill acknowledgement")
+        else {
+            panic!("expected kill acknowledgement");
+        };
+        assert_eq!(killed_runs, 0, "a signal is not terminal confirmation");
+        let requested = match response(&cli(&data_dir, &["job", "status", "slow-job"])).data {
+            Some(ResponseData::Job { job, .. }) => job,
+            other => panic!("expected cancellation state, got {other:?}"),
+        };
+        assert_eq!(requested.state, JobState::CancellationRequested);
+        assert_eq!(requested.terminal, None);
+    }
     let terminal_deadline = Instant::now() + Duration::from_secs(2);
     loop {
         let status = response(&cli(&data_dir, &["job", "status", "slow-job"]));

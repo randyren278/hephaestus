@@ -90,6 +90,8 @@ enum CliCommand {
         #[command(subcommand)]
         command: DaemonCommand,
     },
+    /// Open the local interactive terminal operator interface from this source checkout.
+    Tui,
 }
 
 #[derive(Subcommand)]
@@ -180,6 +182,13 @@ enum JobCommand {
 
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
+    if matches!(&arguments.command, CliCommand::Tui) {
+        if arguments.json {
+            eprintln!("hephaestus: --json does not apply to the interactive TUI");
+            return ExitCode::FAILURE;
+        }
+        return launch_tui(arguments.data_dir);
+    }
     let data_dir = match arguments
         .data_dir
         .map_or_else(data_dir_from_environment, Ok)
@@ -216,6 +225,49 @@ fn main() -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
+    let package = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/hephaestus-tui")
+        .canonicalize();
+    let package = match package {
+        Ok(path) if path.join("package.json").is_file() => path,
+        _ => {
+            eprintln!("hephaestus: TUI package is unavailable in this source checkout");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut command = std::process::Command::new("npm");
+    command.arg("--prefix").arg(package).args(["run", "start"]);
+    if let Some(data_dir) =
+        data_dir.or_else(|| std::env::var_os("HEPHAESTUS_HOME").map(PathBuf::from))
+    {
+        let absolute_data_dir = if data_dir.is_absolute() {
+            data_dir
+        } else {
+            match std::env::current_dir() {
+                Ok(cwd) => cwd.join(data_dir),
+                Err(_) => {
+                    eprintln!("hephaestus: could not resolve the TUI data directory");
+                    return ExitCode::FAILURE;
+                }
+            }
+        };
+        command.env("HEPHAESTUS_HOME", absolute_data_dir);
+    }
+    match command.status() {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .map_or(ExitCode::FAILURE, ExitCode::from),
+        Err(_) => {
+            eprintln!(
+                "hephaestus: could not start the TUI; install Node.js 22+ and package dependencies"
+            );
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -316,6 +368,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
         } => Command::DaemonStop,
+        CliCommand::Tui => return Err("tui is a local interactive command"),
     })
 }
 
