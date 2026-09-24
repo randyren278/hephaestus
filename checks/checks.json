@@ -1324,8 +1324,8 @@
       "id": "control-paired-retry-reruns-candidates",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A retried paired evaluation reuses authenticated deterministic run events instead of duplicating candidate work.",
-      "find": "            if !self.has_event(&event_id)? {",
-      "replace": "            if true {"
+      "find": "        if let Some(existing) = self.state.arena_jobs.get(evaluation_id) {",
+      "replace": "        if let Some(existing) = Option::<&ArenaJobRecord>::None {"
     },
     {
       "id": "control-paired-seed-diverges",
@@ -1939,9 +1939,9 @@
     {
       "id": "reference-evaluation-uses-private-pinned-worker",
       "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "Every paired trial executes the private worker snapshot whose digest is in its environment identity.",
-      "find": "        let runtime = SupervisedRuntime::deterministic(isolation, &worker.executable, [])",
-      "replace": "        let runtime = SupervisedRuntime::deterministic(isolation, &self.reference_worker_executable, [])"
+      "invariant": "Every reference evaluation executes the private worker snapshot whose digest is bound into its environment identity.",
+      "find": "                    &worker.executable,\n                    [],\n                    &self.guardian_executable,",
+      "replace": "                    &self.reference_worker_executable,\n                    [],\n                    &self.guardian_executable,"
     },
     {
       "id": "async-job-kill-request-skips-runtime-cancellation",
