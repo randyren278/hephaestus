@@ -650,6 +650,120 @@ fn register_dispatch_objects(
     (world, genome, prompt)
 }
 
+#[test]
+fn json_genome_non_utf8_prompt_is_rejected_before_run_admission() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (world, _, _) = register_dispatch_objects(&mut plane, &token, &directory);
+
+    let invalid = dispatch_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "json-non-utf8-prompt",
+        &[0xff],
+    );
+    assert_eq!(
+        invalid
+            .error
+            .expect("compiler rejects non-UTF-8 prompt before registration")
+            .code,
+        ApiErrorCode::InvalidRequest
+    );
+    assert!(plane.state.jobs.is_empty());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after rejected Genome");
+    assert!(!history.iter().any(|event| {
+        matches!(
+            event.event_type.as_str(),
+            "job.admitted" | "run.result_recorded"
+        )
+    }));
+}
+
+#[test]
+fn authenticated_run_submit_rejects_slash_job_id_without_admission() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "unfreeze-before-invalid-submit",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "invalid-job-id-submit",
+        Command::RunSubmit {
+            job_id: "bad/id".to_owned(),
+            genome_id: genome.genome_id,
+        },
+    );
+    assert_eq!(
+        response.error.expect("slash job ID is invalid").code,
+        ApiErrorCode::InvalidRequest
+    );
+    assert!(plane.state.jobs.is_empty());
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "status-after-invalid-submit",
+            Command::Status
+        )
+        .error
+        .is_none(),
+        "authenticated control remains available"
+    );
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after invalid submit");
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_type == "job.admitted")
+    );
+}
+
+#[test]
+fn source_revision_rejects_initialized_uncommitted_repository_without_mutation() {
+    let directory = tempdir().expect("fixture directory");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    let source = repository.join("source.txt");
+    let contents = b"uncommitted source bytes\n";
+    fs::write(&source, contents).expect("write uncommitted source");
+
+    assert!(matches!(
+        resolve_source_revision(&repository),
+        Err(ExecuteError::Internal)
+    ));
+    assert_eq!(
+        fs::read(source).expect("read source after rejection"),
+        contents
+    );
+}
+
 fn register_json_genome_with_prompt(
     plane: &mut ControlPlane,
     token: &str,
