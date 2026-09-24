@@ -182,6 +182,27 @@ fn register_genome(fixture: &mut Fixture, genome: &GenomeFixture) {
     );
 }
 
+fn forge_fixture(register_parent: bool) -> (Fixture, GenomeFixture, GenomeFixture) {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "forge-world");
+    let parent = build_genome(&fixture, &world, "forge-parent", &[]);
+    let child = build_genome(
+        &fixture,
+        &world,
+        "forge-child",
+        std::slice::from_ref(&parent),
+    );
+    register_world(&mut fixture, &world);
+    if register_parent {
+        register_genome(&mut fixture, &parent);
+    }
+    (fixture, parent, child)
+}
+
+fn append_forge_payload(fixture: &mut Fixture, event_id: &str, aggregate_id: &str, payload: &[u8]) {
+    fixture.append_raw(event_id, aggregate_id, "forge.proposed", payload);
+}
+
 #[test]
 fn forge_proposal_event_registers_child_at_its_single_event_sequence() {
     let mut fixture = Fixture::new();
@@ -248,6 +269,144 @@ fn forge_proposal_registry_rejects_noncanonical_envelope_before_child_registrati
             kind: RegistrationKind::Genome,
             ..
         })
+    ));
+}
+
+#[test]
+fn forge_registry_rejects_malformed_payload_shapes_with_typed_errors() {
+    let (mut fixture, _, _) = forge_fixture(true);
+    append_forge_payload(
+        &mut fixture,
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        b"not-json",
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "forge:proposal-1:proposed"
+    ));
+
+    let (mut fixture, _, _) = forge_fixture(true);
+    append_forge_payload(
+        &mut fixture,
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        br#"{"proposal_id":"proposal-1"}"#,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "forge:proposal-1:proposed"
+    ));
+
+    let (mut fixture, _, _) = forge_fixture(true);
+    append_forge_payload(
+        &mut fixture,
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        br#"{"child":{},"proposal_id":"proposal-1"}"#,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "forge:proposal-1:proposed"
+    ));
+
+    let (mut fixture, _, child) = forge_fixture(true);
+    let payload = serde_json::to_vec(&json!({
+        "proposal_id": 17,
+        "child": child.record,
+    }))
+    .expect("encode canonical envelope with invalid proposal ID type");
+    append_forge_payload(
+        &mut fixture,
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        &payload,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "forge:proposal-1:proposed"
+    ));
+}
+
+#[test]
+fn forge_registry_rejects_aggregate_and_event_identity_mismatches() {
+    let (mut fixture, _, child) = forge_fixture(true);
+    let payload = serde_json::to_vec(&json!({
+        "proposal_id": "proposal-1",
+        "child": child.record,
+    }))
+    .expect("encode canonical proposal envelope");
+    append_forge_payload(
+        &mut fixture,
+        "forge:proposal-1:proposed",
+        "forge:another-proposal",
+        &payload,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::AggregateMismatch {
+            event_id,
+            expected,
+            actual,
+        }) if event_id == "forge:proposal-1:proposed"
+            && expected == "forge:proposal-1"
+            && actual == "forge:another-proposal"
+    ));
+
+    let (mut fixture, _, child) = forge_fixture(true);
+    let payload = serde_json::to_vec(&json!({
+        "proposal_id": "proposal-1",
+        "child": child.record,
+    }))
+    .expect("encode canonical proposal envelope");
+    append_forge_payload(
+        &mut fixture,
+        "forge:other:proposed",
+        "forge:proposal-1",
+        &payload,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::AggregateMismatch {
+            event_id,
+            expected,
+            actual,
+        }) if event_id == "forge:other:proposed"
+            && expected == "forge:proposal-1"
+            && actual == "forge:proposal-1"
+    ));
+}
+
+#[test]
+fn forge_child_requires_its_parent_to_precede_the_proposal_event() {
+    let (mut fixture, parent, child) = forge_fixture(false);
+    let payload = serde_json::to_vec(&json!({
+        "proposal_id": "proposal-1",
+        "child": child.record,
+    }))
+    .expect("encode canonical proposal envelope");
+    append_forge_payload(
+        &mut fixture,
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        &payload,
+    );
+
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::ParentNotRegistered(id)) if id == parent.record.genome_id
     ));
 }
 
