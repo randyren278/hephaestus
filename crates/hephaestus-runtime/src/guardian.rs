@@ -606,6 +606,26 @@ mod tests {
     }
 
     #[test]
+    fn guardian_kills_descendants_when_worker_leader_exits() {
+        let directory = tempfile::tempdir().expect("worker directory");
+        let descendant_marker = directory.path().join("descendant-survived");
+        let worker_script = format!(
+            "(sleep 0.2; printf leaked > {}) & exit 0",
+            descendant_marker.display()
+        );
+        let result = run_process_guardian_with(
+            control_frame("/bin/sh", &["-c", &worker_script], b""),
+            anchor_script(directory.path(), "printf R; exec /bin/cat"),
+        );
+
+        assert!(result.is_ok(), "worker guardian failed: {result:?}");
+        assert!(
+            !descendant_marker.exists(),
+            "worker descendant survived its leader and escaped process-group containment"
+        );
+    }
+
+    #[test]
     fn anchor_exit_observation_keeps_the_pid_pinned_until_wait() {
         let mut anchor = Command::new("/usr/bin/true")
             .stdin(Stdio::null())
