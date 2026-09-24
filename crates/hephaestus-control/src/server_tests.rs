@@ -1,6 +1,7 @@
 use std::{
     fs,
     os::unix::fs::{PermissionsExt, symlink},
+    path::Path,
 };
 
 use hephaestus_arena::TrustedTask;
@@ -120,7 +121,22 @@ fn drain_active_arena_test_job(plane: &mut ControlPlane, evaluation_id: &str) {
     );
 }
 
+fn copy_directory(source: &Path, destination: &Path) {
+    fs::create_dir_all(destination).expect("create copied control-plane directory");
+    for entry in fs::read_dir(source).expect("read control-plane fixture") {
+        let entry = entry.expect("read control-plane fixture entry");
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_directory(&source_path, &destination_path);
+        } else {
+            fs::copy(&source_path, &destination_path).expect("copy control-plane fixture file");
+        }
+    }
+}
+
 #[test]
+#[allow(clippy::too_many_lines)]
 fn forge_assessment_records_verified_child_selection_and_replays() {
     let directory = tempdir().expect("Forge assessment fixture");
     let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
@@ -203,6 +219,23 @@ fn forge_assessment_records_verified_child_selection_and_replays() {
         child_selection.receipt.candidate_genome_id(),
         child.genome_id
     );
+
+    let out_of_order = dispatch_call(
+        &mut plane,
+        &token,
+        "assess-before-proposed-evaluation",
+        Command::GenomeAssess {
+            assessment_id: "assessment-out-of-order".to_owned(),
+            proposal_id: "assessment-proposal".to_owned(),
+            selection_event_id: source_selection.event.event_id.clone(),
+        },
+    );
+    assert!(matches!(
+        out_of_order.error,
+        Some(error)
+            if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "Forge assessment evidence is out of order"
+    ));
 
     assert!(matches!(
         dispatch_call(
@@ -365,41 +398,139 @@ fn forge_assessment_records_verified_child_selection_and_replays() {
         reopened.replay_response().expect("replay assessed history"),
         ResponseData::Replay { .. }
     ));
-
-    let mut tampered = assessment.payload.clone();
-    tampered.assessment_id = "assessment-tampered".to_owned();
-    tampered.proposal_event_hash = "0".repeat(64);
-    let tampered_value = serde_json::to_value(&tampered).expect("canonical tampered payload");
-    let tampered_bytes = serde_json::to_vec(&tampered_value).expect("encode tampered payload");
-    reopened
-        .storage
-        .as_mut()
-        .expect("canonical ledger")
-        .ledger
-        .append(EventInput::new(
-            "forge-assessment:assessment-tampered:recorded",
-            "forge:assessment-proposal",
-            "forge.assessed",
-            OPERATOR_ACTOR,
-            timestamp_millis().expect("event timestamp"),
-            tampered_bytes,
-        ))
-        .expect("append domain-tampered event with a valid ledger hash chain");
+    let restarted_retry = dispatch_call(
+        &mut reopened,
+        &token,
+        "assess-child-retry-after-restart",
+        Command::GenomeAssess {
+            assessment_id: "assessment-child-result".to_owned(),
+            proposal_id: "assessment-proposal".to_owned(),
+            selection_event_id: child_selection.event.event_id.clone(),
+        },
+    );
+    assert_eq!(
+        restarted_retry.data,
+        Some(ResponseData::ForgeAssessment {
+            assessment: assessment.clone()
+        })
+    );
+    let changed_selection_retry = dispatch_call(
+        &mut reopened,
+        &token,
+        "assess-child-changed-selection-after-restart",
+        Command::GenomeAssess {
+            assessment_id: "assessment-child-result".to_owned(),
+            proposal_id: "assessment-proposal".to_owned(),
+            selection_event_id: "selection:changed-after-restart".to_owned(),
+        },
+    );
     assert!(matches!(
-        reopened.replay_response(),
-        Err(ExecuteError::Internal)
+        changed_selection_retry.error,
+        Some(error)
+            if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "assessment_id is already bound to different assessment content"
     ));
     drop(reopened);
-    assert!(matches!(
-        ControlPlane::open_with_repository_evaluator_and_reference_worker(
-            &data_dir,
+
+    for case in [
+        "outcome",
+        "invariant-flag",
+        "promotion-flag",
+        "receipt-artifact",
+        "selection-hash",
+        "selection-id",
+        "causal-order",
+        "evaluation-hash",
+        "evaluation-id",
+        "schema",
+        "actor",
+        "aggregate",
+        "event-id",
+        "noncanonical",
+    ] {
+        let case_directory = tempdir().expect("isolated assessment tamper fixture");
+        let case_data_dir = case_directory.path().join("control");
+        copy_directory(&data_dir, &case_data_dir);
+        let mut case_plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &case_data_dir,
             &repository,
             &evaluator,
             &worker,
-        ),
-        Err(ControlError::Projection(message))
-            if message == "Forge assessment differs from verified evidence"
-    ));
+        )
+        .expect("open copied verified assessment history");
+        let assessment_id = format!("assessment-tampered-{case}");
+        let mut tampered = assessment.payload.clone();
+        tampered.assessment_id.clone_from(&assessment_id);
+        let mut actor = OPERATOR_ACTOR.to_owned();
+        let mut aggregate_id = "forge:assessment-proposal".to_owned();
+        let mut event_id = format!("forge-assessment:{assessment_id}:recorded");
+        match case {
+            "outcome" => {
+                tampered.outcome = match tampered.outcome {
+                    ForgeAssessmentOutcome::MetricsPassed => {
+                        ForgeAssessmentOutcome::MetricsRejected
+                    }
+                    ForgeAssessmentOutcome::MetricsRejected => {
+                        ForgeAssessmentOutcome::MetricsPassed
+                    }
+                };
+            }
+            "invariant-flag" => tampered.invariant_gate_verified = true,
+            "promotion-flag" => tampered.promotion_eligible = true,
+            "receipt-artifact" => {
+                tampered.selection_receipt_artifact_id = "sha256:missing-receipt".to_owned();
+            }
+            "selection-hash" => tampered.selection_event_hash = "0".repeat(64),
+            "selection-id" => tampered.selection_event_id = "selection:missing".to_owned(),
+            "causal-order" => {
+                tampered.selection_event_id = source_selection.event.event_id.clone();
+            }
+            "evaluation-hash" => tampered.evaluation_event_hash = "0".repeat(64),
+            "evaluation-id" => tampered.evaluation_event_id = "evaluation:missing".to_owned(),
+            "schema" => tampered.schema_version = 2,
+            "actor" => actor = "untrusted-actor".to_owned(),
+            "aggregate" => aggregate_id = "forge:wrong-proposal".to_owned(),
+            "event-id" => event_id.push_str(":wrong"),
+            "noncanonical" => {}
+            _ => unreachable!("case is declared in the table above"),
+        }
+        let payload_value = serde_json::to_value(&tampered).expect("canonical test payload");
+        let mut payload_bytes = serde_json::to_vec(&payload_value).expect("encode test payload");
+        if case == "noncanonical" {
+            payload_bytes.push(b' ');
+        }
+        case_plane
+            .storage
+            .as_mut()
+            .expect("canonical ledger")
+            .ledger
+            .append(EventInput::new(
+                event_id,
+                aggregate_id,
+                "forge.assessed",
+                actor,
+                timestamp_millis().expect("event timestamp"),
+                payload_bytes,
+            ))
+            .expect("append tampered assessment with a valid ledger hash chain");
+        assert!(
+            matches!(case_plane.replay_response(), Err(ExecuteError::Internal)),
+            "explicit replay accepted the {case} tamper"
+        );
+        drop(case_plane);
+        assert!(
+            matches!(
+                ControlPlane::open_with_repository_evaluator_and_reference_worker(
+                    &case_data_dir,
+                    &repository,
+                    &evaluator,
+                    &worker,
+                ),
+                Err(ControlError::Projection(_))
+            ),
+            "startup accepted the {case} tamper"
+        );
+    }
 }
 
 #[test]
