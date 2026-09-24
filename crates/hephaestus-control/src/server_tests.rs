@@ -6669,6 +6669,111 @@ fn terminal_job_kill_is_idempotent_and_selection_errors_map_to_safe_api_states()
         map_selection_error(&ArenaError::UnsupportedEvaluator),
         ExecuteError::Internal
     ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnknownEvaluation("missing".to_owned())),
+        ExecuteError::NotFound
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnknownInvariantCheck("missing".to_owned())),
+        ExecuteError::NotFound
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::MissingWorldArtifact("arena.invariant_manifest")),
+        ExecuteError::Rejected(message)
+            if message == "registered World has no reference-output invariant profile"
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::InvariantConflict("evaluation-001".to_owned())),
+        ExecuteError::Rejected(message) if message == "evaluation-001"
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnsupportedEvaluator),
+        ExecuteError::Internal
+    ));
+}
+
+#[test]
+fn arena_selection_and_invariant_commands_validate_and_map_real_errors() {
+    let directory = tempdir().expect("Arena selection fixture");
+    let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    assert!(matches!(
+        plane.select_arena_evaluation(""),
+        Err(ExecuteError::Invalid("evaluation_id is required"))
+    ));
+    assert!(matches!(
+        plane.check_arena_invariants(""),
+        Err(ExecuteError::Invalid("evaluation_id is required"))
+    ));
+    assert!(matches!(
+        plane.select_arena_evaluation("missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.check_arena_invariants("missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+
+    for (request_id, command) in [
+        (
+            "arena-select-blank",
+            Command::ArenaSelect {
+                evaluation_id: String::new(),
+            },
+        ),
+        (
+            "arena-invariants-blank",
+            Command::ArenaInvariants {
+                evaluation_id: String::new(),
+            },
+        ),
+    ] {
+        let response = dispatch_call(&mut plane, &token, request_id, command);
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "evaluation_id is required"
+        ));
+    }
+
+    // This fixture's registered World has no invariant manifest, so a
+    // completed evaluation is a real, otherwise-valid target that still
+    // cannot be checked.
+    complete_arena_test_job(
+        &mut plane,
+        "no-invariant-profile",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    assert!(matches!(
+        plane.check_arena_invariants("no-invariant-profile"),
+        Err(ExecuteError::Rejected(message))
+            if message == "registered World has no reference-output invariant profile"
+    ));
+
+    let invariant_directory = tempdir().expect("Arena invariant dispatch fixture");
+    let (mut invariant_plane, invariant_parent, invariant_candidate) =
+        real_worker_arena_fixture_with_invariants(&invariant_directory, Some(CLEAN_INVARIANTS));
+    let invariant_token = invariant_plane.token_hex.clone();
+    complete_arena_test_job(
+        &mut invariant_plane,
+        "dispatched-invariants",
+        &invariant_parent.genome_id,
+        &invariant_candidate.genome_id,
+    );
+    let response = dispatch_call(
+        &mut invariant_plane,
+        &invariant_token,
+        "arena-invariants-dispatch",
+        Command::ArenaInvariants {
+            evaluation_id: "dispatched-invariants".to_owned(),
+        },
+    );
+    assert!(matches!(
+        response.data,
+        Some(ResponseData::ArenaInvariants { .. })
+    ));
 }
 
 fn send_test_api_request(
