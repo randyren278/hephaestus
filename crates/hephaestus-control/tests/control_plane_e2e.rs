@@ -1038,23 +1038,6 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
 
     #[cfg(feature = "test-support")]
     {
-        let mismatch_daemon = Daemon::start_with_repository(&data_dir, &repository);
-        assert!(matches!(
-            response(&cli(
-                &data_dir,
-                &[
-                    "arena",
-                    "evaluate",
-                    "trial-mismatch-pair",
-                    &parent.genome_id,
-                    &candidate.genome_id,
-                ],
-            ))
-            .data,
-            Some(ResponseData::Evaluation { .. })
-        ));
-        mismatch_daemon.stop();
-
         #[derive(Clone, serde::Serialize)]
         struct RestartedArenaJob {
             job_id: String,
@@ -1083,6 +1066,23 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             terminal: Option<JobTerminal>,
             evaluation: Option<hephaestus_control::EvaluationRecord>,
         }
+
+        let mismatch_daemon = Daemon::start_with_repository(&data_dir, &repository);
+        assert!(matches!(
+            response(&cli(
+                &data_dir,
+                &[
+                    "arena",
+                    "evaluate",
+                    "trial-mismatch-pair",
+                    &parent.genome_id,
+                    &candidate.genome_id,
+                ],
+            ))
+            .data,
+            Some(ResponseData::Evaluation { .. })
+        ));
+        mismatch_daemon.stop();
 
         let evaluation_id = "crash-recovery-arena-job";
         let worker_digest = blake3::hash(&fs::read(data_dir.join("reference-worker")).unwrap())
