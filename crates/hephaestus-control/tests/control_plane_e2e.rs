@@ -1902,6 +1902,13 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             ApiErrorCode::Busy,
             "assessment is refused while a job is active"
         );
+        let invariant_audit_count_before = EventStore::open(data_dir.join("events.sqlite3"))
+            .expect("open active invariant ledger")
+            .replay_verified()
+            .expect("verify active invariant ledger")
+            .iter()
+            .filter(|event| event.event_type == "control.arena_invariants")
+            .count();
         let invariants_while_active = cli(&data_dir, &["arena", "invariants", "anything"]);
         assert!(!invariants_while_active.status.success());
         assert_eq!(
@@ -1925,10 +1932,13 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             1,
             "a busy assessment must not append an event"
         );
-        assert!(
-            !active_history
+        assert_eq!(
+            active_history
                 .iter()
-                .any(|event| event.event_type == "control.arena_invariants")
+                .filter(|event| event.event_type == "control.arena_invariants")
+                .count(),
+            invariant_audit_count_before,
+            "a busy invariant request must not append an audit event"
         );
         assert!(matches!(
             response(&cli(&data_dir, &["kill", "--all"])).data,
