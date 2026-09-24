@@ -60,12 +60,52 @@ def main() -> int:
         pump(0.2)
         return len(visible())
 
+    def settle(quiet: float = 0.15, timeout: float = 2.0) -> None:
+        """Block until the PTY has gone quiet for `quiet` seconds.
+
+        If a keystroke is written while the app is still busy (e.g. mid
+        network round-trip to the daemon), the kernel's tty input queue can
+        hold it until the app's next stdin read, which may then also pick up
+        a subsequent keystroke in the same read() and hand Ink a combined
+        chunk such as "j\\r" instead of a lone Return byte. Ink's key parser
+        only recognizes Return on an isolated "\\r", so a coalesced chunk is
+        treated as literal text and the keypress is silently lost. Waiting
+        for a quiet window after each write gives the app a chance to fully
+        drain and render before the next key is sent.
+        """
+        deadline = time.monotonic() + timeout
+        last_length = len(visible())
+        quiet_since = time.monotonic()
+        while time.monotonic() < deadline:
+            pump(0.05)
+            length = len(visible())
+            if length != last_length:
+                last_length = length
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since >= quiet:
+                return
+
     def press(keys: bytes) -> None:
         os.write(master, keys)
-        time.sleep(0.15)
+        settle()
 
-    def selected_line(after: int) -> str:
-        lines = [line for line in visible()[after:].splitlines() if SELECTED in line]
+    def latest_frame(marker: str) -> str:
+        """Return the most recent complete redraw containing `marker`.
+
+        The PTY buffer is cumulative and never cleared, so after several
+        redraws it can hold multiple overlapping frames back to back.
+        Slicing from a byte offset captured before a redraw finished (as
+        `mark()` does) misses the frame that is already on screen. Instead,
+        find the last occurrence of a screen-identifying marker and read
+        from there, which always reflects the current frame regardless of
+        how many redraws happened earlier.
+        """
+        text = visible()
+        idx = text.rfind(marker)
+        return text[idx:] if idx != -1 else text
+
+    def selected_line(marker: str) -> str:
+        lines = [line for line in latest_frame(marker).splitlines() if SELECTED in line]
         return lines[-1] if lines else ""
 
     try:
@@ -87,9 +127,10 @@ def main() -> int:
         if not until("LINEAGE / " + world_name, 5, start) or not until("CHAMPION", 5, start):
             raise RuntimeError("TUI did not show the World lineage with its Champion")
         stage = "find-champion"
+        lineage_marker = "LINEAGE / " + world_name
         for _ in range(8):
-            start = mark()
-            line = selected_line(start)
+            pump(0.2)
+            line = selected_line(lineage_marker)
             if champion_name in line and "CHAMPION" in line:
                 break
             press(b"j")
@@ -102,7 +143,7 @@ def main() -> int:
             raise RuntimeError("TUI did not open the Champion Genome detail")
         if not until("+ ", 5, start) or not until("- ", 5, start):
             raise RuntimeError("TUI did not render the prompt diff against the parent")
-        diff = visible()[start:]
+        diff = latest_frame("GENOME / " + champion_name)
         stage = "back-to-lineage"
         start = mark()
         press(b"\x1b")
@@ -127,7 +168,7 @@ def main() -> int:
             raise RuntimeError("TUI did not report the daemon rollback acknowledgement")
         if not until("quarantined", 5, start):
             raise RuntimeError("TUI did not refresh the lineage after rollback")
-        acknowledgement = next(line.strip(" │") for line in visible()[start:].splitlines() if "Rolled back" in line)
+        acknowledgement = next(line.strip(" │") for line in latest_frame("Rolled back").splitlines() if "Rolled back" in line)
         stage = "quit"
         press(b"q")
         deadline = time.monotonic() + 5
