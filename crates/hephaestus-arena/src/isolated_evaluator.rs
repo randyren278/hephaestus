@@ -2,6 +2,7 @@ use std::{
     fs,
     os::unix::fs::MetadataExt as _,
     path::{Path, PathBuf},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use hephaestus_ledger::ArtifactId;
@@ -116,6 +117,25 @@ impl IsolatedEvaluator {
         evaluation_id: &str,
         request: &EvaluatorRequest,
     ) -> Result<EvaluatorResponse, ArenaError> {
+        self.evaluate_inner(evaluation_id, request, None)
+    }
+
+    pub(crate) fn evaluate_guarded(
+        &self,
+        evaluation_id: &str,
+        request: &EvaluatorRequest,
+        guardian: &Path,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<EvaluatorResponse, ArenaError> {
+        self.evaluate_inner(evaluation_id, request, Some((guardian, cancel)))
+    }
+
+    fn evaluate_inner(
+        &self,
+        evaluation_id: &str,
+        request: &EvaluatorRequest,
+        guard: Option<(&Path, Arc<AtomicBool>)>,
+    ) -> Result<EvaluatorResponse, ArenaError> {
         if request.evaluator_id != self.evaluator_id {
             return Err(ArenaError::BindingMismatch("evaluator process"));
         }
@@ -139,7 +159,11 @@ impl IsolatedEvaluator {
                 return validate_response(&stdout, &bytes, request);
             }
         };
-        let output = worker.execute(evaluation_id, &bytes)?;
+        let output = if let Some((guardian, cancel)) = guard {
+            worker.execute_guarded(evaluation_id, &bytes, guardian, cancel)?
+        } else {
+            worker.execute(evaluation_id, &bytes)?
+        };
         if output.completion_reason != CompletionReason::Success
             || output.exit_code != Some(0)
             || !output.stderr.is_empty()

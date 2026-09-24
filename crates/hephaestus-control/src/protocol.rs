@@ -248,6 +248,11 @@ pub enum ResponseData {
         /// Durable trace progress projected from the canonical event stream.
         progress: JobProgress,
     },
+    /// Durable paired Arena progress with no task-level or sealed content.
+    ArenaJob {
+        /// Publicly scoped progress projection.
+        job: ArenaJobProgress,
+    },
     /// Terminal result from the offline deterministic reference runtime.
     Run {
         /// Stable run identity.
@@ -334,6 +339,41 @@ pub struct JobProgress {
     pub last_event_sequence: Option<u64>,
     /// Stable label for the most recent trace phase.
     pub last_phase: Option<String>,
+}
+
+/// Public progress for one admitted paired Arena evaluation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArenaJobProgress {
+    /// Stable evaluation identity, also used as its idempotency key.
+    pub evaluation_id: String,
+    /// Immutable parent Genome identity.
+    pub parent_genome_id: String,
+    /// Immutable candidate Genome identity.
+    pub candidate_genome_id: String,
+    /// Current bounded lifecycle state.
+    pub state: JobState,
+    /// Coarse phase derived from durable events.
+    pub phase: ArenaJobPhase,
+    /// Number of candidate executions committed to canonical history.
+    pub completed_trials: u32,
+    /// Total candidate executions in the admitted plan.
+    pub total_trials: u32,
+    /// Candidate-safe evaluation output after its canonical receipt is recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluation: Option<EvaluationRecord>,
+}
+
+/// Coarse, payload-free paired Arena job phase.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArenaJobPhase {
+    Preparing,
+    ParentTrials,
+    CandidateTrials,
+    Scoring,
+    Committing,
+    Terminal,
 }
 
 /// Durable bounded-job lifecycle states.

@@ -107,6 +107,7 @@ impl EvidenceRequest {
 }
 
 /// Bounded executor-side adapter. Calls block until the canonical writer acks.
+#[derive(Clone)]
 pub struct ChannelEvidenceSink {
     sender: SyncSender<EvidenceRequest>,
 }

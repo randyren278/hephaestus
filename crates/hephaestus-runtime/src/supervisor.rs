@@ -405,12 +405,57 @@ fn spawn_stdin_writer(
 }
 
 pub(crate) fn execute_supervised_process(
+    command: Command,
+    stdin: Vec<u8>,
+    stdout_path: &std::path::Path,
+    stderr_path: &std::path::Path,
+    wall: Duration,
+    maximum_output_bytes: usize,
+) -> Result<ProcessOutput, RuntimeError> {
+    execute_supervised_process_inner(
+        command,
+        stdin,
+        stdout_path,
+        stderr_path,
+        wall,
+        maximum_output_bytes,
+        false,
+        None,
+    )
+}
+
+pub(crate) fn execute_guarded_process(
+    command: Command,
+    stdin: Vec<u8>,
+    stdout_path: &std::path::Path,
+    stderr_path: &std::path::Path,
+    wall: Duration,
+    maximum_output_bytes: usize,
+    cancel: Arc<AtomicBool>,
+) -> Result<ProcessOutput, RuntimeError> {
+    execute_supervised_process_inner(
+        command,
+        stdin,
+        stdout_path,
+        stderr_path,
+        wall,
+        maximum_output_bytes,
+        true,
+        Some(cancel),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
+fn execute_supervised_process_inner(
     mut command: Command,
     stdin: Vec<u8>,
     stdout_path: &std::path::Path,
     stderr_path: &std::path::Path,
     wall: Duration,
     maximum_output_bytes: usize,
+    guarded: bool,
+    external_cancel: Option<Arc<AtomicBool>>,
 ) -> Result<ProcessOutput, RuntimeError> {
     let started = Instant::now();
     let deadline = started
@@ -447,10 +492,41 @@ pub(crate) fn execute_supervised_process(
         interrupt: AtomicBool::new(false),
         output_exceeded: AtomicBool::new(false),
         io_failed: AtomicBool::new(false),
-        guarded: false,
+        guarded,
         cancel: Mutex::new(None),
     });
-    let stdin_writer = spawn_stdin_writer(child_stdin, stdin, None, Arc::clone(&shared));
+    let (cancel_sender, cancel_receiver) = if guarded {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        (Some(sender), Some(receiver))
+    } else {
+        (None, None)
+    };
+    if let Some(sender) = cancel_sender {
+        *shared.cancel.lock().expect("cancel lock poisoned") = Some(sender);
+    }
+    let cancel_watcher = external_cancel.map(|external| {
+        let shared = Arc::clone(&shared);
+        thread::spawn(move || {
+            loop {
+                if shared
+                    .observed
+                    .lock()
+                    .expect("run state lock poisoned")
+                    .status
+                    != RunStatus::Running
+                {
+                    return;
+                }
+                if external.load(Ordering::Acquire) {
+                    shared.interrupt.store(true, Ordering::Release);
+                    request_guardian_cancel(&shared);
+                    return;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        })
+    });
+    let stdin_writer = spawn_stdin_writer(child_stdin, stdin, cancel_receiver, Arc::clone(&shared));
     spawn_monitor(
         child,
         child_stdout,
@@ -470,12 +546,19 @@ pub(crate) fn execute_supervised_process(
             .wait(observed)
             .expect("run state lock poisoned");
     }
+    let completion_reason = observed.completion_reason.ok_or(RuntimeError::InvalidSpec(
+        "worker completion reason is missing",
+    ));
+    let exit_code = observed.exit_code;
+    let elapsed = observed.elapsed;
+    drop(observed);
+    if let Some(watcher) = cancel_watcher {
+        let _ = watcher.join();
+    }
     Ok(ProcessOutput {
-        completion_reason: observed.completion_reason.ok_or(RuntimeError::InvalidSpec(
-            "worker completion reason is missing",
-        ))?,
-        exit_code: observed.exit_code,
-        elapsed: observed.elapsed,
+        completion_reason: completion_reason?,
+        exit_code,
+        elapsed,
     })
 }
 

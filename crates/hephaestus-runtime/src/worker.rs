@@ -2,12 +2,15 @@ use std::{
     fs,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
+    process::Command,
+    sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
 
 use crate::{
     CompletionReason, IsolationPolicy, ProviderInvocation, RuntimeError,
-    supervisor::execute_supervised_process,
+    guardian::GuardianLaunch,
+    supervisor::{execute_guarded_process, execute_supervised_process},
 };
 
 const MAX_WORKER_ID_BYTES: usize = 128;
@@ -163,6 +166,103 @@ impl IsolatedWorker {
             &stderr_path,
             self.limits.wall,
             self.limits.maximum_output_bytes,
+        )?;
+        let stdout = fs::read(stdout_path)?;
+        let stderr = fs::read(stderr_path)?;
+        cleanup.cleanup()?;
+        Ok(WorkerOutput {
+            domain: self.domain,
+            completion_reason: process.completion_reason,
+            exit_code: process.exit_code,
+            elapsed: process.elapsed,
+            stdout,
+            stderr,
+        })
+    }
+
+    /// Executes one bounded request under the daemon-liveness process guardian.
+    ///
+    /// This path is intended for work whose daemon-owned caller can be cancelled
+    /// independently. The guardian owns the worker process group and terminates it
+    /// if the daemon closes its control pipe, even when the caller process crashes.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid identities, oversized input, changed roots, unavailable
+    /// isolation, worker failures, and incomplete output cleanup.
+    pub fn execute_guarded(
+        &self,
+        worker_id: &str,
+        input: &[u8],
+        guardian_executable: impl AsRef<Path>,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<WorkerOutput, RuntimeError> {
+        validate_worker_id(worker_id)?;
+        if input.len() > self.limits.maximum_input_bytes {
+            return Err(RuntimeError::InvalidSpec(
+                "worker input exceeds its byte limit",
+            ));
+        }
+        self.validate_root()?;
+        let run_root = self
+            .root
+            .join(format!("{}-{worker_id}", self.domain.prefix()));
+        fs::create_dir(&run_root)?;
+        fs::set_permissions(&run_root, fs::Permissions::from_mode(0o700))?;
+        let mut cleanup = WorkerRoot::new(run_root);
+        let stdout_path = cleanup.path().join("stdout");
+        let stderr_path = cleanup.path().join("stderr");
+        let invocation =
+            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), input)?;
+        let mut command = self.isolation.worker_command(&invocation, cleanup.path())?;
+        command.env_clear();
+        let path = std::env::var("PATH").ok();
+        if let Some(path) = &path {
+            command.env("PATH", path);
+        }
+        command.env("HOME", cleanup.path());
+        command.env("TMPDIR", cleanup.path());
+        let program = command
+            .get_program()
+            .to_str()
+            .ok_or(RuntimeError::InvalidSpec(
+                "worker program path is not UTF-8",
+            ))?
+            .to_owned();
+        let arguments = command
+            .get_args()
+            .map(|argument| {
+                argument
+                    .to_str()
+                    .map(str::to_owned)
+                    .ok_or(RuntimeError::InvalidSpec("worker argument is not UTF-8"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let config = GuardianLaunch {
+            program,
+            arguments,
+            current_dir: command
+                .get_current_dir()
+                .unwrap_or_else(|| cleanup.path())
+                .to_owned(),
+            home: cleanup.path().to_owned(),
+            temp: cleanup.path().to_owned(),
+            path,
+            input_bytes: input.len(),
+        };
+        let mut frame = serde_json::to_vec(&config)
+            .map_err(|_| RuntimeError::InvalidSpec("guardian configuration is invalid"))?;
+        frame.push(b'\n');
+        frame.extend_from_slice(input);
+        frame.push(b'\n');
+        let process = execute_guarded_process(
+            Command::new(guardian_executable.as_ref()),
+            frame,
+            &stdout_path,
+            &stderr_path,
+            self.limits.wall,
+            self.limits.maximum_output_bytes,
+            cancel,
         )?;
         let stdout = fs::read(stdout_path)?;
         let stderr = fs::read(stderr_path)?;

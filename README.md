@@ -198,9 +198,11 @@ run events and receipt; a conflicting retry fails closed.
 
 ### Command reference
 
-The first asynchronous path supports one direct offline reference job at a time.
-Arena evaluation remains synchronous. Cancellation commands record a request;
-the job status becomes terminal only after supervised process termination.
+The daemon supports one active direct run or paired Arena evaluation at a time.
+Arena trials and protected scoring run under the same supervised async job, so
+status, freeze, and cancellation requests remain responsive. Cancellation
+records a request; the job becomes terminal only after supervised process
+termination. The admitted overall wall budget bounds the complete Arena job.
 
 | Command | What it does |
 |---|---|

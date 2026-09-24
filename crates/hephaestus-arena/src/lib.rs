@@ -959,13 +959,37 @@ impl PreparedEvaluation {
     ///
     /// Rejects evaluator execution, protocol, binding, or score validation errors.
     pub fn score(self, evaluator: &IsolatedEvaluator) -> Result<ScoredEvaluation, ArenaError> {
+        self.score_with(|evaluation_id, request| evaluator.evaluate(evaluation_id, request))
+    }
+
+    /// Scores this request while binding process lifetime to its daemon guardian.
+    ///
+    /// # Errors
+    ///
+    /// Rejects evaluator execution, protocol, binding, or score validation errors.
+    pub fn score_guarded(
+        self,
+        evaluator: &IsolatedEvaluator,
+        guardian: &std::path::Path,
+        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<ScoredEvaluation, ArenaError> {
+        self.score_with(|evaluation_id, request| {
+            evaluator.evaluate_guarded(evaluation_id, request, guardian, cancel)
+        })
+    }
+
+    fn score_with(
+        self,
+        evaluate: impl FnOnce(
+            &str,
+            &EvaluatorRequest,
+        )
+            -> Result<crate::evaluator_protocol::EvaluatorResponse, ArenaError>,
+    ) -> Result<ScoredEvaluation, ArenaError> {
         let request_bytes = serde_json::to_vec(&self.request)?;
         let request_artifact_id = ArtifactId::for_bytes(&request_bytes).as_str().to_owned();
         let evaluation_id = self.request.evaluation_id.clone();
-        let scores = evaluator
-            .evaluate(&evaluation_id, &self.request)?
-            .scores
-            .into();
+        let scores = evaluate(&evaluation_id, &self.request)?.scores.into();
         Ok(ScoredEvaluation {
             evaluation_id,
             request_artifact_id,
@@ -1288,6 +1312,24 @@ pub fn load_operator_evaluation(
         operator_receipt: receipt,
         event_hash: event.hash,
     })
+}
+
+/// Rehydrates the candidate-safe record for one evaluation from verified
+/// canonical history and its evaluator-owned evidence artifacts.
+///
+/// This deliberately returns no store capability or sealed receipt. Control
+/// projections can use it to compare persisted public summaries with the
+/// authenticated evaluation that produced them.
+///
+/// # Errors
+///
+/// Fails closed when the identity, event, receipt, or any evidence artifact is
+/// missing or inconsistent.
+pub fn load_recorded_evaluation(
+    stores: EvaluationStores,
+    evaluation_id: &str,
+) -> Result<RecordedEvaluation, ArenaError> {
+    load_operator_evaluation(stores, evaluation_id).map(OperatorEvaluation::into_candidate_result)
 }
 
 fn resolve_pair(

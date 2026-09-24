@@ -2,8 +2,8 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
-    ApiResponse, Client, Command, EvaluationRecord, GenomeRecord, ResponseData, SelectionRecord,
-    WorldRecord, data_dir_from_environment,
+    API_VERSION, ApiResponse, ArenaJobProgress, Client, Command, EvaluationRecord, GenomeRecord,
+    JobState, ResponseData, SelectionRecord, WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -199,6 +199,12 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let evaluation_id = match &arguments.command {
+        CliCommand::Arena {
+            command: ArenaCommand::Evaluate { evaluation_id, .. },
+        } => Some(evaluation_id.clone()),
+        _ => None,
+    };
     let command = match command_from_cli(arguments.command) {
         Ok(command) => command,
         Err(message) => {
@@ -206,13 +212,58 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let response = match Client::new(data_dir).request(command) {
+    let client = Client::new(data_dir);
+    let mut response = match client.request(command) {
         Ok(response) => response,
         Err(error) => {
             eprintln!("hephaestus: {error}");
             return ExitCode::FAILURE;
         }
     };
+    if let Some(evaluation_id) = evaluation_id
+        && let Some(ResponseData::ArenaJob { job }) = response.data.as_ref()
+        && matches!(
+            job.state,
+            JobState::Admitted | JobState::Running | JobState::CancellationRequested
+        )
+    {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            match client.request(Command::JobStatus {
+                job_id: evaluation_id.clone(),
+            }) {
+                Ok(next) => {
+                    if let Some(ResponseData::ArenaJob { job }) = next.data.clone()
+                        && !matches!(
+                            job.state,
+                            JobState::Admitted
+                                | JobState::Running
+                                | JobState::CancellationRequested
+                        )
+                    {
+                        response = arena_final_response(next, job);
+                        break;
+                    }
+                    if next.error.is_some() {
+                        response = next;
+                        break;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("hephaestus: {error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+    }
+    if let Some(ResponseData::ArenaJob { job }) = response.data.clone()
+        && !matches!(
+            job.state,
+            JobState::Admitted | JobState::Running | JobState::CancellationRequested
+        )
+    {
+        response = arena_final_response(response, job);
+    }
     if arguments.json {
         println!(
             "{}",
@@ -221,7 +272,9 @@ fn main() -> ExitCode {
     } else {
         print_human(&response);
     }
-    if response.error.is_some() {
+    if response.error.is_some()
+        || matches!(response.data, Some(ResponseData::ArenaJob { job }) if job.state != JobState::Succeeded)
+    {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -265,6 +318,20 @@ fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
         .code()
         .and_then(|code| u8::try_from(code).ok())
         .map_or(ExitCode::FAILURE, ExitCode::from)
+}
+
+fn arena_final_response(response: ApiResponse, job: ArenaJobProgress) -> ApiResponse {
+    let data = if let Some(evaluation) = job.evaluation.clone() {
+        ResponseData::Evaluation { evaluation }
+    } else {
+        ResponseData::ArenaJob { job }
+    };
+    ApiResponse {
+        version: API_VERSION,
+        request_id: response.request_id,
+        data: Some(data),
+        error: response.error,
+    }
 }
 
 fn absolute_path(path: PathBuf) -> Result<String, &'static str> {
@@ -448,6 +515,9 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Selection { selection }), None) => {
             println!("{}", selection_human(selection));
         }
+        (Some(ResponseData::ArenaJob { job }), None) => {
+            println!("{}", arena_job_human(job));
+        }
         (
             Some(ResponseData::Replay {
                 event_count,
@@ -462,6 +532,13 @@ fn print_human(response: &ApiResponse) {
         (_, Some(error)) => eprintln!("{:?}: {}", error.code, error.message),
         _ => eprintln!("invalid daemon response"),
     }
+}
+
+fn arena_job_human(job: &ArenaJobProgress) -> String {
+    format!(
+        "evaluation={} state={:?} phase={:?} trials={}/{}",
+        job.evaluation_id, job.state, job.phase, job.completed_trials, job.total_trials
+    )
 }
 
 fn genome_human(genome: &GenomeRecord) -> String {

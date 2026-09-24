@@ -20,9 +20,10 @@ use std::{
 
 use fs2::FileExt;
 use hephaestus_arena::{
-    ArenaError, EvaluationBinding, EvaluationInputs, EvaluationStores, IsolatedEvaluator,
-    ReceiptContext, SelectionEvent, SelectionReceipt, TrialPlan, TrustedManifest, Visibility,
-    evaluate_and_record, load_operator_evaluation, select_and_record, selection_event_references,
+    ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
+    IsolatedEvaluator, ReceiptContext, ScoredEvaluation, SelectionEvent, SelectionReceipt,
+    TrialPlan, TrustedManifest, Visibility, evaluate_and_record_scored, load_operator_evaluation,
+    load_recorded_evaluation, prepare_evaluation, select_and_record, selection_event_references,
     verify_selection_event,
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
@@ -44,6 +45,7 @@ use hephaestus_runtime::{
 use serde::{Deserialize, Serialize};
 use tempfile::{Builder as TempDirBuilder, TempDir};
 
+use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
     EvaluationEventRecord, EvaluationRecord, GenomeRecord, JobProgress, JobRecord, JobState,
@@ -54,6 +56,8 @@ use crate::{
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
 // character. Keep enough bounded headroom for that representation.
 const MAX_REQUEST_BYTES: usize = 7 * 1_048_576;
+#[cfg(feature = "test-support")]
+const TEST_ARENA_OVERALL_WALL_ENV: &str = "HEPHAESTUS_TEST_ARENA_OVERALL_WALL_MILLIS";
 const CONTROL_AGGREGATE: &str = "hephaestus-control";
 const OPERATOR_ACTOR: &str = "local-operator";
 const RUNTIME_ACTOR: &str = "daemon-runtime";
@@ -102,6 +106,9 @@ pub struct ControlPlane {
     active_job: Option<ActiveJob>,
     job_evidence_receiver: Option<mpsc::Receiver<EvidenceRequest>>,
     job_result_receiver: Option<mpsc::Receiver<AsyncJobResult>>,
+    active_arena_job: Option<ActiveArenaJob>,
+    arena_message_receiver: Option<mpsc::Receiver<ArenaWorkerMessage>>,
+    arena_message_sender: Option<mpsc::SyncSender<ArenaWorkerMessage>>,
 }
 
 struct CanonicalStorage {
@@ -122,11 +129,93 @@ struct AsyncJobResult {
     output: Result<ReferenceExecution, String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArenaJobRecord {
+    job_id: String,
+    evaluation_id: String,
+    parent_genome_id: String,
+    candidate_genome_id: String,
+    world_id: String,
+    visible_manifest_id: String,
+    sealed_manifest_id: String,
+    evaluator_id: String,
+    source_revision: String,
+    worker_digest: String,
+    environment_id: String,
+    seed: u64,
+    trial_budget: RunBudgetReceipt,
+    overall_budget: RunBudgetReceipt,
+    ordered_trial_run_ids: Vec<String>,
+    parent_trial_count: u32,
+    total_trials: u32,
+    plan_commitment: String,
+    caller_id: String,
+    receipt_timestamp_millis: i64,
+    completed_trials: u32,
+    phase: ArenaJobPhase,
+    state: JobState,
+    terminal: Option<JobTerminal>,
+    evaluation: Option<EvaluationRecord>,
+}
+
+#[derive(Clone)]
+struct ArenaTrialSpec {
+    genome: GenomeRecord,
+    spec: RunSpec,
+}
+
+struct ActiveArenaJob {
+    record: ArenaJobRecord,
+    world: CompiledWorld,
+    visible: TrustedManifest,
+    sealed: TrustedManifest,
+    binding: EvaluationBinding,
+    parent: TrialPlan,
+    candidate: TrialPlan,
+    receipt_context: ReceiptContext,
+    trials: Vec<ArenaTrialSpec>,
+    evaluator: Arc<IsolatedEvaluator>,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+    overall_deadline: Instant,
+    overall_timed_out: bool,
+}
+
+enum ArenaWorkerMessage {
+    Trial {
+        job_id: String,
+        index: usize,
+        output: Result<ReferenceExecution, String>,
+        reply: mpsc::Sender<Result<u64, String>>,
+    },
+    Trials {
+        job_id: String,
+        result: Result<(), String>,
+    },
+    Scoring {
+        job_id: String,
+        result: Result<ScoredEvaluation, String>,
+    },
+}
+
+struct AsyncArenaTrialLaunch {
+    data_dir: PathBuf,
+    guardian: PathBuf,
+    protected_paths: Vec<PathBuf>,
+    worker: Arc<PinnedReferenceWorker>,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+    trials: Vec<ArenaTrialSpec>,
+    evidence: hephaestus_experience::ChannelEvidenceSink,
+    messages: mpsc::SyncSender<ArenaWorkerMessage>,
+    initial_sequence: u64,
+    job_id: String,
+}
+
 struct AsyncReferenceLaunch {
     data_dir: PathBuf,
     guardian: PathBuf,
     protected_paths: Vec<PathBuf>,
-    worker: PinnedReferenceWorker,
+    worker: Arc<PinnedReferenceWorker>,
     cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -423,11 +512,19 @@ impl ControlPlane {
         let mut state =
             ControlState::from_events(&history, registered, &operator_token, &run_result_verifier)?;
         ControlState::verify_artifacts(&history, &artifacts, &run_result_verifier)?;
+        verify_arena_evaluation_records(&data_dir, &state)?;
         // The prior guardian owns any process group left at crash time; recovery
         // persists an outcome only from already verified canonical evidence.
         recover_unfinished_jobs(
             &mut ledger,
             &mut state,
+            &operator_token,
+            &run_result_verifier,
+        )?;
+        recover_unfinished_arena_jobs(
+            &mut ledger,
+            &mut state,
+            &data_dir,
             &operator_token,
             &run_result_verifier,
         )?;
@@ -449,6 +546,9 @@ impl ControlPlane {
             active_job: None,
             job_evidence_receiver: None,
             job_result_receiver: None,
+            active_arena_job: None,
+            arena_message_receiver: None,
+            arena_message_sender: None,
         })
     }
 
@@ -642,9 +742,7 @@ impl ControlPlane {
                 evaluation_id,
                 parent_genome_id,
                 candidate_genome_id,
-            } => {
-                self.run_paired_evaluation(&evaluation_id, &parent_genome_id, &candidate_genome_id)
-            }
+            } => self.submit_arena_job(&evaluation_id, &parent_genome_id, &candidate_genome_id),
             Command::ArenaSelect { evaluation_id } => self.select_arena_evaluation(&evaluation_id),
             Command::Replay => self.replay_response(),
             Command::DaemonStop => self.request_daemon_stop(),
@@ -652,7 +750,11 @@ impl ControlPlane {
     }
 
     fn request_daemon_stop(&mut self) -> Result<ResponseData, ExecuteError> {
-        if self.active_job.is_some() {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            self.request_active_job_cancellation()?;
+            return Err(ExecuteError::Busy);
+        }
+        if self.active_arena_job.is_some() {
             self.request_active_job_cancellation()?;
             return Err(ExecuteError::Busy);
         }
@@ -668,7 +770,6 @@ impl ControlPlane {
             command,
             Command::RunReference { .. }
                 | Command::RunEvaluation { .. }
-                | Command::EvaluatePair { .. }
                 | Command::ArenaSelect { .. }
                 | Command::GenomeRegister { .. }
                 | Command::WorldRegister { .. }
@@ -676,13 +777,14 @@ impl ControlPlane {
                 | Command::ArtifactPut { .. }
                 | Command::Replay
         );
-        if self.active_job.is_some() && storage_taking {
+        if (self.active_job.is_some() || self.active_arena_job.is_some()) && storage_taking {
             Err(ExecuteError::Busy)
         } else {
             Ok(())
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn submit_job(&mut self, job_id: &str, genome_id: &str) -> Result<ResponseData, ExecuteError> {
         validate_job_id(job_id)?;
         if let Some(existing) = self.state.jobs.get(job_id) {
@@ -693,16 +795,18 @@ impl ControlPlane {
             }
             return Ok(self.job_response(existing.clone()));
         }
-        if self.state.jobs.values().any(|job| {
-            matches!(
-                job.state,
-                JobState::Admitted | JobState::Running | JobState::CancellationRequested
-            )
-        }) {
+        if self.active_arena_job.is_some()
+            || self.state.jobs.values().any(|job| {
+                matches!(
+                    job.state,
+                    JobState::Admitted | JobState::Running | JobState::CancellationRequested
+                )
+            })
+        {
             return Err(ExecuteError::Busy);
         }
         let genome = self.runnable_genome(genome_id)?;
-        let worker = self.pin_reference_worker()?;
+        let worker = Arc::new(self.pin_reference_worker()?);
         let run_id = job_run_id(job_id);
         let spec = self.async_reference_spec(&run_id, &genome, &worker)?;
         let budget = spec.budget();
@@ -736,7 +840,7 @@ impl ControlPlane {
         let (evidence_sink, evidence_receiver) = hephaestus_experience::bounded_evidence_channel(1);
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let worker_copy = worker;
+        let worker_copy = Arc::clone(&worker);
         let spec_copy = spec.clone();
         let genome_copy = genome.clone();
         let data_dir = self.data_dir.clone();
@@ -827,6 +931,9 @@ impl ControlPlane {
     }
 
     fn job_status(&self, job_id: &str) -> Result<ResponseData, ExecuteError> {
+        if let Some(job) = self.state.arena_jobs.get(job_id) {
+            return Ok(Self::arena_job_response(job));
+        }
         self.state
             .jobs
             .get(job_id)
@@ -846,6 +953,28 @@ impl ControlPlane {
     }
 
     fn kill_job(&mut self, job_id: &str) -> Result<ResponseData, ExecuteError> {
+        if let Some(job) = self.state.arena_jobs.get(job_id).cloned() {
+            if matches!(
+                job.state,
+                JobState::Succeeded | JobState::Failed | JobState::Interrupted
+            ) {
+                return Ok(Self::arena_job_response(&job));
+            }
+            let active = self
+                .active_arena_job
+                .as_ref()
+                .ok_or(ExecuteError::Internal)?;
+            if active.record.evaluation_id != job_id {
+                return Err(ExecuteError::Internal);
+            }
+            active.cancel.store(true, Ordering::Release);
+            let mut record = job;
+            if record.state != JobState::CancellationRequested {
+                record.state = JobState::CancellationRequested;
+                self.append_arena_job_record(&record)?;
+            }
+            return Ok(Self::arena_job_response(&record));
+        }
         let mut record = self
             .state
             .jobs
@@ -869,11 +998,22 @@ impl ControlPlane {
     }
 
     fn request_active_job_cancellation(&mut self) -> Result<(), ExecuteError> {
-        let Some(active) = self.active_job.as_ref() else {
-            return Ok(());
-        };
-        let job_id = active.record.job_id.clone();
-        self.request_job_cancellation(&job_id)
+        if let Some(active) = self.active_job.as_ref() {
+            let job_id = active.record.job_id.clone();
+            return self.request_job_cancellation(&job_id);
+        }
+        if let Some(active) = self.active_arena_job.as_ref() {
+            let job_id = active.record.evaluation_id.clone();
+            active.cancel.store(true, Ordering::Release);
+            let Some(mut record) = self.state.arena_jobs.get(&job_id).cloned() else {
+                return Err(ExecuteError::Internal);
+            };
+            if record.state != JobState::CancellationRequested {
+                record.state = JobState::CancellationRequested;
+                self.append_arena_job_record(&record)?;
+            }
+        }
+        Ok(())
     }
 
     fn request_job_cancellation(&mut self, job_id: &str) -> Result<(), ExecuteError> {
@@ -934,13 +1074,14 @@ impl ControlPlane {
     }
 
     fn service_async_messages(&mut self) -> Result<(), ControlError> {
+        self.enforce_arena_deadline()?;
         for _ in 0..8 {
             let request = self
                 .job_evidence_receiver
                 .as_ref()
                 .and_then(|receiver| receiver.try_recv().ok());
             let Some(request) = request else { break };
-            let valid = self.active_job.as_ref().is_some_and(|active| {
+            let valid_direct = self.active_job.as_ref().is_some_and(|active| {
                 request.run_id() == active.spec.run_id()
                     && request.provenance().is_none_or(|provenance| {
                         provenance.genome_id() == active.spec.genome_id()
@@ -948,9 +1089,22 @@ impl ControlPlane {
                             && provenance.run_id() == active.spec.run_id()
                     })
             });
-            if !valid {
+            let valid_arena = self.active_arena_job.as_ref().is_some_and(|active| {
+                active.trials.iter().any(|trial| {
+                    request.run_id() == trial.spec.run_id()
+                        && request.provenance().is_none_or(|provenance| {
+                            provenance.genome_id() == trial.spec.genome_id()
+                                && provenance.world_id() == trial.spec.world_id()
+                                && provenance.run_id() == trial.spec.run_id()
+                        })
+                })
+            });
+            if !valid_direct && !valid_arena {
                 request.reject("writer rejected evidence outside the admitted run");
                 if let Some(active) = &self.active_job {
+                    active.cancel.store(true, Ordering::Release);
+                }
+                if let Some(active) = &self.active_arena_job {
                     active.cancel.store(true, Ordering::Release);
                 }
                 continue;
@@ -958,6 +1112,9 @@ impl ControlPlane {
             let Some(storage) = self.storage.take() else {
                 request.reject("canonical writer is unavailable");
                 if let Some(active) = &self.active_job {
+                    active.cancel.store(true, Ordering::Release);
+                }
+                if let Some(active) = &self.active_arena_job {
                     active.cancel.store(true, Ordering::Release);
                 }
                 continue;
@@ -974,6 +1131,9 @@ impl ControlPlane {
             self.storage = Some(CanonicalStorage { ledger, artifacts });
             if result.is_err() {
                 if let Some(active) = &self.active_job {
+                    active.cancel.store(true, Ordering::Release);
+                }
+                if let Some(active) = &self.active_arena_job {
                     active.cancel.store(true, Ordering::Release);
                 }
             } else {
@@ -1011,7 +1171,374 @@ impl ControlPlane {
                 Err(mpsc::TryRecvError::Empty) => {}
             }
         }
+        self.service_arena_message()?;
         Ok(())
+    }
+
+    fn enforce_arena_deadline(&mut self) -> Result<(), ControlError> {
+        let expired = self.active_arena_job.as_ref().is_some_and(|active| {
+            !active.overall_timed_out
+                && active.record.state == JobState::Running
+                && Instant::now() >= active.overall_deadline
+        });
+        if !expired {
+            return Ok(());
+        }
+        let record = {
+            let active = self.active_arena_job.as_mut().ok_or_else(|| {
+                ControlError::Projection("Arena job disappeared at its deadline".to_owned())
+            })?;
+            active.overall_timed_out = true;
+            active.cancel.store(true, Ordering::Release);
+            let mut record = active.record.clone();
+            record.state = JobState::CancellationRequested;
+            record
+        };
+        self.append_arena_job_record(&record).map_err(|_| {
+            ControlError::Projection("Arena deadline could not be persisted".to_owned())
+        })?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn service_arena_message(&mut self) -> Result<(), ControlError> {
+        let Some(receiver) = self.arena_message_receiver.as_ref() else {
+            return Ok(());
+        };
+        let message = match receiver.try_recv() {
+            Ok(message) => message,
+            Err(mpsc::TryRecvError::Empty) => return Ok(()),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                if let Some(active) = self.active_arena_job.as_ref() {
+                    let mut terminal = active.record.clone();
+                    terminal.state = JobState::Interrupted;
+                    terminal.phase = ArenaJobPhase::Terminal;
+                    terminal.terminal = Some(JobTerminal::Interrupted);
+                    self.append_arena_job_record(&terminal).map_err(|_| {
+                        ControlError::Projection(
+                            "interrupted Arena job could not be recorded".to_owned(),
+                        )
+                    })?;
+                    self.active_arena_job = None;
+                    self.arena_message_receiver = None;
+                    self.job_evidence_receiver = None;
+                }
+                return Ok(());
+            }
+        };
+        match message {
+            ArenaWorkerMessage::Trial {
+                job_id,
+                index,
+                output,
+                reply,
+            } => {
+                let Some(active) = self.active_arena_job.as_ref() else {
+                    let _ignored = reply.send(Err("paired job is no longer active".to_owned()));
+                    return Ok(());
+                };
+                if active.record.evaluation_id != job_id
+                    || usize::try_from(active.record.completed_trials).ok() != Some(index)
+                {
+                    let _ignored =
+                        reply.send(Err("paired trial arrived outside admitted order".to_owned()));
+                    active.cancel.store(true, Ordering::Release);
+                    return Ok(());
+                }
+                let trial = active.trials.get(index).cloned().ok_or_else(|| {
+                    ControlError::Projection("paired trial index is invalid".to_owned())
+                })?;
+                let result = output.and_then(|output| {
+                    let storage = self
+                        .storage
+                        .as_ref()
+                        .ok_or_else(|| "canonical writer unavailable".to_owned())?;
+                    let response = persist_reference_output(
+                        &storage.artifacts,
+                        trial.spec.run_id(),
+                        &trial.genome,
+                        trial.spec.source_revision(),
+                        output,
+                    )
+                    .map_err(|_| "trial output could not be persisted".to_owned())?;
+                    self.append_run_result(&trial.spec, &response)
+                        .map_err(|_| "trial result could not be signed".to_owned())?;
+                    if let Some(active) = self.active_arena_job.as_mut() {
+                        active.record.completed_trials = self
+                            .state
+                            .arena_jobs
+                            .get(&job_id)
+                            .map_or(active.record.completed_trials, |record| {
+                                record.completed_trials
+                            });
+                        if active.record.completed_trials >= active.record.parent_trial_count {
+                            active.record.phase = ArenaJobPhase::CandidateTrials;
+                        }
+                    }
+                    Ok(self.state.event_count)
+                });
+                if result.is_err() {
+                    if let Some(active) = self.active_arena_job.as_ref() {
+                        active.cancel.store(true, Ordering::Release);
+                    }
+                }
+                let _ignored = reply.send(result);
+            }
+            ArenaWorkerMessage::Trials { job_id, result } => {
+                let Some(active) = self.active_arena_job.as_ref() else {
+                    return Ok(());
+                };
+                if active.record.evaluation_id != job_id {
+                    return Err(ControlError::Projection(
+                        "paired completion crossed evaluation identity".to_owned(),
+                    ));
+                }
+                if active.cancel.load(Ordering::Acquire)
+                    || active.record.state == JobState::CancellationRequested
+                    || result.is_err()
+                {
+                    let mut terminal = active.record.clone();
+                    terminal.state = if active.overall_timed_out {
+                        JobState::Failed
+                    } else if active.record.state == JobState::CancellationRequested {
+                        JobState::Interrupted
+                    } else {
+                        JobState::Failed
+                    };
+                    terminal.phase = ArenaJobPhase::Terminal;
+                    terminal.terminal = Some(match terminal.state {
+                        JobState::Interrupted => JobTerminal::Cancelled,
+                        _ => JobTerminal::Failed,
+                    });
+                    self.append_arena_job_record(&terminal).map_err(|_| {
+                        ControlError::Projection(
+                            "Arena terminal state could not be recorded".to_owned(),
+                        )
+                    })?;
+                    self.active_arena_job = None;
+                    self.arena_message_receiver = None;
+                    self.job_evidence_receiver = None;
+                } else {
+                    self.start_arena_scoring()?;
+                }
+            }
+            ArenaWorkerMessage::Scoring { job_id, result } => {
+                self.finish_arena_scoring(&job_id, result)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn start_arena_scoring(&mut self) -> Result<(), ControlError> {
+        let active = self.active_arena_job.as_ref().ok_or_else(|| {
+            ControlError::Projection("Arena scorer lost its active job".to_owned())
+        })?;
+        if active.record.completed_trials != active.record.total_trials {
+            return Err(ControlError::Projection(
+                "Arena scorer observed incomplete trials".to_owned(),
+            ));
+        }
+        let storage = self
+            .storage
+            .take()
+            .ok_or_else(|| ControlError::Projection("canonical writer unavailable".to_owned()))?;
+        let stores = EvaluationStores {
+            events: storage.ledger,
+            artifacts: storage.artifacts,
+        };
+        let prepared_result = prepare_evaluation(
+            &stores,
+            &active.receipt_context,
+            &active.world,
+            EvaluationSources {
+                binding: &active.binding,
+                visible: &active.visible,
+                sealed: &active.sealed,
+                parent: &active.parent,
+                candidate: &active.candidate,
+            },
+        );
+        self.storage = Some(CanonicalStorage {
+            ledger: stores.events,
+            artifacts: stores.artifacts,
+        });
+        let prepared = prepared_result
+            .map_err(|_| ControlError::Projection("Arena scorer preparation failed".to_owned()))?;
+        let mut record = active.record.clone();
+        let evaluator = Arc::clone(&active.evaluator);
+        let cancel = Arc::clone(&active.cancel);
+        let job_id = record.evaluation_id.clone();
+        record.phase = ArenaJobPhase::Scoring;
+        self.append_arena_job_record(&record).map_err(|_| {
+            ControlError::Projection("Arena scoring phase could not be recorded".to_owned())
+        })?;
+        let guardian = self.guardian_executable.clone();
+        let sender = self
+            .arena_message_sender
+            .as_ref()
+            .ok_or_else(|| {
+                ControlError::Projection("Arena message channel is unavailable".to_owned())
+            })?
+            .clone();
+        thread::Builder::new()
+            .name(format!(
+                "hephaestus-score-{}",
+                &blake3::hash(job_id.as_bytes()).to_hex()[..8]
+            ))
+            .spawn(move || {
+                let result = prepared
+                    .score_guarded(&evaluator, &guardian, cancel)
+                    .map_err(|_| "protected evaluator failed".to_owned());
+                let _ignored = sender.send(ArenaWorkerMessage::Scoring { job_id, result });
+            })
+            .map_err(|_| {
+                ControlError::Projection("Arena scorer could not be started".to_owned())
+            })?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn finish_arena_scoring(
+        &mut self,
+        job_id: &str,
+        result: Result<ScoredEvaluation, String>,
+    ) -> Result<(), ControlError> {
+        self.enforce_arena_deadline()?;
+        let active = self.active_arena_job.as_ref().ok_or_else(|| {
+            ControlError::Projection("Arena scorer completion has no active job".to_owned())
+        })?;
+        if active.record.evaluation_id != job_id {
+            return Err(ControlError::Projection(
+                "Arena scorer completion crossed evaluation identity".to_owned(),
+            ));
+        }
+        if active.overall_timed_out {
+            let mut terminal = active.record.clone();
+            terminal.state = JobState::Failed;
+            terminal.phase = ArenaJobPhase::Terminal;
+            terminal.terminal = Some(JobTerminal::Failed);
+            self.append_arena_job_record(&terminal).map_err(|_| {
+                ControlError::Projection(
+                    "timed out Arena terminal could not be recorded".to_owned(),
+                )
+            })?;
+            self.clear_active_arena_job();
+            return Ok(());
+        }
+        if active.record.state == JobState::CancellationRequested
+            || active.cancel.load(Ordering::Acquire)
+        {
+            let mut terminal = active.record.clone();
+            terminal.state = JobState::Interrupted;
+            terminal.phase = ArenaJobPhase::Terminal;
+            terminal.terminal = Some(JobTerminal::Cancelled);
+            self.append_arena_job_record(&terminal).map_err(|_| {
+                ControlError::Projection(
+                    "cancelled Arena terminal state could not be recorded".to_owned(),
+                )
+            })?;
+            self.clear_active_arena_job();
+            return Ok(());
+        }
+        let Ok(scored) = result else {
+            let mut terminal = active.record.clone();
+            terminal.state = JobState::Failed;
+            terminal.phase = ArenaJobPhase::Terminal;
+            terminal.terminal = Some(JobTerminal::Failed);
+            self.append_arena_job_record(&terminal).map_err(|_| {
+                ControlError::Projection(
+                    "failed Arena terminal state could not be recorded".to_owned(),
+                )
+            })?;
+            self.clear_active_arena_job();
+            return Ok(());
+        };
+        let mut committing = active.record.clone();
+        committing.phase = ArenaJobPhase::Committing;
+        self.append_arena_job_record(&committing).map_err(|_| {
+            ControlError::Projection("Arena commit phase could not be recorded".to_owned())
+        })?;
+        let active = self.active_arena_job.as_ref().ok_or_else(|| {
+            ControlError::Projection("Arena job disappeared before commit".to_owned())
+        })?;
+        let context = active.receipt_context.clone();
+        let world = active.world.clone();
+        let binding = active.binding.clone();
+        let visible = active.visible.clone();
+        let sealed = active.sealed.clone();
+        let parent = active.parent.clone();
+        let candidate = active.candidate.clone();
+        let evaluator = Arc::clone(&active.evaluator);
+        let storage = self
+            .storage
+            .take()
+            .ok_or_else(|| ControlError::Projection("canonical writer unavailable".to_owned()))?;
+        let result = evaluate_and_record_scored(
+            EvaluationStores {
+                events: storage.ledger,
+                artifacts: storage.artifacts,
+            },
+            context,
+            &world,
+            EvaluationInputs {
+                binding: &binding,
+                visible: &visible,
+                sealed: &sealed,
+                parent: &parent,
+                candidate: &candidate,
+                evaluator: &evaluator,
+            },
+            scored,
+        );
+        let Ok(operator) = result else {
+            self.reopen_storage().map_err(|_| {
+                ControlError::Projection("canonical writer could not be reopened".to_owned())
+            })?;
+            let active = self.active_arena_job.as_ref().ok_or_else(|| {
+                ControlError::Projection("Arena job disappeared after failed commit".to_owned())
+            })?;
+            let mut terminal = active.record.clone();
+            terminal.state = JobState::Failed;
+            terminal.phase = ArenaJobPhase::Terminal;
+            terminal.terminal = Some(JobTerminal::Failed);
+            self.append_arena_job_record(&terminal).map_err(|_| {
+                ControlError::Projection(
+                    "failed Arena terminal state could not be recorded".to_owned(),
+                )
+            })?;
+            self.clear_active_arena_job();
+            return Ok(());
+        };
+        let evaluation = evaluation_record_from_operator(&operator);
+        let stores = operator.into_stores();
+        self.storage = Some(CanonicalStorage {
+            ledger: stores.events,
+            artifacts: stores.artifacts,
+        });
+        self.refresh_projection()
+            .map_err(|_| ControlError::Projection("Arena receipt projection failed".to_owned()))?;
+        let active = self.active_arena_job.as_ref().ok_or_else(|| {
+            ControlError::Projection("Arena job disappeared after commit".to_owned())
+        })?;
+        let mut terminal = active.record.clone();
+        terminal.state = JobState::Succeeded;
+        terminal.phase = ArenaJobPhase::Terminal;
+        terminal.terminal = Some(JobTerminal::Succeeded);
+        terminal.evaluation = Some(evaluation);
+        self.append_arena_job_record(&terminal).map_err(|_| {
+            ControlError::Projection(
+                "successful Arena terminal state could not be recorded".to_owned(),
+            )
+        })?;
+        self.clear_active_arena_job();
+        Ok(())
+    }
+
+    fn clear_active_arena_job(&mut self) {
+        self.active_arena_job = None;
+        self.arena_message_receiver = None;
+        self.arena_message_sender = None;
+        self.job_evidence_receiver = None;
     }
 
     fn complete_async_job(&mut self, completed: AsyncJobResult) -> Result<(), ExecuteError> {
@@ -1118,6 +1645,8 @@ impl ControlPlane {
             &self.run_result_verifier,
         )
         .map_err(|_| ExecuteError::Internal)?;
+        verify_arena_evaluation_records(&self.data_dir, &replayed)
+            .map_err(|_| ExecuteError::Internal)?;
         if replayed.snapshot() != self.state.snapshot() {
             return Err(ExecuteError::Internal);
         }
@@ -1207,45 +1736,112 @@ impl ControlPlane {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn run_paired_evaluation(
+    fn submit_arena_job(
         &mut self,
         evaluation_id: &str,
         parent_genome_id: &str,
         candidate_genome_id: &str,
     ) -> Result<ResponseData, ExecuteError> {
+        validate_job_id(evaluation_id)?;
+        if let Some(existing) = self.state.arena_jobs.get(evaluation_id) {
+            if existing.parent_genome_id != parent_genome_id
+                || existing.candidate_genome_id != candidate_genome_id
+            {
+                return Err(ExecuteError::Rejected(
+                    "evaluation id is already bound to another Genome pair".to_owned(),
+                ));
+            }
+            return Ok(Self::arena_job_response(existing));
+        }
+        if self.active_job.is_some()
+            || self.active_arena_job.is_some()
+            || self.state.jobs.values().any(|job| {
+                matches!(
+                    job.state,
+                    JobState::Admitted | JobState::Running | JobState::CancellationRequested
+                )
+            })
+            || self.state.arena_jobs.values().any(|job| {
+                matches!(
+                    job.state,
+                    JobState::Admitted | JobState::Running | JobState::CancellationRequested
+                )
+            })
+        {
+            return Err(ExecuteError::Busy);
+        }
         if parent_genome_id == candidate_genome_id {
             return Err(ExecuteError::Invalid(
                 "parent and candidate Genomes must differ",
             ));
         }
-        let parent = self.runnable_genome(parent_genome_id)?;
-        let candidate = self.runnable_genome(candidate_genome_id)?;
-        if parent.world_id != candidate.world_id {
+        let parent_genome = self.runnable_genome(parent_genome_id)?;
+        let candidate_genome = self.runnable_genome(candidate_genome_id)?;
+        if parent_genome.world_id != candidate_genome.world_id {
             return Err(ExecuteError::Invalid(
                 "paired Genomes must share one registered World",
             ));
         }
-        // Parse both verified prompt CAS objects before scheduling either role,
-        // so an unsupported candidate cannot leave a partial parent run history.
-        self.reference_instruction(&parent.genome_id)?;
-        self.reference_instruction(&candidate.genome_id)?;
-        let world = self.registered_world(&parent.world_id)?;
+        self.reference_instruction(parent_genome_id)?;
+        self.reference_instruction(candidate_genome_id)?;
+        let world = self.registered_world(&parent_genome.world_id)?;
+        let visible_manifest_id = world
+            .evaluator_artifact("arena.visible_manifest")
+            .ok_or_else(|| {
+                ExecuteError::Rejected("World does not declare arena.visible_manifest".to_owned())
+            })?
+            .to_owned();
+        let sealed_manifest_id = world
+            .evaluator_artifact("arena.sealed_manifest")
+            .ok_or_else(|| {
+                ExecuteError::Rejected("World does not declare arena.sealed_manifest".to_owned())
+            })?
+            .to_owned();
         let visible = self.world_manifest(&world, "arena.visible_manifest", Visibility::Visible)?;
         let sealed = self.world_manifest(&world, "arena.sealed_manifest", Visibility::Sealed)?;
-        let evaluator_id = world.evaluator_artifact("arena.evaluator").ok_or_else(|| {
-            ExecuteError::Rejected(
-                "World does not declare the arena.evaluator artifact required for paired evaluation"
-                    .to_owned(),
-            )
-        })?;
-        let budget = validated_evaluation_budget(
-            PAIRED_EVALUATION_WALL_MILLIS,
-            PAIRED_EVALUATION_OUTPUT_BYTES,
-            0,
-        )?;
-        let budget_receipt = RunBudgetReceipt {
-            wall_millis: PAIRED_EVALUATION_WALL_MILLIS,
+        let evaluator_id = world
+            .evaluator_artifact("arena.evaluator")
+            .ok_or_else(|| {
+                ExecuteError::Rejected("World does not declare arena.evaluator".to_owned())
+            })?
+            .to_owned();
+        let per_trial_wall = PAIRED_EVALUATION_WALL_MILLIS;
+        let budget =
+            validated_evaluation_budget(per_trial_wall, PAIRED_EVALUATION_OUTPUT_BYTES, 0)?;
+        let trial_budget = RunBudgetReceipt {
+            wall_millis: per_trial_wall,
             maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES,
+            maximum_cost_microusd: 0,
+        };
+        let tasks = visible
+            .operator_tasks()
+            .into_iter()
+            .chain(sealed.operator_tasks())
+            .collect::<Vec<_>>();
+        if tasks.is_empty() || tasks.len() > 1000 {
+            return Err(ExecuteError::Invalid(
+                "paired task count is outside the bounded range",
+            ));
+        }
+        let total_trials = tasks.len().checked_mul(2).ok_or(ExecuteError::Internal)?;
+        let total_trials_u32 = u32::try_from(total_trials).map_err(|_| ExecuteError::Internal)?;
+        let maximum_overall_wall = per_trial_wall
+            .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
+            .and_then(|wall| wall.checked_add(PAIRED_EVALUATION_WALL_MILLIS))
+            .ok_or(ExecuteError::Internal)?;
+        #[cfg(feature = "test-support")]
+        let overall_wall = test_overall_wall(
+            maximum_overall_wall,
+            env::var(TEST_ARENA_OVERALL_WALL_ENV).ok().as_deref(),
+        )
+        .map_err(|()| ExecuteError::Invalid("test Arena wall budget must only lower the bound"))?;
+        #[cfg(not(feature = "test-support"))]
+        let overall_wall = maximum_overall_wall;
+        let overall_budget = RunBudgetReceipt {
+            wall_millis: overall_wall,
+            maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES
+                .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
+                .ok_or(ExecuteError::Internal)?,
             maximum_cost_microusd: 0,
         };
         let evaluator_limits = WorkerLimits::new(
@@ -1254,95 +1850,239 @@ impl ControlPlane {
             128 * 1024,
         )
         .map_err(|_| ExecuteError::Internal)?;
-        let evaluator = self.open_evaluator(evaluator_id, evaluator_limits)?;
-        let worker = self.pin_reference_worker()?;
+        let evaluator = Arc::new(self.open_evaluator(&evaluator_id, evaluator_limits)?);
+        let worker = Arc::new(self.pin_reference_worker()?);
         let environment_id = Self::reference_execution_environment(&worker);
         let revision = self.paired_revision(evaluation_id)?;
-        let parent_plan = self.schedule_submission(
-            evaluation_id,
-            "parent",
-            &parent,
-            &visible,
-            &sealed,
-            &revision,
-            &environment_id,
-            &worker,
-            budget,
-        )?;
-        let candidate_plan = self.schedule_submission(
-            evaluation_id,
-            "candidate",
-            &candidate,
-            &visible,
-            &sealed,
-            &revision,
-            &environment_id,
-            &worker,
-            budget,
-        )?;
         let binding = EvaluationBinding::new(
             world.id(),
             PAIRED_EVALUATION_SEED,
             &environment_id,
-            evaluator_id,
-            budget_receipt,
+            &evaluator_id,
+            trial_budget,
         )
         .map_err(|_| ExecuteError::Internal)?;
-        worker.verify()?;
-        let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
-        let result = evaluate_and_record(
-            EvaluationStores {
-                events: storage.ledger,
-                artifacts: storage.artifacts,
-            },
-            ReceiptContext {
-                event_id: format!("arena:evaluation:{evaluation_id}:recorded"),
-                evaluation_id: evaluation_id.to_owned(),
-                caller_id: "control-daemon".to_owned(),
-                timestamp_millis: timestamp_millis().map_err(|_| ExecuteError::Internal)?,
-            },
-            &world,
-            EvaluationInputs {
-                binding: &binding,
-                visible: &visible,
-                sealed: &sealed,
-                parent: &parent_plan,
-                candidate: &candidate_plan,
-                evaluator: &evaluator,
-            },
-        );
-        let Ok(operator) = result else {
-            self.reopen_storage()?;
-            self.refresh_projection()?;
+        let mut trial_specs = Vec::with_capacity(total_trials);
+        let mut parent_plan = Vec::with_capacity(tasks.len());
+        let mut candidate_plan = Vec::with_capacity(tasks.len());
+        for (role, genome, plan) in [
+            ("parent", &parent_genome, &mut parent_plan),
+            ("candidate", &candidate_genome, &mut candidate_plan),
+        ] {
+            for (index, task) in tasks.iter().enumerate() {
+                let run_id = paired_run_id(evaluation_id, role, index);
+                let event_id = format!("result:{run_id}");
+                let experiment = ExperimentContext::new(
+                    &task.task_id,
+                    task.input.as_bytes(),
+                    PAIRED_EVALUATION_SEED,
+                    &environment_id,
+                )
+                .map_err(|_| ExecuteError::Internal)?;
+                let instruction = self
+                    .reference_instruction(&genome.genome_id)?
+                    .unwrap_or(ReferenceInstruction::Identity);
+                let spec = RunSpec::new_for_experiment_at_revision(
+                    &run_id,
+                    &genome.genome_id,
+                    &genome.world_id,
+                    &self.source_repository,
+                    &revision,
+                    &task.input,
+                    CapabilitySet::new(false, false),
+                    budget,
+                    experiment,
+                )
+                .map_err(|_| ExecuteError::Internal)?
+                .with_reference_instruction(instruction)
+                .map_err(|_| ExecuteError::Internal)?;
+                plan.push((task.task_id.clone(), event_id));
+                trial_specs.push(ArenaTrialSpec {
+                    genome: genome.clone(),
+                    spec,
+                });
+            }
+        }
+        let parent_trial_count =
+            u32::try_from(parent_plan.len()).map_err(|_| ExecuteError::Internal)?;
+        let parent = TrialPlan::new(parent_plan).map_err(|_| ExecuteError::Internal)?;
+        let candidate = TrialPlan::new(candidate_plan).map_err(|_| ExecuteError::Internal)?;
+        let run_ids = trial_specs
+            .iter()
+            .map(|trial| trial.spec.run_id().to_owned())
+            .collect::<Vec<_>>();
+        let plan_commitment = blake3::hash(
+            &serde_json::to_vec(&(
+                evaluation_id,
+                parent_genome_id,
+                candidate_genome_id,
+                world.id(),
+                &visible_manifest_id,
+                &sealed_manifest_id,
+                &revision,
+                &environment_id,
+                &run_ids,
+            ))
+            .map_err(|_| ExecuteError::Internal)?,
+        )
+        .to_hex()
+        .to_string();
+        let receipt_context = ReceiptContext {
+            event_id: format!("arena:evaluation:{evaluation_id}:recorded"),
+            evaluation_id: evaluation_id.to_owned(),
+            caller_id: "control-daemon".to_owned(),
+            timestamp_millis: timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+        };
+        let mut admitted = ArenaJobRecord {
+            job_id: evaluation_id.to_owned(),
+            evaluation_id: evaluation_id.to_owned(),
+            parent_genome_id: parent_genome_id.to_owned(),
+            candidate_genome_id: candidate_genome_id.to_owned(),
+            world_id: world.id().to_owned(),
+            visible_manifest_id,
+            sealed_manifest_id,
+            evaluator_id,
+            source_revision: revision,
+            worker_digest: worker.digest.clone(),
+            environment_id: environment_id.clone(),
+            seed: PAIRED_EVALUATION_SEED,
+            trial_budget,
+            overall_budget,
+            ordered_trial_run_ids: run_ids,
+            parent_trial_count,
+            total_trials: total_trials_u32,
+            plan_commitment,
+            caller_id: receipt_context.caller_id.clone(),
+            receipt_timestamp_millis: receipt_context.timestamp_millis,
+            completed_trials: 0,
+            phase: ArenaJobPhase::Preparing,
+            state: JobState::Admitted,
+            terminal: None,
+            evaluation: None,
+        };
+        self.append_arena_job_record(&admitted)?;
+        admitted.phase = ArenaJobPhase::ParentTrials;
+        admitted.state = JobState::Running;
+        self.append_arena_job_record(&admitted)?;
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (evidence, evidence_receiver) = hephaestus_experience::bounded_evidence_channel(1);
+        let (message_sender, message_receiver) = mpsc::sync_channel(1);
+        let scorer_sender = message_sender.clone();
+        let active_trials = trial_specs.clone();
+        let overall_deadline = Instant::now()
+            .checked_add(Duration::from_millis(overall_wall))
+            .ok_or(ExecuteError::Internal)?;
+        let launch = AsyncArenaTrialLaunch {
+            data_dir: self.data_dir.clone(),
+            guardian: self.guardian_executable.clone(),
+            protected_paths: self.protected_runtime_paths(),
+            worker: Arc::clone(&worker),
+            cancel: Arc::clone(&cancel),
+            trials: trial_specs,
+            evidence,
+            messages: message_sender,
+            initial_sequence: self.state.event_count,
+            job_id: evaluation_id.to_owned(),
+        };
+        let spawn = thread::Builder::new()
+            .name(format!(
+                "hephaestus-arena-{}",
+                &blake3::hash(evaluation_id.as_bytes()).to_hex()[..8]
+            ))
+            .spawn(move || execute_async_arena_trials(launch));
+        if spawn.is_err() {
+            admitted.state = JobState::Interrupted;
+            admitted.phase = ArenaJobPhase::Terminal;
+            admitted.terminal = Some(JobTerminal::Interrupted);
+            self.append_arena_job_record(&admitted)?;
             return Err(ExecuteError::Internal);
-        };
-        let recorded = operator.candidate_result();
-        let response = ResponseData::Evaluation {
-            evaluation: EvaluationRecord {
-                evaluation_id: recorded.summary.evaluation_id.clone(),
-                world_id: recorded.summary.world_id.clone(),
-                parent_genome_id: recorded.summary.parent_genome_id.clone(),
-                candidate_genome_id: recorded.summary.candidate_genome_id.clone(),
-                parent_visible_correct: recorded.summary.parent_visible_correct,
-                candidate_visible_correct: recorded.summary.candidate_visible_correct,
-                visible_total: recorded.summary.visible_total,
-                event: EvaluationEventRecord {
-                    sequence: recorded.event.sequence,
-                    event_id: recorded.event.event_id.clone(),
-                    aggregate_id: recorded.event.aggregate_id.clone(),
-                    event_type: recorded.event.event_type.clone(),
-                    actor: recorded.event.actor.clone(),
-                    timestamp_millis: recorded.event.timestamp_millis,
-                },
-            },
-        };
-        let stores = operator.into_stores();
-        self.storage = Some(CanonicalStorage {
-            ledger: stores.events,
-            artifacts: stores.artifacts,
+        }
+        self.active_arena_job = Some(ActiveArenaJob {
+            record: admitted,
+            world,
+            visible,
+            sealed,
+            binding,
+            parent,
+            candidate,
+            receipt_context,
+            trials: active_trials,
+            evaluator,
+            cancel,
+            overall_deadline,
+            overall_timed_out: false,
         });
-        self.refresh_projection()?;
-        Ok(response)
+        // Keep the specs in the worker thread. The projection only needs their
+        // immutable committed run identities and trusted plans.
+        self.arena_message_receiver = Some(message_receiver);
+        self.arena_message_sender = Some(scorer_sender);
+        self.job_evidence_receiver = Some(evidence_receiver);
+        let record = &self
+            .active_arena_job
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .record;
+        Ok(Self::arena_job_response(record))
+    }
+
+    fn arena_job_response(record: &ArenaJobRecord) -> ResponseData {
+        ResponseData::ArenaJob {
+            job: ArenaJobProgress {
+                evaluation_id: record.evaluation_id.clone(),
+                parent_genome_id: record.parent_genome_id.clone(),
+                candidate_genome_id: record.candidate_genome_id.clone(),
+                state: record.state,
+                phase: record.phase,
+                completed_trials: record.completed_trials,
+                total_trials: record.total_trials,
+                evaluation: record.evaluation.clone(),
+            },
+        }
+    }
+
+    fn append_arena_job_record(&mut self, record: &ArenaJobRecord) -> Result<(), ExecuteError> {
+        let event_type = match record.state {
+            JobState::Admitted => "arena.job.admitted",
+            JobState::Running if record.phase == ArenaJobPhase::Scoring => "arena.job.scoring",
+            JobState::Running if record.phase == ArenaJobPhase::Committing => {
+                "arena.job.committing"
+            }
+            JobState::Running => "arena.job.running",
+            JobState::CancellationRequested => "arena.job.cancellation_requested",
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted => "arena.job.terminal",
+        };
+        let suffix = event_type
+            .strip_prefix("arena.job.")
+            .ok_or(ExecuteError::Internal)?;
+        let payload = serde_json::to_vec(record).map_err(|_| ExecuteError::Internal)?;
+        let event = self
+            .storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                format!("arena-job:{}:{suffix}", record.evaluation_id),
+                format!("arena-job:{}", record.evaluation_id),
+                event_type,
+                RUNTIME_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Err(_error) =
+            self.state
+                .apply(&event, &self.operator_token, &self.run_result_verifier)
+        {
+            return Err(ExecuteError::Internal);
+        }
+        if let Some(active) = self
+            .active_arena_job
+            .as_mut()
+            .filter(|job| job.record.evaluation_id == record.evaluation_id)
+        {
+            active.record = record.clone();
+        }
+        Ok(())
     }
 
     fn select_arena_evaluation(
@@ -1407,125 +2147,6 @@ impl ControlPlane {
             self.data_dir.join("blobs"),
         )
         .map_err(|_| ExecuteError::Internal)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn schedule_submission(
-        &mut self,
-        evaluation_id: &str,
-        role: &str,
-        genome: &GenomeRecord,
-        visible: &TrustedManifest,
-        sealed: &TrustedManifest,
-        revision: &str,
-        environment_id: &str,
-        worker: &PinnedReferenceWorker,
-        budget: Budget,
-    ) -> Result<TrialPlan, ExecuteError> {
-        let tasks = visible
-            .operator_tasks()
-            .into_iter()
-            .chain(sealed.operator_tasks())
-            .collect::<Vec<_>>();
-        let mut trials = Vec::with_capacity(tasks.len());
-        for (index, task) in tasks.into_iter().enumerate() {
-            let run_id = paired_run_id(evaluation_id, role, index);
-            let event_id = format!("result:{run_id}");
-            if !self.has_event(&event_id)? {
-                self.run_candidate_at_revision(
-                    &run_id,
-                    genome,
-                    &task.task_id,
-                    &task.input,
-                    revision,
-                    environment_id,
-                    worker,
-                    budget,
-                )?;
-            }
-            trials.push((task.task_id, event_id));
-        }
-        TrialPlan::new(trials).map_err(|_| ExecuteError::Internal)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn run_candidate_at_revision(
-        &mut self,
-        run_id: &str,
-        genome: &GenomeRecord,
-        task_id: &str,
-        input: &str,
-        revision: &str,
-        environment_id: &str,
-        worker: &PinnedReferenceWorker,
-        budget: Budget,
-    ) -> Result<ResponseData, ExecuteError> {
-        let experiment = ExperimentContext::new(
-            task_id,
-            input.as_bytes(),
-            PAIRED_EVALUATION_SEED,
-            environment_id,
-        )
-        .map_err(|_| ExecuteError::Internal)?;
-        let instruction = self
-            .reference_instruction(&genome.genome_id)?
-            .unwrap_or(ReferenceInstruction::Identity);
-        let spec = RunSpec::new_for_experiment_at_revision(
-            run_id,
-            &genome.genome_id,
-            &genome.world_id,
-            &self.source_repository,
-            revision,
-            input,
-            CapabilitySet::new(false, false),
-            budget,
-            experiment,
-        )
-        .map_err(|_| ExecuteError::Internal)?
-        .with_reference_instruction(instruction)
-        .map_err(|_| ExecuteError::Internal)?;
-        let manager =
-            SandboxManager::open(self.data_dir.join("sandboxes"), Duration::from_secs(30))
-                .map_err(|_| ExecuteError::Internal)?;
-        let (sandbox, token) = manager.create(&spec).map_err(|_| ExecuteError::Internal)?;
-        let sandbox = SandboxCleanupGuard::new(sandbox);
-        let isolation = candidate_isolation(self.protected_runtime_paths());
-        worker.verify()?;
-        let runtime = SupervisedRuntime::deterministic(isolation, &worker.executable, [])
-            .map_err(|_| ExecuteError::Internal)?;
-        let execution = (|| {
-            let limits =
-                RetentionLimits::new(10_000, 65_536).map_err(|_| ExecuteError::Internal)?;
-            let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
-            let recorder = EvidenceRecorder::from_stores(
-                storage.ledger,
-                storage.artifacts,
-                RedactionPolicy::new([self.token_hex.clone()]),
-                limits,
-            );
-            let (execution, recorder) = execute_candidate_runtime(
-                runtime,
-                recorder,
-                &spec,
-                sandbox.sandbox()?,
-                &token,
-                run_id,
-            );
-            let worker_integrity = worker.verify();
-            let (ledger, artifacts) = recorder.into_stores();
-            let execution = execution.and_then(|output| {
-                worker_integrity?;
-                persist_reference_output(&artifacts, run_id, genome, spec.source_revision(), output)
-            });
-            self.storage = Some(CanonicalStorage { ledger, artifacts });
-            execution
-        })();
-        sandbox.cleanup()?;
-        let response = execution?;
-        worker.verify()?;
-        self.append_run_result(&spec, &response)?;
-        self.refresh_projection()?;
-        Ok(response)
     }
 
     fn registered_world(&self, world_id: &str) -> Result<CompiledWorld, ExecuteError> {
@@ -1712,16 +2333,6 @@ impl ControlPlane {
             pinned = Some(receipt.source_revision);
         }
         pinned.map_or_else(|| resolve_source_revision(&self.source_repository), Ok)
-    }
-
-    fn has_event(&self, event_id: &str) -> Result<bool, ExecuteError> {
-        self.storage
-            .as_ref()
-            .ok_or(ExecuteError::Internal)?
-            .ledger
-            .replay_verified()
-            .map(|history| history.iter().any(|event| event.event_id == event_id))
-            .map_err(|_| ExecuteError::Internal)
     }
 
     fn reopen_storage(&mut self) -> Result<(), ExecuteError> {
@@ -2118,6 +2729,8 @@ impl ControlPlane {
         .map_err(|_| ExecuteError::Internal)?;
         ControlState::verify_artifacts(&history, &storage.artifacts, &self.run_result_verifier)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_arena_evaluation_records(&self.data_dir, &state)
+            .map_err(|_| ExecuteError::Internal)?;
         self.state = state;
         Ok(())
     }
@@ -2177,6 +2790,75 @@ fn selection_record(
             receipt_artifact_id: event.receipt_artifact_id.clone(),
         },
     }
+}
+
+fn evaluation_record_from_operator(
+    operator: &hephaestus_arena::OperatorEvaluation,
+) -> EvaluationRecord {
+    let recorded = operator.candidate_result();
+    EvaluationRecord {
+        evaluation_id: recorded.summary.evaluation_id.clone(),
+        world_id: recorded.summary.world_id.clone(),
+        parent_genome_id: recorded.summary.parent_genome_id.clone(),
+        candidate_genome_id: recorded.summary.candidate_genome_id.clone(),
+        parent_visible_correct: recorded.summary.parent_visible_correct,
+        candidate_visible_correct: recorded.summary.candidate_visible_correct,
+        visible_total: recorded.summary.visible_total,
+        event: EvaluationEventRecord {
+            sequence: recorded.event.sequence,
+            event_id: recorded.event.event_id.clone(),
+            aggregate_id: recorded.event.aggregate_id.clone(),
+            event_type: recorded.event.event_type.clone(),
+            actor: recorded.event.actor.clone(),
+            timestamp_millis: recorded.event.timestamp_millis,
+        },
+    }
+}
+
+fn evaluation_record_from_recorded(
+    recorded: &hephaestus_arena::RecordedEvaluation,
+) -> EvaluationRecord {
+    EvaluationRecord {
+        evaluation_id: recorded.summary.evaluation_id.clone(),
+        world_id: recorded.summary.world_id.clone(),
+        parent_genome_id: recorded.summary.parent_genome_id.clone(),
+        candidate_genome_id: recorded.summary.candidate_genome_id.clone(),
+        parent_visible_correct: recorded.summary.parent_visible_correct,
+        candidate_visible_correct: recorded.summary.candidate_visible_correct,
+        visible_total: recorded.summary.visible_total,
+        event: EvaluationEventRecord {
+            sequence: recorded.event.sequence,
+            event_id: recorded.event.event_id.clone(),
+            aggregate_id: recorded.event.aggregate_id.clone(),
+            event_type: recorded.event.event_type.clone(),
+            actor: recorded.event.actor.clone(),
+            timestamp_millis: recorded.event.timestamp_millis,
+        },
+    }
+}
+
+fn verify_arena_evaluation_records(
+    data_dir: &Path,
+    state: &ControlState,
+) -> Result<(), ControlError> {
+    for job in state.arena_jobs.values().filter(|job| {
+        job.state == JobState::Succeeded && job.terminal == Some(JobTerminal::Succeeded)
+    }) {
+        let stores =
+            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                .map_err(|_| {
+                    ControlError::Projection("Arena evidence stores are unavailable".into())
+                })?;
+        let recorded = load_recorded_evaluation(stores, &job.evaluation_id).map_err(|_| {
+            ControlError::Projection("Arena terminal lacks trusted evaluation evidence".into())
+        })?;
+        if job.evaluation.as_ref() != Some(&evaluation_record_from_recorded(&recorded)) {
+            return Err(ControlError::Projection(
+                "Arena terminal differs from trusted evaluation evidence".to_owned(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn verify_selection_history(
@@ -2388,6 +3070,68 @@ fn execute_async_reference(
         .verify()
         .map_err(|_| "reference worker identity changed".to_owned())?;
     result
+}
+
+fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
+    let AsyncArenaTrialLaunch {
+        data_dir,
+        guardian,
+        protected_paths,
+        worker,
+        cancel,
+        trials,
+        evidence,
+        messages,
+        mut initial_sequence,
+        job_id,
+    } = launch;
+    let mut outcome = Ok(());
+    for (index, trial) in trials.iter().enumerate() {
+        if cancel.load(Ordering::Acquire) {
+            outcome = Err("paired evaluation was cancelled".to_owned());
+            break;
+        }
+        let output = execute_async_reference(
+            AsyncReferenceLaunch {
+                data_dir: data_dir.clone(),
+                guardian: guardian.clone(),
+                protected_paths: protected_paths.clone(),
+                worker: Arc::clone(&worker),
+                cancel: Arc::clone(&cancel),
+            },
+            &trial.spec,
+            evidence.clone(),
+            initial_sequence,
+        );
+        let (reply, response) = mpsc::channel();
+        if messages
+            .send(ArenaWorkerMessage::Trial {
+                job_id: job_id.clone(),
+                index,
+                output,
+                reply,
+            })
+            .is_err()
+        {
+            outcome = Err("canonical writer is unavailable".to_owned());
+            break;
+        }
+        match response.recv() {
+            Ok(Ok(sequence)) => initial_sequence = sequence,
+            Ok(Err(error)) => {
+                outcome = Err(error);
+                break;
+            }
+            Err(_) => {
+                outcome = Err("canonical writer did not acknowledge the trial".to_owned());
+                break;
+            }
+        }
+    }
+    let _ignored = messages.send(ArenaWorkerMessage::Trials {
+        job_id,
+        result: outcome,
+    });
 }
 
 fn map_run_completion_reason(reason: CompletionReason) -> RunCompletionReason {
@@ -2658,7 +3402,9 @@ struct ControlState {
     freeze: FreezeState,
     active_runs: BTreeSet<String>,
     jobs: BTreeMap<String, JobRecord>,
+    arena_jobs: BTreeMap<String, ArenaJobRecord>,
     job_progress: BTreeMap<String, JobProgress>,
+    evaluation_events: BTreeMap<String, u64>,
     run_results: BTreeMap<String, RunResultReceipt>,
     completed_runs: BTreeSet<String>,
     registered: RegisteredObjects,
@@ -2676,7 +3422,9 @@ impl ControlState {
             freeze: FreezeState::frozen(operator_token),
             active_runs: BTreeSet::new(),
             jobs: BTreeMap::new(),
+            arena_jobs: BTreeMap::new(),
             job_progress: BTreeMap::new(),
+            evaluation_events: BTreeMap::new(),
             run_results: BTreeMap::new(),
             completed_runs: BTreeSet::new(),
             registered,
@@ -2688,6 +3436,7 @@ impl ControlState {
         Ok(state)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn apply(
         &mut self,
         event: &StoredEvent,
@@ -2761,10 +3510,35 @@ impl ControlState {
                     .map_err(|_| {
                         ControlError::Projection("canonical run result is invalid".to_owned())
                     })?;
+                self.advance_arena_trial(&receipt)?;
                 self.run_results.insert(receipt.run_id.clone(), receipt);
             }
             "job.admitted" | "job.running" | "job.cancellation_requested" | "job.terminal" => {
                 self.apply_job_record(event)?;
+            }
+            "arena.job.admitted"
+            | "arena.job.running"
+            | "arena.job.cancellation_requested"
+            | "arena.job.scoring"
+            | "arena.job.committing"
+            | "arena.job.terminal" => self.apply_arena_job_record(event)?,
+            "evaluation.recorded" => {
+                let value: serde_json::Value = serde_json::from_slice(&event.payload)?;
+                let evaluation_id = value
+                    .get("evaluation_id")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        ControlError::Projection("Arena receipt identity is invalid".to_owned())
+                    })?;
+                if self
+                    .evaluation_events
+                    .insert(evaluation_id.to_owned(), event.sequence)
+                    .is_some()
+                {
+                    return Err(ControlError::Projection(
+                        "duplicate Arena receipt identity".to_owned(),
+                    ));
+                }
             }
             _ => {}
         }
@@ -2782,6 +3556,175 @@ impl ControlState {
         }
         self.commit_job_record(record);
         Ok(())
+    }
+
+    fn advance_arena_trial(&mut self, receipt: &RunResultReceipt) -> Result<(), ControlError> {
+        let Some((job_id, trial_index)) = self.arena_jobs.iter().find_map(|(job_id, job)| {
+            job.ordered_trial_run_ids
+                .iter()
+                .position(|expected| expected == &receipt.run_id)
+                .map(|index| (job_id.clone(), index))
+        }) else {
+            return Ok(());
+        };
+        let job = self.arena_jobs.get(&job_id).ok_or_else(|| {
+            ControlError::Projection("Arena job disappeared during trial replay".to_owned())
+        })?;
+        if trial_index != usize::try_from(job.completed_trials).unwrap_or(usize::MAX)
+            || !matches!(
+                job.state,
+                JobState::Running | JobState::CancellationRequested
+            )
+        {
+            return Err(ControlError::Projection(
+                "Arena trial result is out of admitted order".to_owned(),
+            ));
+        }
+        let expected_genome =
+            if trial_index < usize::try_from(job.parent_trial_count).unwrap_or(usize::MAX) {
+                &job.parent_genome_id
+            } else {
+                &job.candidate_genome_id
+            };
+        if receipt.genome_id != *expected_genome
+            || receipt.world_id != job.world_id
+            || receipt.source_revision != job.source_revision
+            || receipt.seed != job.seed
+            || receipt.environment_id != job.environment_id
+            || receipt.budget != job.trial_budget
+        {
+            return Err(ControlError::Projection(
+                "Arena run receipt differs from its admitted source".to_owned(),
+            ));
+        }
+        let job = self.arena_jobs.get_mut(&job_id).ok_or_else(|| {
+            ControlError::Projection("Arena job disappeared during trial replay".to_owned())
+        })?;
+        job.completed_trials = job
+            .completed_trials
+            .checked_add(1)
+            .ok_or_else(|| ControlError::Projection("Arena trial count overflow".to_owned()))?;
+        if job.completed_trials == job.parent_trial_count {
+            job.phase = ArenaJobPhase::CandidateTrials;
+        }
+        Ok(())
+    }
+
+    fn apply_arena_job_record(&mut self, event: &StoredEvent) -> Result<(), ControlError> {
+        let record: ArenaJobRecord = serde_json::from_slice(&event.payload)?;
+        validate_arena_job_record(event, &record)?;
+        let world = self.registered.world(&record.world_id).ok_or_else(|| {
+            ControlError::Projection("Arena job World is not registered".to_owned())
+        })?;
+        let parent = self
+            .registered
+            .genome(&record.parent_genome_id)
+            .ok_or_else(|| {
+                ControlError::Projection("Arena parent Genome is not registered".to_owned())
+            })?;
+        let candidate = self
+            .registered
+            .genome(&record.candidate_genome_id)
+            .ok_or_else(|| {
+                ControlError::Projection("Arena candidate Genome is not registered".to_owned())
+            })?;
+        if parent.record().world_id != record.world_id
+            || candidate.record().world_id != record.world_id
+            || world.compiled().id() != record.world_id
+            || world
+                .compiled()
+                .evaluator_artifact("arena.visible_manifest")
+                != Some(record.visible_manifest_id.as_str())
+            || world.compiled().evaluator_artifact("arena.sealed_manifest")
+                != Some(record.sealed_manifest_id.as_str())
+            || world.compiled().evaluator_artifact("arena.evaluator")
+                != Some(record.evaluator_id.as_str())
+        {
+            return Err(ControlError::Projection(
+                "Arena job differs from registered World and Genome bindings".to_owned(),
+            ));
+        }
+        if !self.arena_job_transition_is_valid(event, &record) {
+            return Err(ControlError::Projection(
+                "Arena job lifecycle transition is invalid".to_owned(),
+            ));
+        }
+        self.arena_jobs.insert(record.evaluation_id.clone(), record);
+        Ok(())
+    }
+
+    fn arena_job_transition_is_valid(&self, event: &StoredEvent, record: &ArenaJobRecord) -> bool {
+        let previous = self.arena_jobs.get(&record.evaluation_id);
+        let transition = match event.event_type.as_str() {
+            "arena.job.admitted" => {
+                previous.is_none()
+                    && record.state == JobState::Admitted
+                    && record.phase == ArenaJobPhase::Preparing
+                    && record.terminal.is_none()
+            }
+            "arena.job.running" => {
+                previous.is_some_and(|old| old.state == JobState::Admitted)
+                    && record.state == JobState::Running
+                    && record.phase == ArenaJobPhase::ParentTrials
+                    && record.terminal.is_none()
+            }
+            "arena.job.cancellation_requested" => {
+                previous
+                    .is_some_and(|old| matches!(old.state, JobState::Running | JobState::Admitted))
+                    && record.state == JobState::CancellationRequested
+                    && record.terminal.is_none()
+            }
+            "arena.job.scoring" => {
+                previous.is_some_and(|old| {
+                    old.state == JobState::Running && old.completed_trials == old.total_trials
+                }) && record.state == JobState::Running
+                    && record.phase == ArenaJobPhase::Scoring
+                    && record.terminal.is_none()
+            }
+            "arena.job.committing" => {
+                previous.is_some_and(|old| {
+                    old.state == JobState::Running && old.phase == ArenaJobPhase::Scoring
+                }) && record.state == JobState::Running
+                    && record.phase == ArenaJobPhase::Committing
+                    && record.terminal.is_none()
+            }
+            "arena.job.terminal" => {
+                let prior_active = previous.is_some_and(|old| {
+                    matches!(
+                        old.state,
+                        JobState::Running | JobState::Admitted | JobState::CancellationRequested
+                    )
+                });
+                let matching_evaluation =
+                    self.evaluation_events.contains_key(&record.evaluation_id);
+                let valid_terminal = matches!(
+                    (record.state, record.terminal),
+                    (JobState::Succeeded, Some(JobTerminal::Succeeded))
+                        | (JobState::Failed, Some(JobTerminal::Failed))
+                        | (
+                            JobState::Interrupted,
+                            Some(JobTerminal::Cancelled | JobTerminal::Interrupted)
+                        )
+                );
+                prior_active
+                    && valid_terminal
+                    && (record.state != JobState::Succeeded
+                        || (matching_evaluation
+                            && record.completed_trials == record.total_trials
+                            && record.evaluation.as_ref().is_some_and(|evaluation| {
+                                evaluation.evaluation_id == record.evaluation_id
+                                    && evaluation.world_id == record.world_id
+                                    && evaluation.parent_genome_id == record.parent_genome_id
+                                    && evaluation.candidate_genome_id == record.candidate_genome_id
+                            })))
+            }
+            _ => false,
+        };
+        transition
+            && previous.map_or(record.completed_trials == 0, |old| {
+                arena_job_immutable_fields_match(old, record)
+                    && old.completed_trials == record.completed_trials
+            })
     }
 
     fn validate_job_record(
@@ -2967,7 +3910,9 @@ impl ControlState {
             genomes: self.registered.genome_records(),
             worlds: self.registered.world_records(),
             jobs: self.jobs.clone(),
+            arena_jobs: self.arena_jobs.clone(),
             job_progress: self.job_progress.clone(),
+            evaluation_events: self.evaluation_events.clone(),
             run_results: self.run_results.clone(),
             completed_runs: self.completed_runs.iter().cloned().collect(),
             event_count: self.event_count,
@@ -3060,6 +4005,93 @@ fn recover_unfinished_jobs(
     Ok(())
 }
 
+fn recover_unfinished_arena_jobs(
+    ledger: &mut EventStore,
+    state: &mut ControlState,
+    data_dir: &Path,
+    operator_token: &OperatorToken,
+    run_result_verifier: &RunResultVerifier,
+) -> Result<(), ControlError> {
+    let unfinished: Vec<_> = state
+        .arena_jobs
+        .values()
+        .filter(|job| {
+            matches!(
+                job.state,
+                JobState::Admitted | JobState::Running | JobState::CancellationRequested
+            )
+        })
+        .cloned()
+        .collect();
+    for mut job in unfinished {
+        let history = ledger.replay_verified()?;
+        let has_receipt = history.iter().any(|event| {
+            event.event_type == "evaluation.recorded"
+                && event.event_id == format!("arena:evaluation:{}:recorded", job.evaluation_id)
+        });
+        let cancelled = job.state == JobState::CancellationRequested;
+        if cancelled && has_receipt {
+            return Err(ControlError::Projection(
+                "cancelled Arena job has a committed evaluation receipt".to_owned(),
+            ));
+        }
+        if has_receipt {
+            if job.completed_trials != job.total_trials
+                || job.ordered_trial_run_ids.iter().any(|run_id| {
+                    !state.completed_runs.contains(run_id)
+                        || state.run_results.get(run_id).is_none_or(|receipt| {
+                            receipt.completion_reason != RunCompletionReason::Success
+                        })
+                })
+            {
+                return Err(ControlError::Projection(
+                    "Arena receipt is missing complete signed trial evidence".to_owned(),
+                ));
+            }
+            let stores =
+                EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                    .map_err(|_| {
+                        ControlError::Projection("Arena evidence stores are unavailable".into())
+                    })?;
+            let recorded = load_recorded_evaluation(stores, &job.evaluation_id).map_err(|_| {
+                ControlError::Projection("Arena recovery receipt failed verification".to_owned())
+            })?;
+            let evaluation = evaluation_record_from_recorded(&recorded);
+            if evaluation.world_id != job.world_id
+                || evaluation.parent_genome_id != job.parent_genome_id
+                || evaluation.candidate_genome_id != job.candidate_genome_id
+            {
+                return Err(ControlError::Projection(
+                    "Arena recovery receipt differs from admitted pair".to_owned(),
+                ));
+            }
+            job.state = JobState::Succeeded;
+            job.terminal = Some(JobTerminal::Succeeded);
+            job.evaluation = Some(evaluation);
+        } else {
+            job.state = JobState::Interrupted;
+            job.terminal = Some(if cancelled {
+                JobTerminal::Cancelled
+            } else {
+                JobTerminal::Interrupted
+            });
+            job.evaluation = None;
+        }
+        job.phase = ArenaJobPhase::Terminal;
+        let payload = serde_json::to_vec(&job)?;
+        let event = ledger.append(EventInput::new(
+            format!("arena-job:{}:terminal", job.evaluation_id),
+            format!("arena-job:{}", job.evaluation_id),
+            "arena.job.terminal",
+            RUNTIME_ACTOR,
+            timestamp_millis()?,
+            payload,
+        ))?;
+        state.apply(&event, operator_token, run_result_verifier)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RunRecord {
@@ -3073,10 +4105,153 @@ struct ProjectionSnapshot {
     genomes: BTreeMap<String, GenomeRecord>,
     worlds: BTreeMap<String, WorldRecord>,
     jobs: BTreeMap<String, JobRecord>,
+    arena_jobs: BTreeMap<String, ArenaJobRecord>,
     job_progress: BTreeMap<String, JobProgress>,
+    evaluation_events: BTreeMap<String, u64>,
     run_results: BTreeMap<String, RunResultReceipt>,
     completed_runs: Vec<String>,
     event_count: u64,
+}
+
+fn validate_arena_job_record(
+    event: &StoredEvent,
+    record: &ArenaJobRecord,
+) -> Result<(), ControlError> {
+    validate_job_id(&record.evaluation_id)
+        .map_err(|_| ControlError::Projection("Arena job identity is invalid".to_owned()))?;
+    require_projection_text(&record.job_id, "job_id")?;
+    require_projection_text(&record.environment_id, "environment_id")?;
+    validate_content_id(&record.parent_genome_id, "genome")?;
+    validate_content_id(&record.candidate_genome_id, "genome")?;
+    validate_content_id(&record.world_id, "world")?;
+    ArtifactId::parse(record.visible_manifest_id.clone())?;
+    ArtifactId::parse(record.sealed_manifest_id.clone())?;
+    ArtifactId::parse(record.evaluator_id.clone())?;
+    let environment_digest = record
+        .environment_id
+        .strip_prefix("reference-v1.")
+        .ok_or_else(|| ControlError::Projection("Arena environment is invalid".to_owned()))?;
+    ArtifactId::parse(environment_digest.to_owned())?;
+    let revision_valid = matches!(record.source_revision.len(), 40 | 64)
+        && record
+            .source_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit());
+    if record.job_id != record.evaluation_id
+        || record.parent_genome_id == record.candidate_genome_id
+        || record.total_trials == 0
+        || record.parent_trial_count == 0
+        || record.parent_trial_count >= record.total_trials
+        || record.ordered_trial_run_ids.len()
+            != usize::try_from(record.total_trials).unwrap_or(usize::MAX)
+        || record.completed_trials > record.total_trials
+        || record.trial_budget.wall_millis == 0
+        || record.overall_budget.wall_millis == 0
+        || record.seed != PAIRED_EVALUATION_SEED
+        || !revision_valid
+        || record.caller_id != "control-daemon"
+        || record.plan_commitment.len() != 64
+        || !record
+            .plan_commitment
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+        || record.worker_digest.len() != 64
+        || !record
+            .worker_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(ControlError::Projection(
+            "Arena job plan is invalid".to_owned(),
+        ));
+    }
+    let parent_count = usize::try_from(record.parent_trial_count).unwrap_or(usize::MAX);
+    for (index, run_id) in record.ordered_trial_run_ids.iter().enumerate() {
+        let (role, role_index) = if index < parent_count {
+            ("parent", index)
+        } else {
+            ("candidate", index - parent_count)
+        };
+        if run_id != &paired_run_id(&record.evaluation_id, role, role_index) {
+            return Err(ControlError::Projection(
+                "Arena trial order is invalid".to_owned(),
+            ));
+        }
+    }
+    let expected_commitment = blake3::hash(&serde_json::to_vec(&(
+        &record.evaluation_id,
+        &record.parent_genome_id,
+        &record.candidate_genome_id,
+        &record.world_id,
+        &record.visible_manifest_id,
+        &record.sealed_manifest_id,
+        &record.source_revision,
+        &record.environment_id,
+        &record.ordered_trial_run_ids,
+    ))?);
+    if expected_commitment.to_hex().as_str() != record.plan_commitment {
+        return Err(ControlError::Projection(
+            "Arena plan commitment is invalid".to_owned(),
+        ));
+    }
+    let event_type = match record.state {
+        JobState::Admitted => "arena.job.admitted",
+        JobState::Running if record.phase == ArenaJobPhase::Scoring => "arena.job.scoring",
+        JobState::Running if record.phase == ArenaJobPhase::Committing => "arena.job.committing",
+        JobState::Running => "arena.job.running",
+        JobState::CancellationRequested => "arena.job.cancellation_requested",
+        JobState::Succeeded | JobState::Failed | JobState::Interrupted => "arena.job.terminal",
+    };
+    let suffix = event_type
+        .strip_prefix("arena.job.")
+        .ok_or_else(|| ControlError::Projection("Arena job event type is invalid".to_owned()))?;
+    let canonical = serde_json::to_vec(record)?;
+    if event.actor != RUNTIME_ACTOR
+        || event.event_type != event_type
+        || event.event_id != format!("arena-job:{}:{suffix}", record.evaluation_id)
+        || event.aggregate_id != format!("arena-job:{}", record.evaluation_id)
+        || event.payload != canonical
+    {
+        return Err(ControlError::Projection(
+            "Arena job event crossed its canonical boundary".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+fn test_overall_wall(maximum: u64, requested: Option<&str>) -> Result<u64, ()> {
+    let Some(requested) = requested else {
+        return Ok(maximum);
+    };
+    let requested = requested.parse::<u64>().map_err(|_| ())?;
+    if requested == 0 || requested > maximum {
+        return Err(());
+    }
+    Ok(requested)
+}
+
+fn arena_job_immutable_fields_match(old: &ArenaJobRecord, new: &ArenaJobRecord) -> bool {
+    old.job_id == new.job_id
+        && old.evaluation_id == new.evaluation_id
+        && old.parent_genome_id == new.parent_genome_id
+        && old.candidate_genome_id == new.candidate_genome_id
+        && old.world_id == new.world_id
+        && old.visible_manifest_id == new.visible_manifest_id
+        && old.sealed_manifest_id == new.sealed_manifest_id
+        && old.evaluator_id == new.evaluator_id
+        && old.source_revision == new.source_revision
+        && old.worker_digest == new.worker_digest
+        && old.environment_id == new.environment_id
+        && old.seed == new.seed
+        && old.trial_budget == new.trial_budget
+        && old.overall_budget == new.overall_budget
+        && old.ordered_trial_run_ids == new.ordered_trial_run_ids
+        && old.parent_trial_count == new.parent_trial_count
+        && old.total_trials == new.total_trials
+        && old.plan_commitment == new.plan_commitment
+        && old.caller_id == new.caller_id
+        && old.receipt_timestamp_millis == new.receipt_timestamp_millis
 }
 
 fn validate_trace_receipt(event: &StoredEvent, receipt: &TraceReceipt) -> Result<(), ControlError> {
@@ -3506,6 +4681,16 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn test_arena_wall_override_only_lowers_the_admitted_bound() {
+        assert_eq!(test_overall_wall(50_000, None), Ok(50_000));
+        assert_eq!(test_overall_wall(50_000, Some("1000")), Ok(1_000));
+        assert!(test_overall_wall(50_000, Some("50001")).is_err());
+        assert!(test_overall_wall(50_000, Some("0")).is_err());
+        assert!(test_overall_wall(50_000, Some("invalid")).is_err());
+    }
 
     #[test]
     fn progress_phase_names_cover_each_persisted_trace_kind() {
@@ -4386,7 +5571,9 @@ mod tests {
                 freeze: FreezeState::frozen(&OperatorToken::from_bytes([1; 32])),
                 active_runs: BTreeSet::new(),
                 jobs,
+                arena_jobs: BTreeMap::new(),
                 job_progress: BTreeMap::new(),
+                evaluation_events: BTreeMap::new(),
                 run_results: BTreeMap::new(),
                 completed_runs: BTreeSet::new(),
                 registered: RegisteredObjects::default(),

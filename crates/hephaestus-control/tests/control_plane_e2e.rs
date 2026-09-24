@@ -18,6 +18,8 @@ use hephaestus_control::{
     GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData, RunCompletionReason,
     WorldRecord,
 };
+#[cfg(feature = "test-support")]
+use hephaestus_control::{ArenaJobPhase, Client};
 use hephaestus_experience::{
     RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner, TraceKind,
     TraceReceipt,
@@ -375,6 +377,15 @@ impl Daemon {
     }
 
     fn start_with_worker(data_dir: &Path, source_repository: &Path, worker_source: &Path) -> Self {
+        Self::start_with_worker_and_arena_timeout(data_dir, source_repository, worker_source, None)
+    }
+
+    fn start_with_worker_and_arena_timeout(
+        data_dir: &Path,
+        source_repository: &Path,
+        worker_source: &Path,
+        timeout_millis: Option<u64>,
+    ) -> Self {
         fs::create_dir_all(data_dir).expect("create daemon data directory");
         let evaluator = data_dir.join("reference-evaluator");
         fs::copy(REFERENCE_EVALUATOR, &evaluator).expect("copy evaluator executable");
@@ -384,7 +395,8 @@ impl Daemon {
         fs::copy(worker_source, &worker).expect("copy reference worker executable");
         fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
             .expect("protect reference worker executable");
-        let mut child = ProcessCommand::new(DAEMON)
+        let mut command = ProcessCommand::new(DAEMON);
+        command
             .arg("--data-dir")
             .arg(data_dir)
             .arg("--source-repository")
@@ -395,9 +407,14 @@ impl Daemon {
             .arg(worker)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("start daemon");
+            .stderr(Stdio::inherit());
+        if let Some(timeout_millis) = timeout_millis {
+            command.env(
+                "HEPHAESTUS_TEST_ARENA_OVERALL_WALL_MILLIS",
+                timeout_millis.to_string(),
+            );
+        }
+        let mut child = command.spawn().expect("start daemon");
         let deadline = Instant::now() + Duration::from_secs(5);
         let socket = data_dir.join("control.sock");
         while UnixStream::connect(&socket).is_err() {
@@ -928,19 +945,180 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
 
     #[cfg(feature = "test-support")]
     {
+        #[derive(serde::Serialize)]
+        struct RestartedArenaJob {
+            job_id: String,
+            evaluation_id: String,
+            parent_genome_id: String,
+            candidate_genome_id: String,
+            world_id: String,
+            visible_manifest_id: String,
+            sealed_manifest_id: String,
+            evaluator_id: String,
+            source_revision: String,
+            worker_digest: String,
+            environment_id: String,
+            seed: u64,
+            trial_budget: RunBudgetReceipt,
+            overall_budget: RunBudgetReceipt,
+            ordered_trial_run_ids: Vec<String>,
+            parent_trial_count: u32,
+            total_trials: u32,
+            plan_commitment: String,
+            caller_id: String,
+            receipt_timestamp_millis: i64,
+            completed_trials: u32,
+            phase: ArenaJobPhase,
+            state: JobState,
+            terminal: Option<JobTerminal>,
+            evaluation: Option<hephaestus_control::EvaluationRecord>,
+        }
+
+        let evaluation_id = "crash-recovery-arena-job";
+        let worker_digest = blake3::hash(&fs::read(data_dir.join("reference-worker")).unwrap())
+            .to_hex()
+            .to_string();
+        let environment_id = reference_worker_environment_id();
+        let revision = String::from_utf8(
+            ProcessCommand::new("git")
+                .args(["-C", repository.to_str().unwrap(), "rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        let run_prefix = format!(
+            "paired-{}",
+            &blake3::hash(evaluation_id.as_bytes()).to_hex().to_string()[..24]
+        );
+        let run_ids = vec![
+            format!("{run_prefix}-parent-0"),
+            format!("{run_prefix}-parent-1"),
+            format!("{run_prefix}-candidate-0"),
+            format!("{run_prefix}-candidate-1"),
+        ];
+        let plan_commitment = blake3::hash(
+            &serde_json::to_vec(&(
+                evaluation_id,
+                &parent.genome_id,
+                &candidate.genome_id,
+                world.id(),
+                visible_id.as_str(),
+                sealed_id.as_str(),
+                &revision,
+                &environment_id,
+                &run_ids,
+            ))
+            .unwrap(),
+        )
+        .to_hex()
+        .to_string();
+        let interrupted = RestartedArenaJob {
+            job_id: evaluation_id.to_owned(),
+            evaluation_id: evaluation_id.to_owned(),
+            parent_genome_id: parent.genome_id.clone(),
+            candidate_genome_id: candidate.genome_id.clone(),
+            world_id: world.id().to_owned(),
+            visible_manifest_id: visible_id.as_str().to_owned(),
+            sealed_manifest_id: sealed_id.as_str().to_owned(),
+            evaluator_id: evaluator_id.as_str().to_owned(),
+            source_revision: revision,
+            worker_digest,
+            environment_id,
+            seed: 42,
+            trial_budget: RunBudgetReceipt {
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 0,
+            },
+            overall_budget: RunBudgetReceipt {
+                wall_millis: 50_000,
+                maximum_output_bytes: 4_194_304,
+                maximum_cost_microusd: 0,
+            },
+            ordered_trial_run_ids: run_ids,
+            parent_trial_count: 2,
+            total_trials: 4,
+            plan_commitment,
+            caller_id: "control-daemon".to_owned(),
+            receipt_timestamp_millis: 1_800_000_000_001,
+            completed_trials: 0,
+            phase: ArenaJobPhase::Preparing,
+            state: JobState::Admitted,
+            terminal: None,
+            evaluation: None,
+        };
         let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
         ledger
             .append(EventInput::new(
-                "forged-selection-event",
-                "arena:selection:forged",
-                "selection.recorded",
-                "arena-plane",
-                99_999,
-                b"{}",
+                format!("arena-job:{evaluation_id}:admitted"),
+                format!("arena-job:{evaluation_id}"),
+                "arena.job.admitted",
+                "daemon-runtime",
+                1_800_000_000_001,
+                serde_json::to_vec(&interrupted).unwrap(),
             ))
             .unwrap();
         drop(ledger);
-        assert!(ControlPlane::open_with_repository(&data_dir, &repository).is_err());
+        drop(ControlPlane::open_with_repository(&data_dir, &repository).unwrap());
+        let recovered_history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        let recovery_terminals = recovered_history
+            .iter()
+            .filter(|event| {
+                event.event_type == "arena.job.terminal"
+                    && event.event_id == format!("arena-job:{evaluation_id}:terminal")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(recovery_terminals.len(), 1);
+        let recovered: serde_json::Value =
+            serde_json::from_slice(&recovery_terminals[0].payload).unwrap();
+        assert_eq!(recovered["state"], "interrupted");
+        assert_eq!(recovered["terminal"], "interrupted");
+        drop(ControlPlane::open_with_repository(&data_dir, &repository).unwrap());
+
+        let events_path = data_dir.join("events.sqlite3");
+        let assert_tamper_rejected = |field: &str, from: &str, to: &str| {
+            for suffix in ["", "-wal", "-shm"] {
+                let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+            }
+            let mut ledger = EventStore::open(&events_path).unwrap();
+            let mut altered = false;
+            for event in &recovered_history {
+                let mut payload = event.payload.clone();
+                if !altered
+                    && event.event_type == "arena.job.terminal"
+                    && String::from_utf8_lossy(&payload).contains("\"state\":\"succeeded\"")
+                {
+                    let canonical = String::from_utf8(payload).unwrap();
+                    let original = format!("\"{field}\":{from}");
+                    assert!(canonical.contains(&original));
+                    payload = canonical
+                        .replace(&original, &format!("\"{field}\":{to}"))
+                        .into_bytes();
+                    altered = true;
+                }
+                ledger
+                    .append(EventInput::new(
+                        event.event_id.clone(),
+                        event.aggregate_id.clone(),
+                        event.event_type.clone(),
+                        event.actor.clone(),
+                        event.timestamp_millis,
+                        payload,
+                    ))
+                    .unwrap();
+            }
+            assert!(altered, "tampered a canonical succeeded Arena terminal");
+            drop(ledger);
+            assert!(ControlPlane::open_with_repository(&data_dir, &repository).is_err());
+        };
+        assert_tamper_rejected("candidate_visible_correct", "1", "0");
+        assert_tamper_rejected("completed_trials", "4", "3");
     }
 
     let binding = EvaluationBinding::new(
@@ -986,6 +1164,215 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         recorded.candidate_result().summary.candidate_genome_id,
         candidate.genome_id
     );
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"timeout fixture\n").unwrap();
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    fs::create_dir_all(&data_dir).unwrap();
+    fs::set_permissions(&data_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    let producer_seed = [17_u8; 32];
+    fs::write(data_dir.join("runtime-producer.key"), producer_seed).unwrap();
+    fs::set_permissions(
+        data_dir.join("runtime-producer.key"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let signer = RunResultSigner::from_seed(producer_seed);
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).unwrap();
+    let visible = TrustedManifest::new(
+        "timeout-visible-v1",
+        Visibility::Visible,
+        vec![TrustedTask::new("visible-task", "slow input", "SLOW INPUT").unwrap()],
+    )
+    .unwrap();
+    let sealed = TrustedManifest::new(
+        "timeout-sealed-v1",
+        Visibility::Sealed,
+        vec![TrustedTask::new("sealed-task", "slow sealed", "SLOW SEALED").unwrap()],
+    )
+    .unwrap();
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).unwrap())
+        .unwrap();
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).unwrap())
+        .unwrap();
+    let evaluator_id = artifacts
+        .put(&fs::read(REFERENCE_EVALUATOR).unwrap())
+        .unwrap();
+    let verifier_id = artifacts
+        .put(&signer.verifier().public_key_bytes())
+        .unwrap();
+    let world_source = format!(
+        r#"{{"schema_version":1,"name":"deadline-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+        visible_id.as_str(),
+        sealed_id.as_str(),
+        evaluator_id.as_str(),
+        verifier_id.as_str()
+    );
+    let world = compile_world(&world_source, SourceFormat::Json, &artifacts).unwrap();
+    let world_artifact = artifacts.put(world.canonical_json()).unwrap();
+    let world_record = WorldRecord {
+        world_id: world.id().to_owned(),
+        name: world.name().to_owned(),
+        artifact_id: world_artifact.as_str().to_owned(),
+    };
+    EventStore::open(data_dir.join("events.sqlite3"))
+        .unwrap()
+        .append(EventInput::new(
+            "deadline-arena-world",
+            world.id(),
+            "world.registered",
+            "test-fixture",
+            1,
+            serde_json::to_vec(&world_record).unwrap(),
+        ))
+        .unwrap();
+
+    let worker = directory.path().join("slow-reference-worker");
+    fs::write(
+        &worker,
+        "#!/bin/sh\n/bin/sleep 60 &\nchild=$!\nprintf '%s' \"$child\" > \"$HOME/arena-child.pid\"\nwait \"$child\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700)).unwrap();
+    let daemon =
+        Daemon::start_with_worker_and_arena_timeout(&data_dir, &repository, &worker, Some(2_000));
+    let parent_path = directory.path().join("parent.md");
+    let candidate_path = directory.path().join("candidate.md");
+    let metadata = |name: &str, parents: &str| {
+        format!(
+            "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+        )
+    };
+    fs::write(&parent_path, metadata("deadline-parent", "[]")).unwrap();
+    let ResponseData::Genome { genome: parent } = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            parent_path.to_str().unwrap(),
+            "--world",
+            world.id(),
+        ],
+    ))
+    .data
+    .unwrap() else {
+        panic!("parent Genome registration failed");
+    };
+    fs::write(
+        &candidate_path,
+        metadata("deadline-candidate", &format!("[\"{}\"]", parent.genome_id)),
+    )
+    .unwrap();
+    let ResponseData::Genome { genome: candidate } = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            candidate_path.to_str().unwrap(),
+            "--world",
+            world.id(),
+        ],
+    ))
+    .data
+    .unwrap() else {
+        panic!("candidate Genome registration failed");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let accepted = Client::new(&data_dir)
+        .request(Command::EvaluatePair {
+            evaluation_id: "deadline-pair".to_owned(),
+            parent_genome_id: parent.genome_id,
+            candidate_genome_id: candidate.genome_id,
+        })
+        .unwrap();
+    assert!(matches!(
+        accepted.data,
+        Some(ResponseData::ArenaJob { job }) if job.state == JobState::Running && job.evaluation.is_none()
+    ));
+
+    let child_file_deadline = Instant::now() + Duration::from_secs(5);
+    let child_pid = loop {
+        let pid_file = fs::read_dir(data_dir.join("sandboxes"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("execution/arena-child.pid"))
+            .find(|path| path.is_file());
+        if let Some(path) = pid_file {
+            if let Some(pid) = fs::read_to_string(path)
+                .ok()
+                .and_then(|contents| contents.parse::<u32>().ok())
+            {
+                break pid;
+            }
+        }
+        assert!(
+            Instant::now() < child_file_deadline,
+            "slow Arena trial did not start"
+        );
+        thread::sleep(Duration::from_millis(5));
+    };
+    let terminal_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = Client::new(&data_dir)
+            .request(Command::JobStatus {
+                job_id: "deadline-pair".to_owned(),
+            })
+            .unwrap();
+        let Some(ResponseData::ArenaJob { job }) = status.data else {
+            panic!("Arena job status missing");
+        };
+        if job.state == JobState::Failed {
+            assert_eq!(job.phase, ArenaJobPhase::Terminal);
+            assert!(job.evaluation.is_none());
+            break;
+        }
+        assert!(
+            Instant::now() < terminal_deadline,
+            "overall Arena deadline was not enforced"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let probe = ProcessCommand::new("/bin/kill")
+        .args(["-0", &child_pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe worker descendant");
+    assert!(!probe.success(), "deadline left a worker descendant alive");
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .unwrap()
+        .replay_verified()
+        .unwrap();
+    assert!(history.iter().any(|event| {
+        event.event_type == "arena.job.admitted"
+            && String::from_utf8_lossy(&event.payload)
+                .contains("\"overall_budget\":{\"wall_millis\":2000")
+    }));
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_type == "evaluation.recorded")
+    );
+    assert!(cli(&data_dir, &["replay"]).status.success());
+    daemon.stop();
 }
 
 fn evaluation_run(data_dir: &Path, genome_id: &str, task_id: &str, input: &str) -> String {
@@ -2860,8 +3247,9 @@ fn cli(data_dir: &Path, arguments: &[&str]) -> Output {
 fn response(output: &Output) -> ApiResponse {
     assert!(
         output.status.success(),
-        "CLI failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "CLI failed: {}; stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
     );
     serde_json::from_slice(&output.stdout).expect("decode CLI response")
 }
