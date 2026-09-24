@@ -3327,33 +3327,96 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
             event.event_id == event_id && event.event_type == "run.result_recorded"
         }));
     }
+
+    let scorer_terminal_database = rusqlite::Connection::open(data_dir.join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    scorer_terminal_database
+        .execute_batch(
+            "CREATE TRIGGER reject_scorer_launch_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:scorer-launch-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture scorer launch terminal failure'); END;",
+        )
+        .expect("reject scorer launch terminal append");
     plane.thread_spawn_failures.arena_scoring = true;
-    while plane.active_arena_job.is_some() {
-        plane
-            .service_async_messages()
-            .expect("persist terminal after scorer launch failure");
-        assert!(
-            Instant::now() < deadline,
-            "scorer launch failure did not terminalize"
-        );
-        if plane.active_arena_job.is_some() {
-            thread::sleep(Duration::from_millis(2));
+    let scorer_failure_deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match plane.service_async_messages() {
+            Err(ControlError::Projection(message)) => {
+                assert_eq!(message, "Arena scorer launch failure could not be recorded");
+                break;
+            }
+            Err(error) => panic!("unexpected scorer launch service error: {error}"),
+            Ok(()) => {
+                assert!(
+                    Instant::now() < scorer_failure_deadline,
+                    "injected scorer launch failure did not reach terminal append"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
         }
     }
-    let launch_failed = &plane.state.arena_jobs["scorer-launch-failure"];
-    assert_eq!(launch_failed.state, JobState::Interrupted);
-    assert_eq!(launch_failed.phase, ArenaJobPhase::Terminal);
-    assert_eq!(launch_failed.terminal, Some(JobTerminal::Interrupted));
-    assert!(launch_failed.evaluation.is_none());
-    assert!(plane.arena_message_receiver.is_none());
-    assert!(plane.arena_message_sender.is_none());
+    let active = plane
+        .active_arena_job
+        .as_ref()
+        .expect("active job retained after rejected scorer terminal");
+    assert_eq!(active.record.state, JobState::Running);
+    assert_eq!(active.record.phase, ArenaJobPhase::Scoring);
+    assert_eq!(active.record.completed_trials, active.record.total_trials);
+    assert_eq!(
+        plane.state.arena_jobs["scorer-launch-failure"].phase,
+        ArenaJobPhase::Scoring
+    );
+    assert!(
+        plane.state.arena_jobs["scorer-launch-failure"]
+            .evaluation
+            .is_none()
+    );
+    assert!(plane.arena_message_receiver.is_some());
+    assert!(plane.arena_message_sender.is_some());
     let history = plane
         .storage
         .as_ref()
         .expect("canonical storage")
         .ledger
         .replay_verified()
-        .expect("verify scorer launch failure history");
+        .expect("verify scorer launch failure history after rejected terminal");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == "arena-job:scorer-launch-failure:scoring")
+            .count(),
+        1
+    );
+    assert!(!history.iter().any(|event| {
+        event.event_id == "arena-job:scorer-launch-failure:terminal"
+            || event.event_id == "arena:evaluation:scorer-launch-failure:recorded"
+    }));
+
+    scorer_terminal_database
+        .execute_batch("DROP TRIGGER reject_scorer_launch_terminal;")
+        .expect("restore scorer launch terminal writes");
+    drop(scorer_terminal_database);
+    drop(plane);
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("recover scorer launch failure after rejected terminal append");
+    let launch_failed = &plane.state.arena_jobs["scorer-launch-failure"];
+    assert_eq!(launch_failed.state, JobState::Interrupted);
+    assert_eq!(launch_failed.phase, ArenaJobPhase::Terminal);
+    assert_eq!(launch_failed.terminal, Some(JobTerminal::Interrupted));
+    assert!(launch_failed.evaluation.is_none());
+    assert!(plane.active_arena_job.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("reopened canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify recovered scorer launch failure history");
     assert_eq!(
         history
             .iter()
@@ -3368,7 +3431,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     assert!(matches!(
         plane
             .replay_response()
-            .expect("replay scorer launch terminal"),
+            .expect("replay recovered scorer launch terminal"),
         ResponseData::Replay { .. }
     ));
     assert!(matches!(
