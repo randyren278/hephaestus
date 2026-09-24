@@ -3724,6 +3724,12 @@ mod tests {
                 message: "request exceeds limit".to_owned(),
             }
         );
+        let just_over_limit = vec![b'x'; MAX_REQUEST_BYTES + 1];
+        let response = serve_test_connection(&sender, &just_over_limit);
+        assert_eq!(
+            response.error.expect("boundary response").message,
+            "request exceeds limit"
+        );
 
         let (sender, receiver) = mpsc::sync_channel(1);
         let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
@@ -4213,6 +4219,14 @@ mod tests {
         };
         plane.state.jobs.insert(job.job_id.clone(), job);
         assert!(matches!(
+            plane.job_status("missing"),
+            Err(ExecuteError::NotFound)
+        ));
+        assert!(matches!(
+            plane.kill_job("missing"),
+            Err(ExecuteError::NotFound)
+        ));
+        assert!(matches!(
             plane.kill_job("completed").expect("idempotent terminal kill"),
             ResponseData::Job { job, .. } if job.terminal == Some(JobTerminal::Succeeded)
         ));
@@ -4618,6 +4632,42 @@ mod tests {
             .async_reference_spec("authority-check", &genome, &worker)
             .expect("build direct reference spec");
         assert_eq!(spec.capabilities(), CapabilitySet::new(false, false));
+    }
+
+    #[test]
+    fn daemon_stop_cancels_active_job_before_acknowledging_shutdown() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let token = plane.token_hex.clone();
+        let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+        assert!(
+            dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+                .error
+                .is_none()
+        );
+        plane
+            .submit_job("stop-active", &genome.genome_id)
+            .expect("submit active job");
+        assert!(matches!(
+            plane.request_daemon_stop(),
+            Err(ExecuteError::Busy)
+        ));
+        assert!(!plane.shutdown_requested);
+        assert_eq!(
+            plane.state.jobs["stop-active"].state,
+            JobState::CancellationRequested
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while plane.active_job.is_some() {
+            plane
+                .service_async_messages()
+                .expect("persist cancellation");
+            assert!(Instant::now() < deadline, "job cancellation stalled");
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(plane.state.jobs["stop-active"].state, JobState::Interrupted);
+        assert!(plane.request_daemon_stop().is_ok());
+        assert!(plane.shutdown_requested);
     }
 
     #[test]
