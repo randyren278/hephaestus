@@ -3647,6 +3647,81 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
             .expect("replay recovered scorer launch terminal"),
         ResponseData::Replay { .. }
     ));
+
+    let success_id = "scorer-launch-success";
+    assert!(matches!(
+        plane
+            .submit_arena_job(success_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit successful scorer launch failure fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let success_deadline = Instant::now() + Duration::from_secs(20);
+    while plane
+        .active_arena_job
+        .as_ref()
+        .is_some_and(|active| active.record.completed_trials != active.record.total_trials)
+    {
+        plane
+            .service_async_messages()
+            .expect("persist signed trials before successful scorer launch failure");
+        assert!(
+            Instant::now() < success_deadline,
+            "Arena trials did not finish for successful scorer launch failure"
+        );
+        if plane
+            .active_arena_job
+            .as_ref()
+            .is_some_and(|active| active.record.completed_trials != active.record.total_trials)
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    plane.thread_spawn_failures.arena_scoring = true;
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("append interrupted terminal after injected scorer launch failure");
+        assert!(
+            Instant::now() < success_deadline,
+            "successful scorer launch failure did not release its active slot"
+        );
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let launch_succeeded = &plane.state.arena_jobs[success_id];
+    assert_eq!(launch_succeeded.state, JobState::Interrupted);
+    assert_eq!(launch_succeeded.phase, ArenaJobPhase::Terminal);
+    assert_eq!(launch_succeeded.terminal, Some(JobTerminal::Interrupted));
+    assert!(launch_succeeded.evaluation.is_none());
+    assert!(plane.active_arena_job.is_none());
+    assert!(plane.arena_message_receiver.is_none());
+    assert!(plane.arena_message_sender.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify successful scorer launch terminal history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_id == format!("arena-job:{success_id}:terminal"))
+            .count(),
+        1
+    );
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("arena:evaluation:{success_id}:recorded")
+            && event.event_type == "evaluation.recorded"
+    }));
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay successful scorer launch interruption"),
+        ResponseData::Replay { .. }
+    ));
+
     assert!(matches!(
         plane
             .submit_arena_job("scorer-launch-retry", &parent.genome_id, &candidate.genome_id)
