@@ -5380,6 +5380,459 @@ mod tests {
     }
 
     #[test]
+    fn arena_job_record_validation_rejects_plan_and_event_tampering() {
+        let directory = tempdir().expect("fixture directory");
+        let artifacts = ArtifactStore::open(directory.path().join("blobs"))
+            .expect("open fixture artifact store");
+        let artifact = |contents: &[u8]| {
+            artifacts
+                .put(contents)
+                .expect("write fixture artifact")
+                .as_str()
+                .to_owned()
+        };
+        let evaluation_id = "validated-pair";
+        let parent_genome_id = format!("hephaestus:genome:{}", "1".repeat(64));
+        let candidate_genome_id = format!("hephaestus:genome:{}", "2".repeat(64));
+        let world_id = format!("hephaestus:world:{}", "3".repeat(64));
+        let visible_manifest_id = artifact(b"visible");
+        let sealed_manifest_id = artifact(b"sealed");
+        let evaluator_id = artifact(b"evaluator");
+        let environment_digest = artifact(b"environment");
+        let ordered_trial_run_ids = vec![
+            paired_run_id(evaluation_id, "parent", 0),
+            paired_run_id(evaluation_id, "candidate", 0),
+        ];
+        let source_revision = "4".repeat(40);
+        let plan_commitment = blake3::hash(
+            &serde_json::to_vec(&(
+                evaluation_id,
+                &parent_genome_id,
+                &candidate_genome_id,
+                &world_id,
+                &visible_manifest_id,
+                &sealed_manifest_id,
+                &source_revision,
+                &format!("reference-v1.{environment_digest}"),
+                &ordered_trial_run_ids,
+            ))
+            .expect("serialize committed plan"),
+        )
+        .to_hex()
+        .to_string();
+        let record = ArenaJobRecord {
+            job_id: evaluation_id.to_owned(),
+            evaluation_id: evaluation_id.to_owned(),
+            parent_genome_id,
+            candidate_genome_id,
+            world_id,
+            visible_manifest_id,
+            sealed_manifest_id,
+            evaluator_id,
+            source_revision,
+            worker_digest: "5".repeat(64),
+            environment_id: format!("reference-v1.{environment_digest}"),
+            seed: PAIRED_EVALUATION_SEED,
+            trial_budget: RunBudgetReceipt {
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 0,
+            },
+            overall_budget: RunBudgetReceipt {
+                wall_millis: 50_000,
+                maximum_output_bytes: 4_194_304,
+                maximum_cost_microusd: 0,
+            },
+            ordered_trial_run_ids,
+            parent_trial_count: 1,
+            total_trials: 2,
+            plan_commitment,
+            caller_id: "control-daemon".to_owned(),
+            receipt_timestamp_millis: 1,
+            completed_trials: 0,
+            phase: ArenaJobPhase::Preparing,
+            state: JobState::Admitted,
+            terminal: None,
+            evaluation: None,
+        };
+        let event_for = |record: &ArenaJobRecord| StoredEvent {
+            sequence: 1,
+            event_id: format!("arena-job:{}:admitted", record.evaluation_id),
+            aggregate_id: format!("arena-job:{}", record.evaluation_id),
+            event_type: "arena.job.admitted".to_owned(),
+            actor: RUNTIME_ACTOR.to_owned(),
+            timestamp_millis: 1,
+            payload: serde_json::to_vec(record).expect("serialize Arena job"),
+            previous_hash: [0; 32],
+            hash: [0; 32],
+        };
+
+        validate_arena_job_record(&event_for(&record), &record)
+            .expect("canonical admitted plan validates");
+
+        let mut wrong_order = record.clone();
+        wrong_order.ordered_trial_run_ids.swap(0, 1);
+        assert!(validate_arena_job_record(&event_for(&wrong_order), &wrong_order).is_err());
+
+        let mut wrong_commitment = record.clone();
+        wrong_commitment.plan_commitment = "6".repeat(64);
+        assert!(
+            validate_arena_job_record(&event_for(&wrong_commitment), &wrong_commitment).is_err()
+        );
+
+        let mut wrong_event = event_for(&record);
+        wrong_event.actor = "operator".to_owned();
+        assert!(validate_arena_job_record(&wrong_event, &record).is_err());
+    }
+
+    #[test]
+    fn late_arena_worker_messages_are_ignored_or_rejected_after_job_closes() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let (reply, response) = mpsc::channel();
+        sender
+            .send(ArenaWorkerMessage::Trial {
+                job_id: "closed-pair".to_owned(),
+                index: 0,
+                output: Err("late trial output".to_owned()),
+                reply,
+            })
+            .expect("queue late trial");
+        plane.arena_message_receiver = Some(receiver);
+        plane
+            .service_arena_message()
+            .expect("reject a late trial without failing the daemon");
+        assert_eq!(
+            response
+                .recv_timeout(Duration::from_secs(1))
+                .expect("late worker receives rejection")
+                .expect_err("closed Arena job cannot accept a trial"),
+            "paired job is no longer active"
+        );
+
+        sender
+            .send(ArenaWorkerMessage::Trials {
+                job_id: "closed-pair".to_owned(),
+                result: Err("late completion".to_owned()),
+            })
+            .expect("queue late completion");
+        plane
+            .service_arena_message()
+            .expect("ignore a completion after job close");
+
+        sender
+            .send(ArenaWorkerMessage::Scoring {
+                job_id: "closed-pair".to_owned(),
+                result: Err("late score".to_owned()),
+            })
+            .expect("queue late score");
+        assert!(plane.service_arena_message().is_err());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
+        let directory = tempdir().expect("fixture directory");
+        let data_dir = directory.path().join("data");
+        let repository = directory.path().join("repository");
+        fs::create_dir_all(&repository).expect("create source repository");
+        let git = ProcessCommand::new("git")
+            .args([
+                "-C",
+                repository.to_str().expect("repository path"),
+                "init",
+                "-q",
+            ])
+            .status()
+            .expect("run git init");
+        assert!(git.success(), "initialize source repository");
+        fs::write(repository.join("fixture.txt"), b"Arena scoring fixture\n")
+            .expect("write repository fixture");
+        for args in [
+            vec![
+                "-C",
+                repository.to_str().expect("repository path"),
+                "config",
+                "user.name",
+                "Hephaestus Test",
+            ],
+            vec![
+                "-C",
+                repository.to_str().expect("repository path"),
+                "config",
+                "user.email",
+                "hephaestus@example.invalid",
+            ],
+            vec![
+                "-C",
+                repository.to_str().expect("repository path"),
+                "add",
+                ".",
+            ],
+            vec![
+                "-C",
+                repository.to_str().expect("repository path"),
+                "commit",
+                "-m",
+                "fixture",
+                "-q",
+            ],
+        ] {
+            assert!(
+                ProcessCommand::new("git")
+                    .args(args)
+                    .status()
+                    .expect("run git fixture command")
+                    .success(),
+                "prepare git fixture"
+            );
+        }
+        let bin_directory = env::current_exe()
+            .expect("locate test executable")
+            .parent()
+            .and_then(Path::parent)
+            .expect("locate Cargo binary directory")
+            .to_owned();
+        let evaluator = bin_directory.join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let worker = bin_directory.join(format!(
+            "hephaestus-reference-worker{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &data_dir,
+            &repository,
+            &evaluator,
+            &worker,
+        )
+        .expect("open control plane");
+        let token = plane.token_hex.clone();
+        let (world, parent, candidate) =
+            register_dispatch_arena_objects(&mut plane, &token, &directory);
+        assert!(
+            dispatch_call(&mut plane, &token, "unfreeze-arena", Command::Unfreeze)
+                .error
+                .is_none()
+        );
+        assert!(matches!(
+            plane
+                .submit_arena_job("channel-drop", &parent.genome_id, &candidate.genome_id)
+                .expect("admit channel-drop job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        plane
+            .active_arena_job
+            .as_ref()
+            .expect("active channel-drop job")
+            .cancel
+            .store(true, Ordering::Release);
+        let (closed_sender, closed_receiver) = mpsc::sync_channel(1);
+        drop(closed_sender);
+        plane.arena_message_receiver = Some(closed_receiver);
+        plane
+            .service_arena_message()
+            .expect("record unexpected worker disconnect");
+        assert_eq!(
+            plane.state.arena_jobs["channel-drop"].terminal,
+            Some(JobTerminal::Interrupted)
+        );
+        assert!(matches!(
+            plane
+                .submit_arena_job("scoring-failure", &parent.genome_id, &candidate.genome_id)
+                .expect("admit Arena job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        let cancel = Arc::clone(
+            &plane
+                .active_arena_job
+                .as_ref()
+                .expect("active Arena job")
+                .cancel,
+        );
+        plane
+            .arena_message_sender
+            .as_ref()
+            .expect("Arena worker channel")
+            .send(ArenaWorkerMessage::Trials {
+                job_id: "other-pair".to_owned(),
+                result: Ok(()),
+            })
+            .expect("queue mismatched worker completion");
+        assert!(plane.service_arena_message().is_err());
+
+        // Exercise the scorer completion boundary with a genuine admitted job;
+        // the injected failure represents the worker's `Scoring::Err` message.
+        plane
+            .finish_arena_scoring("scoring-failure", Err("fixture scoring failure".to_owned()))
+            .expect("record scorer failure as a terminal state");
+        cancel.store(true, Ordering::Release);
+        let failed = plane
+            .state
+            .arena_jobs
+            .get("scoring-failure")
+            .expect("failed Arena job remains projected");
+        assert_eq!(failed.state, JobState::Failed);
+        assert_eq!(failed.terminal, Some(JobTerminal::Failed));
+        assert!(failed.evaluation.is_none());
+        let history = plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify failed-job history");
+        assert!(history.iter().any(|event| {
+            event.event_id == "arena-job:scoring-failure:terminal"
+                && event.event_type == "arena.job.terminal"
+        }));
+        assert!(!history.iter().any(|event| {
+            event.event_id == "arena:evaluation:scoring-failure:recorded"
+                && event.event_type == "evaluation.recorded"
+        }));
+        assert!(matches!(
+            plane
+                .replay_response()
+                .expect("replay failed Arena terminal"),
+            ResponseData::Replay { .. }
+        ));
+        assert_eq!(world.world_id, failed.world_id);
+
+        assert!(matches!(
+            plane
+                .submit_arena_job("cancelled-scoring", &parent.genome_id, &candidate.genome_id)
+                .expect("admit cancellation job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        plane
+            .kill_job("cancelled-scoring")
+            .expect("request Arena cancellation");
+        plane
+            .finish_arena_scoring(
+                "cancelled-scoring",
+                Err("scorer completed after cancellation".to_owned()),
+            )
+            .expect("cancellation wins over late scorer failure");
+        let cancelled = &plane.state.arena_jobs["cancelled-scoring"];
+        assert_eq!(cancelled.state, JobState::Interrupted);
+        assert_eq!(cancelled.terminal, Some(JobTerminal::Cancelled));
+        assert!(cancelled.evaluation.is_none());
+        assert!(matches!(
+            plane
+                .replay_response()
+                .expect("replay cancelled Arena terminal"),
+            ResponseData::Replay { .. }
+        ));
+    }
+
+    fn register_dispatch_arena_objects(
+        plane: &mut ControlPlane,
+        token: &str,
+        directory: &TempDir,
+    ) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+        let artifacts =
+            ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+        let visible = TrustedManifest::new(
+            "dispatch-visible",
+            Visibility::Visible,
+            vec![
+                hephaestus_arena::TrustedTask::new("visible-task", "visible", "VISIBLE")
+                    .expect("visible task"),
+            ],
+        )
+        .expect("visible manifest");
+        let sealed = TrustedManifest::new(
+            "dispatch-sealed",
+            Visibility::Sealed,
+            vec![
+                hephaestus_arena::TrustedTask::new("sealed-task", "sealed", "SEALED")
+                    .expect("sealed task"),
+            ],
+        )
+        .expect("sealed manifest");
+        let visible_id = artifacts
+            .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+            .expect("store visible manifest");
+        let sealed_id = artifacts
+            .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+            .expect("store sealed manifest");
+        let evaluator = env::current_exe()
+            .expect("locate test executable")
+            .parent()
+            .and_then(Path::parent)
+            .expect("locate Cargo binary directory")
+            .join(format!(
+                "hephaestus-reference-evaluator{}",
+                std::env::consts::EXE_SUFFIX
+            ));
+        let evaluator_id = artifacts
+            .put(&fs::read(evaluator).expect("read reference evaluator"))
+            .expect("store evaluator identity");
+        let verifier_id = artifacts
+            .put(&plane.run_result_verifier.public_key_bytes())
+            .expect("store result verifier");
+        drop(artifacts);
+        let world_path = directory.path().join("arena-world.json");
+        fs::write(
+            &world_path,
+            format!(
+                r#"{{"schema_version":1,"name":"dispatch-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+                visible_id.as_str(),
+                sealed_id.as_str(),
+                evaluator_id.as_str(),
+                verifier_id.as_str(),
+            ),
+        )
+        .expect("write Arena World");
+        let Some(ResponseData::World { world }) = dispatch_call(
+            plane,
+            token,
+            "arena-world",
+            Command::WorldRegister {
+                path: world_path.display().to_string(),
+            },
+        )
+        .data
+        else {
+            panic!("Arena World registration should succeed");
+        };
+        let register_genome = |plane: &mut ControlPlane, token: &str, name: &str, parents: &str| {
+            let path = directory.path().join(format!("{name}.md"));
+            fs::write(
+                &path,
+                format!(
+                    "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+                ),
+            )
+            .expect("write Genome source");
+            let Some(ResponseData::Genome { genome }) = dispatch_call(
+                plane,
+                token,
+                name,
+                Command::GenomeRegister {
+                    path: path.display().to_string(),
+                    world_id: world.world_id.clone(),
+                },
+            )
+            .data
+            else {
+                panic!("Arena Genome registration should succeed");
+            };
+            genome
+        };
+        let parent = register_genome(plane, token, "arena-parent", "[]");
+        let candidate = register_genome(
+            plane,
+            token,
+            "arena-candidate",
+            &format!("[\"{}\"]", parent.genome_id),
+        );
+        (world, parent, candidate)
+    }
+
+    #[test]
     fn terminal_job_kill_is_idempotent_and_selection_errors_map_to_safe_api_states() {
         let directory = tempdir().expect("daemon directory");
         let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
