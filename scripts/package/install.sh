@@ -40,12 +40,12 @@ esac
 RELEASE="$(basename "$ROOT")"
 RELEASES="$PREFIX/share/hephaestus/releases"
 DESTINATION="$RELEASES/$RELEASE"
-STAGING="$RELEASES/.install-$RELEASE-$$"
 mkdir -p "$RELEASES" "$PREFIX/bin"
-if [ -e "$DESTINATION" ]; then
+if [ -e "$DESTINATION" ] || [ -L "$DESTINATION" ]; then
     echo "release is already installed: $DESTINATION" >&2
     exit 1
 fi
+STAGING="$(mktemp -d "$RELEASES/.install-$RELEASE.XXXXXX")"
 cleanup() { rm -rf "$STAGING"; }
 trap cleanup EXIT HUP INT TERM
 
@@ -62,7 +62,6 @@ if [ -e "$PREFIX/share/hephaestus/current" ] && [ ! -L "$PREFIX/share/hephaestus
     exit 1
 fi
 
-mkdir "$STAGING"
 cp -R "$PACKAGE/." "$STAGING/"
 chmod -R go-w "$STAGING"
 mv "$STAGING" "$DESTINATION"
@@ -70,7 +69,7 @@ trap - EXIT HUP INT TERM
 
 CURRENT_TEMP="$PREFIX/share/hephaestus/.current-$$"
 ln -s "releases/$RELEASE" "$CURRENT_TEMP"
-mv -f "$CURRENT_TEMP" "$PREFIX/share/hephaestus/current"
+mv -fh "$CURRENT_TEMP" "$PREFIX/share/hephaestus/current"
 
 for binary in hephaestus hephaestusd hephaestus-reference-worker hephaestus-reference-evaluator hephaestus-process-guardian; do
     LINK="$PREFIX/bin/$binary"

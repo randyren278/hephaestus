@@ -372,7 +372,7 @@ fn fixture_source_dir() -> Result<PathBuf, String> {
         return Err("installed quickstart fixture is unavailable".to_owned());
     }
     let source_checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
+        .join("../..")
         .join("examples/quickstart");
     source_checkout
         .is_dir()
@@ -407,10 +407,7 @@ fn initialize_fixture(fixture: &str, destination: &Path, json: bool) -> ExitCode
         eprintln!("hephaestus: fixture destination already exists");
         return ExitCode::FAILURE;
     }
-    let result = copy_fixture_tree(&source, &destination)
-        .and_then(|()| initialize_fixture_repository(&destination.join("repository")));
-    if let Err(error) = result {
-        let _ignored = fs::remove_dir_all(&destination);
+    if let Err(error) = copy_fixture_into_new_destination(&source, &destination) {
         eprintln!("hephaestus: could not initialize fixture: {error}");
         return ExitCode::FAILURE;
     }
@@ -431,14 +428,25 @@ fn initialize_fixture(fixture: &str, destination: &Path, json: bool) -> ExitCode
     ExitCode::SUCCESS
 }
 
-fn copy_fixture_tree(source: &Path, destination: &Path) -> Result<(), String> {
+fn copy_fixture_into_new_destination(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir(destination).map_err(|error| error.to_string())?;
+    let result = copy_fixture_entries(source, destination)
+        .and_then(|()| initialize_fixture_repository(&destination.join("repository")));
+    if let Err(error) = result {
+        let _ignored = fs::remove_dir_all(destination);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn copy_fixture_entries(source: &Path, destination: &Path) -> Result<(), String> {
     for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
         let target = destination.join(entry.file_name());
         if file_type.is_dir() {
-            copy_fixture_tree(&entry.path(), &target)?;
+            fs::create_dir(&target).map_err(|error| error.to_string())?;
+            copy_fixture_entries(&entry.path(), &target)?;
         } else if file_type.is_file() {
             fs::copy(entry.path(), target).map_err(|error| error.to_string())?;
         } else {
@@ -772,7 +780,10 @@ mod tests {
     use clap::Parser;
     use std::{fs, path::PathBuf, time::SystemTime};
 
-    use super::{Arguments, command_from_cli, evaluation_human, packaged_tui_paths};
+    use super::{
+        Arguments, command_from_cli, copy_fixture_into_new_destination, evaluation_human,
+        fixture_source_dir, packaged_tui_paths,
+    };
     use hephaestus_control::{Command, EvaluationEventRecord, EvaluationRecord};
 
     #[test]
@@ -840,6 +851,40 @@ mod tests {
                 canonical_root.join("bin/node"),
                 canonical_root.join("share/hephaestus/tui/main.mjs")
             ))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_checkout_fixture_path_resolves_from_control_crate() {
+        let fixture = fixture_source_dir().expect("source checkout fixture is available");
+        assert!(fixture.join("world.template.json").is_file());
+        assert!(fixture.join("tasks/visible.json").is_file());
+    }
+
+    #[test]
+    fn fixture_copy_losing_destination_creation_race_preserves_existing_files() {
+        let nonce = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("clock is after the epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "hephaestus-fixture-race-{}-{nonce}",
+            std::process::id()
+        ));
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("example.md"), "fixture").unwrap();
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("owner.txt"), "preserve me").unwrap();
+
+        let result = copy_fixture_into_new_destination(&source, &destination);
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(destination.join("owner.txt")).unwrap(),
+            "preserve me"
         );
         fs::remove_dir_all(root).unwrap();
     }

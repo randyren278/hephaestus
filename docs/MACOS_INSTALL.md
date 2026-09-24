@@ -28,7 +28,7 @@ hephaestus --version
 
 The installer creates a versioned release under `~/.local/share/hephaestus/releases`, switches the relative `current` link, and adds command symlinks under `~/.local/bin`. The installed tree can be moved as a unit. An alternate prefix is supported with `./install.sh --prefix /path/to/prefix`; existing unrelated executables or symlinks are left alone.
 
-The acceptance script additionally needs Python 3 for its PTY driver. It tests with Git present while excluding host Node and npm from `PATH`; this does not prove operation without Git.
+The acceptance script additionally needs Python 3 for its PTY driver. It tests with Git present while excluding host Node and npm from `PATH`; this does not prove operation without Git. It verifies explicit ledger replay within one daemon process, not daemon stop/restart recovery.
 
 Create the local quickstart source and configuration fixture:
 
