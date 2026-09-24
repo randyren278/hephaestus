@@ -216,6 +216,17 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     verify_forge_history(&plane.data_dir, &history, &plane.state.registered)
         .expect("valid Forge proposal replays against its selection receipt");
 
+    let unavailable_data = directory.path().join("forge-unavailable-source");
+    fs::create_dir(&unavailable_data).expect("create unavailable Forge source fixture");
+    symlink(plane.data_dir.join("blobs"), unavailable_data.join("blobs"))
+        .expect("reuse canonical Forge artifacts");
+    fs::create_dir(unavailable_data.join("events.sqlite3")).expect("block Forge source store path");
+    assert!(matches!(
+        verify_forge_history(&unavailable_data, &history, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge source stores are unavailable"
+    ));
+
     let selection_event_id = selection.event.event_id.clone();
 
     assert!(matches!(
