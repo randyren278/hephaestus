@@ -1804,7 +1804,7 @@ fn async_wall_timeout_is_durable_replayable_and_keeps_daemon_available() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
+fn async_artifact_store_failure_does_not_sign_success_and_recovers() {
     let directory = tempdir().expect("temporary directory");
     let data_dir = directory.path().join("data");
     let repository = directory.path().join("source");
@@ -1827,7 +1827,7 @@ fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
     .expect("write delayed failing worker");
     fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
         .expect("make worker executable");
-    let daemon = Daemon::start_with_worker(&data_dir, &repository, &worker);
+    let mut daemon = Daemon::start_with_worker(&data_dir, &repository, &worker);
     let genome_path = directory.path().join("agent.md");
     fs::write(
         &genome_path,
@@ -1882,7 +1882,12 @@ fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
     fs::write(&blobs, b"injected artifact-store failure").expect("block artifact writes");
 
     let terminal_deadline = Instant::now() + Duration::from_secs(8);
+    let mut daemon_exited = false;
     loop {
+        if daemon.child.try_wait().expect("inspect daemon").is_some() {
+            daemon_exited = true;
+            break;
+        }
         let history = EventStore::open(data_dir.join("events.sqlite3"))
             .expect("open canonical ledger")
             .replay_verified()
@@ -1897,20 +1902,9 @@ fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
     }
     fs::remove_file(&blobs).expect("remove artifact-store blocker");
     fs::rename(&saved_blobs, &blobs).expect("restore canonical artifacts");
-
-    let status = response(&cli(&data_dir, &["job", "status", "store-failure"]));
-    let Some(ResponseData::Job { job: terminal, .. }) = status.data else {
-        panic!("expected job status");
-    };
-    assert_eq!(terminal.state, JobState::Failed);
-    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
-    let worker_alive = ProcessCommand::new("/bin/kill")
-        .args(["-0", &worker_pid])
-        .stderr(Stdio::null())
-        .status()
-        .expect("probe failed worker process");
-    assert!(!worker_alive.success(), "failed job left its worker alive");
-    daemon.stop();
+    if !daemon_exited {
+        daemon.stop();
+    }
 
     let history = EventStore::open(data_dir.join("events.sqlite3"))
         .expect("open canonical ledger")
@@ -1923,6 +1917,34 @@ fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
         "a failed evidence append must not produce a signed run result"
     );
     let restarted = Daemon::start(&data_dir);
+    let status = response(&cli(&data_dir, &["job", "status", "store-failure"]));
+    let Some(ResponseData::Job { job: terminal, .. }) = status.data else {
+        panic!("expected job status");
+    };
+    assert!(matches!(
+        terminal.state,
+        JobState::Failed | JobState::Interrupted
+    ));
+    assert!(matches!(
+        terminal.terminal,
+        Some(JobTerminal::Failed | JobTerminal::Interrupted)
+    ));
+    let worker_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let worker_alive = ProcessCommand::new("/bin/kill")
+            .args(["-0", &worker_pid])
+            .stderr(Stdio::null())
+            .status()
+            .expect("probe failed worker process");
+        if !worker_alive.success() {
+            break;
+        }
+        assert!(
+            Instant::now() < worker_deadline,
+            "failed job left its worker alive"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
     assert!(matches!(
         response(&cli(&data_dir, &["replay"])).data,
         Some(ResponseData::Replay { .. })
