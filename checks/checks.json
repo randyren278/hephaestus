@@ -1954,8 +1954,8 @@
       "id": "guardian-leader-exit-leaves-descendants-running",
       "file": "crates/hephaestus-runtime/src/guardian.rs",
       "invariant": "The guardian contains the entire worker process group when its leader exits before output relays are joined.",
-      "find": "            // A leader may exit while descendants keep inherited output pipes\n            // open. Contain its whole process group before joining relays.\n            kill_process_group(child.id());",
-      "replace": "            // mutation: leave descendants running"
+      "find": "                if !cancellation_sent {\n                    if let Err(error) = kill_process_group(anchor.id()) {\n                        return fail_after_group_signal(&mut child, &mut anchor, error);\n                    }\n                }",
+      "replace": "                // mutation: do not contain descendants after worker leader exits"
     },
     {
       "id": "async-job-terminal-success-unbound-to-signed-result",
