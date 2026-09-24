@@ -978,6 +978,60 @@ mod tests {
         sandbox.cleanup().expect("clean sandbox");
     }
 
+    #[test]
+    fn dropping_active_supervisor_stops_its_process_group() {
+        let repository = repository_fixture();
+        let root = tempdir().expect("sandbox root");
+        let manager = SandboxManager::open(root.path(), Duration::from_secs(30))
+            .expect("open sandbox manager");
+        let run_spec = spec(
+            "unit-drop",
+            repository.path(),
+            Duration::from_secs(10),
+            1_000,
+        );
+        let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+        let script = sandbox.worktree().join("spawn-child");
+        fs::write(
+            &script,
+            b"#!/bin/sh\n/bin/sleep 4 &\necho $! > \"$1\"\nwait\n",
+        )
+        .expect("write process fixture");
+        let child_pid_path = sandbox.execution_dir().join("child.pid");
+        let mut runtime = test_runtime(
+            "/bin/sh",
+            [
+                script.display().to_string(),
+                child_pid_path.display().to_string(),
+            ],
+        );
+        runtime
+            .start(&run_spec, &sandbox, &token)
+            .expect("start process group");
+        for _ in 0..500 {
+            if child_pid_path.is_file() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let child_pid = fs::read_to_string(child_pid_path)
+            .expect("read child PID")
+            .trim()
+            .to_owned();
+        let dropped_at = Instant::now();
+        drop(runtime);
+        assert!(dropped_at.elapsed() < Duration::from_secs(2));
+        assert!(
+            !Command::new("/bin/kill")
+                .args(["-0", &child_pid])
+                .output()
+                .expect("probe child")
+                .status
+                .success()
+        );
+        sandbox.cleanup().expect("clean sandbox");
+    }
+
     fn test_runtime(
         executable: impl Into<PathBuf>,
         arguments: impl IntoIterator<Item = String>,
