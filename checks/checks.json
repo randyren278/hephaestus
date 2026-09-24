@@ -911,8 +911,8 @@
       "id": "run-result-provider-failure-rejected",
       "file": "crates/hephaestus-experience/src/run_result.rs",
       "invariant": "A confirmed nonzero worker exit can be recorded as a signed ProviderFailure result.",
-      "find": "            RunCompletionReason::Success\n                | RunCompletionReason::ProviderFailure\n                | RunCompletionReason::OutputBudgetExceeded",
-      "replace": "            RunCompletionReason::Success\n                | RunCompletionReason::OutputBudgetExceeded"
+      "find": "                | RunCompletionReason::ProviderFailure\n",
+      "replace": ""
     },
     {
       "id": "run-result-operator-interrupt-rejected",
