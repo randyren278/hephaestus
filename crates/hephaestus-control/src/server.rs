@@ -139,6 +139,7 @@ struct AsyncJobResult {
 struct TestThreadSpawnFailures {
     direct: bool,
     arena: bool,
+    arena_scoring: bool,
 }
 
 #[cfg(test)]
@@ -1425,20 +1426,47 @@ impl ControlPlane {
                 ControlError::Projection("Arena message channel is unavailable".to_owned())
             })?
             .clone();
-        thread::Builder::new()
-            .name(format!(
-                "hephaestus-score-{}",
-                &blake3::hash(job_id.as_bytes()).to_hex()[..8]
-            ))
-            .spawn(move || {
-                let result = prepared
-                    .score_guarded(&evaluator, &guardian, cancel)
-                    .map_err(|_| "protected evaluator failed".to_owned());
-                let _ignored = sender.send(ArenaWorkerMessage::Scoring { job_id, result });
-            })
-            .map_err(|_| {
-                ControlError::Projection("Arena scorer could not be started".to_owned())
+        let thread_name = format!(
+            "hephaestus-score-{}",
+            &blake3::hash(job_id.as_bytes()).to_hex()[..8]
+        );
+        let task = move || {
+            let result = prepared
+                .score_guarded(&evaluator, &guardian, cancel)
+                .map_err(|_| "protected evaluator failed".to_owned());
+            let _ignored = sender.send(ArenaWorkerMessage::Scoring { job_id, result });
+        };
+        #[cfg(test)]
+        let spawn = spawn_named_thread(
+            thread_name,
+            std::mem::take(&mut self.thread_spawn_failures.arena_scoring),
+            task,
+        );
+        #[cfg(not(test))]
+        let spawn = thread::Builder::new().name(thread_name).spawn(task);
+        if spawn.is_err() {
+            let mut terminal = self
+                .active_arena_job
+                .as_ref()
+                .ok_or_else(|| {
+                    ControlError::Projection("Arena scorer lost its active job".to_owned())
+                })?
+                .record
+                .clone();
+            terminal.state = JobState::Interrupted;
+            terminal.phase = ArenaJobPhase::Terminal;
+            terminal.terminal = Some(JobTerminal::Interrupted);
+            self.append_arena_job_record(&terminal).map_err(|_| {
+                ControlError::Projection(
+                    "Arena scorer launch failure could not be recorded".to_owned(),
+                )
             })?;
+            self.active_arena_job = None;
+            self.arena_message_receiver = None;
+            self.arena_message_sender = None;
+            self.job_evidence_receiver = None;
+            return Ok(());
+        }
         Ok(())
     }
 
