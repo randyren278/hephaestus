@@ -754,10 +754,6 @@ impl ControlPlane {
             self.request_active_job_cancellation()?;
             return Err(ExecuteError::Busy);
         }
-        if self.active_arena_job.is_some() {
-            self.request_active_job_cancellation()?;
-            return Err(ExecuteError::Busy);
-        }
         self.shutdown_requested = true;
         Ok(ResponseData::Acknowledged {
             frozen: self.state.freeze.is_frozen(),
