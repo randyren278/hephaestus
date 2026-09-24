@@ -2504,13 +2504,21 @@ fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
         assert!(matches!(
             named_kill.data,
             Some(ResponseData::Job { job, .. })
-                if job.state == JobState::CancellationRequested && job.terminal.is_none()
+                if matches!(
+                    (job.state, job.terminal),
+                    (JobState::CancellationRequested, None)
+                        | (JobState::Interrupted, Some(JobTerminal::Cancelled))
+                )
         ));
         let repeated_named_kill = response(&cli(&data_dir, &["job", "kill", "slow-job"]));
         assert!(matches!(
             repeated_named_kill.data,
             Some(ResponseData::Job { job, .. })
-                if job.state == JobState::CancellationRequested && job.terminal.is_none()
+                if matches!(
+                    (job.state, job.terminal),
+                    (JobState::CancellationRequested, None)
+                        | (JobState::Interrupted, Some(JobTerminal::Cancelled))
+                )
         ));
         let requested = match response(&cli(&data_dir, &["job", "status", "slow-job"])).data {
             Some(ResponseData::Job { job, .. }) => job,
