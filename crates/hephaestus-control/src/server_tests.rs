@@ -2052,6 +2052,94 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
         ResponseData::Replay { .. }
     ));
 
+    let failed_commit_id = "failed-commit-terminal-write-failure";
+    assert!(matches!(
+        plane
+            .submit_arena_job(failed_commit_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit failed commit terminal write fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while plane
+        .active_arena_job
+        .as_ref()
+        .is_some_and(|active| active.record.phase != ArenaJobPhase::Scoring)
+    {
+        plane
+            .service_async_messages()
+            .expect("persist signed trials before failed receipt commit");
+        assert!(
+            Instant::now() < deadline,
+            "Arena trials did not reach scoring"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    let scored = loop {
+        match plane
+            .arena_message_receiver
+            .as_ref()
+            .expect("Arena scorer channel")
+            .try_recv()
+        {
+            Ok(ArenaWorkerMessage::Scoring { job_id, result }) => break (job_id, result),
+            Ok(_) => panic!("unexpected message after scoring began"),
+            Err(mpsc::TryRecvError::Disconnected) => panic!("Arena scorer disconnected"),
+            Err(mpsc::TryRecvError::Empty) => {
+                assert!(Instant::now() < deadline, "Arena scoring did not finish");
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    };
+    assert_eq!(scored.0, failed_commit_id);
+    assert!(
+        scored.1.is_ok(),
+        "fixture evaluator must produce valid scores"
+    );
+    let blobs = plane.data_dir.join("blobs");
+    let saved_blobs = plane.data_dir.join("blobs-before-failed-terminal-write");
+    fs::rename(&blobs, &saved_blobs)
+        .expect("temporarily hide fixture blobs to force receipt commit failure");
+    database
+        .execute_batch(
+            "CREATE TRIGGER reject_fixture_failed_commit_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:failed-commit-terminal-write-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture failed commit terminal write failure'); END;",
+        )
+        .expect("reject failed commit terminal append");
+    assert!(matches!(
+        plane.finish_arena_scoring(&scored.0, scored.1),
+        Err(ControlError::Projection(message))
+            if message == "failed Arena terminal state could not be recorded"
+    ));
+    fs::remove_dir_all(&blobs).expect("remove reopened empty blob directory");
+    fs::rename(saved_blobs, blobs).expect("restore canonical artifacts");
+    database
+        .execute_batch("DROP TRIGGER reject_fixture_failed_commit_terminal;")
+        .expect("restore failed commit terminal writes");
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after failed receipt and terminal write");
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("arena:evaluation:{failed_commit_id}:recorded")
+            || event.event_id == format!("arena-job:{failed_commit_id}:terminal")
+    }));
+    drop(plane);
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("restart after failed receipt and terminal write");
+    let interrupted = &plane.state.arena_jobs[failed_commit_id];
+    assert_eq!(interrupted.state, JobState::Interrupted);
+    assert_eq!(interrupted.terminal, Some(JobTerminal::Interrupted));
+    assert!(interrupted.evaluation.is_none());
+
     let phase_id = "scoring-phase-write-failure";
     assert!(matches!(
         plane
