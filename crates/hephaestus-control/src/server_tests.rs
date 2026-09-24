@@ -2384,6 +2384,83 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
         1
     );
     drop(disconnect_database);
+
+    let trials_error_id = "trials-error-terminal-write-failure";
+    assert!(matches!(
+        plane
+            .submit_arena_job(trials_error_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit Trials Err terminal fixture"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    plane
+        .kill_job(trials_error_id)
+        .expect("persist cancellation before Trials Err");
+    let (injected_sender, injected_receiver) = mpsc::sync_channel(1);
+    plane.arena_message_receiver = Some(injected_receiver);
+    injected_sender
+        .send(ArenaWorkerMessage::Trials {
+            job_id: trials_error_id.to_owned(),
+            result: Err("fixture paired trials failure".to_owned()),
+        })
+        .expect("queue Trials Err for admitted job");
+    let trials_error_database = rusqlite::Connection::open(data_dir.join("events.sqlite3"))
+        .expect("open fixture ledger trigger connection");
+    trials_error_database
+        .execute_batch(
+            "CREATE TRIGGER reject_trials_error_terminal BEFORE INSERT ON events
+             WHEN NEW.event_id = 'arena-job:trials-error-terminal-write-failure:terminal'
+             BEGIN SELECT RAISE(ABORT, 'fixture Trials Err terminal failure'); END;",
+        )
+        .expect("reject Trials Err terminal append");
+    assert!(matches!(
+        plane.service_arena_message(),
+        Err(ControlError::Projection(message))
+            if message == "Arena terminal state could not be recorded"
+    ));
+    assert_eq!(
+        plane.state.arena_jobs[trials_error_id].state,
+        JobState::CancellationRequested
+    );
+    assert!(plane.active_arena_job.is_some());
+    assert!(
+        !plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify history after rejected Trials Err terminal")
+            .iter()
+            .any(|event| event.event_id == format!("arena-job:{trials_error_id}:terminal"))
+    );
+
+    trials_error_database
+        .execute_batch("DROP TRIGGER reject_trials_error_terminal;")
+        .expect("restore fixture terminal writes");
+    drop(injected_sender);
+    plane
+        .service_arena_message()
+        .expect("persist interrupted terminal after failed Trials Err append");
+    assert_eq!(
+        plane.state.arena_jobs[trials_error_id].terminal,
+        Some(JobTerminal::Interrupted)
+    );
+    assert!(plane.active_arena_job.is_none());
+    assert_eq!(
+        plane
+            .storage
+            .as_ref()
+            .expect("canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("verify recovered Trials Err terminal")
+            .iter()
+            .filter(|event| event.event_id == format!("arena-job:{trials_error_id}:terminal"))
+            .count(),
+        1
+    );
+    drop(trials_error_database);
+
     assert!(matches!(
         plane
             .submit_arena_job("scoring-failure", &parent.genome_id, &candidate.genome_id)
