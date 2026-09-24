@@ -53,6 +53,8 @@ This roadmap implements the complete master-plan sequence without presenting lat
 **Hook**: Protected paired evaluation makes improvement falsifiable and cost-aware.
 **Invariants**: Candidates cannot inspect evaluator source, expected output, or sealed scores; incompatible Worlds never share a progress line; claims without receipts cannot support promotion.
 
+**Latency-tolerance note**: The Pareto comparison's latency dimension originally required the candidate's raw measured wall-clock latency to be no worse than the parent's, which made selection noise-driven on trivial reference tasks where latency is a few milliseconds of scheduling jitter. It now tolerates latency within `max(10% of parent latency, 50ms * paired task count)` before counting it as a regression (algorithm identity `histogram-bootstrap-pareto-tolerant-v2`), while a receipt recorded under the retired strict comparison (`histogram-bootstrap-v1`) still verifies under its own rule on replay.
+
 ### 8. Forge, selection, lineage, promotion, and rollback
 **Why**: This is the minimum complete evolutionary loop: observable failure becomes one causal mutation and an evidence-backed descendant.
 **Done when**: Failure clusters produce explicit hypotheses and minimal mutations; descendants form an ancestry DAG; selection uses paired evidence and regression floors; deterministic policy promotes a winner or rejects all; rollback reconstructs the previous Champion after injected live regression.
