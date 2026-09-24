@@ -5926,3 +5926,237 @@ fn operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them() {
     }
     daemon.stop();
 }
+
+/// Builds a real promoted lineage through the CLI, then drives the Ink lineage
+/// screens in a pseudo-terminal to inspect the Champion and roll it back.
+/// Opt-in with `HEPHAESTUS_TUI_PTY_E2E=1`; it requires `npm ci` in the TUI app.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty() {
+    if std::env::var_os("HEPHAESTUS_TUI_PTY_E2E").is_none() {
+        return;
+    }
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"lineage fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let quickstart = Path::new(QUICKSTART);
+    let scratch = directory.path().join("scratch");
+    fs::create_dir_all(&scratch).expect("create scratch directory");
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+    let data = |arguments: &[&str]| {
+        let output = cli(&data_dir, arguments);
+        let parsed = response(&output);
+        assert!(
+            parsed.error.is_none(),
+            "CLI command {arguments:?} failed: {:?}",
+            parsed.error
+        );
+        parsed.data.expect("CLI response data")
+    };
+
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/visible.json").to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/sealed.json").to_str().unwrap(),
+    ]));
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier = first_word(&text(&["verifier"]));
+    let invariant_path = scratch.join("invariants.json");
+    fs::write(
+        &invariant_path,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[0]}"#,
+    )
+    .unwrap();
+    let invariants = first_word(&text(&[
+        "artifact",
+        "put",
+        invariant_path.to_str().unwrap(),
+    ]));
+    let world_path = scratch.join("world.json");
+    fs::write(
+        &world_path,
+        fs::read_to_string(quickstart.join("world.template.json"))
+            .unwrap()
+            .replace("__VISIBLE_MANIFEST__", &visible)
+            .replace("__SEALED_MANIFEST__", &sealed)
+            .replace("__EVALUATOR__", &evaluator)
+            .replace(
+                "\"__VERIFIER__\"",
+                &format!("\"{verifier}\",\n    \"arena.invariant_manifest\": \"{invariants}\""),
+            ),
+    )
+    .unwrap();
+    let world_id = first_word(&text(&["world", "register", world_path.to_str().unwrap()]));
+    let parent_id = first_word(&text(&[
+        "genome",
+        "register",
+        quickstart.join("agent.md").to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    let candidate_path = scratch.join("candidate.md");
+    fs::write(
+        &candidate_path,
+        fs::read_to_string(quickstart.join("candidate.md"))
+            .unwrap()
+            .replace("__PARENT_ID__", &parent_id),
+    )
+    .unwrap();
+    let candidate_id = first_word(&text(&[
+        "genome",
+        "register",
+        candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    // Select the identity parent as the candidate of a reversed pair so the
+    // Forge child flips it to uppercase and improves on it.
+    data(&[
+        "arena",
+        "evaluate",
+        "lineage-source",
+        &candidate_id,
+        &parent_id,
+    ]);
+    let ResponseData::Selection { selection: source } =
+        data(&["arena", "select", "lineage-source"])
+    else {
+        panic!("source selection expected");
+    };
+    let ResponseData::ForgeProposal { proposal } = data(&[
+        "genome",
+        "propose",
+        "lineage-proposal",
+        "--selection-event",
+        &source.event.event_id,
+        "--parent",
+        &parent_id,
+        "--hypothesis",
+        "Uppercase output satisfies the quickstart tasks.",
+    ]) else {
+        panic!("Forge proposal expected");
+    };
+    let child = proposal.payload.child.clone();
+    // Selection compares measured latency, so repeat the paired evaluation
+    // until the improving child passes the measured gate.
+    let mut attempt = 0;
+    let (child_evaluation, child_selection) = loop {
+        let evaluation = format!("lineage-child-{attempt}");
+        data(&[
+            "arena",
+            "evaluate",
+            &evaluation,
+            &parent_id,
+            &child.genome_id,
+        ]);
+        let ResponseData::Selection { selection } = data(&["arena", "select", &evaluation]) else {
+            panic!("child selection expected");
+        };
+        if selection.receipt.metrics_eligible() {
+            break (evaluation, selection);
+        }
+        attempt += 1;
+        assert!(
+            attempt < 12,
+            "improving child never passed the measured gate"
+        );
+    };
+    data(&[
+        "genome",
+        "assess",
+        "lineage-assessment",
+        "--proposal",
+        "lineage-proposal",
+        "--selection-event",
+        &child_selection.event.event_id,
+    ]);
+    data(&["arena", "invariants", &child_evaluation]);
+    data(&[
+        "champion",
+        "seed",
+        "lineage-seed",
+        "--world",
+        &world_id,
+        "--genome",
+        &parent_id,
+        "--reason",
+        "Bootstrap the quickstart lineage.",
+    ]);
+    let ResponseData::ChampionTransition { transition } = data(&[
+        "champion",
+        "promote",
+        "lineage-promote",
+        "--assessment",
+        "lineage-assessment",
+    ]) else {
+        panic!("promotion expected");
+    };
+    assert_eq!(transition.payload.champion_genome_id, child.genome_id);
+    let shown = text(&["champion", "show", &world_id]);
+    assert!(shown.contains(&format!("champion={}", child.genome_id)));
+
+    let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/hephaestus-tui");
+    let output = ProcessCommand::new("python3")
+        .arg(app.join("scripts/pty_lineage.py"))
+        .arg(&app)
+        .arg(&data_dir)
+        .arg("quickstart-world")
+        .arg(&child.name)
+        .arg("PTY injected live regression")
+        .output()
+        .expect("run Ink lineage pseudo-terminal test");
+    assert!(
+        output.status.success(),
+        "Ink lineage pseudo-terminal test failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+
+    let ResponseData::Champion { champion } = data(&["champion", "show", &world_id]) else {
+        panic!("Champion projection expected");
+    };
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(parent_id.as_str())
+    );
+    assert_eq!(
+        champion.quarantined_genome_ids,
+        vec![child.genome_id.clone()]
+    );
+    let rollback = champion.transitions.last().expect("rollback transition");
+    assert_eq!(
+        rollback.payload.reason.as_deref(),
+        Some("PTY injected live regression")
+    );
+    assert!(rollback.payload.transition_id.starts_with("tui-rollback-"));
+    // The quarantined Champion stays registered and reconstructable.
+    assert!(matches!(
+        data(&["genome", "show", &child.genome_id]),
+        ResponseData::Genome { .. }
+    ));
+    assert!(text(&["replay"]).starts_with("replayed events="));
+    daemon.stop();
+}

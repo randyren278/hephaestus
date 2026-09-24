@@ -5,12 +5,11 @@ export type Command =
 	| {command: 'kill_all'}
 	| {command: 'job_status'; job_id: string}
 	| {command: 'job_kill'; job_id: string}
-	| {command: 'world_list'}
-	| {command: 'world_show'; world_id: string}
 	| {command: 'genome_list'}
-	| {command: 'genome_show'; genome_id: string}
+	| {command: 'world_list'}
 	| {command: 'genome_prompt'; genome_id: string}
-	| {command: 'champion_show'; world_id: string};
+	| {command: 'champion_show'; world_id: string}
+	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string};
 
 export type ApiRequest = {version: 1; request_id: string; token: string; command: Command};
 export type JobState = 'admitted' | 'running' | 'cancellation_requested' | 'succeeded' | 'failed' | 'interrupted';
@@ -26,39 +25,28 @@ export type ArenaJobProgress = {
 	state: JobState; phase: ArenaJobPhase; completed_trials: number; total_trials: number;
 	evaluation?: {parent_visible_correct: number; candidate_visible_correct: number; visible_total: number};
 };
-export type WorldRecord = {world_id: string; name: string; artifact_id: string};
-export type GenomeRecord = {genome_id: string; name: string; world_id: string; artifact_id: string; parent_ids: string[]};
+export type Genome = {genome_id: string; name: string; world_id: string; artifact_id: string; parent_ids: string[]};
+export type World = {world_id: string; name: string; artifact_id: string};
 export type ChampionTransitionKind = 'seeded' | 'promoted' | 'rolled_back';
-export type ChampionPromotionEvidence = {
-	assessment_id: string; assessment_event_id: string; assessment_event_hash: string; evaluation_id: string;
-	selection_receipt_artifact_id: string; invariant_event_id: string; invariant_event_hash: string;
-	invariant_receipt_artifact_id: string;
+export type ChampionTransition = {
+	transition_id: string; world_id: string; kind: ChampionTransitionKind; champion_genome_id: string;
+	previous_champion_genome_id: string | null; reason: string | null; event_id: string; sequence: number;
 };
-export type ChampionTransitionRecord = {
-	payload: {
-		schema_version: number; transition_id: string; world_id: string; kind: ChampionTransitionKind;
-		champion_genome_id: string; previous_champion_genome_id: string | null;
-		previous_transition_event_id: string | null; previous_transition_event_hash: string | null;
-		promotion: ChampionPromotionEvidence | null; reason: string | null;
-	};
-	event: {sequence: number; event_id: string; aggregate_id: string; event_hash: string};
-};
-export type ChampionRecord = {
+export type Champion = {
 	world_id: string; champion_genome_id: string | null; standby_genome_ids: string[];
-	quarantined_genome_ids: string[]; transitions: ChampionTransitionRecord[];
+	quarantined_genome_ids: string[]; transitions: ChampionTransition[];
 };
-
+export const MAX_LIST_ITEMS = 10_000;
 export type ResponseData =
 	| {type: 'status'; frozen: boolean; active_runs: number; event_count: number; genome_count: number}
 	| {type: 'acknowledged'; frozen: boolean; killed_runs: number}
 	| {type: 'job'; job: Job; progress: {trace_events: number; last_event_sequence: number | null; last_phase: string | null}}
 	| {type: 'arena_job'; job: ArenaJobProgress}
-	| {type: 'world'; world: WorldRecord}
-	| {type: 'worlds'; worlds: WorldRecord[]}
-	| {type: 'genome'; genome: GenomeRecord}
-	| {type: 'genomes'; genomes: GenomeRecord[]}
+	| {type: 'genomes'; genomes: Genome[]}
+	| {type: 'worlds'; worlds: World[]}
 	| {type: 'genome_prompt'; genome_id: string; prompt: string}
-	| {type: 'champion'; champion: ChampionRecord};
+	| {type: 'champion'; champion: Champion}
+	| {type: 'champion_transition'; transition: ChampionTransition};
 export type ApiResponse = {version: number; request_id: string; data?: ResponseData; error?: {code: string; message: string}};
 
 export const MAX_FRAME_BYTES = 7 * 1_048_576;
@@ -88,51 +76,6 @@ function nonnegativeInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
 }
 
-function stringArray(value: unknown, maxItems: number, maxLength: number): value is string[] {
-	return Array.isArray(value) && value.length <= maxItems && value.every(item => boundedString(item, maxLength));
-}
-
-function validWorld(value: unknown): value is WorldRecord {
-	return record(value) && boundedString(value['world_id'], 256) && boundedString(value['name'], 512) && boundedString(value['artifact_id'], 256);
-}
-
-function validGenome(value: unknown): value is GenomeRecord {
-	return record(value) && boundedString(value['genome_id'], 256) && boundedString(value['name'], 512)
-		&& boundedString(value['world_id'], 256) && boundedString(value['artifact_id'], 256)
-		&& stringArray(value['parent_ids'], 64, 256);
-}
-
-function validChampionTransition(value: unknown): value is ChampionTransitionRecord {
-	if (!record(value) || !record(value['payload']) || !record(value['event'])) return false;
-	const payload = value['payload'];
-	const event = value['event'];
-	const kinds: ChampionTransitionKind[] = ['seeded', 'promoted', 'rolled_back'];
-	const promotion = payload['promotion'];
-	if (promotion !== null && (!record(promotion)
-		|| !boundedString(promotion['assessment_id'], 256) || !boundedString(promotion['assessment_event_id'], 256)
-		|| !boundedString(promotion['assessment_event_hash'], 256) || !boundedString(promotion['evaluation_id'], 256)
-		|| !boundedString(promotion['selection_receipt_artifact_id'], 256) || !boundedString(promotion['invariant_event_id'], 256)
-		|| !boundedString(promotion['invariant_event_hash'], 256) || !boundedString(promotion['invariant_receipt_artifact_id'], 256))) return false;
-	return typeof payload['schema_version'] === 'number'
-		&& boundedString(payload['transition_id'], 256) && boundedString(payload['world_id'], 256)
-		&& typeof payload['kind'] === 'string' && kinds.includes(payload['kind'] as ChampionTransitionKind)
-		&& boundedString(payload['champion_genome_id'], 256)
-		&& (payload['previous_champion_genome_id'] === null || boundedString(payload['previous_champion_genome_id'], 256))
-		&& (payload['previous_transition_event_id'] === null || boundedString(payload['previous_transition_event_id'], 256))
-		&& (payload['previous_transition_event_hash'] === null || boundedString(payload['previous_transition_event_hash'], 256))
-		&& (payload['reason'] === null || boundedString(payload['reason'], 2048))
-		&& safeInteger(event['sequence']) && boundedString(event['event_id'], 256)
-		&& boundedString(event['aggregate_id'], 256) && boundedString(event['event_hash'], 256);
-}
-
-function validChampion(value: unknown): value is ChampionRecord {
-	if (!record(value)) return false;
-	if (value['champion_genome_id'] !== null && !boundedString(value['champion_genome_id'], 256)) return false;
-	if (!stringArray(value['standby_genome_ids'], 4096, 256) || !stringArray(value['quarantined_genome_ids'], 4096, 256)) return false;
-	if (!Array.isArray(value['transitions']) || value['transitions'].length > 4096) return false;
-	return boundedString(value['world_id'], 256) && value['transitions'].every(validChampionTransition);
-}
-
 function validJob(value: unknown): value is Job {
 	if (!record(value)) return false;
 	const states: JobState[] = ['admitted', 'running', 'cancellation_requested', 'succeeded', 'failed', 'interrupted'];
@@ -144,6 +87,60 @@ function validJob(value: unknown): value is Job {
 		&& nonnegativeInteger(value['seed']) && boundedString(value['environment_id'], 256)
 		&& record(value['budget']) && typeof value['state'] === 'string' && states.includes(value['state'] as JobState)
 		&& (value['terminal'] === null || (typeof value['terminal'] === 'string' && terminals.includes(value['terminal'] as JobTerminal)));
+}
+
+function identifier(value: unknown): value is string {
+	return boundedString(value, 256) && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function identifierList(value: unknown): value is string[] {
+	return Array.isArray(value) && value.length <= MAX_LIST_ITEMS && value.every(identifier);
+}
+
+function parseGenome(value: unknown): Genome | undefined {
+	if (!record(value) || !identifier(value['genome_id']) || !boundedString(value['name'], 256)
+		|| !identifier(value['world_id']) || !identifier(value['artifact_id']) || !identifierList(value['parent_ids'])) return undefined;
+	return {genome_id: value['genome_id'], name: value['name'], world_id: value['world_id'], artifact_id: value['artifact_id'], parent_ids: [...value['parent_ids']]};
+}
+
+function parseWorld(value: unknown): World | undefined {
+	if (!record(value) || !identifier(value['world_id']) || !boundedString(value['name'], 256) || !identifier(value['artifact_id'])) return undefined;
+	return {world_id: value['world_id'], name: value['name'], artifact_id: value['artifact_id']};
+}
+
+function optionalIdentifier(value: unknown): value is string | null {
+	return value === null || identifier(value);
+}
+
+function parseTransition(value: unknown): ChampionTransition | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const payload = value['payload'];
+	const event = value['event'];
+	const kinds: ChampionTransitionKind[] = ['seeded', 'promoted', 'rolled_back'];
+	const reason = payload['reason'];
+	if (!identifier(payload['transition_id']) || !identifier(payload['world_id'])
+		|| typeof payload['kind'] !== 'string' || !kinds.includes(payload['kind'] as ChampionTransitionKind)
+		|| !identifier(payload['champion_genome_id']) || !optionalIdentifier(payload['previous_champion_genome_id'])
+		|| !(reason === null || boundedString(reason, 512))
+		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		transition_id: payload['transition_id'], world_id: payload['world_id'], kind: payload['kind'] as ChampionTransitionKind,
+		champion_genome_id: payload['champion_genome_id'], previous_champion_genome_id: payload['previous_champion_genome_id'],
+		reason: reason as string | null, event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
+function parseChampion(value: unknown): Champion | undefined {
+	if (!record(value) || !identifier(value['world_id']) || !optionalIdentifier(value['champion_genome_id'])
+		|| !identifierList(value['standby_genome_ids']) || !identifierList(value['quarantined_genome_ids'])
+		|| !Array.isArray(value['transitions']) || value['transitions'].length > MAX_LIST_ITEMS) return undefined;
+	const transitions = value['transitions'].map(parseTransition);
+	if (transitions.some(transition => transition === undefined)) return undefined;
+	return {
+		world_id: value['world_id'], champion_genome_id: value['champion_genome_id'],
+		standby_genome_ids: [...value['standby_genome_ids']], quarantined_genome_ids: [...value['quarantined_genome_ids']],
+		transitions: transitions as ChampionTransition[],
+	};
 }
 
 export function parseResponse(text: string, expectedRequestId: string): ApiResponse {
@@ -210,34 +207,30 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 				}} : {}),
 			}}};
 		}
-		case 'world': {
-			const world = data['world'];
-			if (!validWorld(world)) break;
-			return {version: 1, request_id: expectedRequestId, data: {type: 'world', world}};
+		case 'genomes': {
+			if (!Array.isArray(data['genomes']) || data['genomes'].length > MAX_LIST_ITEMS) break;
+			const genomes = data['genomes'].map(parseGenome);
+			if (genomes.some(genome => genome === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genomes', genomes: genomes as Genome[]}};
 		}
 		case 'worlds': {
-			const worlds = data['worlds'];
-			if (!Array.isArray(worlds) || worlds.length > 65_536 || !worlds.every(validWorld)) break;
-			return {version: 1, request_id: expectedRequestId, data: {type: 'worlds', worlds}};
+			if (!Array.isArray(data['worlds']) || data['worlds'].length > MAX_LIST_ITEMS) break;
+			const worlds = data['worlds'].map(parseWorld);
+			if (worlds.some(world => world === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'worlds', worlds: worlds as World[]}};
 		}
-		case 'genome': {
-			const genome = data['genome'];
-			if (!validGenome(genome)) break;
-			return {version: 1, request_id: expectedRequestId, data: {type: 'genome', genome}};
-		}
-		case 'genomes': {
-			const genomes = data['genomes'];
-			if (!Array.isArray(genomes) || genomes.length > 65_536 || !genomes.every(validGenome)) break;
-			return {version: 1, request_id: expectedRequestId, data: {type: 'genomes', genomes}};
-		}
-		case 'genome_prompt': {
-			if (!boundedString(data['genome_id'], 256) || typeof data['prompt'] !== 'string' || data['prompt'].length > 1_048_576) break;
+		case 'genome_prompt':
+			if (!identifier(data['genome_id']) || typeof data['prompt'] !== 'string' || data['prompt'].length > MAX_FRAME_BYTES) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'genome_prompt', genome_id: data['genome_id'], prompt: data['prompt']}};
-		}
 		case 'champion': {
-			const champion = data['champion'];
-			if (!validChampion(champion)) break;
+			const champion = parseChampion(data['champion']);
+			if (!champion) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'champion', champion}};
+		}
+		case 'champion_transition': {
+			const transition = parseTransition(data['transition']);
+			if (!transition) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'champion_transition', transition}};
 		}
 	}
 	throw new Error('daemon response variant is invalid');
