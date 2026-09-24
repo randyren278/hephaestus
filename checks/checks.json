@@ -974,8 +974,8 @@
       "id": "arena-isolated-evaluator-bypassed",
       "file": "crates/hephaestus-arena/src/lib.rs",
       "invariant": "Arena scoring crosses the isolated evaluator process boundary instead of reading expectations in the daemon process.",
-      "find": "        let scores = evaluator\n            .evaluate(&evaluation_id, &self.request)?",
-      "replace": "        let scores = serde_json::from_slice::<crate::evaluator_protocol::EvaluatorResponse>(\n            &crate::evaluator_protocol::evaluate_request(&request_bytes)?,\n        )?"
+      "find": "    pub fn score(self, evaluator: &IsolatedEvaluator) -> Result<ScoredEvaluation, ArenaError> {\n        self.score_with(|evaluation_id, request| evaluator.evaluate(evaluation_id, request))\n    }",
+      "replace": "    pub fn score(self, _evaluator: &IsolatedEvaluator) -> Result<ScoredEvaluation, ArenaError> {\n        self.score_with(|_evaluation_id, request| {\n            let request_bytes = serde_json::to_vec(request)?;\n            let response_bytes = crate::evaluator_protocol::evaluate_request(&request_bytes)?;\n            Ok(serde_json::from_slice(&response_bytes)?)\n        })\n    }"
     },
     {
       "id": "arena-failed-run-scored",
