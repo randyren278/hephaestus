@@ -66,34 +66,14 @@ fn run_process_guardian_with(
         .stderr(Stdio::null())
         .process_group(0);
     let mut anchor = anchor_command.spawn()?;
-    let Some(anchor_stdin) = anchor.stdin.take() else {
-        terminate_anchor(&mut anchor)?;
-        return Err(RuntimeError::InvalidSpec(
-            "guardian anchor stdin unavailable",
-        ));
-    };
-    let Some(mut anchor_ready) = anchor.stdout.take() else {
-        terminate_anchor(&mut anchor)?;
-        return Err(RuntimeError::InvalidSpec(
-            "guardian anchor readiness unavailable",
-        ));
-    };
+    let (anchor_stdin, mut anchor_ready) = take_anchor_pipes(&mut anchor)?;
     let mut readiness = [0_u8; 1];
     if anchor_ready.read_exact(&mut readiness).is_err() || readiness != *b"R" {
         terminate_anchor(&mut anchor)?;
         return Err(RuntimeError::InvalidSpec("guardian anchor failed to start"));
     }
-    match anchor_has_exited(anchor.id()) {
-        Ok(true) => {
-            terminate_anchor(&mut anchor)?;
-            return Err(RuntimeError::InvalidSpec("guardian anchor exited early"));
-        }
-        Ok(false) => {}
-        Err(error) => {
-            terminate_anchor(&mut anchor)?;
-            return Err(error);
-        }
-    }
+    let anchor_state = anchor_has_exited(anchor.id());
+    ensure_anchor_state(&mut anchor, None, anchor_state)?;
 
     let mut command = Command::new(&config.program);
     command
@@ -119,17 +99,8 @@ fn run_process_guardian_with(
             return Err(error.into());
         }
     };
-    let confirmation = match anchor_has_exited(anchor.id()) {
-        Ok(confirmation) => confirmation,
-        Err(error) => {
-            terminate_and_reap(&mut child, &mut anchor)?;
-            return Err(error);
-        }
-    };
-    if confirmation {
-        terminate_and_reap(&mut child, &mut anchor)?;
-        return Err(RuntimeError::InvalidSpec("guardian anchor exited early"));
-    }
+    let anchor_state = anchor_has_exited(anchor.id());
+    ensure_anchor_state(&mut anchor, Some(&mut child), anchor_state)?;
     drop(anchor_ready);
     monitor_worker(child, anchor, anchor_stdin, control, input)
 }
@@ -200,6 +171,137 @@ fn read_launch<R: BufRead + Read>(
     Ok((config, input, control))
 }
 
+fn take_anchor_pipes(
+    anchor: &mut std::process::Child,
+) -> Result<(std::process::ChildStdin, std::process::ChildStdout), RuntimeError> {
+    let Some(anchor_stdin) = anchor.stdin.take() else {
+        terminate_anchor(anchor)?;
+        return Err(RuntimeError::InvalidSpec(
+            "guardian anchor stdin unavailable",
+        ));
+    };
+    let Some(anchor_ready) = anchor.stdout.take() else {
+        terminate_anchor(anchor)?;
+        return Err(RuntimeError::InvalidSpec(
+            "guardian anchor readiness unavailable",
+        ));
+    };
+    Ok((anchor_stdin, anchor_ready))
+}
+
+fn ensure_anchor_state(
+    anchor: &mut std::process::Child,
+    worker: Option<&mut std::process::Child>,
+    state: Result<bool, RuntimeError>,
+) -> Result<(), RuntimeError> {
+    match state {
+        Ok(false) => Ok(()),
+        Ok(true) => {
+            terminate_anchor_and_worker(anchor, worker)?;
+            Err(RuntimeError::InvalidSpec("guardian anchor exited early"))
+        }
+        Err(error) => {
+            terminate_anchor_and_worker(anchor, worker)?;
+            Err(error)
+        }
+    }
+}
+
+fn terminate_anchor_and_worker(
+    anchor: &mut std::process::Child,
+    worker: Option<&mut std::process::Child>,
+) -> Result<(), RuntimeError> {
+    if let Some(worker) = worker {
+        terminate_and_reap(worker, anchor)
+    } else {
+        terminate_anchor(anchor)
+    }
+}
+
+fn take_worker_pipes(
+    worker: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+) -> Result<
+    (
+        std::process::ChildStdin,
+        std::process::ChildStdout,
+        std::process::ChildStderr,
+    ),
+    RuntimeError,
+> {
+    let stdin = worker.stdin.take();
+    let stdout = worker.stdout.take();
+    let stderr = worker.stderr.take();
+    let (Some(stdin), Some(stdout), Some(stderr)) = (stdin, stdout, stderr) else {
+        terminate_and_reap(worker, anchor)?;
+        return Err(RuntimeError::InvalidSpec(
+            "guardian worker pipes unavailable",
+        ));
+    };
+    Ok((stdin, stdout, stderr))
+}
+
+fn observe_anchor_state(
+    worker: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+    state: Result<bool, RuntimeError>,
+    cancellation_sent: bool,
+) -> Result<(), RuntimeError> {
+    match state {
+        Ok(true) if !cancellation_sent => {
+            terminate_and_reap(worker, anchor)?;
+            Err(RuntimeError::InvalidSpec("guardian anchor exited early"))
+        }
+        Ok(_) => Ok(()),
+        Err(error) => {
+            terminate_and_reap(worker, anchor)?;
+            Err(error)
+        }
+    }
+}
+
+fn fail_after_group_signal(
+    worker: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+    error: RuntimeError,
+) -> Result<(), RuntimeError> {
+    match terminate_and_reap(worker, anchor) {
+        Ok(()) => Err(error),
+        Err(containment) => Err(containment),
+    }
+}
+
+fn wait_for_anchor(
+    worker: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+) -> Result<(), RuntimeError> {
+    let result = anchor.wait();
+    wait_for_anchor_result(worker, anchor, result)
+}
+
+fn wait_for_anchor_result(
+    worker: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+    result: io::Result<std::process::ExitStatus>,
+) -> Result<(), RuntimeError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            terminate_and_reap(worker, anchor)?;
+            Err(error.into())
+        }
+    }
+}
+
+fn fail_after_wait_error(
+    worker: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+    error: RuntimeError,
+) -> Result<(), RuntimeError> {
+    terminate_and_reap(worker, anchor)?;
+    Err(error)
+}
+
 fn monitor_worker(
     mut child: std::process::Child,
     mut anchor: std::process::Child,
@@ -207,17 +309,8 @@ fn monitor_worker(
     mut control: BufReader<File>,
     input: Vec<u8>,
 ) -> Result<(), RuntimeError> {
-    let child_stdin = child.stdin.take();
-    let child_stdout = child.stdout.take();
-    let child_stderr = child.stderr.take();
-    let (Some(mut child_stdin), Some(mut child_stdout), Some(mut child_stderr)) =
-        (child_stdin, child_stdout, child_stderr)
-    else {
-        terminate_and_reap(&mut child, &mut anchor)?;
-        return Err(RuntimeError::InvalidSpec(
-            "guardian worker pipes unavailable",
-        ));
-    };
+    let (mut child_stdin, mut child_stdout, mut child_stderr) =
+        take_worker_pipes(&mut child, &mut anchor)?;
     let (cancel, cancelled) = mpsc::channel();
     thread::spawn(move || {
         let mut line = Vec::new();
@@ -240,45 +333,26 @@ fn monitor_worker(
             )
         {
             if let Err(error) = kill_process_group(anchor.id()) {
-                return match terminate_and_reap(&mut child, &mut anchor) {
-                    Ok(()) => Err(error),
-                    Err(containment) => Err(containment),
-                };
+                return fail_after_group_signal(&mut child, &mut anchor, error);
             }
             cancellation_sent = true;
         }
-        match anchor_has_exited(anchor.id()) {
-            Ok(true) if !cancellation_sent => {
-                terminate_and_reap(&mut child, &mut anchor)?;
-                return Err(RuntimeError::InvalidSpec("guardian anchor exited early"));
-            }
-            Ok(_) => {}
-            Err(error) => {
-                terminate_and_reap(&mut child, &mut anchor)?;
-                return Err(error);
-            }
-        }
+        let anchor_state = anchor_has_exited(anchor.id());
+        observe_anchor_state(&mut child, &mut anchor, anchor_state, cancellation_sent)?;
         match child.try_wait() {
             Ok(Some(status)) => {
                 if !cancellation_sent {
                     if let Err(error) = kill_process_group(anchor.id()) {
-                        return match terminate_and_reap(&mut child, &mut anchor) {
-                            Ok(()) => Err(error),
-                            Err(containment) => Err(containment),
-                        };
+                        return fail_after_group_signal(&mut child, &mut anchor, error);
                     }
                 }
                 drop(anchor_stdin);
-                if let Err(error) = anchor.wait() {
-                    terminate_and_reap(&mut child, &mut anchor)?;
-                    return Err(error.into());
-                }
+                wait_for_anchor(&mut child, &mut anchor)?;
                 break status;
             }
             Ok(None) => thread::sleep(Duration::from_millis(5)),
             Err(error) => {
-                terminate_and_reap(&mut child, &mut anchor)?;
-                return Err(error.into());
+                return fail_after_wait_error(&mut child, &mut anchor, error.into());
             }
         }
     };
@@ -315,8 +389,15 @@ fn anchor_has_exited(pid: u32) -> Result<bool, RuntimeError> {
 }
 
 fn kill_process_group(pid: u32) -> Result<(), RuntimeError> {
+    signal_process_group(pid, |group| send_group_signal(group, Signal::Kill))
+}
+
+fn signal_process_group<F>(pid: u32, signal_group: F) -> Result<(), RuntimeError>
+where
+    F: FnOnce(Pid) -> Result<(), Errno>,
+{
     let pid = process_pid(pid)?;
-    match send_group_signal(pid, Signal::Kill) {
+    match signal_group(pid) {
         Ok(()) | Err(Errno::SRCH) => Ok(()),
         Err(error) => Err(io::Error::from(error).into()),
     }
@@ -333,6 +414,14 @@ fn terminate_and_reap(
     anchor: &mut std::process::Child,
 ) -> Result<(), RuntimeError> {
     let group_termination = kill_process_group(anchor.id());
+    terminate_and_reap_with(child, anchor, group_termination)
+}
+
+fn terminate_and_reap_with(
+    child: &mut std::process::Child,
+    anchor: &mut std::process::Child,
+    group_termination: Result<(), RuntimeError>,
+) -> Result<(), RuntimeError> {
     let _ignored = child.kill();
     let _ignored = child.wait();
     let _ignored = anchor.kill();
@@ -347,7 +436,7 @@ fn terminate_and_reap(
 mod tests {
     use std::{
         fs::{self, File},
-        io::{BufReader, Cursor, Seek as _, Write as _},
+        io::{BufReader, Cursor, Error as IoError, Seek as _, Write as _},
         os::fd::OwnedFd,
         os::unix::{fs::PermissionsExt as _, net::UnixStream, process::CommandExt as _},
         path::PathBuf,
@@ -360,8 +449,10 @@ mod tests {
 
     use super::{
         GuardianLaunch, MAX_GUARDIAN_INPUT_BYTES, RuntimeError, anchor_has_exited,
-        hold_anchor_with, kill_process_group, process_pid, read_launch, run_process_guardian_with,
-        terminate_anchor, terminate_and_reap,
+        ensure_anchor_state, fail_after_group_signal, fail_after_wait_error, hold_anchor_with,
+        kill_process_group, observe_anchor_state, process_pid, read_launch,
+        run_process_guardian_with, signal_process_group, take_anchor_pipes, take_worker_pipes,
+        terminate_anchor, terminate_and_reap, terminate_and_reap_with, wait_for_anchor_result,
     };
 
     fn launch(input_bytes: usize) -> GuardianLaunch {
@@ -434,6 +525,28 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
             .expect("make anchor executable");
         path
+    }
+
+    fn group_anchor() -> std::process::Child {
+        Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("start test anchor")
+    }
+
+    fn grouped_worker(anchor: &std::process::Child) -> std::process::Child {
+        Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(i32::try_from(anchor.id()).expect("anchor pid fits pgid"))
+            .spawn()
+            .expect("start grouped worker")
     }
 
     #[test]
@@ -532,6 +645,172 @@ mod tests {
 
         assert!(worker.try_wait().expect("poll reaped worker").is_some());
         assert!(anchor.try_wait().expect("poll reaped anchor").is_some());
+    }
+
+    #[test]
+    fn missing_anchor_pipes_terminate_and_reap_the_anchor() {
+        let mut no_stdin = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start anchor without stdin");
+        let error = take_anchor_pipes(&mut no_stdin).expect_err("missing anchor stdin");
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("guardian anchor stdin unavailable")
+        ));
+        assert!(no_stdin.try_wait().expect("reaped anchor").is_some());
+
+        let mut no_stdout = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start anchor without readiness pipe");
+        let error = take_anchor_pipes(&mut no_stdout).expect_err("missing anchor stdout");
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("guardian anchor readiness unavailable")
+        ));
+        assert!(no_stdout.try_wait().expect("reaped anchor").is_some());
+    }
+
+    #[test]
+    fn missing_worker_pipes_terminate_and_reap_both_processes() {
+        let mut anchor = group_anchor();
+        let mut worker = Command::new("/bin/sleep")
+            .arg("30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(i32::try_from(anchor.id()).expect("anchor pid fits pgid"))
+            .spawn()
+            .expect("start worker without pipes");
+
+        let error = take_worker_pipes(&mut worker, &mut anchor).expect_err("missing worker pipes");
+
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("guardian worker pipes unavailable")
+        ));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+    }
+
+    #[test]
+    fn anchor_state_failures_clean_up_anchor_and_worker() {
+        let mut anchor = group_anchor();
+        let error = ensure_anchor_state(
+            &mut anchor,
+            None,
+            Err(RuntimeError::InvalidSpec(
+                "injected anchor observation failure",
+            )),
+        )
+        .expect_err("propagate anchor observation error");
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("injected anchor observation failure")
+        ));
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+
+        let mut anchor = group_anchor();
+        let mut worker = grouped_worker(&anchor);
+        let error = ensure_anchor_state(&mut anchor, Some(&mut worker), Ok(true))
+            .expect_err("reject exited anchor");
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("guardian anchor exited early")
+        ));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+    }
+
+    #[test]
+    fn monitor_anchor_observation_error_cleans_up_worker_group() {
+        let mut anchor = group_anchor();
+        let mut worker = grouped_worker(&anchor);
+
+        let error = observe_anchor_state(
+            &mut worker,
+            &mut anchor,
+            Err(RuntimeError::InvalidSpec(
+                "injected monitor observation failure",
+            )),
+            false,
+        )
+        .expect_err("propagate monitor observation error");
+
+        assert!(matches!(
+            error,
+            RuntimeError::InvalidSpec("injected monitor observation failure")
+        ));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+    }
+
+    #[test]
+    fn process_group_signal_failure_is_reported_after_containment_cleanup() {
+        assert!(matches!(
+            signal_process_group(std::process::id(), |_| Err(Errno::PERM)),
+            Err(RuntimeError::Io(_))
+        ));
+
+        let mut anchor = group_anchor();
+        let mut worker = grouped_worker(&anchor);
+        let error = fail_after_group_signal(
+            &mut worker,
+            &mut anchor,
+            RuntimeError::Io(IoError::other("injected group signal failure")),
+        )
+        .expect_err("propagate signal error after cleanup");
+        assert!(matches!(error, RuntimeError::Io(_)));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+    }
+
+    #[test]
+    fn wait_failures_reap_worker_and_anchor_and_report_containment_errors() {
+        let mut anchor = group_anchor();
+        let mut worker = grouped_worker(&anchor);
+        let error = wait_for_anchor_result(
+            &mut worker,
+            &mut anchor,
+            Err(IoError::other("injected anchor wait failure")),
+        )
+        .expect_err("propagate anchor wait failure");
+        assert!(matches!(error, RuntimeError::Io(_)));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+
+        let mut anchor = group_anchor();
+        let mut worker = grouped_worker(&anchor);
+        let error = fail_after_wait_error(
+            &mut worker,
+            &mut anchor,
+            RuntimeError::Io(IoError::other("injected worker wait failure")),
+        )
+        .expect_err("propagate worker wait failure");
+        assert!(matches!(error, RuntimeError::Io(_)));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
+
+        let mut anchor = group_anchor();
+        let mut worker = grouped_worker(&anchor);
+        let error = terminate_and_reap_with(
+            &mut worker,
+            &mut anchor,
+            Err(RuntimeError::Io(IoError::other(
+                "injected containment signal failure",
+            ))),
+        )
+        .expect_err("report containment failure after reaping");
+        assert!(matches!(error, RuntimeError::ContainmentFailed { .. }));
+        assert!(worker.try_wait().expect("reaped worker").is_some());
+        assert!(anchor.try_wait().expect("reaped anchor").is_some());
     }
 
     #[test]
