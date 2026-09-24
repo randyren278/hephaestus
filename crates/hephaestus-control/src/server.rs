@@ -48,9 +48,9 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
-    EvaluationEventRecord, EvaluationRecord, GenomeRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, ResponseData, RunCompletionReason, SelectionEventRecord, SelectionRecord,
-    WorldRecord,
+    EvaluationEventRecord, EvaluationRecord, ForgeProposalEventRecord, ForgeProposalPayload,
+    ForgeProposalRecord, GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData,
+    RunCompletionReason, SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -524,6 +524,7 @@ impl ControlPlane {
         let registered =
             RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;
         verify_selection_history(&data_dir, &history, &registered)?;
+        verify_forge_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -727,6 +728,7 @@ impl ControlPlane {
                     .collect(),
             }),
             Command::GenomeRegister { path, world_id } => self.register_genome(&path, &world_id),
+            command @ Command::GenomePropose { .. } => self.propose_genome_command(command),
             Command::WorldShow { world_id } => self
                 .state
                 .registered
@@ -785,6 +787,24 @@ impl ControlPlane {
         }
     }
 
+    fn propose_genome_command(&mut self, command: Command) -> Result<ResponseData, ExecuteError> {
+        let Command::GenomePropose {
+            proposal_id,
+            selection_event_id,
+            parent_genome_id,
+            hypothesis,
+        } = command
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        self.propose_genome(
+            &proposal_id,
+            &selection_event_id,
+            &parent_genome_id,
+            &hypothesis,
+        )
+    }
+
     fn request_daemon_stop(&mut self) -> Result<ResponseData, ExecuteError> {
         if self.active_job.is_some() || self.active_arena_job.is_some() {
             self.request_active_job_cancellation()?;
@@ -804,6 +824,7 @@ impl ControlPlane {
                 | Command::RunEvaluation { .. }
                 | Command::ArenaSelect { .. }
                 | Command::GenomeRegister { .. }
+                | Command::GenomePropose { .. }
                 | Command::WorldRegister { .. }
                 | Command::ManifestPut { .. }
                 | Command::ArtifactPut { .. }
@@ -1712,6 +1733,8 @@ impl ControlPlane {
         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
             .map_err(|_| ExecuteError::Internal)?;
         verify_selection_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
@@ -2714,6 +2737,104 @@ impl ControlPlane {
         Ok(ResponseData::Genome { genome: record })
     }
 
+    fn propose_genome(
+        &mut self,
+        proposal_id: &str,
+        selection_event_id: &str,
+        parent_genome_id: &str,
+        hypothesis: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.state.freeze.is_frozen() {
+            return Err(ExecuteError::Invalid("evolution is frozen"));
+        }
+        validate_job_id(proposal_id)
+            .map_err(|_| ExecuteError::Invalid("proposal_id is invalid"))?;
+        validate_hypothesis(hypothesis)?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let (selection_hash, evaluation_id, world_id) = verified_forge_source(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            selection_event_id,
+            parent_genome_id,
+        )?;
+        let world = self
+            .state
+            .registered
+            .world(&world_id)
+            .ok_or(ExecuteError::Internal)?;
+        let (prompt_before, before, after, prompt_after_text) = forge_prompt_mutation(
+            &storage.artifacts,
+            &self.state.registered,
+            parent_genome_id,
+            &world_id,
+        )?;
+        let prompt_after = storage
+            .artifacts
+            .put(prompt_after_text.as_bytes())
+            .map_err(|_| ExecuteError::Internal)?;
+        let child_record = compile_forge_child(
+            &self.state.registered,
+            world.compiled(),
+            &storage.artifacts,
+            parent_genome_id,
+            &world_id,
+            proposal_id,
+            prompt_after.as_str(),
+        )?;
+        let payload = ForgeProposalPayload {
+            schema_version: 1,
+            proposal_id: proposal_id.to_owned(),
+            selection_event_id: selection_event_id.to_owned(),
+            selection_event_hash: selection_hash,
+            evaluation_id,
+            world_id,
+            parent_genome_id: parent_genome_id.to_owned(),
+            child: child_record,
+            hypothesis: hypothesis.to_owned(),
+            artifact_name: "agent.prompt".to_owned(),
+            prompt_artifact_before: prompt_before,
+            prompt_artifact_after: prompt_after.as_str().to_owned(),
+            operation_before: reference_instruction_operation(before).to_owned(),
+            operation_after: reference_instruction_operation(after).to_owned(),
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) = existing_forge_response(&history, &payload)? {
+            return Ok(existing);
+        }
+        if self
+            .state
+            .registered
+            .genome(&payload.child.genome_id)
+            .is_some()
+        {
+            return Err(ExecuteError::Rejected(
+                "derived child identity is already registered".to_owned(),
+            ));
+        }
+        let event = storage
+            .ledger
+            .append(EventInput::new(
+                forge_event_id(proposal_id),
+                forge_aggregate_id(proposal_id),
+                "forge.proposed",
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::ForgeProposal {
+            proposal: Box::new(forge_proposal_record(payload, &event)),
+        })
+    }
+
     fn genome_prompt(&self, genome_id: &str) -> Result<ResponseData, ExecuteError> {
         let genome = self
             .state
@@ -2801,6 +2922,10 @@ impl ControlPlane {
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_selection_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
@@ -2943,6 +3068,464 @@ fn verify_arena_evaluation_records(
     Ok(())
 }
 
+fn verify_forge_history(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+) -> Result<(), ControlError> {
+    let artifacts = ArtifactStore::open(data_dir.join("blobs"))?;
+    let mut proposal_ids = BTreeSet::new();
+    for event in history
+        .iter()
+        .filter(|event| event.event_type == "forge.proposed")
+    {
+        let payload = decode_forge_proposal(event)?;
+        validate_forge_event(event, &payload)?;
+        if !proposal_ids.insert(payload.proposal_id.clone()) {
+            return Err(ControlError::Projection(
+                "Forge proposal id was recorded more than once".to_owned(),
+            ));
+        }
+        let selection_event = history
+            .iter()
+            .find(|candidate| candidate.event_id == payload.selection_event_id)
+            .filter(|selection| selection.sequence < event.sequence)
+            .ok_or_else(|| {
+                ControlError::Projection(
+                    "Forge proposal source selection is missing or out of order".to_owned(),
+                )
+            })?;
+        let (_evaluation_id, selection_world_id) = selection_event_references(selection_event)
+            .map_err(|_| {
+                ControlError::Projection("Forge source selection is invalid".to_owned())
+            })?;
+        let world = registered.world(&selection_world_id).ok_or_else(|| {
+            ControlError::Projection("Forge source World is not registered".to_owned())
+        })?;
+        let stores =
+            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                .map_err(|_| {
+                    ControlError::Projection("Forge source stores are unavailable".to_owned())
+                })?;
+        let selected =
+            verify_selection_event(stores, selection_event, world.compiled()).map_err(|_| {
+                ControlError::Projection("Forge source selection is unverified".to_owned())
+            })?;
+        let receipt = selected.receipt().clone();
+        let expected_hash = selected.event().event_hash.clone();
+        drop(selected.into_stores());
+        if payload.selection_event_hash != expected_hash
+            || payload.evaluation_id != receipt.evaluation_id()
+            || payload.world_id != receipt.world_id()
+            || payload.parent_genome_id != receipt.candidate_genome_id()
+        {
+            return Err(ControlError::Projection(
+                "Forge proposal is not bound to its selected candidate".to_owned(),
+            ));
+        }
+        verify_forge_child(&artifacts, registered, event, &payload, world.compiled())?;
+        validate_hypothesis(&payload.hypothesis)
+            .map_err(|_| ControlError::Projection("Forge hypothesis is invalid".to_owned()))?;
+    }
+    Ok(())
+}
+
+fn verify_forge_child(
+    artifacts: &ArtifactStore,
+    registered: &RegisteredObjects,
+    event: &StoredEvent,
+    payload: &ForgeProposalPayload,
+    world: &CompiledWorld,
+) -> Result<(), ControlError> {
+    let parent = registered
+        .genome(&payload.parent_genome_id)
+        .ok_or_else(|| {
+            ControlError::Projection("Forge proposal parent is not registered".to_owned())
+        })?;
+    let child = registered.genome(&payload.child.genome_id).ok_or_else(|| {
+        ControlError::Projection("Forge proposal child is not registered".to_owned())
+    })?;
+    if parent.registration_sequence() >= event.sequence
+        || child.registration_sequence() != event.sequence
+        || child.record() != &payload.child
+        || child.record().world_id != payload.world_id
+        || child.compiled().parents() != [payload.parent_genome_id.clone()]
+        || parent.record().world_id != payload.world_id
+        || parent.compiled().artifact_id("agent.prompt")
+            != Some(payload.prompt_artifact_before.as_str())
+        || child.compiled().artifact_id("agent.prompt")
+            != Some(payload.prompt_artifact_after.as_str())
+        || payload.artifact_name != "agent.prompt"
+    {
+        return Err(ControlError::Projection(
+            "Forge proposal child differs from its registered lineage".to_owned(),
+        ));
+    }
+    verify_forge_prompt(artifacts, payload)?;
+    verify_forge_child_compiles(artifacts, registered, payload, world)
+}
+
+fn verify_forge_prompt(
+    artifacts: &ArtifactStore,
+    payload: &ForgeProposalPayload,
+) -> Result<(), ControlError> {
+    let before_bytes = verified_prompt_bytes(artifacts, &payload.prompt_artifact_before)?;
+    let after_bytes = verified_prompt_bytes(artifacts, &payload.prompt_artifact_after)?;
+    let before_text = std::str::from_utf8(&before_bytes)
+        .map_err(|_| ControlError::Protocol("Forge prompt is not UTF-8"))?;
+    let after_text = std::str::from_utf8(&after_bytes)
+        .map_err(|_| ControlError::Protocol("Forge prompt is not UTF-8"))?;
+    let before = ReferenceInstruction::parse(before_text)
+        .map_err(|_| ControlError::Protocol("Forge parent prompt is unsupported"))?;
+    let after = ReferenceInstruction::parse(after_text)
+        .map_err(|_| ControlError::Protocol("Forge child prompt is unsupported"))?;
+    let expected_after = match before {
+        ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
+        ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
+    };
+    let expected_text = mutate_reference_instruction_document(before_text, before, expected_after)
+        .map_err(|()| ControlError::Protocol("Forge prompt is outside mutation scope"))?;
+    if after != expected_after
+        || after_text != expected_text
+        || payload.operation_before != reference_instruction_operation(before)
+        || payload.operation_after != reference_instruction_operation(after)
+    {
+        return Err(ControlError::Projection(
+            "Forge prompt mutation is not the supported one-step operation flip".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_forge_child_compiles(
+    artifacts: &ArtifactStore,
+    registered: &RegisteredObjects,
+    payload: &ForgeProposalPayload,
+    world: &CompiledWorld,
+) -> Result<(), ControlError> {
+    let parent = registered
+        .genome(&payload.parent_genome_id)
+        .ok_or_else(|| {
+            ControlError::Projection("Forge proposal parent is not registered".to_owned())
+        })?;
+    let child = registered.genome(&payload.child.genome_id).ok_or_else(|| {
+        ControlError::Projection("Forge proposal child is not registered".to_owned())
+    })?;
+    let mut expected_source: serde_json::Value =
+        serde_json::from_slice(parent.compiled().canonical_json())?;
+    let object = expected_source
+        .as_object_mut()
+        .ok_or(ControlError::Protocol("Forge parent Genome is invalid"))?;
+    object.insert(
+        "name".to_owned(),
+        serde_json::Value::String(format!(
+            "{}-forge-{}",
+            parent.record().name,
+            payload.proposal_id
+        )),
+    );
+    object.insert(
+        "parents".to_owned(),
+        serde_json::Value::Array(vec![serde_json::Value::String(
+            payload.parent_genome_id.clone(),
+        )]),
+    );
+    object
+        .get_mut("artifacts")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or(ControlError::Protocol("Forge parent artifacts are invalid"))?
+        .insert(
+            "agent.prompt".to_owned(),
+            serde_json::Value::String(payload.prompt_artifact_after.clone()),
+        );
+    let source = serde_json::to_string(&expected_source)?;
+    let parents = registered
+        .genomes()
+        .filter(|genome| genome.record().world_id == payload.world_id)
+        .map(|genome| (genome.record().genome_id.clone(), genome.compiled().clone()))
+        .collect::<BTreeMap<_, _>>();
+    let expected = compile_genome(&source, SourceFormat::Json, world, &parents, artifacts)
+        .map_err(|_| {
+            ControlError::Projection("Forge child source no longer compiles".to_owned())
+        })?;
+    if expected.id() != child.record().genome_id
+        || expected.canonical_json() != child.compiled().canonical_json()
+    {
+        return Err(ControlError::Projection(
+            "Forge child changes more than its single proposed prompt mutation".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn existing_forge_response(
+    history: &[StoredEvent],
+    payload: &ForgeProposalPayload,
+) -> Result<Option<ResponseData>, ExecuteError> {
+    for event in history
+        .iter()
+        .filter(|event| event.event_type == "forge.proposed")
+    {
+        let existing = decode_forge_proposal(event).map_err(|_| ExecuteError::Internal)?;
+        if existing.proposal_id == payload.proposal_id {
+            if existing != *payload {
+                return Err(ExecuteError::Rejected(
+                    "proposal_id is already bound to different proposal content".to_owned(),
+                ));
+            }
+            return Ok(Some(ResponseData::ForgeProposal {
+                proposal: Box::new(forge_proposal_record(existing, event)),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+fn validate_forge_event(
+    event: &StoredEvent,
+    payload: &ForgeProposalPayload,
+) -> Result<(), ControlError> {
+    if payload.schema_version != 1
+        || event.actor != OPERATOR_ACTOR
+        || event.event_type != "forge.proposed"
+        || event.event_id != forge_event_id(&payload.proposal_id)
+        || event.aggregate_id != forge_aggregate_id(&payload.proposal_id)
+    {
+        return Err(ControlError::Projection(
+            "Forge proposal event identity is invalid".to_owned(),
+        ));
+    }
+    validate_job_id(&payload.proposal_id)
+        .map_err(|_| ControlError::Projection("Forge proposal id is invalid".to_owned()))?;
+    validate_hypothesis(&payload.hypothesis)
+        .map_err(|_| ControlError::Projection("Forge hypothesis is invalid".to_owned()))?;
+    Ok(())
+}
+
+fn decode_forge_proposal(event: &StoredEvent) -> Result<ForgeProposalPayload, ControlError> {
+    let payload = serde_json::from_slice::<ForgeProposalPayload>(&event.payload)
+        .map_err(|_| ControlError::Projection("Forge proposal payload is invalid".to_owned()))?;
+    let canonical_value = serde_json::to_value(&payload)?;
+    if serde_json::to_vec(&canonical_value)? != event.payload {
+        return Err(ControlError::Projection(
+            "Forge proposal payload is not canonical".to_owned(),
+        ));
+    }
+    Ok(payload)
+}
+
+fn forge_proposal_record(
+    payload: ForgeProposalPayload,
+    event: &StoredEvent,
+) -> ForgeProposalRecord {
+    ForgeProposalRecord {
+        payload,
+        event: ForgeProposalEventRecord {
+            sequence: event.sequence,
+            event_id: event.event_id.clone(),
+            aggregate_id: event.aggregate_id.clone(),
+            event_hash: hex_encode(&event.hash),
+        },
+        promotion_eligible: false,
+    }
+}
+
+fn forge_event_id(proposal_id: &str) -> String {
+    format!("forge:{proposal_id}:proposed")
+}
+
+fn forge_aggregate_id(proposal_id: &str) -> String {
+    format!("forge:{proposal_id}")
+}
+
+fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
+    if hypothesis.trim().is_empty()
+        || hypothesis.len() > 512
+        || hypothesis.chars().any(char::is_control)
+    {
+        return Err(ExecuteError::Invalid(
+            "hypothesis must be 1 to 512 printable UTF-8 bytes",
+        ));
+    }
+    Ok(())
+}
+
+fn verified_prompt_bytes(
+    artifacts: &ArtifactStore,
+    artifact_id: &str,
+) -> Result<Vec<u8>, ControlError> {
+    let id = ArtifactId::parse(artifact_id.to_owned())?;
+    Ok(artifacts.get(&id)?)
+}
+
+fn reference_instruction_operation(instruction: ReferenceInstruction) -> &'static str {
+    match instruction {
+        ReferenceInstruction::Identity => "identity",
+        ReferenceInstruction::AsciiUppercase => "ascii_uppercase",
+    }
+}
+
+fn reference_instruction_document(instruction: ReferenceInstruction) -> String {
+    format!(
+        "```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{}\"}}\n```",
+        reference_instruction_operation(instruction)
+    )
+}
+
+fn compile_forge_child(
+    registered: &RegisteredObjects,
+    world: &CompiledWorld,
+    artifact_store: &ArtifactStore,
+    parent_genome_id: &str,
+    world_id: &str,
+    proposal_id: &str,
+    prompt_artifact: &str,
+) -> Result<GenomeRecord, ExecuteError> {
+    let parent = registered
+        .genome(parent_genome_id)
+        .ok_or(ExecuteError::NotFound)?;
+    let mut source: serde_json::Value = serde_json::from_slice(parent.compiled().canonical_json())
+        .map_err(|_| ExecuteError::Internal)?;
+    let object = source.as_object_mut().ok_or(ExecuteError::Internal)?;
+    object.insert(
+        "name".to_owned(),
+        serde_json::Value::String(format!("{}-forge-{proposal_id}", parent.record().name)),
+    );
+    object.insert(
+        "parents".to_owned(),
+        serde_json::Value::Array(vec![serde_json::Value::String(parent_genome_id.to_owned())]),
+    );
+    object
+        .get_mut("artifacts")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or(ExecuteError::Internal)?
+        .insert(
+            "agent.prompt".to_owned(),
+            serde_json::Value::String(prompt_artifact.to_owned()),
+        );
+    let source = serde_json::to_string(&source).map_err(|_| ExecuteError::Internal)?;
+    let parents = registered
+        .genomes()
+        .filter(|genome| genome.record().world_id == world_id)
+        .map(|genome| (genome.record().genome_id.clone(), genome.compiled().clone()))
+        .collect::<BTreeMap<_, _>>();
+    let child = compile_genome(&source, SourceFormat::Json, world, &parents, artifact_store)
+        .map_err(|error| ExecuteError::Rejected(format!("Forge child rejected: {error}")))?;
+    let artifact = artifact_store
+        .put(child.canonical_json())
+        .map_err(|_| ExecuteError::Internal)?;
+    Ok(GenomeRecord {
+        genome_id: child.id().to_owned(),
+        name: child.name().to_owned(),
+        world_id: world_id.to_owned(),
+        artifact_id: artifact.as_str().to_owned(),
+        parent_ids: child.parents().to_vec(),
+    })
+}
+
+fn verified_forge_source(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    selection_event_id: &str,
+    parent_genome_id: &str,
+) -> Result<(String, String, String), ExecuteError> {
+    let event = history
+        .iter()
+        .find(|event| event.event_id == selection_event_id)
+        .ok_or(ExecuteError::NotFound)?;
+    if event.event_type != "selection.recorded" {
+        return Err(ExecuteError::Rejected(
+            "selection_event_id does not identify a selection".to_owned(),
+        ));
+    }
+    let (evaluation_id, world_id) =
+        selection_event_references(event).map_err(|_| ExecuteError::Internal)?;
+    let world = registered.world(&world_id).ok_or(ExecuteError::Internal)?;
+    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+        .map_err(|_| ExecuteError::Internal)?;
+    let selection = verify_selection_event(stores, event, world.compiled())
+        .map_err(|_| ExecuteError::Internal)?;
+    let receipt = selection.receipt().clone();
+    let selection_hash = selection.event().event_hash.clone();
+    drop(selection.into_stores());
+    if receipt.evaluation_id() != evaluation_id
+        || receipt.world_id() != world_id
+        || receipt.candidate_genome_id() != parent_genome_id
+    {
+        return Err(ExecuteError::Rejected(
+            "the parent must be the selected candidate under the same World".to_owned(),
+        ));
+    }
+    Ok((selection_hash, evaluation_id, world_id))
+}
+
+fn forge_prompt_mutation(
+    artifacts: &ArtifactStore,
+    registered: &RegisteredObjects,
+    parent_genome_id: &str,
+    world_id: &str,
+) -> Result<(String, ReferenceInstruction, ReferenceInstruction, String), ExecuteError> {
+    let parent = registered
+        .genome(parent_genome_id)
+        .filter(|genome| genome.record().world_id == world_id)
+        .ok_or(ExecuteError::NotFound)?;
+    let prompt_before = parent
+        .compiled()
+        .artifact_id("agent.prompt")
+        .ok_or_else(|| {
+            ExecuteError::Rejected(
+                "the selected candidate has no supported prompt to mutate".to_owned(),
+            )
+        })?
+        .to_owned();
+    let prompt_id = ArtifactId::parse(prompt_before.clone()).map_err(|_| ExecuteError::Internal)?;
+    let prompt_bytes = artifacts
+        .get(&prompt_id)
+        .map_err(|_| ExecuteError::Internal)?;
+    let prompt_text = std::str::from_utf8(&prompt_bytes).map_err(|_| ExecuteError::Internal)?;
+    let before = ReferenceInstruction::parse(prompt_text).map_err(|_| {
+        ExecuteError::Rejected(
+            "the selected candidate prompt is outside the supported mutation language".to_owned(),
+        )
+    })?;
+    let after = match before {
+        ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
+        ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
+    };
+    let after_text =
+        mutate_reference_instruction_document(prompt_text, before, after).map_err(|()| {
+            ExecuteError::Rejected(
+                "the selected candidate prompt is outside the Forge mutation scope".to_owned(),
+            )
+        })?;
+    Ok((prompt_before, before, after, after_text))
+}
+
+fn mutate_reference_instruction_document(
+    prompt_text: &str,
+    before: ReferenceInstruction,
+    after: ReferenceInstruction,
+) -> Result<String, ()> {
+    let normalized = prompt_text.replace("\r\n", "\n");
+    let canonical = reference_instruction_document(before);
+    if normalized != canonical && normalized != format!("{canonical}\n") {
+        return Err(());
+    }
+    let old = format!(
+        "\"operation\":\"{}\"",
+        reference_instruction_operation(before)
+    );
+    let new = format!(
+        "\"operation\":\"{}\"",
+        reference_instruction_operation(after)
+    );
+    if prompt_text.matches(&old).count() != 1 {
+        return Err(());
+    }
+    Ok(prompt_text.replacen(&old, &new, 1))
+}
+
 fn verify_selection_history(
     data_dir: &Path,
     history: &[StoredEvent],
@@ -2996,6 +3579,22 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         && (job_id.trim().is_empty() || genome_id.trim().is_empty())
     {
         return Err(ExecuteError::Invalid("job_id and genome_id are required"));
+    }
+    if let Command::GenomePropose {
+        proposal_id,
+        selection_event_id,
+        parent_genome_id,
+        hypothesis,
+    } = command
+    {
+        validate_job_id(proposal_id)
+            .map_err(|_| ExecuteError::Invalid("proposal_id is invalid"))?;
+        if selection_event_id.trim().is_empty() || parent_genome_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid(
+                "selection_event_id and parent_genome_id are required",
+            ));
+        }
+        validate_hypothesis(hypothesis)?;
     }
     if let Command::JobStatus { job_id } | Command::JobKill { job_id } = command
         && job_id.trim().is_empty()
@@ -4452,6 +5051,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::GenomePrompt { .. } => "control.genome_prompt",
         Command::GenomeList => "control.genome_list",
         Command::GenomeRegister { .. } => "control.genome_register",
+        Command::GenomePropose { .. } => "control.genome_propose",
         Command::WorldShow { .. } => "control.world_show",
         Command::WorldList => "control.world_list",
         Command::WorldRegister { .. } => "control.world_register",

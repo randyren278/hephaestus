@@ -42,7 +42,24 @@ The local reference worker is installed beside `hephaestusd` by default (or sele
 
 The only operations are `identity`, which returns the exact World task input bytes, and `ascii_uppercase`, which applies ASCII uppercase to those bytes. Unknown fields, duplicate keys, unknown versions and operations, malformed fences, and oversized instructions fail closed at execution. Arbitrary nonblank UTF-8 Markdown prompt bodies remain valid stored and inspectable Genome data; they cannot run through this reference worker. The selected operation and task input travel as separate bounded fields, so the instruction does not change the task commitment, seed, environment, or budget. The worker runs as an isolated supervised process. Its executable digest and instruction-language version are included in the paired execution environment identity. A Genome without the reserved agent.prompt artifact uses identity for paired Arena runs; legacy direct `run` on a prompt-free Genome keeps its repository inventory behavior.
 
+Forge currently proposes one bounded mutation: flip the operation in the compact canonical fenced document above. It preserves the original accepted framing, including an optional terminal newline or CRLF, and changes only the operation token. Other valid JSON whitespace layouts and arbitrary prose are outside this Forge mutation scope. A proposal is rejected while evolution is frozen; operators must explicitly unfreeze before requesting one. Forge proposals do not authorize promotion.
+
 These operations are a deterministic reference-language slice. They do not demonstrate general prompt understanding, arbitrary agent code, or hosted-provider execution.
+
+## Operator-directed Forge prompt proposals
+
+A registered candidate with a supported agent.prompt can produce one proposal through the authenticated daemon command:
+
+```sh
+hephaestus genome propose <proposal-id> \
+  --selection-event <selection-event-id> \
+  --parent <selected-candidate-genome-id> \
+  --hypothesis "State the expected behavior change and why it should help."
+```
+
+The daemon re-verifies the exact selection event, receipt, registered World, and selected candidate. It accepts only a strict `hephaestus-reference-v1` prompt and proposes one operation flip between `identity` and `ascii_uppercase`. The child goes through the ordinary Genome compiler and registry with the selected candidate as its sole parent. One `forge.proposed` ledger event binds the selection event hash, hypothesis, parent and child identities, and exact before/after prompt artifact addresses; startup and explicit replay recompute those bindings. Reusing the proposal ID with identical content returns the original event; conflicting content fails closed.
+
+This is operator-directed hypothesis capture and a single deterministic mutation proposal. The current aggregate selection receipt contains no task-level failure clusters, so this command does not infer hypotheses from clusters. It does not evaluate, select, or promote the child, and its response always reports `promotion_eligible=false`.
 
 ## Compilation contract
 

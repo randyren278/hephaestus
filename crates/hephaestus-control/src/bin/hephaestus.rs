@@ -6,8 +6,9 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
-    API_VERSION, ApiResponse, ArenaJobProgress, Client, Command, EvaluationRecord, GenomeRecord,
-    JobState, ResponseData, SelectionRecord, WorldRecord, data_dir_from_environment,
+    API_VERSION, ApiResponse, ArenaJobProgress, Client, Command, EvaluationRecord,
+    ForgeProposalRecord, GenomeRecord, JobState, ResponseData, SelectionRecord, WorldRecord,
+    data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -127,6 +128,20 @@ enum GenomeCommand {
         /// Registered World the Genome is compiled against.
         #[arg(long)]
         world: String,
+    },
+    /// Propose one prompt operation mutation from an exact trusted Arena selection.
+    Propose {
+        /// Stable idempotency key for this proposal.
+        proposal_id: String,
+        /// Canonical selection event ID returned by `arena select`.
+        #[arg(long)]
+        selection_event: String,
+        /// Selected candidate Genome to use as the child parent.
+        #[arg(long)]
+        parent: String,
+        /// Operator-authored hypothesis for the prompt mutation.
+        #[arg(long)]
+        hypothesis: String,
     },
 }
 
@@ -536,21 +551,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Unfreeze => Command::Unfreeze,
         CliCommand::Kill { all: true } => Command::KillAll,
         CliCommand::Kill { all: false } => return Err("kill requires --all"),
-        CliCommand::Genome {
-            command: GenomeCommand::Show { genome_id },
-        } => Command::GenomeShow { genome_id },
-        CliCommand::Genome {
-            command: GenomeCommand::Prompt { genome_id },
-        } => Command::GenomePrompt { genome_id },
-        CliCommand::Genome {
-            command: GenomeCommand::List,
-        } => Command::GenomeList,
-        CliCommand::Genome {
-            command: GenomeCommand::Register { path, world },
-        } => Command::GenomeRegister {
-            path: absolute_path(path)?,
-            world_id: world,
-        },
+        CliCommand::Genome { command } => genome_command_from_cli(command)?,
         CliCommand::World {
             command: WorldCommand::Show { world_id },
         } => Command::WorldShow { world_id },
@@ -622,6 +623,29 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
     })
 }
 
+fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static str> {
+    Ok(match command {
+        GenomeCommand::Show { genome_id } => Command::GenomeShow { genome_id },
+        GenomeCommand::Prompt { genome_id } => Command::GenomePrompt { genome_id },
+        GenomeCommand::List => Command::GenomeList,
+        GenomeCommand::Register { path, world } => Command::GenomeRegister {
+            path: absolute_path(path)?,
+            world_id: world,
+        },
+        GenomeCommand::Propose {
+            proposal_id,
+            selection_event,
+            parent,
+            hypothesis,
+        } => Command::GenomePropose {
+            proposal_id,
+            selection_event_id: selection_event,
+            parent_genome_id: parent,
+            hypothesis,
+        },
+    })
+}
+
 fn print_human(response: &ApiResponse) {
     match (&response.data, &response.error) {
         (
@@ -643,6 +667,9 @@ fn print_human(response: &ApiResponse) {
             None,
         ) => println!("acknowledged frozen={frozen} killed_runs={killed_runs}"),
         (Some(ResponseData::Genome { genome }), None) => println!("{}", genome_human(genome)),
+        (Some(ResponseData::ForgeProposal { proposal }), None) => {
+            println!("{}", forge_proposal_human(proposal));
+        }
         (Some(ResponseData::GenomePrompt { prompt, .. }), None) => print!("{prompt}"),
         (Some(ResponseData::Job { job, progress }), None) => println!(
             "job={} genome={} run={} state={:?} terminal={:?} traces={} last_phase={} last_sequence={}",
@@ -760,6 +787,23 @@ fn evaluation_human(evaluation: &EvaluationRecord) -> String {
         evaluation.event.event_id,
         evaluation.event.sequence,
         evaluation.event.aggregate_id
+    )
+}
+
+fn forge_proposal_human(proposal: &ForgeProposalRecord) -> String {
+    format!(
+        "proposal={} parent={} child={} selection={} mutation={}→{} hypothesis={:?} promotion_eligible={} event={} sequence={} hash={}",
+        proposal.payload.proposal_id,
+        proposal.payload.parent_genome_id,
+        proposal.payload.child.genome_id,
+        proposal.payload.selection_event_id,
+        proposal.payload.operation_before,
+        proposal.payload.operation_after,
+        proposal.payload.hypothesis,
+        proposal.promotion_eligible,
+        proposal.event.event_id,
+        proposal.event.sequence,
+        proposal.event.event_hash,
     )
 }
 

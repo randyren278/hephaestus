@@ -47,6 +47,21 @@ impl Fixture {
             .expect("append registration event");
     }
 
+    fn append_raw(&mut self, event_id: &str, aggregate_id: &str, event_type: &str, payload: &[u8]) {
+        let sequence = self.next_event;
+        self.next_event += 1;
+        self.ledger
+            .append(EventInput::new(
+                event_id,
+                aggregate_id,
+                event_type,
+                "local-operator",
+                i64::try_from(sequence).expect("fixture sequence fits i64"),
+                payload,
+            ))
+            .expect("append raw registration event");
+    }
+
     fn history(&self) -> Vec<StoredEvent> {
         self.ledger
             .replay_verified()
@@ -165,6 +180,75 @@ fn register_genome(fixture: &mut Fixture, genome: &GenomeFixture) {
         &genome.record.genome_id,
         &genome.record,
     );
+}
+
+#[test]
+fn forge_proposal_event_registers_child_at_its_single_event_sequence() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "forge-world");
+    let parent = build_genome(&fixture, &world, "forge-parent", &[]);
+    let child = build_genome(
+        &fixture,
+        &world,
+        "forge-child",
+        std::slice::from_ref(&parent),
+    );
+    register_world(&mut fixture, &world);
+    register_genome(&mut fixture, &parent);
+    let child_event_sequence = fixture.next_event;
+    let payload = serde_json::to_vec(&json!({
+        "proposal_id": "proposal-1",
+        "child": child.record.clone(),
+    }))
+    .expect("encode canonical proposal envelope");
+    fixture.append_raw(
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        "forge.proposed",
+        &payload,
+    );
+
+    let replayed = fixture.replay().expect("replay compiler-validated child");
+    let registered = replayed
+        .genome(&child.record.genome_id)
+        .expect("child from proposal event");
+    assert_eq!(registered.record(), &child.record);
+    assert_eq!(registered.registration_sequence(), child_event_sequence);
+}
+
+#[test]
+fn forge_proposal_registry_rejects_noncanonical_envelope_before_child_registration() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "forge-world");
+    let parent = build_genome(&fixture, &world, "forge-parent", &[]);
+    let child = build_genome(
+        &fixture,
+        &world,
+        "forge-child",
+        std::slice::from_ref(&parent),
+    );
+    register_world(&mut fixture, &world);
+    register_genome(&mut fixture, &parent);
+    let canonical = serde_json::to_vec(&json!({
+        "proposal_id": "proposal-1",
+        "child": child.record.clone(),
+    }))
+    .expect("encode canonical proposal envelope");
+    let noncanonical = format!(" {} ", String::from_utf8(canonical).unwrap());
+    fixture.append_raw(
+        "forge:proposal-1:proposed",
+        "forge:proposal-1",
+        "forge.proposed",
+        noncanonical.as_bytes(),
+    );
+
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::NonCanonicalPayload {
+            kind: RegistrationKind::Genome,
+            ..
+        })
+    ));
 }
 
 #[test]

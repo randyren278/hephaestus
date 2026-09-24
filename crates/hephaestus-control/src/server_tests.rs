@@ -11,6 +11,48 @@ use tempfile::tempdir;
 
 use super::*;
 
+#[test]
+fn forge_mutation_changes_only_the_supported_compact_instruction_token() {
+    let canonical = reference_instruction_document(ReferenceInstruction::Identity);
+    let framed = format!("{canonical}\n");
+    let expected = format!(
+        "{}\n",
+        reference_instruction_document(ReferenceInstruction::AsciiUppercase)
+    );
+    assert_eq!(
+        mutate_reference_instruction_document(
+            &framed,
+            ReferenceInstruction::Identity,
+            ReferenceInstruction::AsciiUppercase
+        ),
+        Ok(expected)
+    );
+    for extra in [
+        format!("context\n{canonical}"),
+        format!("{canonical}\ncontext"),
+    ] {
+        assert!(ReferenceInstruction::parse(&extra).is_err());
+        assert!(
+            mutate_reference_instruction_document(
+                &extra,
+                ReferenceInstruction::Identity,
+                ReferenceInstruction::AsciiUppercase
+            )
+            .is_err()
+        );
+    }
+    let reformatted = canonical.replace(',', ", ");
+    assert!(ReferenceInstruction::parse(&reformatted).is_ok());
+    assert!(
+        mutate_reference_instruction_document(
+            &reformatted,
+            ReferenceInstruction::Identity,
+            ReferenceInstruction::AsciiUppercase
+        )
+        .is_err()
+    );
+}
+
 #[cfg(feature = "test-support")]
 #[test]
 fn test_arena_wall_override_only_lowers_the_admitted_bound() {
@@ -74,6 +116,15 @@ fn command_audit_types_and_source_extensions_are_stable() {
                 world_id: "w".into(),
             },
             "control.genome_register",
+        ),
+        (
+            Command::GenomePropose {
+                proposal_id: "proposal-1".into(),
+                selection_event_id: "selection-event".into(),
+                parent_genome_id: "candidate".into(),
+                hypothesis: "The child should preserve case.".into(),
+            },
+            "control.genome_propose",
         ),
         (
             Command::WorldShow {
@@ -5866,6 +5917,30 @@ fn command_field_validation_rejects_empty_ids_and_paths() {
         },
         Command::JobKill {
             job_id: " ".to_owned(),
+        },
+        Command::GenomePropose {
+            proposal_id: String::new(),
+            selection_event_id: "selection".to_owned(),
+            parent_genome_id: "candidate".to_owned(),
+            hypothesis: "valid hypothesis".to_owned(),
+        },
+        Command::GenomePropose {
+            proposal_id: "proposal".to_owned(),
+            selection_event_id: String::new(),
+            parent_genome_id: "candidate".to_owned(),
+            hypothesis: "valid hypothesis".to_owned(),
+        },
+        Command::GenomePropose {
+            proposal_id: "proposal".to_owned(),
+            selection_event_id: "selection".to_owned(),
+            parent_genome_id: "candidate".to_owned(),
+            hypothesis: "\n".to_owned(),
+        },
+        Command::GenomePropose {
+            proposal_id: "proposal".to_owned(),
+            selection_event_id: "selection".to_owned(),
+            parent_genome_id: "candidate".to_owned(),
+            hypothesis: "x".repeat(513),
         },
         Command::RunReference {
             genome_id: String::new(),

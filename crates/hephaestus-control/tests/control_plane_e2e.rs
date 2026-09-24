@@ -1034,6 +1034,148 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             recovered.event.receipt_artifact_id,
             expected.event.receipt_artifact_id
         );
+        assert!(cli(&data_dir, &["freeze"]).status.success());
+        let frozen_proposal = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "frozen-proposal",
+                "--selection-event",
+                &recovered.event.event_id,
+                "--parent",
+                &candidate.genome_id,
+                "--hypothesis",
+                "A frozen Forge proposal must be rejected.",
+            ],
+        );
+        assert!(!frozen_proposal.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&frozen_proposal.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        let history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        assert!(
+            !history
+                .iter()
+                .any(|event| event.event_type == "forge.proposed")
+        );
+        assert!(cli(&data_dir, &["unfreeze"]).status.success());
+        let hypothesis =
+            "If task-facing behavior needs to preserve case, the child should return identity.";
+        let proposal_args = [
+            "genome",
+            "propose",
+            "identity-child-proposal",
+            "--selection-event",
+            recovered.event.event_id.as_str(),
+            "--parent",
+            candidate.genome_id.as_str(),
+            "--hypothesis",
+            hypothesis,
+        ];
+        let proposal = match response(&cli(&data_dir, &proposal_args)).data.unwrap() {
+            ResponseData::ForgeProposal { proposal } => *proposal,
+            other => panic!("unexpected Forge proposal response: {other:?}"),
+        };
+        assert!(!proposal.promotion_eligible);
+        assert_eq!(proposal.payload.parent_genome_id, candidate.genome_id);
+        assert_eq!(proposal.payload.child.world_id, world.id());
+        assert_eq!(
+            proposal.payload.child.parent_ids,
+            std::slice::from_ref(&candidate.genome_id)
+        );
+        assert_eq!(proposal.payload.hypothesis, hypothesis);
+        assert_eq!(
+            proposal.payload.selection_event_hash,
+            recovered.event.event_hash
+        );
+        assert_eq!(proposal.payload.operation_before, "ascii_uppercase");
+        assert_eq!(proposal.payload.operation_after, "identity");
+        let prompt = response(&cli(
+            &data_dir,
+            &["genome", "prompt", &proposal.payload.child.genome_id],
+        ));
+        assert!(
+            matches!(
+                &prompt.data,
+                Some(ResponseData::GenomePrompt { prompt, .. })
+                    if prompt == "```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n"
+            ),
+            "unexpected child prompt: {:?}",
+            prompt.data
+        );
+        assert_eq!(
+            response(&cli(&data_dir, &proposal_args)).data,
+            Some(ResponseData::ForgeProposal {
+                proposal: Box::new(proposal.clone())
+            })
+        );
+        let conflict = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "identity-child-proposal",
+                "--selection-event",
+                &recovered.event.event_id,
+                "--parent",
+                &candidate.genome_id,
+                "--hypothesis",
+                "A different hypothesis must not reuse this proposal key.",
+            ],
+        );
+        assert!(!conflict.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&conflict.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        let wrong_parent = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "wrong-parent-proposal",
+                "--selection-event",
+                &recovered.event.event_id,
+                "--parent",
+                &parent.genome_id,
+                "--hypothesis",
+                hypothesis,
+            ],
+        );
+        assert!(!wrong_parent.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&wrong_parent.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        let proposal_history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        assert_eq!(
+            proposal_history
+                .iter()
+                .filter(|event| event.event_type == "forge.proposed")
+                .count(),
+            1
+        );
+        assert!(cli(&data_dir, &["replay"]).status.success());
     }
     restarted.stop();
 
@@ -1737,6 +1879,56 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         recorded.candidate_result().summary.candidate_genome_id,
         candidate.genome_id
     );
+    #[cfg(feature = "test-support")]
+    {
+        let history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        let proposal_event = history
+            .iter()
+            .find(|event| event.event_type == "forge.proposed")
+            .expect("Forge proposal is durable");
+        let canonical_payload = proposal_event.payload.clone();
+        let mut forged: serde_json::Value =
+            serde_json::from_slice(&proposal_event.payload).unwrap();
+        forged["selection_event_hash"] = serde_json::Value::String("0".repeat(64));
+        rewrite_ledger_event_payload(
+            &data_dir,
+            &proposal_event.event_id,
+            &serde_json::to_vec(&forged).unwrap(),
+            None,
+        );
+        let Err(selection_hash_error) = ControlPlane::open_with_repository(&data_dir, &repository)
+        else {
+            panic!("forged selection hash was accepted");
+        };
+        assert!(
+            matches!(
+                selection_hash_error,
+                ControlError::Projection(ref message)
+                    if message.contains("Forge proposal is not bound to its selected candidate")
+            ),
+            "unexpected selection hash rejection: {selection_hash_error:?}"
+        );
+        rewrite_ledger_event_payload(
+            &data_dir,
+            &proposal_event.event_id,
+            &canonical_payload,
+            Some("untrusted-operator"),
+        );
+        let Err(actor_error) = ControlPlane::open_with_repository(&data_dir, &repository) else {
+            panic!("untrusted Forge actor was accepted");
+        };
+        assert!(
+            matches!(
+                actor_error,
+                ControlError::Projection(ref message)
+                    if message.contains("Forge proposal event identity is invalid")
+            ),
+            "unexpected actor rejection: {actor_error:?}"
+        );
+    }
 }
 
 #[cfg(feature = "test-support")]
@@ -2911,6 +3103,48 @@ fn rebuild_ledger_without(
     fs::remove_file(&ledger_path).expect("remove pre-recovery ledger");
     fs::rename(data_dir.join("events.rebuilt.sqlite3"), &ledger_path)
         .expect("install pre-recovery ledger");
+}
+
+fn rewrite_ledger_event_payload(
+    data_dir: &Path,
+    event_id: &str,
+    payload: &[u8],
+    actor: Option<&str>,
+) {
+    let ledger_path = data_dir.join("events.sqlite3");
+    let history = EventStore::open(&ledger_path)
+        .expect("open ledger before payload rewrite")
+        .replay_verified()
+        .expect("verify ledger before payload rewrite");
+    let mut rebuilt =
+        EventStore::open(data_dir.join("events.rebuilt.sqlite3")).expect("open rebuilt ledger");
+    for event in &history {
+        rebuilt
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                if event.event_id == event_id {
+                    actor.unwrap_or(&event.actor).to_owned()
+                } else {
+                    event.actor.clone()
+                },
+                event.timestamp_millis,
+                if event.event_id == event_id {
+                    payload.to_owned()
+                } else {
+                    event.payload.clone()
+                },
+            ))
+            .expect("reappend history with modified event payload");
+    }
+    drop(rebuilt);
+    for suffix in ["-wal", "-shm"] {
+        let _ignored = fs::remove_file(format!("{}{suffix}", ledger_path.display()));
+    }
+    fs::remove_file(&ledger_path).expect("remove source ledger");
+    fs::rename(data_dir.join("events.rebuilt.sqlite3"), &ledger_path)
+        .expect("install rewritten ledger");
 }
 
 #[test]

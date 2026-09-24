@@ -1991,6 +1991,41 @@
       "invariant": "An expired Arena deadline remains retryable until its cancellation transition is durably appended.",
       "find": "            !active.overall_timed_out\n                && active.record.state == JobState::Running",
       "replace": "            !active.cancel.load(Ordering::Acquire)\n                && active.record.state == JobState::Running"
+    },
+    {
+      "id": "registry-forge-noncanonical-envelope-accepted",
+      "file": "crates/hephaestus-genome/src/registry.rs",
+      "invariant": "A Forge proposal child is registered only from canonical event payload bytes.",
+      "find": "        let canonical =\n            serde_json::to_vec(&payload).map_err(|_| RegistrationError::InvalidPayload {\n                event_id: event.event_id.clone(),\n                kind,\n            })?;\n        if canonical != event.payload {",
+      "replace": "        let canonical =\n            serde_json::to_vec(&payload).map_err(|_| RegistrationError::InvalidPayload {\n                event_id: event.event_id.clone(),\n                kind,\n            })?;\n        if false && canonical != event.payload {"
+    },
+    {
+      "id": "forge-proposal-parent-not-bound-to-selected-candidate",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A Forge child proposal can use only the candidate authenticated by its exact selection receipt.",
+      "find": "            || receipt.candidate_genome_id() != parent_genome_id",
+      "replace": "            || false"
+    },
+    {
+      "id": "forge-parent-prompt-mutation-preserves-only-operation-token",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Forge changes only the operation token in the supported compact instruction document while preserving framing.",
+      "find": "    if normalized != canonical && normalized != format!(\"{canonical}\\n\") {\n        return Err(());",
+      "replace": "    if false {\n        return Err(());"
+    },
+    {
+      "id": "forge-proposal-forbidden-while-frozen",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Forge proposal admission fails while operator evolution is frozen.",
+      "find": "        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }\n        validate_job_id(proposal_id)",
+      "replace": "        validate_job_id(proposal_id)"
+    },
+    {
+      "id": "forge-replay-selection-event-hash-not-verified",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Forge replay binds every proposal to the exact canonical selection event hash.",
+      "find": "        if payload.selection_event_hash != expected_hash\n",
+      "replace": "        if false && payload.selection_event_hash != expected_hash\n"
     }
   ]
 }

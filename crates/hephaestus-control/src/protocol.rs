@@ -52,6 +52,17 @@ pub enum Command {
         /// Content-derived registered World identity governing the Genome.
         world_id: String,
     },
+    /// Propose one compiler-validated prompt mutation from a trusted selection.
+    GenomePropose {
+        /// Stable idempotency key for this proposal.
+        proposal_id: String,
+        /// Exact canonical selection event to which the proposal is bound.
+        selection_event_id: String,
+        /// Parent Genome; must be the selected candidate.
+        parent_genome_id: String,
+        /// Operator-authored, bounded hypothesis for the one prompt change.
+        hypothesis: String,
+    },
     /// Inspect one immutable World record.
     WorldShow {
         /// Content-derived World identity.
@@ -205,6 +216,11 @@ pub enum ResponseData {
         /// Canonical projection record.
         genome: GenomeRecord,
     },
+    /// One durable, compiler-backed Forge child proposal. It is not a promotion.
+    ForgeProposal {
+        /// Proposal fields and compiler-verified child Genome registration.
+        proposal: Box<ForgeProposalRecord>,
+    },
     /// Exact UTF-8 body bytes of a registered Genome's reserved prompt.
     GenomePrompt {
         /// Content-derived Genome identity.
@@ -297,6 +313,66 @@ pub enum ResponseData {
         /// Stable BLAKE3 hash of the reconstructed projection.
         projection_hash: String,
     },
+}
+
+/// Canonical payload of one durable Forge proposal event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeProposalPayload {
+    /// Proposal payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub proposal_id: String,
+    /// Exact verified selection event ID.
+    pub selection_event_id: String,
+    /// Hash of the exact selection event in the canonical ledger.
+    pub selection_event_hash: String,
+    /// Stable Arena evaluation identity from the selection receipt.
+    pub evaluation_id: String,
+    /// Exact registered World under which parent and child compile.
+    pub world_id: String,
+    /// Selected candidate Genome used as the sole parent.
+    pub parent_genome_id: String,
+    /// Child registration compiled by the ordinary Genome compiler.
+    pub child: GenomeRecord,
+    /// Explicit operator-authored hypothesis.
+    pub hypothesis: String,
+    /// Reserved artifact mutated by this proposal; currently always `agent.prompt`.
+    pub artifact_name: String,
+    /// Exact parent prompt artifact address.
+    pub prompt_artifact_before: String,
+    /// Exact child prompt artifact address.
+    pub prompt_artifact_after: String,
+    /// Reference operation found in the parent prompt.
+    pub operation_before: String,
+    /// Single operation proposed for the child prompt.
+    pub operation_after: String,
+}
+
+/// Canonical event metadata accompanying a Forge proposal response.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeProposalEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Forge proposal aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Operator-visible proposal and durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeProposalRecord {
+    /// Canonical proposal event payload.
+    pub payload: ForgeProposalPayload,
+    /// Canonical event metadata.
+    pub event: ForgeProposalEventRecord,
+    /// This milestone never authorizes or performs promotion.
+    pub promotion_eligible: bool,
 }
 
 /// Durable lifecycle projection for one direct asynchronous reference run.
