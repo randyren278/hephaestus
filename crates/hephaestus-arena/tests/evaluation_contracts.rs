@@ -892,6 +892,29 @@ fn prepared_evaluator_scores_commit_only_for_the_same_canonical_pair() {
 }
 
 #[test]
+fn prepared_scoring_requires_the_registered_evaluator_process() {
+    let directory = TempDir::new().unwrap();
+    let evaluator_path = directory.path().join("failing-evaluator");
+    fs::write(&evaluator_path, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
+    let fixture = make_fixture_with_evaluator(&directory, evaluator_path);
+    let prepared = prepare_evaluation(
+        &fixture.stores,
+        &context(),
+        &fixture.world,
+        EvaluationSources {
+            binding: &fixture.binding,
+            visible: &fixture.visible,
+            sealed: &fixture.sealed,
+            parent: &fixture.parent,
+            candidate: &fixture.candidate,
+        },
+    )
+    .unwrap();
+    assert!(prepared.score(&fixture.evaluator).is_err());
+}
+
+#[test]
 fn operator_selection_evidence_rehydrates_identically_after_restart() {
     let directory = TempDir::new().unwrap();
     let operator = evaluate(make_fixture(&directory)).unwrap();
