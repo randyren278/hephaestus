@@ -14,7 +14,7 @@ npm start
 
 Alternatively run `hephaestus tui` from a Rust source checkout after running `npm ci` here. A non-default data directory can be selected with `hephaestus --data-dir /path/to/data tui` or `HEPHAESTUS_HOME=/path/to/data npm start`.
 
-This milestone supports the source checkout workflow only. It does not ship a clean-user installer or a packaged Rust binary with bundled JavaScript dependencies.
+The macOS package builder also creates `dist/main.mjs`, a single-file runtime bundle for the installed CLI. The distribution runs that bundle with its pinned adjacent Node runtime, so a packaged user's launch does not use npm or the source checkout. See [macOS package instructions](../../docs/MACOS_INSTALL.md).
 
 ## Controls
 
@@ -32,6 +32,7 @@ The compact status frame fits an 80×24 terminal. Narrower terminals omit the se
 npm ci
 npm test
 npm run typecheck
+npm run build:package
 ```
 
 The live-daemon PTY acceptance fixture can be enabled for the control-plane's existing slow-job integration test with `HEPHAESTUS_TUI_PTY_E2E=1 cargo test -p hephaestus-control --all-features --test control_plane_e2e async_job_status_and_cancellation_remain_responsive_and_confirm_process_death -- --exact --nocapture`. It launches the Rust CLI from a source checkout inside an 80×24 pseudo-terminal, selects a relative data directory while a second daemon is configured as the fallback, exercises confirmed cancellation against the selected daemon, checks stale status when launched without an available daemon, and verifies terminal restoration on `q`.

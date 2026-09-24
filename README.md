@@ -109,10 +109,12 @@ and that decision is itself a ledgered event.
 - **macOS only for execution.** Isolation is Seatbelt. On other hosts the
   daemon refuses to launch candidate processes rather than running them
   unsandboxed. Registration, replay, and inspection work everywhere.
-- **The Ink TUI runs from a source checkout.** It provides local status and
-  controls, but clean-user packaging and the full Arena/lineage views are still
-  roadmap work. See [its setup guide](apps/hephaestus-tui/README.md). There is
-  no web console, Gene Bank, drift detection, or autonomous loop yet.
+- **The Ink TUI is a local operator console.** macOS packages bundle its
+  JavaScript and pinned Node runtime; source checkouts use Node/npm. The TUI
+  provides local status and controls, while full Arena and lineage views remain
+  roadmap work. See [the setup guide](apps/hephaestus-tui/README.md) and
+  [macOS package instructions](docs/MACOS_INSTALL.md). There is no web console,
+  Gene Bank, drift detection, or autonomous loop yet.
 
 ---
 
@@ -142,6 +144,9 @@ release Seatbelt sandbox and produces signed receipts and CAS outputs.
 Promotion remains disabled until the independent invariant gate is verified.
 
 ## Daily use
+
+For a relocatable, user-local macOS package and its fixture initializer, see
+[macOS installation](docs/MACOS_INSTALL.md).
 
 Start the daemon once, from the repository you want candidates to work in:
 

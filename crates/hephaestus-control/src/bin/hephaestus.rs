@@ -1,4 +1,8 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Command as ProcessCommand, ExitCode},
+};
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
@@ -7,7 +11,7 @@ use hephaestus_control::{
 };
 
 #[derive(Parser)]
-#[command(name = "hephaestus", about = "Hephaestus operator CLI")]
+#[command(name = "hephaestus", about = "Hephaestus operator CLI", version)]
 struct Arguments {
     /// Canonical daemon data directory.
     #[arg(long)]
@@ -90,7 +94,15 @@ enum CliCommand {
         #[command(subcommand)]
         command: DaemonCommand,
     },
-    /// Open the local interactive terminal operator interface from this source checkout.
+    /// Initialize a local example fixture.
+    Init {
+        /// Fixture to copy.
+        #[arg(long, default_value = "quickstart")]
+        fixture: String,
+        /// New destination directory (must not already exist).
+        path: PathBuf,
+    },
+    /// Open the local interactive terminal operator interface.
     Tui,
 }
 
@@ -189,6 +201,9 @@ fn main() -> ExitCode {
         }
         return launch_tui(arguments.data_dir);
     }
+    if let CliCommand::Init { fixture, path } = &arguments.command {
+        return initialize_fixture(fixture, path, arguments.json);
+    }
     let data_dir = match arguments
         .data_dir
         .map_or_else(data_dir_from_environment, Ok)
@@ -282,18 +297,25 @@ fn main() -> ExitCode {
 }
 
 fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
-    let package = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/hephaestus-tui")
-        .canonicalize();
-    let package = match package {
-        Ok(path) if path.join("package.json").is_file() => path,
-        _ => {
-            eprintln!("hephaestus: TUI package is unavailable in this source checkout");
-            return ExitCode::FAILURE;
-        }
+    let mut command = if let Some((node, entrypoint)) = packaged_tui_paths(&current_executable()) {
+        let mut command = ProcessCommand::new(node);
+        command.arg(entrypoint);
+        command
+    } else {
+        let package = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/hephaestus-tui")
+            .canonicalize();
+        let package = match package {
+            Ok(path) if path.join("package.json").is_file() => path,
+            _ => {
+                eprintln!("hephaestus: packaged or source-checkout TUI assets are unavailable");
+                return ExitCode::FAILURE;
+            }
+        };
+        let mut command = ProcessCommand::new("npm");
+        command.arg("--prefix").arg(package).args(["run", "start"]);
+        command
     };
-    let mut command = std::process::Command::new("npm");
-    command.arg("--prefix").arg(package).args(["run", "start"]);
     if let Some(data_dir) =
         data_dir.or_else(|| std::env::var_os("HEPHAESTUS_HOME").map(PathBuf::from))
     {
@@ -309,15 +331,164 @@ fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
         command.env("HEPHAESTUS_HOME", absolute_data_dir);
     }
     let Ok(status) = command.status() else {
-        eprintln!(
-            "hephaestus: could not start the TUI; install Node.js 22+ and package dependencies"
-        );
+        eprintln!("hephaestus: could not start the TUI runtime or source-checkout package");
         return ExitCode::FAILURE;
     };
     status
         .code()
         .and_then(|code| u8::try_from(code).ok())
         .map_or(ExitCode::FAILURE, ExitCode::from)
+}
+
+fn current_executable() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok())
+        .unwrap_or_default()
+}
+
+fn packaged_share_dir(executable: &Path) -> Option<PathBuf> {
+    let canonical = executable.canonicalize().ok()?;
+    let package_root = canonical.parent()?.parent()?;
+    let share = package_root.join("share/hephaestus");
+    share.join("package.json").is_file().then_some(share)
+}
+
+fn packaged_tui_paths(executable: &Path) -> Option<(PathBuf, PathBuf)> {
+    let canonical = executable.canonicalize().ok()?;
+    let bin_dir = canonical.parent()?;
+    let share = packaged_share_dir(&canonical)?;
+    let node = bin_dir.join("node");
+    let entrypoint = share.join("tui/main.mjs");
+    (node.is_file() && entrypoint.is_file()).then_some((node, entrypoint))
+}
+
+fn fixture_source_dir() -> Result<PathBuf, String> {
+    if let Some(share) = packaged_share_dir(&current_executable()) {
+        let fixtures = share.join("fixtures/quickstart");
+        if fixtures.is_dir() {
+            return Ok(fixtures);
+        }
+        return Err("installed quickstart fixture is unavailable".to_owned());
+    }
+    let source_checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .join("examples/quickstart");
+    source_checkout
+        .is_dir()
+        .then_some(source_checkout)
+        .ok_or_else(|| "quickstart fixture is unavailable".to_owned())
+}
+
+fn initialize_fixture(fixture: &str, destination: &Path, json: bool) -> ExitCode {
+    if fixture != "quickstart" {
+        eprintln!("hephaestus: unsupported fixture: {fixture}");
+        return ExitCode::FAILURE;
+    }
+    let source = match fixture_source_dir() {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("hephaestus: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let destination = if destination.is_absolute() {
+        destination.to_path_buf()
+    } else {
+        match std::env::current_dir() {
+            Ok(cwd) => cwd.join(destination),
+            Err(error) => {
+                eprintln!("hephaestus: could not resolve fixture destination: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
+    };
+    if destination.exists() {
+        eprintln!("hephaestus: fixture destination already exists");
+        return ExitCode::FAILURE;
+    }
+    let result = copy_fixture_tree(&source, &destination)
+        .and_then(|()| initialize_fixture_repository(&destination.join("repository")));
+    if let Err(error) = result {
+        let _ignored = fs::remove_dir_all(&destination);
+        eprintln!("hephaestus: could not initialize fixture: {error}");
+        return ExitCode::FAILURE;
+    }
+    if json {
+        let output = serde_json::json!({
+            "fixture": "quickstart",
+            "path": destination.to_string_lossy(),
+            "repository": destination.join("repository").to_string_lossy(),
+        });
+        println!("{output}");
+    } else {
+        println!("fixture=quickstart path={}", destination.display());
+        println!(
+            "source_repository={}",
+            destination.join("repository").display()
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn copy_fixture_tree(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir(destination).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        let target = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_fixture_tree(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), target).map_err(|error| error.to_string())?;
+        } else {
+            return Err("fixture contains a non-regular entry".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn initialize_fixture_repository(repository: &Path) -> Result<(), String> {
+    fs::create_dir(repository).map_err(|error| error.to_string())?;
+    fs::write(
+        repository.join("README.md"),
+        "# Hephaestus quickstart workspace\n\nThis repository is the offline reference-run target.\n",
+    )
+    .map_err(|error| error.to_string())?;
+    run_git(repository, ["init", "-q"])?;
+    run_git(repository, ["add", "README.md"])?;
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(repository)
+        .args(["-c", "user.name=Hephaestus Fixture"])
+        .args([
+            "-c",
+            "user.email=fixture@localhost",
+            "commit",
+            "-m",
+            "Initialize quickstart fixture",
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err("git could not create the fixture commit".to_owned())
+    }
+}
+
+fn run_git<const N: usize>(repository: &Path, arguments: [&str; N]) -> Result<(), String> {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(repository)
+        .args(arguments)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err("git could not initialize the fixture repository".to_owned())
+    }
 }
 
 fn arena_final_response(response: ApiResponse, job: ArenaJobProgress) -> ApiResponse {
@@ -431,6 +602,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
         } => Command::DaemonStop,
+        CliCommand::Init { .. } => return Err("init is a local command"),
         CliCommand::Tui => return Err("tui is a local interactive command"),
     })
 }
@@ -598,8 +770,9 @@ fn selection_human(selection: &SelectionRecord) -> String {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use std::{fs, path::PathBuf, time::SystemTime};
 
-    use super::{Arguments, command_from_cli, evaluation_human};
+    use super::{Arguments, command_from_cli, evaluation_human, packaged_tui_paths};
     use hephaestus_control::{Command, EvaluationEventRecord, EvaluationRecord};
 
     #[test]
@@ -622,6 +795,53 @@ mod tests {
                 candidate_genome_id: "candidate-1".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn init_cli_accepts_the_quickstart_fixture_and_destination() {
+        let arguments = Arguments::try_parse_from([
+            "hephaestus",
+            "init",
+            "--fixture",
+            "quickstart",
+            "/tmp/quickstart",
+        ])
+        .expect("fixture command parses");
+
+        assert!(
+            matches!(arguments.command, super::CliCommand::Init { fixture, path }
+            if fixture == "quickstart" && path == PathBuf::from("/tmp/quickstart"))
+        );
+    }
+
+    #[test]
+    fn packaged_tui_paths_follow_the_relocated_executable() {
+        let nonce = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("clock is after the epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "hephaestus-package-layout-{}-{nonce}",
+            std::process::id()
+        ));
+        let bin = root.join("bin");
+        let share = root.join("share/hephaestus");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(share.join("tui")).unwrap();
+        fs::write(bin.join("hephaestus"), b"cli").unwrap();
+        fs::write(bin.join("node"), b"node").unwrap();
+        fs::write(share.join("package.json"), b"{}\n").unwrap();
+        fs::write(share.join("tui/main.mjs"), b"process.exit(0)\n").unwrap();
+        let canonical_root = root.canonicalize().unwrap();
+
+        assert_eq!(
+            packaged_tui_paths(&bin.join("hephaestus")),
+            Some((
+                canonical_root.join("bin/node"),
+                canonical_root.join("share/hephaestus/tui/main.mjs")
+            ))
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -2,6 +2,11 @@
 
 Everything `scripts/quickstart.sh` registers, in source form.
 
+An installed macOS package can copy these files and create a small source
+repository with `hephaestus init --fixture quickstart ./hephaestus-quickstart`.
+The fixture files are copied into that directory; the committed offline runtime
+target is under `repository/`.
+
 | File | Registered as | Notes |
 |---|---|---|
 | `tasks/visible.json` | `arena.visible_manifest` | Candidates may see the input; never the expectation. |

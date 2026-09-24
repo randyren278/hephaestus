@@ -6,6 +6,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "tsx src/main.tsx",
+    "build:package": "node scripts/build-package.mjs",
     "test": "tsx --test test/*.test.tsx",
     "typecheck": "tsc --noEmit"
   },
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/node": "^22.19.0",
     "@types/react": "^19.2.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.0"
   }

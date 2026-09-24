@@ -46,6 +46,9 @@ jobs:
       - name: Offline Gauntlet fixture contracts
         run: python -m unittest discover -s scripts/tests -p 'test_gauntlet_reference.py' -v
 
+      - name: macOS package builder and installer contracts
+        run: python -m unittest discover -s scripts/tests -p 'test_macos_package.py' -v
+
       - name: Tests with coverage
         run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 
@@ -87,6 +90,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Build packaged TUI bundle
+        run: npm run build:package
 
       - name: Tests
         run: npm test
