@@ -1769,11 +1769,12 @@ fn reject_success_terminal_without_lifecycle(plane: &mut ControlPlane, base: &Jo
 }
 
 #[allow(clippy::too_many_lines)]
-fn append_interrupted_result_fixture(
+fn append_signed_result_fixture(
     plane: &mut ControlPlane,
     genome: &GenomeRecord,
     cancellation_requested: bool,
     mismatch_source_revision: bool,
+    completion_reason: RunCompletionReason,
 ) -> JobRecord {
     let job_id = "interrupted-recovery";
     let run_id = job_run_id(job_id);
@@ -1834,7 +1835,7 @@ fn append_interrupted_result_fixture(
         seed: base.seed,
         environment_id: base.environment_id.clone(),
         budget: base.budget,
-        completion_reason: RunCompletionReason::OperatorInterrupt,
+        completion_reason,
         latency_millis: 1,
         actual_cost_microusd: 0,
         stdout_artifact_id,
@@ -1844,14 +1845,14 @@ fn append_interrupted_result_fixture(
     let signed_event = plane
         .run_result_signer
         .issue(receipt, 1)
-        .expect("sign interrupted run result");
+        .expect("sign run result");
     let stored_result = plane
         .storage
         .as_mut()
         .expect("canonical storage")
         .ledger
         .append(signed_event)
-        .expect("persist signed interrupted run result");
+        .expect("persist signed run result");
     plane
         .state
         .apply(
@@ -1859,7 +1860,7 @@ fn append_interrupted_result_fixture(
             &plane.operator_token,
             &plane.run_result_verifier,
         )
-        .expect("project signed interrupted run result");
+        .expect("project signed run result");
     base
 }
 
@@ -1958,8 +1959,13 @@ fn signed_interrupted_result_recovers_once_and_preserves_cancellation() {
         let mut plane = open_projection_test_plane(&directory);
         let token = plane.token_hex.clone();
         let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
-        let job =
-            append_interrupted_result_fixture(&mut plane, &genome, cancellation_requested, false);
+        let job = append_signed_result_fixture(
+            &mut plane,
+            &genome,
+            cancellation_requested,
+            false,
+            RunCompletionReason::OperatorInterrupt,
+        );
         let before_forged_terminal = plane.state.snapshot();
         let mut forged_success = plane.state.jobs[&job.job_id].clone();
         forged_success.state = JobState::Succeeded;
@@ -2008,12 +2014,70 @@ fn signed_interrupted_result_recovers_once_and_preserves_cancellation() {
 }
 
 #[test]
+fn signed_provider_failure_recovers_as_failed_once() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let job = append_signed_result_fixture(
+        &mut plane,
+        &genome,
+        false,
+        false,
+        RunCompletionReason::ProviderFailure,
+    );
+    let run_id = job.run_id.clone();
+    assert_eq!(
+        plane.state.run_results[&run_id].completion_reason,
+        RunCompletionReason::ProviderFailure
+    );
+    drop(plane);
+
+    for _ in 0..2 {
+        let reopened = open_projection_test_plane(&directory);
+        let recovered = reopened.state.jobs.get(&job.job_id).expect("recovered job");
+        assert_eq!(recovered.state, JobState::Failed);
+        assert_eq!(recovered.terminal, Some(JobTerminal::Failed));
+        assert_eq!(
+            reopened.state.run_results[&run_id].completion_reason,
+            RunCompletionReason::ProviderFailure
+        );
+        assert!(matches!(
+            reopened.replay_response().expect("replay failed run"),
+            ResponseData::Replay { .. }
+        ));
+        let history = EventStore::open(directory.path().join("events.sqlite3"))
+            .expect("open recovered history")
+            .replay_verified()
+            .expect("verify recovered history");
+        assert_eq!(
+            history
+                .iter()
+                .filter(|event| {
+                    event.event_type == "job.terminal"
+                        && event.aggregate_id == format!("job:{}", job.job_id)
+                })
+                .count(),
+            1,
+            "recovery must append exactly one failed terminal event"
+        );
+        drop(reopened);
+    }
+}
+
+#[test]
 fn mismatched_signed_interrupted_result_fails_recovery_without_terminal_append() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = open_projection_test_plane(&directory);
     let token = plane.token_hex.clone();
     let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
-    let job = append_interrupted_result_fixture(&mut plane, &genome, false, true);
+    let job = append_signed_result_fixture(
+        &mut plane,
+        &genome,
+        false,
+        true,
+        RunCompletionReason::OperatorInterrupt,
+    );
     let before = EventStore::open(directory.path().join("events.sqlite3"))
         .expect("open pre-recovery history")
         .replay_verified()
