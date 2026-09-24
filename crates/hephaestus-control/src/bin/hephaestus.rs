@@ -247,28 +247,24 @@ fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
         let absolute_data_dir = if data_dir.is_absolute() {
             data_dir
         } else {
-            match std::env::current_dir() {
-                Ok(cwd) => cwd.join(data_dir),
-                Err(_) => {
-                    eprintln!("hephaestus: could not resolve the TUI data directory");
-                    return ExitCode::FAILURE;
-                }
-            }
+            let Ok(cwd) = std::env::current_dir() else {
+                eprintln!("hephaestus: could not resolve the TUI data directory");
+                return ExitCode::FAILURE;
+            };
+            cwd.join(data_dir)
         };
         command.env("HEPHAESTUS_HOME", absolute_data_dir);
     }
-    match command.status() {
-        Ok(status) => status
-            .code()
-            .and_then(|code| u8::try_from(code).ok())
-            .map_or(ExitCode::FAILURE, ExitCode::from),
-        Err(_) => {
-            eprintln!(
-                "hephaestus: could not start the TUI; install Node.js 22+ and package dependencies"
-            );
-            ExitCode::FAILURE
-        }
-    }
+    let Ok(status) = command.status() else {
+        eprintln!(
+            "hephaestus: could not start the TUI; install Node.js 22+ and package dependencies"
+        );
+        return ExitCode::FAILURE;
+    };
+    status
+        .code()
+        .and_then(|code| u8::try_from(code).ok())
+        .map_or(ExitCode::FAILURE, ExitCode::from)
 }
 
 fn absolute_path(path: PathBuf) -> Result<String, &'static str> {
