@@ -4962,6 +4962,183 @@ fn committed_reference_fixture(directory: &Path) -> (PathBuf, String) {
     (repository, revision)
 }
 
+fn corrupted_runtime_recorder_fixture(
+    directory: &Path,
+    run_id: &str,
+) -> (
+    RunSpec,
+    Sandbox,
+    CapabilityToken,
+    EvidenceRecorder,
+    PathBuf,
+    PathBuf,
+) {
+    let (repository, _) = committed_reference_fixture(directory);
+    let spec = RunSpec::new(
+        run_id,
+        "genome-fixture",
+        "world-fixture",
+        repository,
+        "exercise recoverable evidence initialization",
+        CapabilitySet::new(false, false),
+        Budget::new(Duration::from_secs(5), 1024, 0).expect("valid run budget"),
+    )
+    .expect("valid run spec");
+    let sandbox_root = directory.join("sandboxes");
+    let manager =
+        SandboxManager::open(&sandbox_root, Duration::from_secs(30)).expect("open sandbox manager");
+    let (sandbox, token) = manager.create(&spec).expect("materialize sandbox");
+    let sandbox_run = sandbox
+        .worktree()
+        .parent()
+        .expect("sandbox run directory")
+        .to_path_buf();
+
+    let database = directory.join("events.sqlite3");
+    let mut events = EventStore::open(&database).expect("open canonical events");
+    events
+        .append(EventInput::new(
+            "fixture-valid-event",
+            "run:fixture",
+            "fixture.valid",
+            "test",
+            1,
+            b"valid canonical payload",
+        ))
+        .expect("append valid canonical event");
+    let artifacts = ArtifactStore::open(directory.join("artifacts")).expect("open artifact store");
+    let recorder = EvidenceRecorder::from_stores(
+        events,
+        artifacts,
+        RedactionPolicy::new([]),
+        RetentionLimits::new(8, 1024).expect("valid retention limits"),
+    );
+
+    // Corrupt the already-open recorder's ledger through an independent SQLite connection.
+    let connection = rusqlite::Connection::open(&database).expect("open tamper connection");
+    let changed = connection
+        .execute(
+            "UPDATE events SET payload = ?1 WHERE event_id = ?2",
+            rusqlite::params![
+                b"tampered canonical payload".as_slice(),
+                "fixture-valid-event"
+            ],
+        )
+        .expect("tamper with persisted event");
+    assert_eq!(changed, 1);
+    drop(connection);
+
+    (spec, sandbox, token, recorder, database, sandbox_run)
+}
+
+fn assert_recovery_failure_keeps_recorder_and_cleans_sandbox(
+    result: Result<ReferenceExecution, ExecuteError>,
+    recorder: EvidenceRecorder,
+    database: &Path,
+    sandbox: Sandbox,
+    sandbox_run: &Path,
+) {
+    assert!(matches!(result, Err(ExecuteError::Internal)));
+
+    let connection = rusqlite::Connection::open(database).expect("open result check");
+    let run_results: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'run.result_recorded'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count recorded results");
+    assert_eq!(run_results, 0, "failed recovery cannot record a run result");
+    drop(connection);
+
+    let (events, artifacts) = recorder.into_stores();
+    assert!(
+        events.replay_verified().is_err(),
+        "returned recorder retains the corrupt canonical ledger"
+    );
+    let retained_id = artifacts
+        .put(b"recorder ownership retained")
+        .expect("returned recorder retains its artifact store");
+    assert_eq!(
+        artifacts.get(&retained_id).expect("read retained artifact"),
+        b"recorder ownership retained"
+    );
+    drop((events, artifacts));
+
+    sandbox
+        .cleanup()
+        .expect("cleanup sandbox after failed recovery");
+    assert!(
+        !sandbox_run.exists(),
+        "failed recovery leaves no sandbox run"
+    );
+}
+
+#[test]
+fn reference_runtime_returns_recorder_when_recovery_detects_tampered_history() {
+    let directory = tempdir().expect("runtime recovery fixture");
+    let (spec, sandbox, token, recorder, database, sandbox_run) =
+        corrupted_runtime_recorder_fixture(directory.path(), "reference-recovery");
+
+    let (result, recorder) =
+        execute_reference_runtime(recorder, &spec, &sandbox, &token, spec.run_id());
+
+    assert_recovery_failure_keeps_recorder_and_cleans_sandbox(
+        result,
+        recorder,
+        &database,
+        sandbox,
+        &sandbox_run,
+    );
+}
+
+#[test]
+fn candidate_runtime_returns_recorder_when_recovery_detects_tampered_history() {
+    let directory = tempdir().expect("runtime recovery fixture");
+    let (spec, sandbox, token, recorder, database, sandbox_run) =
+        corrupted_runtime_recorder_fixture(directory.path(), "candidate-recovery");
+    let executable = std::env::current_exe().expect("test executable");
+    let runtime = SupervisedRuntime::deterministic_guarded(
+        IsolationPolicy::detect([]),
+        &executable,
+        [],
+        &executable,
+    )
+    .expect("construct candidate runtime without launching it");
+
+    let (result, recorder) =
+        execute_candidate_runtime(runtime, recorder, &spec, &sandbox, &token, spec.run_id());
+
+    assert_recovery_failure_keeps_recorder_and_cleans_sandbox(
+        result,
+        recorder,
+        &database,
+        sandbox,
+        &sandbox_run,
+    );
+}
+
+#[test]
+fn private_path_helpers_reject_children_beneath_regular_files_without_mutation() {
+    let directory = tempdir().expect("private path fixture");
+    let regular_file = directory.path().join("regular-file");
+    let original = b"preserve this file";
+    fs::write(&regular_file, original).expect("create regular file");
+    let child = regular_file.join("child");
+
+    assert!(prepare_private_directory(&child).is_err());
+    assert!(prepare_private_file(&child).is_err());
+    assert!(load_or_create_token(&child).is_err());
+    assert!(load_or_create_run_result_signer(&child, true).is_err());
+    assert!(remove_stale_socket(&child).is_err());
+
+    assert_eq!(
+        fs::read(&regular_file).expect("read unchanged regular file"),
+        original
+    );
+    assert!(!child.exists());
+}
+
 fn run_result_receipt(plane: &ControlPlane, run_id: &str) -> RunResultReceipt {
     let history = plane
         .storage
