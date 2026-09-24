@@ -2934,6 +2934,267 @@ fn wait_for_test_arena_trial(plane: &mut ControlPlane, deadline: Instant) -> Are
     }
 }
 
+fn deliver_test_evidence_request_through_control_plane(
+    plane: &mut ControlPlane,
+    request: EvidenceRequest,
+) {
+    let original_receiver = plane
+        .job_evidence_receiver
+        .take()
+        .expect("active evidence receiver");
+    let (sender, receiver) = mpsc::sync_channel(1);
+    sender
+        .send(request)
+        .expect("queue captured evidence request");
+    plane.job_evidence_receiver = Some(receiver);
+    let result = plane.service_async_messages();
+    drop(plane.job_evidence_receiver.take());
+    plane.job_evidence_receiver = Some(original_receiver);
+    result.expect("production evidence service returns");
+}
+
+fn take_test_record_trace_request(plane: &mut ControlPlane, deadline: Instant) -> EvidenceRequest {
+    loop {
+        let request = plane
+            .job_evidence_receiver
+            .as_ref()
+            .expect("active evidence receiver")
+            .try_recv();
+        match request {
+            Ok(request @ EvidenceRequest::RecordTrace { .. }) => return request,
+            Ok(request @ EvidenceRequest::EnsureCapacity { .. }) => {
+                deliver_test_evidence_request_through_control_plane(plane, request);
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                assert!(Instant::now() < deadline, "worker did not request a trace");
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                panic!("worker disconnected before requesting a trace");
+            }
+        }
+    }
+}
+
+fn real_worker_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Arena evidence fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(
+        cargo_evaluator.is_file(),
+        "missing evaluator {cargo_evaluator:?}"
+    );
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open real worker fixture");
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) = register_dispatch_arena_objects(&mut plane, &token, directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-evidence", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    (plane, parent, candidate)
+}
+
+fn trace_count_for_run(plane: &ControlPlane, run_id: &str) -> usize {
+    plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify trace count history")
+        .iter()
+        .filter(|event| {
+            if event.event_type != "trace.recorded" {
+                return false;
+            }
+            serde_json::from_slice::<TraceReceipt>(&event.payload)
+                .is_ok_and(|receipt| receipt.provenance.run_id() == run_id)
+        })
+        .count()
+}
+
+fn drain_rejected_evidence_arena_job(plane: &mut ControlPlane, job_id: &str, deadline: Instant) {
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("drain rejected evidence worker messages");
+        assert!(
+            Instant::now() < deadline,
+            "rejected evidence worker stalled"
+        );
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let terminal = plane
+        .state
+        .arena_jobs
+        .get(job_id)
+        .expect("failed Arena job");
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert!(terminal.evaluation.is_none());
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify failed evidence history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| {
+                event.event_id == format!("arena-job:{job_id}:terminal")
+                    && event.event_type == "arena.job.terminal"
+            })
+            .count(),
+        1
+    );
+    assert!(!history.iter().any(|event| {
+        event.event_id == format!("arena:evaluation:{job_id}:recorded")
+            && event.event_type == "evaluation.recorded"
+    }));
+    assert!(matches!(
+        plane.replay_response().expect("replay failed evidence job"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn arena_evidence_failures_cancel_through_production_writer_and_replay_once() {
+    let directory = tempdir().expect("Arena evidence fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let data_dir = plane.data_dir.clone();
+
+    for (job_id, invalidate_cas) in [
+        ("arena-writer-unavailable", false),
+        ("arena-cas-unavailable", true),
+    ] {
+        let trial_run_id = paired_run_id(job_id, "parent", 0);
+        assert!(matches!(
+            plane
+                .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id)
+                .expect("admit real Arena job"),
+            ResponseData::ArenaJob { job } if job.state == JobState::Running
+        ));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let request = take_test_record_trace_request(&mut plane, deadline);
+        assert!(matches!(&request, EvidenceRequest::RecordTrace { .. }));
+        assert_eq!(request.run_id(), trial_run_id);
+        let traces_before = trace_count_for_run(&plane, &trial_run_id);
+
+        if invalidate_cas {
+            let blobs = data_dir.join("blobs");
+            let saved_blobs = data_dir.join("blobs-before-evidence-failure");
+            fs::rename(&blobs, &saved_blobs).expect("hide canonical CAS root");
+            fs::write(&blobs, b"not a directory").expect("replace CAS root with a file");
+            deliver_test_evidence_request_through_control_plane(&mut plane, request);
+            fs::remove_file(&blobs).expect("remove invalid CAS root file");
+            fs::rename(saved_blobs, blobs).expect("restore canonical CAS root");
+        } else {
+            let storage = plane.storage.take().expect("canonical writer present");
+            deliver_test_evidence_request_through_control_plane(&mut plane, request);
+            assert!(plane.storage.is_none(), "unavailable writer stays absent");
+            plane.storage = Some(storage);
+        }
+
+        assert!(
+            plane
+                .active_arena_job
+                .as_ref()
+                .expect("active rejected evidence job")
+                .cancel
+                .load(Ordering::Acquire),
+            "production evidence failure must cancel the active Arena worker"
+        );
+        assert_eq!(
+            trace_count_for_run(&plane, &trial_run_id),
+            traces_before,
+            "rejected trace must not be committed"
+        );
+        drain_rejected_evidence_arena_job(&mut plane, job_id, deadline);
+        assert!(
+            !plane
+                .storage
+                .as_ref()
+                .unwrap()
+                .ledger
+                .replay_verified()
+                .unwrap()
+                .iter()
+                .any(|event| event.event_type == "run.result_recorded"
+                    && event.event_id == format!("result:{trial_run_id}"))
+        );
+    }
+
+    drop(plane);
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("fixture-evaluator");
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        directory.path().join("repository"),
+        &evaluator,
+        &worker,
+    )
+    .expect("restart and replay both failed evidence jobs");
+    for job_id in ["arena-writer-unavailable", "arena-cas-unavailable"] {
+        assert_eq!(reopened.state.arena_jobs[job_id].state, JobState::Failed);
+        assert_eq!(
+            reopened.state.arena_jobs[job_id].terminal,
+            Some(JobTerminal::Failed)
+        );
+        assert!(reopened.state.arena_jobs[job_id].evaluation.is_none());
+    }
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained() {
