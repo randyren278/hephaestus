@@ -1546,6 +1546,187 @@ fn arena_thread_launch_failure_persists_interruption_and_releases_slot() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
+fn arena_replay_rejects_signed_trials_before_running_and_out_of_admitted_order() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) =
+        register_thread_failure_arena_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    // The injected spawn failure occurs after real admitted and running events
+    // have been persisted, and before any worker can contribute trial results.
+    plane.thread_spawn_failures.arena = true;
+    assert!(matches!(
+        plane.submit_arena_job(
+            "signed-trial-order",
+            &parent.genome_id,
+            &candidate.genome_id
+        ),
+        Err(ExecuteError::Internal)
+    ));
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify canonical admission history");
+    let admitted_index = history
+        .iter()
+        .position(|event| event.event_id == "arena-job:signed-trial-order:admitted")
+        .expect("real admitted event");
+    let running_index = history
+        .iter()
+        .position(|event| event.event_id == "arena-job:signed-trial-order:running")
+        .expect("real running event");
+    assert!(admitted_index < running_index);
+    let record: ArenaJobRecord =
+        serde_json::from_slice(&history[running_index].payload).expect("running record");
+    assert_eq!(record.parent_genome_id, parent.genome_id);
+    assert_eq!(record.candidate_genome_id, candidate.genome_id);
+    assert_eq!(record.state, JobState::Running);
+
+    let (stdout_artifact_id, stderr_artifact_id) = put_fixture_output_artifacts(
+        &plane,
+        b"signed provider failure stdout",
+        b"signed provider failure stderr",
+    );
+    let signed_trial = |index: usize, timestamp_millis: i64| {
+        let parent_trial_count =
+            usize::try_from(record.parent_trial_count).expect("parent trial count");
+        let is_candidate = index >= parent_trial_count;
+        let task_index = index % parent_trial_count;
+        let (task_id, input) = if task_index == 0 {
+            ("visible-task", "visible")
+        } else {
+            ("sealed-task", "sealed")
+        };
+        let receipt = RunResultReceipt {
+            schema_version: RUN_RESULT_SCHEMA_VERSION,
+            run_id: record.ordered_trial_run_ids[index].clone(),
+            genome_id: if is_candidate {
+                record.candidate_genome_id.clone()
+            } else {
+                record.parent_genome_id.clone()
+            },
+            world_id: record.world_id.clone(),
+            source_revision: record.source_revision.clone(),
+            task_id: task_id.to_owned(),
+            input_commitment: blake3::hash(input.as_bytes()).to_hex().to_string(),
+            seed: record.seed,
+            environment_id: record.environment_id.clone(),
+            budget: record.trial_budget,
+            completion_reason: RunCompletionReason::ProviderFailure,
+            latency_millis: 1,
+            actual_cost_microusd: 0,
+            stdout_artifact_id: stdout_artifact_id.clone(),
+            stderr_artifact_id: stderr_artifact_id.clone(),
+            trace_artifact_ids: Vec::new(),
+        };
+        plane
+            .run_result_signer
+            .issue(receipt, timestamp_millis)
+            .expect("sign trial result")
+    };
+    let candidate_trial_index =
+        usize::try_from(record.parent_trial_count).expect("parent trial count");
+    let candidate_timestamp = history[running_index]
+        .timestamp_millis
+        .checked_add(1)
+        .expect("trial timestamp range");
+    let candidate_result = signed_trial(candidate_trial_index, candidate_timestamp);
+    let parent_result = signed_trial(
+        0,
+        candidate_timestamp
+            .checked_add(1)
+            .expect("parent trial timestamp range"),
+    );
+    let pre_running_parent_result = signed_trial(0, history[admitted_index].timestamp_millis);
+    drop(plane);
+
+    let events_path = directory.path().join("events.sqlite3");
+    let rebuild_history = |prefix: &[StoredEvent], trial_events: Vec<EventInput>| {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+        }
+        let mut ledger = EventStore::open(&events_path).expect("create replay fixture ledger");
+        for event in prefix {
+            ledger
+                .append(EventInput::new(
+                    event.event_id.clone(),
+                    event.aggregate_id.clone(),
+                    event.event_type.clone(),
+                    event.actor.clone(),
+                    event.timestamp_millis,
+                    &event.payload,
+                ))
+                .expect("copy authenticated fixture prefix");
+        }
+        for event in trial_events {
+            ledger.append(event).expect("append signed trial");
+        }
+        drop(ledger);
+    };
+    let reopen_error = || {
+        let executable = env::current_exe().expect("test executable");
+        ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            directory.path(),
+            env::current_dir().expect("repository directory"),
+            &executable,
+            &executable,
+        )
+        .err()
+        .expect("replay must reject invalid signed trial order")
+    };
+
+    rebuild_history(
+        &history[..=running_index],
+        vec![candidate_result.clone(), parent_result.clone()],
+    );
+    let candidate_first = reopen_error();
+    assert!(
+        candidate_first
+            .to_string()
+            .contains("Arena trial result is out of admitted order"),
+        "unexpected candidate-first rejection: {candidate_first}"
+    );
+
+    rebuild_history(
+        &history[..=admitted_index],
+        vec![
+            pre_running_parent_result,
+            history[running_index..]
+                .iter()
+                .find(|event| event.event_id == "arena-job:signed-trial-order:running")
+                .map(|event| {
+                    EventInput::new(
+                        event.event_id.clone(),
+                        event.aggregate_id.clone(),
+                        event.event_type.clone(),
+                        event.actor.clone(),
+                        event.timestamp_millis,
+                        &event.payload,
+                    )
+                })
+                .expect("real running transition"),
+        ],
+    );
+    let parent_before_running = reopen_error();
+    assert!(
+        parent_before_running
+            .to_string()
+            .contains("Arena trial result is out of admitted order"),
+        "unexpected pre-running rejection: {parent_before_running}"
+    );
+}
+
+#[test]
 fn arena_replay_rejects_admitted_plan_without_its_registered_bindings() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = open_projection_test_plane(&directory);
