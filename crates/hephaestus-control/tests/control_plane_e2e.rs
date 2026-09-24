@@ -27,6 +27,7 @@ use hephaestus_experience::{
 use hephaestus_genome::{SourceFormat, compile_genome, compile_world};
 use hephaestus_ledger::ArtifactId;
 use hephaestus_ledger::{ArtifactStore, EventInput, EventStore};
+use rusqlite::Connection;
 use tempfile::tempdir;
 
 const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
@@ -2694,6 +2695,168 @@ fn async_direct_reference_job_persists_signed_output_and_replays_success() {
     // is absent, even when the receipt artifact and signature remain valid.
     remove_job_terminal_and_completion_trace(&data_dir, "success-job");
     assert!(ControlPlane::open(&data_dir).is_err());
+}
+
+#[test]
+fn direct_job_terminal_sqlite_rejection_recovers_signed_success_after_restart() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let mut daemon = Daemon::start(&data_dir);
+    let genome_path = directory.path().join("sqlite-rejected-agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: sqlite-rejected-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write reference Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let Some(ResponseData::Genome { genome }) = registered.data else {
+        panic!("expected registered Genome");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    let database = data_dir.join("events.sqlite3");
+    let connection = Connection::open(&database).expect("open trigger connection");
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_direct_success_terminal
+             BEFORE INSERT ON events
+             WHEN NEW.event_type = 'job.terminal'
+              AND NEW.aggregate_id = 'job:sqlite-rejected-success'
+             BEGIN
+               SELECT RAISE(FAIL, 'fixture rejects direct job terminal');
+             END;",
+        )
+        .expect("install direct terminal write rejection");
+
+    let accepted = response(&cli(
+        &data_dir,
+        &["submit", "sqlite-rejected-success", &genome.genome_id],
+    ));
+    assert!(matches!(accepted.data, Some(ResponseData::Job { .. })));
+
+    let exit_deadline = Instant::now() + Duration::from_secs(10);
+    let daemon_status = loop {
+        if let Some(status) = daemon.child.try_wait().expect("inspect daemon") {
+            break status;
+        }
+        assert!(
+            Instant::now() < exit_deadline,
+            "SQLite rejected terminal write did not fail the daemon service loop"
+        );
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        !daemon_status.success(),
+        "terminal append failure should stop the writer before it serves a false status"
+    );
+
+    let history = EventStore::open(&database)
+        .expect("open history after failed terminal write")
+        .replay_verified()
+        .expect("verify durable pre-terminal history");
+    let run_event = history
+        .iter()
+        .find(|event| event.event_type == "run.result_recorded")
+        .expect("signed successful run result committed before the terminal write");
+    let producer_seed: [u8; 32] = fs::read(data_dir.join("runtime-producer.key"))
+        .expect("read runtime producer seed")
+        .try_into()
+        .expect("producer seed width");
+    let receipt = RunResultSigner::from_seed(producer_seed)
+        .verifier()
+        .verify_event(run_event)
+        .expect("verify signed success result");
+    assert_eq!(receipt.completion_reason, RunCompletionReason::Success);
+    assert!(history.iter().any(|event| {
+        event.event_type == "trace.recorded"
+            && serde_json::from_slice::<TraceReceipt>(&event.payload).is_ok_and(|trace| {
+                trace.kind == TraceKind::LifecycleCompleted
+                    && trace.provenance.run_id() == receipt.run_id
+            })
+    }));
+    assert!(history.iter().any(|event| {
+        event.event_type == "job.running" && event.aggregate_id == "job:sqlite-rejected-success"
+    }));
+    assert!(!history.iter().any(|event| {
+        event.event_type == "job.terminal" && event.aggregate_id == "job:sqlite-rejected-success"
+    }));
+
+    connection
+        .execute_batch("DROP TRIGGER reject_direct_success_terminal;")
+        .expect("remove fixture write rejection");
+    drop(connection);
+
+    let restarted = Daemon::start(&data_dir);
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    assert!(matches!(
+        response(&cli(
+            &data_dir,
+            &["job", "status", "sqlite-rejected-success"]
+        ))
+        .data,
+        Some(ResponseData::Job {
+            job: JobRecord {
+                state: JobState::Succeeded,
+                terminal: Some(JobTerminal::Succeeded),
+                ..
+            },
+            progress: JobProgress {
+                trace_events: 1..,
+                ..
+            }
+        })
+    ));
+    restarted.stop();
+
+    let second_restart = Daemon::start(&data_dir);
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    assert!(matches!(
+        response(&cli(
+            &data_dir,
+            &["job", "status", "sqlite-rejected-success"]
+        ))
+        .data,
+        Some(ResponseData::Job {
+            job: JobRecord {
+                state: JobState::Succeeded,
+                terminal: Some(JobTerminal::Succeeded),
+                ..
+            },
+            ..
+        })
+    ));
+    let history = EventStore::open(&database)
+        .expect("open stable success history")
+        .replay_verified()
+        .expect("verify stable success history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| {
+                event.event_type == "job.terminal"
+                    && event.aggregate_id == "job:sqlite-rejected-success"
+            })
+            .count(),
+        1,
+        "recovery should persist exactly one terminal across restarts"
+    );
+    second_restart.stop();
 }
 
 fn remove_job_terminal_before_restart(data_dir: &Path, job_id: &str) {
