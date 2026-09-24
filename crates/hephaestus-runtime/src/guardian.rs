@@ -619,6 +619,10 @@ mod tests {
         );
 
         assert!(result.is_ok(), "worker guardian failed: {result:?}");
+        // Give an escaped descendant time to perform its delayed write before
+        // checking containment. The child exits naturally by 200 ms, so this
+        // bounded grace period also prevents a failed assertion leaking it.
+        thread::sleep(Duration::from_millis(350));
         assert!(
             !descendant_marker.exists(),
             "worker descendant survived its leader and escaped process-group containment"
