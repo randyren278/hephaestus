@@ -253,7 +253,10 @@ daemon would rather not start than start with a ledger it cannot verify.
 ## Development
 
 Install the stable Rust toolchain with `clippy`, `rustfmt`, and
-`llvm-tools-preview`, plus `cargo-llvm-cov`. The full gate is:
+`llvm-tools-preview`, plus `cargo-llvm-cov`. For quick code-quality feedback,
+run `scripts/check-fast.sh` (or pass a Cargo package name to check one package
+and its dependencies). This checks formatting and lints all target types without
+building or launching the test executables. Run the full gate before a milestone:
 
 ```bash
 cargo fmt --all -- --check
