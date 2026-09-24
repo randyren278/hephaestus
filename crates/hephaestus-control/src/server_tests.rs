@@ -53,6 +53,257 @@ fn forge_mutation_changes_only_the_supported_compact_instruction_token() {
     );
 }
 
+fn forge_history_with_payload_edit(
+    history: &[StoredEvent],
+    forge_event_id: &str,
+    edit: impl FnOnce(&mut ForgeProposalPayload),
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == forge_event_id)
+        .expect("Forge event exists in canonical history");
+    let mut payload: ForgeProposalPayload =
+        serde_json::from_slice(&event.payload).expect("decode canonical Forge payload");
+    edit(&mut payload);
+    let canonical = serde_json::to_value(&payload).expect("canonicalize tampered Forge payload");
+    event.payload = serde_json::to_vec(&canonical).expect("encode tampered Forge payload");
+    tampered
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
+    let directory = tempdir().expect("Forge projection fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let evaluation_id = "forge-projection-evaluation";
+    assert!(matches!(
+        plane
+            .submit_arena_job(evaluation_id, &parent.genome_id, &candidate.genome_id)
+            .expect("admit genuine Arena evaluation"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist trials and score Forge selection fixture");
+        assert!(
+            Instant::now() < deadline,
+            "genuine Arena evaluation did not finish"
+        );
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_eq!(
+        plane.state.arena_jobs[evaluation_id].terminal,
+        Some(JobTerminal::Succeeded)
+    );
+
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(evaluation_id)
+        .expect("select completed Arena evidence")
+    else {
+        panic!("Arena selection should produce a canonical selection receipt");
+    };
+    let selected_candidate = selection.receipt.candidate_genome_id().to_owned();
+    assert_eq!(selected_candidate, candidate.genome_id);
+
+    assert!(matches!(
+        plane.propose_genome(
+            "forge-missing-selection",
+            "selection:missing",
+            &selected_candidate,
+            "Flip the supported reference operation.",
+        ),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.propose_genome(
+            "forge-invalid-hypothesis",
+            &selection.event.event_id,
+            &selected_candidate,
+            " \n",
+        ),
+        Err(ExecuteError::Invalid(
+            "hypothesis must be 1 to 512 printable UTF-8 bytes"
+        ))
+    ));
+    assert!(matches!(
+        plane.propose_genome(
+            "forge-wrong-parent",
+            &selection.event.event_id,
+            &parent.genome_id,
+            "Flip the supported reference operation.",
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "the parent must be the selected candidate under the same World"
+    ));
+
+    let proposal_id = "forge-projection-child";
+    let ResponseData::ForgeProposal { proposal } = plane
+        .propose_genome(
+            proposal_id,
+            &selection.event.event_id,
+            &selected_candidate,
+            "Flip the supported reference operation.",
+        )
+        .expect("record Forge proposal bound to selected candidate")
+    else {
+        panic!("valid Forge proposal should return its recorded envelope");
+    };
+    assert!(!proposal.promotion_eligible);
+    assert_eq!(proposal.payload.parent_genome_id, selected_candidate);
+    assert_eq!(
+        proposal.payload.child.parent_ids.as_slice(),
+        std::slice::from_ref(&selected_candidate)
+    );
+    let forge_event_id = proposal.event.event_id.clone();
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical Forge ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify genuine selection and proposal history");
+    verify_forge_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("valid Forge proposal replays against its selection receipt");
+
+    let duplicate = plane
+        .propose_genome(
+            proposal_id,
+            &selection.event.event_id,
+            &selected_candidate,
+            "Flip the supported reference operation.",
+        )
+        .expect("identical proposal retry returns its canonical event");
+    assert!(matches!(
+        duplicate,
+        ResponseData::ForgeProposal { proposal } if proposal.event.event_id == forge_event_id
+    ));
+    let after_duplicate = plane
+        .storage
+        .as_ref()
+        .expect("canonical Forge ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify idempotent Forge retry");
+    assert_eq!(after_duplicate.len(), history.len());
+    assert!(matches!(
+        plane.propose_genome(
+            proposal_id,
+            &selection.event.event_id,
+            &selected_candidate,
+            "Change the proposal hypothesis.",
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "proposal_id is already bound to different proposal content"
+    ));
+
+    let missing_selection = forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
+        payload.selection_event_id = "selection:missing".to_owned();
+    });
+    let missing_selection_result =
+        verify_forge_history(&plane.data_dir, &missing_selection, &plane.state.registered);
+    assert!(
+        matches!(
+            &missing_selection_result,
+            Err(ControlError::Projection(message))
+                if message == "Forge proposal source selection is missing or out of order"
+        ),
+        "unexpected missing-selection replay result: {missing_selection_result:?}"
+    );
+
+    let wrong_parent = forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
+        payload.parent_genome_id = parent.genome_id.clone();
+    });
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &wrong_parent, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge proposal is not bound to its selected candidate"
+    ));
+
+    let wrong_selection_hash =
+        forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
+            payload.selection_event_hash = "0".repeat(64);
+        });
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &wrong_selection_hash, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge proposal is not bound to its selected candidate"
+    ));
+
+    let wrong_child = forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
+        payload.child.name.push_str("-tampered");
+    });
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &wrong_child, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge proposal child differs from its registered lineage"
+    ));
+
+    let wrong_operation = forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
+        payload.operation_after = "identity".to_owned();
+    });
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &wrong_operation, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge prompt mutation is not the supported one-step operation flip"
+    ));
+
+    let invalid_hypothesis =
+        forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
+            payload.hypothesis = " \n".to_owned();
+        });
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &invalid_hypothesis, &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "Forge hypothesis is invalid"
+    ));
+
+    let mut invalid_actor = history.clone();
+    invalid_actor
+        .iter_mut()
+        .find(|event| event.event_id == forge_event_id)
+        .expect("Forge event exists")
+        .actor = "untrusted-actor".to_owned();
+    assert!(matches!(
+        verify_forge_history(&plane.data_dir, &invalid_actor, &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "Forge proposal event identity is invalid"
+    ));
+
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("explicit replay verifies persisted Forge history"),
+        ResponseData::Replay { .. }
+    ));
+    let data_dir = plane.data_dir.clone();
+    let repository = plane.source_repository.clone();
+    let evaluator = plane.evaluator_executable.clone();
+    let worker = plane.reference_worker_executable.clone();
+    drop(plane);
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("restart verifies and preserves valid Forge proposal");
+    assert!(
+        reopened
+            .state
+            .registered
+            .genome(&proposal.payload.child.genome_id)
+            .is_some()
+    );
+    assert!(matches!(
+        reopened.replay_response().expect("replay after restart"),
+        ResponseData::Replay { .. }
+    ));
+}
+
 #[cfg(feature = "test-support")]
 #[test]
 fn test_arena_wall_override_only_lowers_the_admitted_bound() {
