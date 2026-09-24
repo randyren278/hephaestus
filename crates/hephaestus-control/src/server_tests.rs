@@ -650,6 +650,124 @@ fn register_dispatch_objects(
     (world, genome, prompt)
 }
 
+fn register_json_genome_with_prompt(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    world_id: &str,
+    name: &str,
+    prompt_bytes: &[u8],
+) -> GenomeRecord {
+    let response =
+        dispatch_json_genome_with_prompt(plane, token, directory, world_id, name, prompt_bytes);
+    let Some(ResponseData::Genome { genome }) = response.data else {
+        panic!(
+            "JSON Genome registration should succeed: {:?}",
+            response.error
+        );
+    };
+    genome
+}
+
+fn dispatch_json_genome_with_prompt(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    world_id: &str,
+    name: &str,
+    prompt_bytes: &[u8],
+) -> ApiResponse {
+    let prompt_id = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .artifacts
+        .put(prompt_bytes)
+        .expect("store prompt bytes");
+    let source_path = directory.path().join(format!("{name}.json"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"{{"schema_version":1,"name":"{name}","parents":[],"model":{{"provider":"deterministic","family":"reference"}},"authority":{{"workspace_write":false,"network":false}},"artifacts":{{"agent.prompt":"{}"}}}}"#,
+            prompt_id.as_str()
+        ),
+    )
+    .expect("write JSON Genome source");
+    dispatch_call(
+        plane,
+        token,
+        &format!("register-{name}"),
+        Command::GenomeRegister {
+            path: source_path.display().to_string(),
+            world_id: world_id.to_owned(),
+        },
+    )
+}
+
+#[test]
+fn json_genome_prompt_reads_valid_cas_and_registration_rejects_invalid_contents() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (world, _, _) = register_dispatch_objects(&mut plane, &token, &directory);
+
+    let valid_prompt = b"bounded JSON Genome prompt\n";
+    let valid = register_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "json-valid-prompt",
+        valid_prompt,
+    );
+    assert!(matches!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "valid-prompt",
+            Command::GenomePrompt {
+                genome_id: valid.genome_id,
+            }
+        )
+        .data,
+        Some(ResponseData::GenomePrompt { prompt, .. }) if prompt.as_bytes() == valid_prompt
+    ));
+
+    let whitespace = dispatch_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "json-whitespace-prompt",
+        b" \n\t ",
+    );
+    assert_eq!(
+        whitespace
+            .error
+            .expect("whitespace prompt is rejected at registration")
+            .code,
+        ApiErrorCode::InvalidRequest
+    );
+
+    let oversized_bytes =
+        vec![b'x'; usize::try_from(MAX_SOURCE_FILE_BYTES).expect("source limit fits usize") + 1];
+    let oversized = dispatch_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "json-oversized-prompt",
+        &oversized_bytes,
+    );
+    assert_eq!(
+        oversized
+            .error
+            .expect("oversized prompt is rejected at registration")
+            .code,
+        ApiErrorCode::InvalidRequest
+    );
+}
+
 fn assert_registered_dispatch_objects(
     plane: &mut ControlPlane,
     token: &str,
@@ -6100,6 +6218,20 @@ fn world_verifier_and_producer_key_failures_are_covered() {
     let short_registered =
         RegisteredObjects::replay(&[short_event], &artifacts).expect("registered short key");
     assert!(anchored_world_verifier(&short_registered, &artifacts).is_err());
+
+    let invalid_encoding = (0_u8..=u8::MAX)
+        .map(|byte| [byte; 32])
+        .find(|bytes| RunResultVerifier::from_public_key_bytes(*bytes).is_err())
+        .expect("find a repeated-byte string that does not decompress as Ed25519");
+    assert!(RunResultVerifier::from_public_key_bytes(invalid_encoding).is_err());
+    let invalid_key = artifacts
+        .put(&invalid_encoding)
+        .expect("store invalid Ed25519 encoding");
+    let (invalid_event, _) =
+        compiled_world_registration(&artifacts, "invalid-encoding", invalid_key.as_str());
+    let invalid_registered = RegisteredObjects::replay(&[invalid_event], &artifacts)
+        .expect("project World registration before verifier validation");
+    assert!(anchored_world_verifier(&invalid_registered, &artifacts).is_err());
 
     let first_signer = RunResultSigner::from_seed([21; 32]);
     let second_signer = RunResultSigner::from_seed([22; 32]);
