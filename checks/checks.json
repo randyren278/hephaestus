@@ -915,6 +915,13 @@
       "replace": "            RunCompletionReason::Success\n                | RunCompletionReason::OutputBudgetExceeded"
     },
     {
+      "id": "run-result-supervisor-timeout-and-io-failure-rejected",
+      "file": "crates/hephaestus-experience/src/run_result.rs",
+      "invariant": "A trusted supervisor's wall-budget and I/O terminal outcomes can be signed and replayed.",
+      "find": "                | RunCompletionReason::WallBudgetExceeded\n                | RunCompletionReason::IoFailure",
+      "replace": ""
+    },
+    {
       "id": "artifact-preflight-address-forged",
       "file": "crates/hephaestus-ledger/src/artifact_store.rs",
       "invariant": "A non-writing artifact preflight computes the same canonical BLAKE3 address as publication.",
@@ -1942,6 +1949,13 @@
       "invariant": "A succeeded async job must be backed by its exact signed successful result and completed lifecycle trace.",
       "find": "                        receipt_matches\n                            && self.completed_runs.contains(&record.run_id)\n                            && signed_result.is_some_and(|receipt| {\n                                receipt.completion_reason == RunCompletionReason::Success\n                            })",
       "replace": "                        true"
+    },
+    {
+      "id": "async-wall-timeout-not-classified-as-failure",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A supervised wall-budget timeout is persisted as a failed job and never a successful terminal.",
+      "find": "            if completion_reason == RunCompletionReason::Success {",
+      "replace": "            if completion_reason == RunCompletionReason::Success || completion_reason == RunCompletionReason::WallBudgetExceeded {"
     },
     {
       "id": "experience-capacity-failure-acknowledged-as-success",

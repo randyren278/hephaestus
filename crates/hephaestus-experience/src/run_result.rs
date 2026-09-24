@@ -348,9 +348,11 @@ impl RunResultReceipt {
             RunCompletionReason::Success
                 | RunCompletionReason::ProviderFailure
                 | RunCompletionReason::OutputBudgetExceeded
+                | RunCompletionReason::WallBudgetExceeded
+                | RunCompletionReason::IoFailure
         ) {
             return Err(ExperienceError::InvalidInput(
-                "deterministic run result has an unsupported completion reason",
+                "run result has an unsupported completion reason",
             ));
         }
         if self.trace_artifact_ids.len() > MAX_TRACE_ARTIFACTS {

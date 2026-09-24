@@ -1670,6 +1670,140 @@ fn async_worker_failure_is_durable_as_provider_failure() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
+fn async_wall_timeout_is_durable_replayable_and_keeps_daemon_available() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let (world, _) = seed_compiled_genome(&data_dir);
+    let worker = directory.path().join("timeout-worker");
+    fs::write(
+        &worker,
+        "#!/bin/sh\nprintf '%s' \"$$\" > \"$HOME/timeout-worker.pid\"\nexec /bin/sleep 60\n",
+    )
+    .expect("write timeout worker");
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700))
+        .expect("make worker executable");
+    let daemon =
+        Daemon::start_with_worker(&data_dir, Path::new(env!("CARGO_MANIFEST_DIR")), &worker);
+    let genome_path = directory.path().join("timeout-agent.md");
+    fs::write(
+        &genome_path,
+        "---\nschema_version: 1\nname: timeout-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write Genome");
+    let registered = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("UTF-8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ));
+    let Some(ResponseData::Genome { genome }) = registered.data else {
+        panic!("expected registered Genome");
+    };
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    let accepted = response(&cli(
+        &data_dir,
+        &["submit", "timeout-job", &genome.genome_id],
+    ));
+    assert!(matches!(accepted.data, Some(ResponseData::Job { .. })));
+
+    let pid_deadline = Instant::now() + Duration::from_secs(5);
+    let worker_pid = loop {
+        let pid_file = fs::read_dir(data_dir.join("sandboxes"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("execution/timeout-worker.pid"))
+            .find(|path| path.is_file());
+        if let Some(pid) = pid_file
+            .and_then(|path| fs::read_to_string(path).ok())
+            .and_then(|contents| contents.parse::<u32>().ok())
+        {
+            break pid;
+        }
+        assert!(
+            Instant::now() < pid_deadline,
+            "timeout worker did not start"
+        );
+        thread::sleep(Duration::from_millis(5));
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let terminal = loop {
+        let status = response(&cli(&data_dir, &["job", "status", "timeout-job"]));
+        let Some(ResponseData::Job { job, .. }) = status.data else {
+            panic!("daemon must remain responsive until the hard timeout");
+        };
+        if matches!(
+            job.state,
+            JobState::Succeeded | JobState::Failed | JobState::Interrupted
+        ) {
+            break job;
+        }
+        assert!(Instant::now() < deadline, "wall timeout was not recorded");
+        thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert!(matches!(
+        response(&cli(&data_dir, &["status"])).data,
+        Some(ResponseData::Status { .. })
+    ));
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    daemon.stop();
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open canonical ledger")
+        .replay_verified()
+        .expect("verify timeout history");
+    let run_event = history
+        .iter()
+        .find(|event| event.event_type == "run.result_recorded")
+        .expect("hard timeout is signed as a terminal run result");
+    let seed: [u8; 32] = fs::read(data_dir.join("runtime-producer.key"))
+        .expect("read producer key")
+        .try_into()
+        .expect("producer key width");
+    let receipt = RunResultSigner::from_seed(seed)
+        .verifier()
+        .verify_event(run_event)
+        .expect("verify timeout receipt signature");
+    assert_eq!(
+        receipt.completion_reason,
+        RunCompletionReason::WallBudgetExceeded
+    );
+    let worker_probe = ProcessCommand::new("/bin/kill")
+        .args(["-0", &worker_pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe timed-out worker");
+    assert!(
+        !worker_probe.success(),
+        "timed-out worker survived its budget"
+    );
+
+    let restarted = Daemon::start(&data_dir);
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    assert!(matches!(
+        response(&cli(&data_dir, &["job", "status", "timeout-job"])).data,
+        Some(ResponseData::Job { job, .. })
+            if job.state == JobState::Failed && job.terminal == Some(JobTerminal::Failed)
+    ));
+    restarted.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
 fn async_trace_store_rejection_after_worker_exit_does_not_sign_success() {
     let directory = tempdir().expect("temporary directory");
     let data_dir = directory.path().join("data");

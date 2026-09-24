@@ -223,15 +223,9 @@ fn parser_rejects_unknown_schema_fields_and_invalid_runtime_claims() {
         .is_err()
     );
 
-    for reason in [
-        RunCompletionReason::OperatorInterrupt,
-        RunCompletionReason::WallBudgetExceeded,
-        RunCompletionReason::IoFailure,
-    ] {
-        let mut invalid = receipt();
-        invalid.completion_reason = reason;
-        assert!(signer().issue(invalid, 1).is_err());
-    }
+    let mut interrupted = receipt();
+    interrupted.completion_reason = RunCompletionReason::OperatorInterrupt;
+    assert!(signer().issue(interrupted, 1).is_err());
     let mut too_many_traces = receipt();
     too_many_traces.trace_artifact_ids = vec![artifact; 1_025];
     assert!(signer().issue(too_many_traces, 1).is_err());
@@ -260,6 +254,23 @@ fn confirmed_provider_failure_can_be_signed_and_replayed() {
             .expect("signed provider failure receipt"),
         provider_failure
     );
+}
+
+#[test]
+fn supervisor_wall_and_io_failures_can_be_signed_and_replayed() {
+    for reason in [
+        RunCompletionReason::WallBudgetExceeded,
+        RunCompletionReason::IoFailure,
+    ] {
+        let mut failed = receipt();
+        failed.completion_reason = reason;
+        let event = stored(failed.clone());
+        assert_eq!(
+            RunResultReceipt::parse_from_event(&event, &signer().verifier())
+                .expect("signed supervised failure receipt"),
+            failed
+        );
+    }
 }
 
 #[test]
