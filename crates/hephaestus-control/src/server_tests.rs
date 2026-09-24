@@ -4513,3 +4513,417 @@ fn stored_event(
         hash: [0; 32],
     }
 }
+
+fn fixture_git(repository: &Path, arguments: &[&str]) -> std::process::Output {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(repository)
+        .args(arguments)
+        .output()
+        .expect("run fixture Git command");
+    assert!(
+        output.status.success(),
+        "git {arguments:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn committed_reference_fixture(directory: &Path) -> (PathBuf, String) {
+    let repository = directory.join("reference-source");
+    fs::create_dir_all(&repository).expect("create reference source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"deterministic fixture\n")
+        .expect("write tracked fixture");
+    fixture_git(&repository, &["add", "fixture.txt"]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+    let revision = String::from_utf8(fixture_git(&repository, &["rev-parse", "HEAD"]).stdout)
+        .expect("Git revision is UTF-8")
+        .trim()
+        .to_owned();
+    (repository, revision)
+}
+
+fn run_result_receipt(plane: &ControlPlane, run_id: &str) -> RunResultReceipt {
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify runtime history");
+    let event = history
+        .iter()
+        .find(|event| {
+            event.event_type == "run.result_recorded"
+                && event.event_id == format!("result:{run_id}")
+        })
+        .expect("signed run result event");
+    assert_eq!(event.actor, "runtime-plane");
+    RunResultReceipt::parse_from_event(event, &plane.run_result_verifier)
+        .expect("authenticate run result receipt")
+}
+
+fn assert_runtime_directories_clean(data_dir: &Path) {
+    for entry in fs::read_dir(data_dir).expect("read runtime data directory") {
+        let entry = entry.expect("read runtime directory");
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "sandboxes" {
+            assert!(
+                entry
+                    .path()
+                    .read_dir()
+                    .expect("read sandbox root")
+                    .next()
+                    .is_none(),
+                "synchronous run left a sandbox behind"
+            );
+        } else {
+            assert!(
+                !name.starts_with("reference-worker-") && !name.starts_with("sandbox-"),
+                "synchronous run left runtime state behind: {name}"
+            );
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn synchronous_markdown_run_evaluation_persists_signed_provenance_and_replays() {
+    let directory = tempdir().expect("fixture directory");
+    let (repository, source_revision) = committed_reference_fixture(directory.path());
+    let data_dir = directory.path().join("data");
+    let current_executable = env::current_exe().expect("test executable");
+    let cargo_bin = current_executable
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory");
+    let worker = cargo_bin.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(
+        worker.is_file(),
+        "reference worker binary missing: {worker:?}"
+    );
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &worker,
+    )
+    .expect("open control plane for synchronous reference evaluation");
+    let token = plane.token_hex.clone();
+    let (world, genome, prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(prompt.contains("\"operation\":\"identity\""));
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let task_id = "sync-evaluation-task";
+    let input = "signed evaluation fixture input";
+    let seed = 0x1234;
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "sync-evaluation",
+        Command::RunEvaluation {
+            genome_id: genome.genome_id.clone(),
+            task_id: task_id.to_owned(),
+            input: input.to_owned(),
+            seed,
+            wall_millis: 10_000,
+            maximum_output_bytes: 1_048_576,
+            maximum_cost_microusd: 0,
+        },
+    );
+    assert!(
+        response.error.is_none(),
+        "evaluation failed: {:?}",
+        response.error
+    );
+    let (
+        run_id,
+        response_genome,
+        response_world,
+        response_revision,
+        completion_reason,
+        stdout_artifact_id,
+        stderr_artifact_id,
+        trace_artifact_ids,
+    ) = match response.data.expect("evaluation response") {
+        ResponseData::Run {
+            run_id,
+            genome_id,
+            world_id,
+            source_revision,
+            completion_reason,
+            stdout_artifact_id,
+            stderr_artifact_id,
+            trace_artifact_ids,
+            ..
+        } => (
+            run_id,
+            genome_id,
+            world_id,
+            source_revision,
+            completion_reason,
+            stdout_artifact_id,
+            stderr_artifact_id,
+            trace_artifact_ids,
+        ),
+        other => panic!("unexpected synchronous evaluation response: {other:?}"),
+    };
+    assert_eq!(response_genome, genome.genome_id);
+    assert_eq!(response_world, world.world_id);
+    assert_eq!(response_revision, source_revision);
+    assert_eq!(completion_reason, RunCompletionReason::Success);
+
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open output CAS");
+    assert_eq!(
+        artifacts
+            .get(&ArtifactId::parse(stdout_artifact_id.clone()).expect("stdout artifact ID"))
+            .expect("load output from CAS"),
+        input.as_bytes()
+    );
+    assert!(
+        artifacts
+            .get(&ArtifactId::parse(stderr_artifact_id).expect("stderr artifact ID"))
+            .expect("load diagnostics from CAS")
+            .is_empty()
+    );
+    drop(artifacts);
+
+    let receipt = run_result_receipt(&plane, &run_id);
+    assert_eq!(receipt.run_id, run_id);
+    assert_eq!(receipt.genome_id, genome.genome_id);
+    assert_eq!(receipt.world_id, world.world_id);
+    assert_eq!(receipt.source_revision, source_revision);
+    assert_eq!(receipt.task_id, task_id);
+    assert_eq!(
+        receipt.input_commitment,
+        blake3::hash(input.as_bytes()).to_hex().to_string()
+    );
+    assert_eq!(receipt.seed, seed);
+    assert_eq!(receipt.completion_reason, RunCompletionReason::Success);
+    assert_eq!(receipt.stdout_artifact_id, stdout_artifact_id);
+    assert_eq!(receipt.trace_artifact_ids, trace_artifact_ids);
+    assert_eq!(receipt.budget.wall_millis, 10_000);
+    assert_eq!(receipt.budget.maximum_output_bytes, 1_048_576);
+    assert_eq!(receipt.budget.maximum_cost_microusd, 0);
+    let worker_digest = blake3::hash(&fs::read(&worker).expect("read worker identity"))
+        .to_hex()
+        .to_string();
+    let worker_environment = format!(
+        "{}|reference-instruction-language-v1|{worker_digest}",
+        reference_environment_id()
+    );
+    assert_eq!(
+        receipt.environment_id,
+        format!(
+            "reference-v1.{}",
+            blake3::hash(worker_environment.as_bytes()).to_hex()
+        )
+    );
+    assert!(plane.state.completed_runs.contains(&run_id));
+    assert!(!plane.state.active_runs.contains(&run_id));
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify completed lifecycle");
+    assert!(history.iter().any(|event| {
+        event.event_type == "trace.recorded"
+            && serde_json::from_slice::<TraceReceipt>(&event.payload).is_ok_and(|trace| {
+                trace.provenance.run_id() == run_id
+                    && trace.provenance.genome_id() == genome.genome_id
+                    && trace.provenance.world_id() == world.world_id
+                    && trace.kind == TraceKind::LifecycleCompleted
+            })
+    }));
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay synchronous evaluation"),
+        ResponseData::Replay { .. }
+    ));
+    assert_runtime_directories_clean(&data_dir);
+    drop(plane);
+
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &worker,
+    )
+    .expect("reopen verified synchronous evaluation");
+    assert!(reopened.state.completed_runs.contains(&run_id));
+    assert!(!reopened.state.active_runs.contains(&run_id));
+    assert_eq!(
+        reopened.state.run_results.get(&run_id),
+        Some(&receipt),
+        "signed result provenance survives replay and reopen"
+    );
+    assert_runtime_directories_clean(&data_dir);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn synchronous_json_run_reference_inventories_committed_repository_and_replays() {
+    let directory = tempdir().expect("fixture directory");
+    let (repository, source_revision) = committed_reference_fixture(directory.path());
+    let data_dir = directory.path().join("data");
+    let current_executable = env::current_exe().expect("test executable");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &current_executable,
+    )
+    .expect("open control plane for no-prompt reference run");
+    let token = plane.token_hex.clone();
+    let (world, _, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let genome_path = directory.path().join("json-no-prompt.json");
+    fs::write(
+        &genome_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "name": "json-no-prompt",
+            "parents": [],
+            "model": {"provider": "deterministic", "family": "reference"},
+            "authority": {"workspace_write": false, "network": false},
+            "artifacts": {}
+        }))
+        .expect("encode JSON Genome"),
+    )
+    .expect("write JSON Genome source");
+    let Some(ResponseData::Genome { genome }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-json-genome",
+        Command::GenomeRegister {
+            path: genome_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("JSON Genome registration should succeed");
+    };
+    assert!(
+        plane
+            .state
+            .registered
+            .genome(&genome.genome_id)
+            .expect("registered JSON Genome")
+            .compiled()
+            .artifact_id("agent.prompt")
+            .is_none(),
+        "JSON Genome has no registered prompt"
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "reference-inventory",
+        Command::RunReference {
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    assert!(
+        response.error.is_none(),
+        "reference run failed: {:?}",
+        response.error
+    );
+    let (run_id, stdout_artifact_id, revision) = match response.data.expect("reference response") {
+        ResponseData::Run {
+            run_id,
+            stdout_artifact_id,
+            source_revision,
+            completion_reason,
+            genome_id,
+            world_id,
+            ..
+        } => {
+            assert_eq!(completion_reason, RunCompletionReason::Success);
+            assert_eq!(genome_id, genome.genome_id);
+            assert_eq!(world_id, world.world_id);
+            (run_id, stdout_artifact_id, source_revision)
+        }
+        other => panic!("unexpected reference response: {other:?}"),
+    };
+    assert_eq!(revision, source_revision);
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open inventory CAS");
+    let stdout = artifacts
+        .get(&ArtifactId::parse(stdout_artifact_id).expect("inventory artifact ID"))
+        .expect("load inventory from CAS");
+    let inventory: serde_json::Value = serde_json::from_slice(&stdout).expect("inventory JSON");
+    assert_eq!(inventory["schema_version"], 1);
+    assert_eq!(inventory["genome_id"], genome.genome_id);
+    assert_eq!(inventory["world_id"], world.world_id);
+    assert_eq!(inventory["source_revision"], source_revision);
+    assert_eq!(inventory["files"].as_array().unwrap().len(), 1);
+    assert_eq!(inventory["files"][0]["path"], "fixture.txt");
+    assert_eq!(
+        inventory["files"][0]["bytes"],
+        b"deterministic fixture\n".len()
+    );
+    assert_eq!(
+        inventory["files"][0]["blake3"],
+        blake3::hash(b"deterministic fixture\n")
+            .to_hex()
+            .to_string()
+    );
+    drop(artifacts);
+
+    let receipt = run_result_receipt(&plane, &run_id);
+    let reference_input =
+        "Inventory the isolated repository without modifying it or using the network.";
+    assert_eq!(receipt.run_id, run_id);
+    assert_eq!(receipt.genome_id, genome.genome_id);
+    assert_eq!(receipt.world_id, world.world_id);
+    assert_eq!(receipt.source_revision, source_revision);
+    assert_eq!(receipt.task_id, "repository-inventory-v1");
+    assert_eq!(
+        receipt.input_commitment,
+        blake3::hash(reference_input.as_bytes())
+            .to_hex()
+            .to_string()
+    );
+    assert_eq!(receipt.seed, 0);
+    assert_eq!(receipt.environment_id, reference_environment_id());
+    assert_eq!(receipt.completion_reason, RunCompletionReason::Success);
+    assert!(plane.state.completed_runs.contains(&run_id));
+    assert!(!plane.state.active_runs.contains(&run_id));
+    assert!(matches!(
+        plane.replay_response().expect("replay reference inventory"),
+        ResponseData::Replay { .. }
+    ));
+    assert_runtime_directories_clean(&data_dir);
+    drop(plane);
+
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &current_executable,
+    )
+    .expect("reopen verified reference inventory");
+    assert_eq!(reopened.state.run_results.get(&run_id), Some(&receipt));
+    assert!(reopened.state.completed_runs.contains(&run_id));
+    assert!(!reopened.state.active_runs.contains(&run_id));
+}
