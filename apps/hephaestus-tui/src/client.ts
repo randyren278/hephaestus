@@ -17,7 +17,8 @@ export class ControlClient {
 		this.maxFrameBytes = options.maxFrameBytes ?? MAX_FRAME_BYTES;
 	}
 
-	async request(command: Command): Promise<ApiResponse> {
+	async request(command: Command, signal?: AbortSignal): Promise<ApiResponse> {
+		if (signal?.aborted) throw new Error('daemon request aborted');
 		let dir: Stats;
 		try {
 			dir = await fs.lstat(this.dataDir);
@@ -64,20 +65,25 @@ export class ControlClient {
 			throw new Error('daemon socket is unavailable');
 		}
 		if (!socketStat.isSocket() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) throw new Error('control socket is not an owner-only socket');
+		if (signal?.aborted) throw new Error('daemon request aborted');
 		return new Promise((resolvePromise, reject) => {
 			let settled = false;
 			let received = 0;
 			const chunks: Buffer[] = [];
 			const socket: Socket = createConnection(socketPath);
-			const deadline = setTimeout(() => finish(new Error('daemon request timed out')), this.timeoutMs);
 			const finish = (error?: Error, response?: ApiResponse) => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(deadline);
+				signal?.removeEventListener('abort', abortRequest);
 				socket.destroy();
 				if (error) reject(error);
 				else resolvePromise(response!);
 			};
+			const abortRequest = () => finish(new Error('daemon request aborted'));
+			const deadline = setTimeout(() => finish(new Error('daemon request timed out')), this.timeoutMs);
+			if (signal?.aborted) abortRequest();
+			else signal?.addEventListener('abort', abortRequest, {once: true});
 			socket.once('connect', () => socket.end(payload));
 			socket.on('data', chunk => {
 				received += chunk.length;

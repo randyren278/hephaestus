@@ -8,6 +8,21 @@ type View = 'home' | 'job-id' | 'confirm-kill' | 'confirm-kill-all';
 type TuiClient = Pick<ControlClient, 'request'>;
 type Props = {client?: TuiClient; pollMs?: number};
 
+function waitForPoll(ms: number, signal: AbortSignal): Promise<void> {
+	if (signal.aborted) return Promise.reject(new Error('daemon request aborted'));
+	return new Promise((resolve, reject) => {
+		const finish = (error?: Error) => {
+			clearTimeout(timer);
+			signal.removeEventListener('abort', abort);
+			if (error) reject(error);
+			else resolve();
+		};
+		const abort = () => finish(new Error('daemon request aborted'));
+		const timer = setTimeout(() => finish(), ms);
+		signal.addEventListener('abort', abort, {once: true});
+	});
+}
+
 const arena = [
 	'       ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄',
 	'     ▄█  ▄▄  ▄▄  ▄▄  ▄▄  █▄',
@@ -42,36 +57,40 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [stale, setStale] = useState(false);
 	const [notice, setNotice] = useState('Connecting to the local control plane…');
 	const [busy, setBusy] = useState(false);
+	const [lifetime] = useState(() => new AbortController());
+	const closing = useRef(false);
 	const refreshing = useRef(false);
 	const refresh = useCallback(async (announce = true): Promise<ApiResponse | undefined> => {
-		if (refreshing.current) return undefined;
+		if (closing.current || refreshing.current) return undefined;
 		refreshing.current = true;
 		try {
-			const response = await client.request({command: 'status'});
+			const response = await client.request({command: 'status'}, lifetime.signal);
 			setStatus(response);
 			setStale(Boolean(response.error));
 			if (announce) setNotice(messageFor(response));
 			return response;
 		} catch (error) {
+			if (lifetime.signal.aborted) return undefined;
 			setStale(true);
 			if (announce) setNotice(error instanceof Error ? safeText(error.message) : 'Local daemon unavailable');
 			return undefined;
 		} finally {
 			refreshing.current = false;
 		}
-	}, [client]);
+	}, [client, lifetime]);
 	useEffect(() => {
 		void refresh();
 		const timer = setInterval(() => void refresh(false), pollMs);
 		return () => clearInterval(timer);
 	}, [refresh, pollMs]);
+	useEffect(() => () => lifetime.abort(), [lifetime]);
 
 	const act = async (command: Command, pending: string) => {
-		if (busy) return;
+		if (closing.current || busy) return;
 		setBusy(true);
 		setNotice(pending);
 		try {
-			const response = await client.request(command);
+			const response = await client.request(command, lifetime.signal);
 			setNotice(messageFor(response));
 			if (response.error) return;
 			if (command.command === 'job_kill') {
@@ -79,8 +98,8 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				const deadline = Date.now() + 20_000;
 				let confirmed = false;
 				while (Date.now() < deadline) {
-					await new Promise(resolve => setTimeout(resolve, 350));
-					const current = await client.request({command: 'job_status', job_id: command.job_id});
+					await waitForPoll(350, lifetime.signal);
+					const current = await client.request({command: 'job_status', job_id: command.job_id}, lifetime.signal);
 					if (current.data?.type === 'job' && ['succeeded', 'failed', 'interrupted'].includes(current.data.job.state)) {
 						setNotice(`Daemon confirmed ${safeText(command.job_id)} terminal: ${safeText(current.data.job.state)}${current.data.job.terminal ? ` / ${safeText(current.data.job.terminal)}` : ''}`);
 						confirmed = true;
@@ -95,14 +114,22 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				setNotice(`Kill-all recorded · ${active} active; terminal states unavailable.`);
 			}
 		} catch (error) {
+			if (lifetime.signal.aborted) return;
 			setNotice(error instanceof Error ? safeText(error.message) : 'Request failed');
 		} finally {
-			setBusy(false);
+			if (!lifetime.signal.aborted) setBusy(false);
 		}
 	};
 
+	const quit = () => {
+		if (closing.current) return;
+		closing.current = true;
+		lifetime.abort();
+		exit();
+	};
+
 	useInput((input, key) => {
-		if (view === 'home' && input.toLowerCase().includes('q')) { exit(); return; }
+		if (view === 'home' && input.toLowerCase().includes('q')) { quit(); return; }
 		if (view === 'job-id') {
 			if (key.escape) { setView('home'); return; }
 			if (key.return || input.includes('\r') || input.includes('\n')) {
