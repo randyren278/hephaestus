@@ -1,0 +1,82 @@
+"""Focused offline contract tests for the reference-instruction fixture."""
+
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "gauntlet_reference.py"
+SPEC = importlib.util.spec_from_file_location("gauntlet_reference", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+gauntlet = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(gauntlet)
+
+
+class GauntletReferenceTests(unittest.TestCase):
+    def test_visible_fixture_covers_multiline_and_non_ascii_ascii_mapping(self):
+        manifest = json.loads((gauntlet.FIXTURE_ROOT / "visible.json").read_text(encoding="utf-8"))
+        tasks = manifest["tasks"]
+        self.assertEqual(len(tasks), 2)
+        self.assertIn("\n", tasks[0]["input"])
+        self.assertIn("\n", tasks[0]["expected_output"])
+        self.assertEqual(tasks[1]["input"], "café — mañana\nüber λ")
+        self.assertEqual(tasks[1]["expected_output"], "CAFé — MAñANA\nüBER λ")
+
+    def test_identity_child_preserves_reference_operation_and_changes_lineage(self):
+        source = (gauntlet.FIXTURE_ROOT / "agents" / "identity.md").read_text(encoding="utf-8")
+        child = gauntlet._identity_child(source, name="child", parent_id="hephaestus:genome:parent")
+        self.assertIn("name: child", child)
+        self.assertIn('parents: ["hephaestus:genome:parent"]', child)
+        self.assertIn('"operation":"identity"', child)
+
+    def test_setup_places_owner_only_task_manifests_outside_candidate_repository(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "fixture"
+            root.mkdir(mode=0o700)
+            repo, data, external = gauntlet._setup_scratch(root)
+            self.assertEqual(repo.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(data.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(external.stat().st_mode & 0o777, 0o700)
+            self.assertNotIn(repo, (external / "visible.json").parents)
+            self.assertNotIn(repo, (external / "sealed.json").parents)
+            self.assertEqual((external / "visible.json").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((external / "sealed.json").stat().st_mode & 0o777, 0o600)
+            sealed = json.loads((external / "sealed.json").read_text(encoding="utf-8"))
+            self.assertEqual(sealed["visibility"], "sealed")
+            self.assertIn("\n", sealed["tasks"][0]["input"])
+            self.assertIn("é", sealed["tasks"][0]["input"])
+
+    def test_measured_comparison_contract_requires_unpromoted_durable_receipt(self):
+        event = {
+            "event_type": "selection.recorded",
+            "event_id": "event-1",
+            "event_hash": "hash-1",
+            "receipt_artifact_id": "blake3:receipt",
+        }
+        receipt = {
+            "invariant_gate_verified": False,
+            "promotion_eligible": False,
+            "correctness_improvements": 3,
+            "correctness_regressions": 0,
+            "correctness_unchanged": 0,
+            "parent_correctness_bps": 0,
+            "candidate_correctness_bps": 10_000,
+            "metrics_eligible": True,
+        }
+        metrics = gauntlet._expected_outcome("improvement", {"event": event, "receipt": receipt})
+        self.assertEqual(metrics["correctness_improvements"], 3)
+        self.assertEqual(metrics["receipt_artifact_id"], "blake3:receipt")
+        receipt["promotion_eligible"] = True
+        with self.assertRaises(gauntlet.RunnerError):
+            gauntlet._expected_outcome("improvement", {"event": event, "receipt": receipt})
+
+    def test_scratch_path_must_be_new(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(gauntlet.RunnerError):
+                gauntlet._scratch_root(temporary)
+
+
+if __name__ == "__main__":
+    unittest.main()

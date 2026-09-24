@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "manifest_id": "reference-gauntlet-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "multiline-visible",
+      "input": "lower line one\nlower line two",
+      "expected_output": "LOWER LINE ONE\nLOWER LINE TWO"
+    },
+    {
+      "task_id": "unicode-visible",
+      "input": "café — mañana\nüber λ",
+      "expected_output": "CAFé — MAñANA\nüBER λ"
+    }
+  ]
+}
