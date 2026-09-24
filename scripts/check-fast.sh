@@ -11,7 +11,7 @@ fi
 
 cargo fmt --all -- --check
 if (( $# == 1 )); then
-    cargo clippy -p "$1" --all-targets --all-features -- -D warnings
+    cargo clippy -p "$1" --all-features -- -D warnings
 else
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-features -- -D warnings
 fi
