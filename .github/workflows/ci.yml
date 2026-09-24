@@ -132,7 +132,7 @@ jobs:
             timeout_minutes: 20
           - scope: hephaestus-control
             prefix: crates/hephaestus-control/
-            minimum: 45
+            minimum: 46
             timeout_minutes: 60
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs

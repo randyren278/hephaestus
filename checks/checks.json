@@ -1963,6 +1963,13 @@
       "invariant": "A canonical writer cannot acknowledge a failed capacity reservation as successful.",
       "find": "                let acknowledged = result.as_ref().map_err(Clone::clone).copied();",
       "replace": "                let acknowledged = Ok(());"
+    },
+    {
+      "id": "arena-scorer-launch-terminal-not-persisted",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A scorer thread launch failure after signed trials is persisted as an interrupted Arena terminal before releasing the active slot.",
+      "find": "            self.append_arena_job_record(&terminal).map_err(|_| {\n                ControlError::Projection(\n                    \"Arena scorer launch failure could not be recorded\".to_owned(),\n                )\n            })?;",
+      "replace": "            let _ = terminal; // mutation: skip terminal append after scorer launch failure"
     }
   ]
 }
