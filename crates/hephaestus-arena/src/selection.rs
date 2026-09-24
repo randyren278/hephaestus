@@ -740,21 +740,24 @@ fn latency_tolerance_millis(parent_latency_millis: u64, task_count: u64) -> u64 
 /// `latency_tolerance_millis`. This stops a strictly-better candidate from
 /// being randomly rejected because it happened to run a millisecond or two
 /// slower on a trivial task.
+///
+/// Implemented by delegating to `pareto_dominates_v1` on an "effective"
+/// candidate latency: a candidate within tolerance is treated as tied with
+/// the parent (neither a regression nor a claimed improvement), and a
+/// candidate past the tolerance is compared exactly as `ALGORITHM_V1` would.
 fn pareto_dominates_v2(
     parent: [u64; 4],
     candidate: [u64; 4],
     latency_tolerance_millis: u64,
 ) -> bool {
-    let latency_no_worse = candidate[3] <= parent[3].saturating_add(latency_tolerance_millis);
-    let no_worse = candidate[0] >= parent[0]
-        && candidate[1] >= parent[1]
-        && candidate[2] <= parent[2]
-        && latency_no_worse;
-    let better = candidate[0] > parent[0]
-        || candidate[1] > parent[1]
-        || candidate[2] < parent[2]
-        || candidate[3] < parent[3];
-    no_worse && better
+    let within_tolerance = candidate[3] <= parent[3].saturating_add(latency_tolerance_millis);
+    let effective_latency = if within_tolerance {
+        candidate[3].min(parent[3])
+    } else {
+        candidate[3]
+    };
+    let effective_candidate = [candidate[0], candidate[1], candidate[2], effective_latency];
+    pareto_dominates_v1(parent, effective_candidate)
 }
 
 fn ensure_supported_confidence(confidence_bps: u16) -> Result<(), ArenaError> {
