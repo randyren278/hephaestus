@@ -1308,12 +1308,11 @@ fn signed_success_result_without_completed_run_rejects_job_terminal() {
     plane
         .append_job_record(&base)
         .expect("persist valid job admission");
-    let running = JobRecord {
-        state: JobState::Running,
-        ..base.clone()
-    };
     plane
-        .append_job_record(&running)
+        .append_job_record(&JobRecord {
+            state: JobState::Running,
+            ..base.clone()
+        })
         .expect("persist valid running transition");
 
     let receipt = RunResultReceipt {
