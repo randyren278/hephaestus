@@ -3718,8 +3718,11 @@ mod tests {
         let oversized = vec![b'x'; MAX_REQUEST_BYTES * 2];
         let response = serve_test_connection(&sender, &oversized);
         assert_eq!(
-            response.error.expect("oversized response").code,
-            ApiErrorCode::InvalidRequest
+            response.error.expect("oversized response"),
+            crate::ApiError {
+                code: ApiErrorCode::InvalidRequest,
+                message: "request exceeds limit".to_owned(),
+            }
         );
 
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -4602,6 +4605,19 @@ mod tests {
         assert!(plane.state.validate_job_record(&event, &job).is_ok());
         event.actor = "untrusted-actor".to_owned();
         assert!(plane.state.validate_job_record(&event, &job).is_err());
+    }
+
+    #[test]
+    fn async_reference_spec_uses_read_only_offline_authority() {
+        let directory = tempdir().expect("daemon directory");
+        let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+        let token = plane.token_hex.clone();
+        let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+        let worker = plane.pin_reference_worker().expect("pin reference worker");
+        let spec = plane
+            .async_reference_spec("authority-check", &genome, &worker)
+            .expect("build direct reference spec");
+        assert_eq!(spec.capabilities(), CapabilitySet::new(false, false));
     }
 
     #[test]

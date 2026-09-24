@@ -267,8 +267,8 @@
       "id": "oversized-control-request-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The local API bounds every request before JSON deserialization.",
-      "find": "        let response = if bytes.len() > MAX_REQUEST_BYTES {",
-      "replace": "        let response = if false && bytes.len() > MAX_REQUEST_BYTES {"
+      "find": "        if total_bytes > MAX_REQUEST_BYTES {",
+      "replace": "        if false && total_bytes > MAX_REQUEST_BYTES {"
     },
     {
       "id": "unknown-control-api-version-accepted",
@@ -315,9 +315,9 @@
     {
       "id": "kill-all-event-ignored",
       "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "Kill-all clears canonically active work and remains effective after restart.",
-      "find": "            \"control.kill_all\" => self.active_runs.clear(),",
-      "replace": "            \"control.kill_all\" => {}"
+      "invariant": "Kill-all requests cancellation of the active job before acknowledging control.",
+      "find": "                self.request_active_job_cancellation()?;",
+      "replace": "                // Active job cancellation incorrectly omitted."
     },
     {
       "id": "released-genome-metadata-overwritten",
@@ -358,15 +358,15 @@
       "id": "reference-runtime-workspace-authority-widened",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The offline reference runtime receives read-only and offline authority regardless of Genome ceiling.",
-      "find": "            prompt,\n            CapabilitySet::new(false, false),\n            budget,",
-      "replace": "            prompt,\n            CapabilitySet::new(true, false),\n            budget,"
+      "find": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(false, false),\n            budget,",
+      "replace": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(true, false),\n            budget,"
     },
     {
       "id": "trace-completion-projection-ignored",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Canonical terminal trace evidence removes the run from the daemon active projection.",
-      "find": "                    TraceKind::LifecycleCompleted => {\n                        self.active_runs.remove(receipt.provenance.run_id());\n                    }",
-      "replace": "                    TraceKind::LifecycleCompleted => {}"
+      "find": "                    TraceKind::LifecycleCompleted => {\n                        self.active_runs.remove(receipt.provenance.run_id());\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }",
+      "replace": "                    TraceKind::LifecycleCompleted => {\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }"
     },
     {
       "id": "registered-world-artifact-unverified",
@@ -505,21 +505,21 @@
       "id": "supervisor-inherits-ambient-environment",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "Workers receive a new allowlisted environment instead of ambient process authority.",
-      "find": "        command.env_clear();",
+      "find": "        worker_command.env_clear();",
       "replace": "        // Ambient environment incorrectly retained."
     },
     {
       "id": "supervisor-prompt-omitted-from-stdin",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "The exact prompt reaches the provider only through child stdin.",
-      "find": "            invocation.stdin().to_vec(),",
-      "replace": "            Vec::new(),"
+      "find": "            return Ok((worker_command, false, invocation.stdin().to_vec()));",
+      "replace": "            return Ok((worker_command, false, Vec::new()));"
     },
     {
       "id": "supervisor-stdin-delivery-failure-ignored",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "A child that does not receive the complete prompt cannot be reported as successful.",
-      "find": "        if stdin.write_all(&bytes).is_err() {\n            shared.io_failed.store(true, Ordering::Release);\n        }",
+      "find": "        if stdin.write_all(&bytes).is_err() {\n            shared.io_failed.store(true, Ordering::Release);\n            return;\n        }",
       "replace": "        let _ignored = stdin.write_all(&bytes);"
     },
     {
@@ -540,8 +540,8 @@
       "id": "supervisor-output-limit-ignored",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "Combined persisted provider output never exceeds the hard run budget.",
-      "find": "            if shared.output_exceeded.load(Ordering::Acquire) {\n                break terminate(&mut child, StopReason::OutputExceeded);\n            }",
-      "replace": "            if false && shared.output_exceeded.load(Ordering::Acquire) {\n                break terminate(&mut child, StopReason::OutputExceeded);\n            }"
+      "find": "            if shared.output_exceeded.load(Ordering::Acquire) {\n                break stop_supervised_child(&mut child, &shared, StopReason::OutputExceeded);\n            }",
+      "replace": "            if false && shared.output_exceeded.load(Ordering::Acquire) {\n                break stop_supervised_child(&mut child, &shared, StopReason::OutputExceeded);\n            }"
     },
     {
       "id": "supervisor-wall-deadline-ignored",
@@ -561,8 +561,8 @@
       "id": "supervisor-isolation-policy-bypassed",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "Every external process launch is constructed through the mandatory isolation policy.",
-      "find": "        let mut command = self.isolation.command(&invocation, sandbox)?;",
-      "replace": "        let mut command = Command::new(invocation.program());\n        command.args(invocation.arguments());\n        command.current_dir(sandbox.worktree());"
+      "find": "        let mut worker_command = self.isolation.command(&invocation, sandbox)?;",
+      "replace": "        let mut worker_command = Command::new(invocation.program());\n        worker_command.args(invocation.arguments());\n        worker_command.current_dir(sandbox.worktree());"
     },
     {
       "id": "supervisor-group-signal-misparsed",
