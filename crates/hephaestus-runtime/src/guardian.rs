@@ -608,23 +608,40 @@ mod tests {
     #[test]
     fn guardian_kills_descendants_when_worker_leader_exits() {
         let directory = tempfile::tempdir().expect("worker directory");
+        let descendant_ready = directory.path().join("descendant-ready");
         let descendant_marker = directory.path().join("descendant-survived");
-        let worker_script = format!(
-            "(sleep 0.2; printf leaked > {}) & exit 0",
-            descendant_marker.display()
+        let descendant_ready = descendant_ready.display().to_string();
+        let descendant_marker = descendant_marker.display().to_string();
+        let worker_script = concat!(
+            "(printf ready > \"$1\"; /bin/sleep 0.5; printf leaked > \"$2\") & ",
+            "attempts=0; ",
+            "while [ ! -f \"$1\" ] && [ \"$attempts\" -lt 200 ]; do ",
+            "/bin/sleep 0.01; attempts=$((attempts + 1)); done; ",
+            "[ -f \"$1\" ] || exit 7; exit 0"
+        );
+        let (control, _keep_control_open) = open_control_frame(
+            "/bin/sh",
+            &[
+                "-c",
+                worker_script,
+                "guardian-worker",
+                descendant_ready.as_str(),
+                descendant_marker.as_str(),
+            ],
+            b"",
         );
         let result = run_process_guardian_with(
-            control_frame("/bin/sh", &["-c", &worker_script], b""),
+            control,
             anchor_script(directory.path(), "printf R; exec /bin/cat"),
         );
 
         assert!(result.is_ok(), "worker guardian failed: {result:?}");
-        // Give an escaped descendant time to perform its delayed write before
-        // checking containment. The child exits naturally by 200 ms, so this
-        // bounded grace period also prevents a failed assertion leaking it.
-        thread::sleep(Duration::from_millis(350));
+        assert!(directory.path().join("descendant-ready").is_file());
+        // The leader exits only after its descendant has started and entered a
+        // delayed write. This grace period lets a leaked descendant finish.
+        thread::sleep(Duration::from_millis(650));
         assert!(
-            !descendant_marker.exists(),
+            !directory.path().join("descendant-survived").exists(),
             "worker descendant survived its leader and escaped process-group containment"
         );
     }
