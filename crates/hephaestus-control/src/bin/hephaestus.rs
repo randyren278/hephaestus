@@ -7,9 +7,9 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, ChampionRecord, ChampionTransitionRecord, Client,
-    Command, EvaluationRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
-    GenomeRecord, InvariantRecord, JobState, ResponseData, SelectionRecord, WorldRecord,
-    data_dir_from_environment,
+    Command, DenialEntry, EvaluationListEntry, EvaluationRecord, ForgeAssessmentOutcome,
+    ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord, InvariantRecord, JobState,
+    ResponseData, RunListEntry, SelectionRecord, WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -96,6 +96,24 @@ enum CliCommand {
     },
     /// Verify and replay the canonical event stream.
     Replay,
+    /// List recent direct runs and jobs, newest first.
+    Runs {
+        /// Maximum entries to return (1-200).
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
+    /// List recent Arena evaluations, newest first.
+    Evaluations {
+        /// Maximum entries to return (1-200).
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
+    /// List recent refused operator requests and recorded runtime denials, newest first.
+    Denials {
+        /// Maximum entries to return (1-200).
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
     /// Control the local daemon process.
     Daemon {
         #[command(subcommand)]
@@ -683,6 +701,9 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         } => Command::ArenaInvariants { evaluation_id },
         CliCommand::Champion { command } => champion_command_from_cli(command),
         CliCommand::Replay => Command::Replay,
+        CliCommand::Runs { limit } => Command::RunList { limit },
+        CliCommand::Evaluations { limit } => Command::EvaluationList { limit },
+        CliCommand::Denials { limit } => Command::DenialList { limit },
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
         } => Command::DaemonStop,
@@ -866,6 +887,21 @@ fn print_human(response: &ApiResponse) {
         ) => println!(
             "replayed events={event_count} frozen={frozen} active_runs={active_runs} projection={projection_hash}"
         ),
+        (Some(ResponseData::RunList { runs }), None) => {
+            for run in runs {
+                println!("{}", run_list_entry_human(run));
+            }
+        }
+        (Some(ResponseData::EvaluationList { evaluations }), None) => {
+            for entry in evaluations {
+                println!("{}", evaluation_list_entry_human(entry));
+            }
+        }
+        (Some(ResponseData::DenialList { denials }), None) => {
+            for denial in denials {
+                println!("{}", denial_human(denial));
+            }
+        }
         (_, Some(error)) => eprintln!("{:?}: {}", error.code, error.message),
         _ => eprintln!("invalid daemon response"),
     }
@@ -941,6 +977,76 @@ fn evaluation_human(evaluation: &EvaluationRecord) -> String {
         evaluation.event.event_id,
         evaluation.event.sequence,
         evaluation.event.aggregate_id
+    )
+}
+
+fn run_list_entry_human(run: &RunListEntry) -> String {
+    format!(
+        "run={} job={} genome={} world={} state={:?} reason={} latency_ms={} cost_microusd={}",
+        run.run_id,
+        run.job_id.as_deref().unwrap_or("none"),
+        run.genome_id,
+        run.world_id.as_deref().unwrap_or("unknown"),
+        run.state,
+        run.completion_reason
+            .map_or_else(|| "pending".to_owned(), |reason| format!("{reason:?}")),
+        run.latency_millis
+            .map_or_else(|| "pending".to_owned(), |value| value.to_string()),
+        run.actual_cost_microusd
+            .map_or_else(|| "pending".to_owned(), |value| value.to_string()),
+    )
+}
+
+fn evaluation_list_entry_human(entry: &EvaluationListEntry) -> String {
+    let mut line = evaluation_human(&entry.evaluation);
+    if let Some(selection) = &entry.selection {
+        line.push_str(&format!(
+            " selection_metrics_eligible={} estimate_bps={} lower_bps={} upper_bps={} parent_cost={} candidate_cost={} parent_latency_ms={} candidate_latency_ms={}",
+            selection.metrics_eligible,
+            selection.estimate_bps,
+            selection.lower_bps,
+            selection.upper_bps,
+            selection.parent_cost_microusd,
+            selection.candidate_cost_microusd,
+            selection.parent_latency_millis,
+            selection.candidate_latency_millis,
+        ));
+    }
+    if let Some(invariants) = &entry.invariants {
+        line.push_str(&format!(
+            " invariant_checks={} invariant_violations={} invariant_regressions={}/{} contract_satisfied={}",
+            invariants.total_checks,
+            invariants.total_candidate_violations,
+            invariants.total_paired_regressions,
+            invariants.maximum_regressions,
+            invariants.candidate_contract_satisfied,
+        ));
+    }
+    if let Some(assessment) = &entry.forge_assessment {
+        line.push_str(&format!(
+            " forge_assessment={} outcome={:?}",
+            assessment.assessment_id, assessment.outcome
+        ));
+    }
+    if !entry.champion_transition_ids.is_empty() {
+        line.push_str(&format!(
+            " champion_transitions={}",
+            entry.champion_transition_ids.join(",")
+        ));
+    }
+    line
+}
+
+fn denial_human(denial: &DenialEntry) -> String {
+    format!(
+        "kind={:?} timestamp_ms={} request={} command={} run={} genome={} world={}",
+        denial.kind,
+        denial.timestamp_millis,
+        denial.request_id.as_deref().unwrap_or("none"),
+        denial.command.as_deref().unwrap_or("none"),
+        denial.run_id.as_deref().unwrap_or("none"),
+        denial.genome_id.as_deref().unwrap_or("none"),
+        denial.world_id.as_deref().unwrap_or("none"),
     )
 }
 
@@ -1178,6 +1284,30 @@ mod tests {
                 parent_genome_id: "parent-1".to_owned(),
                 candidate_genome_id: "candidate-1".to_owned(),
             }
+        );
+    }
+
+    #[test]
+    fn evidence_list_commands_default_and_accept_a_bounded_limit() {
+        let default_runs = Arguments::try_parse_from(["hephaestus", "runs"]).expect("CLI parses");
+        assert_eq!(
+            command_from_cli(default_runs.command).expect("command maps"),
+            Command::RunList { limit: 20 }
+        );
+
+        let explicit_evaluations =
+            Arguments::try_parse_from(["hephaestus", "evaluations", "--limit", "5"])
+                .expect("CLI parses");
+        assert_eq!(
+            command_from_cli(explicit_evaluations.command).expect("command maps"),
+            Command::EvaluationList { limit: 5 }
+        );
+
+        let denials = Arguments::try_parse_from(["hephaestus", "denials", "--limit", "200"])
+            .expect("CLI parses");
+        assert_eq!(
+            command_from_cli(denials.command).expect("command maps"),
+            Command::DenialList { limit: 200 }
         );
     }
 
