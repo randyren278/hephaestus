@@ -188,9 +188,27 @@ pub enum Command {
     },
     /// Verify and replay canonical history into a fresh projection.
     Replay,
+    /// List recent direct runs and jobs, newest first, bounded by `limit`.
+    RunList {
+        /// Maximum number of entries returned; capped at 200.
+        limit: u32,
+    },
+    /// List recent Arena evaluations, newest first, bounded by `limit`.
+    EvaluationList {
+        /// Maximum number of entries returned; capped at 200.
+        limit: u32,
+    },
+    /// List recent refused operator requests and recorded runtime denials, newest first.
+    DenialList {
+        /// Maximum number of entries returned; capped at 200.
+        limit: u32,
+    },
     /// Stop the local daemon after acknowledging the audited request.
     DaemonStop,
 }
+
+/// Hard ceiling on any bounded list command's `limit` field.
+pub const MAX_LIST_LIMIT: u32 = 200;
 
 /// Stable machine-readable local API response.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -379,6 +397,143 @@ pub enum ResponseData {
         /// Stable BLAKE3 hash of the reconstructed projection.
         projection_hash: String,
     },
+    /// Recent direct runs and jobs, newest first and bounded.
+    RunList {
+        /// Entries in newest-first order.
+        runs: Vec<RunListEntry>,
+    },
+    /// Recent Arena evaluations, newest first and bounded.
+    EvaluationList {
+        /// Entries in newest-first order.
+        evaluations: Vec<EvaluationListEntry>,
+    },
+    /// Recent refused operator requests and recorded runtime denials, newest first and bounded.
+    DenialList {
+        /// Entries in newest-first order.
+        denials: Vec<DenialEntry>,
+    },
+}
+
+/// One direct run or job entry, combining `state.jobs` lifecycle with a verified run result.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunListEntry {
+    /// Deterministic underlying runtime identity.
+    pub run_id: String,
+    /// Caller-selected job idempotency key, present only for `RunSubmit` jobs.
+    pub job_id: Option<String>,
+    /// Immutable Genome identity executed by the runtime.
+    pub genome_id: String,
+    /// Immutable registered World identity, when known.
+    pub world_id: Option<String>,
+    /// Current bounded lifecycle state.
+    pub state: JobState,
+    /// Runtime-owned terminal reason, present only after a verified result.
+    pub completion_reason: Option<RunCompletionReason>,
+    /// Runtime-owned terminal latency, present only after a verified result.
+    pub latency_millis: Option<u64>,
+    /// Exact deterministic provider cost in micro-US dollars, present only after a verified result.
+    pub actual_cost_microusd: Option<u64>,
+}
+
+/// Visible aggregate selection outcome for one evaluation, boundary-matched to `Selection`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvaluationSelectionSummary {
+    /// Whether measured confidence and Pareto dimensions pass their gates.
+    pub metrics_eligible: bool,
+    /// Paired correctness mean estimate in basis points.
+    pub estimate_bps: i64,
+    /// Lower percentile bound of the paired correctness delta.
+    pub lower_bps: i64,
+    /// Upper percentile bound of the paired correctness delta.
+    pub upper_bps: i64,
+    /// Parent aggregate cost in micro-US dollars.
+    pub parent_cost_microusd: u64,
+    /// Candidate aggregate cost in micro-US dollars.
+    pub candidate_cost_microusd: u64,
+    /// Parent aggregate terminal latency in milliseconds.
+    pub parent_latency_millis: u64,
+    /// Candidate aggregate terminal latency in milliseconds.
+    pub candidate_latency_millis: u64,
+    /// Whether an independent trusted invariant evaluator supplied invariant evidence.
+    pub invariant_gate_verified: bool,
+    /// Whether the deterministic promotion policy is satisfied.
+    pub promotion_eligible: bool,
+}
+
+/// Visible aggregate invariant outcome for one evaluation, boundary-matched to `ArenaInvariants`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvaluationInvariantSummary {
+    /// Number of individual parent/candidate predicate checks.
+    pub total_checks: u32,
+    /// Sum of candidate violations across all predicates and trials.
+    pub total_candidate_violations: u32,
+    /// Sum of paired regressions across all predicates and trials.
+    pub total_paired_regressions: u32,
+    /// World policy ceiling for paired regressions.
+    pub maximum_regressions: u32,
+    /// Sum of paired regressions across all predicates is within the World policy.
+    pub regressions_within_budget: bool,
+    /// True exactly when candidate outputs have no invariant violations.
+    pub candidate_contract_satisfied: bool,
+}
+
+/// Reference to a Forge assessment recorded against one evaluation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvaluationForgeSummary {
+    /// Stable caller-selected idempotency key of the assessment.
+    pub assessment_id: String,
+    /// Metrics-only outcome recomputed from the verified `SelectionReceipt`.
+    pub outcome: ForgeAssessmentOutcome,
+}
+
+/// One Arena evaluation entry with its visible aggregates and evidence references.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvaluationListEntry {
+    /// Candidate-safe visible aggregate and ledger metadata.
+    pub evaluation: EvaluationRecord,
+    /// Selection outcome, present only once `ArenaSelect` has recorded one.
+    pub selection: Option<EvaluationSelectionSummary>,
+    /// Invariant outcome, present only once `ArenaInvariants` has recorded one.
+    pub invariants: Option<EvaluationInvariantSummary>,
+    /// Forge assessment reference, present only once one has been recorded against this evaluation.
+    pub forge_assessment: Option<EvaluationForgeSummary>,
+    /// Champion transition idempotency keys whose promotion evidence cites this evaluation.
+    pub champion_transition_ids: Vec<String>,
+}
+
+/// Stable, non-sensitive category of one recorded denial.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DenialKind {
+    /// The operator request was refused before any command could be attempted.
+    RequestRejected,
+    /// The runtime authority boundary denied one capability during a run.
+    RuntimeCapabilityDenied,
+}
+
+/// One recorded refusal, drawn only from canonical events that ledger a denial.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DenialEntry {
+    /// Stable non-sensitive category of this denial.
+    pub kind: DenialKind,
+    /// Caller-observed Unix timestamp in milliseconds.
+    pub timestamp_millis: i64,
+    /// Correlation identifier of the refused request, present only for `RequestRejected`.
+    pub request_id: Option<String>,
+    /// Stable command tag that was refused, present only for `RequestRejected`.
+    pub command: Option<String>,
+    /// Deterministic underlying runtime identity, present only for `RuntimeCapabilityDenied`.
+    pub run_id: Option<String>,
+    /// Immutable Genome identity, present only for `RuntimeCapabilityDenied`.
+    pub genome_id: Option<String>,
+    /// Immutable World identity, present only for `RuntimeCapabilityDenied`.
+    pub world_id: Option<String>,
 }
 
 /// Canonical payload of one durable Forge proposal event.
