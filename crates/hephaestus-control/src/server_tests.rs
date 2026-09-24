@@ -142,6 +142,45 @@ fn forge_assessment_records_verified_child_selection_and_replays() {
     let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
     let token = plane.token_hex.clone();
 
+    for (request_id, assessment_id, proposal_id, selection_event_id, expected) in [
+        (
+            "assess-invalid-id",
+            "invalid id",
+            "proposal",
+            "selection:missing",
+            "assessment_id is invalid",
+        ),
+        (
+            "assess-invalid-proposal",
+            "assessment-valid",
+            "invalid proposal",
+            "selection:missing",
+            "proposal_id is invalid",
+        ),
+        (
+            "assess-empty-selection",
+            "assessment-valid",
+            "proposal",
+            "",
+            "selection_event_id is required",
+        ),
+    ] {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            request_id,
+            Command::GenomeAssess {
+                assessment_id: assessment_id.to_owned(),
+                proposal_id: proposal_id.to_owned(),
+                selection_event_id: selection_event_id.to_owned(),
+            },
+        );
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest && error.message == expected
+        ));
+    }
+
     complete_arena_test_job(
         &mut plane,
         "assessment-source-evaluation",
@@ -182,6 +221,27 @@ fn forge_assessment_records_verified_child_selection_and_replays() {
     };
 
     let child = proposal.payload.child.clone();
+    assert!(matches!(
+        plane.assess_genome(
+            "assessment-missing-proposal",
+            "missing-proposal",
+            &proposal.event.event_id
+        ),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.assess_genome(
+            "assessment-missing-selection",
+            "assessment-proposal",
+            "selection:missing"
+        ),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.assess_genome("assessment-wrong-event", "assessment-proposal", &proposal.event.event_id),
+        Err(ExecuteError::Rejected(message))
+            if message == "selection_event_id does not identify a selection"
+    ));
     assert!(matches!(
         plane
             .submit_arena_job(
