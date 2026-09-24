@@ -1,10 +1,14 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, useWindowSize} from 'ink';
 import {ControlClient} from './client.js';
-import {safeText, type ApiResponse, type ArenaJobProgress, type Command, type ResponseData} from './protocol.js';
+import {lineageRows, roleOf} from './lineage.js';
+import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type Genome, type ResponseData, type World} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID'] as const;
-type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all';
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions'] as const;
+type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
+	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback';
+const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
 type TuiClient = Pick<ControlClient, 'request'>;
 type Props = {client?: TuiClient; pollMs?: number};
 
@@ -79,6 +83,14 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [arenaJob, setArenaJob] = useState<ArenaJobProgress>();
 	const [arenaStale, setArenaStale] = useState(false);
 	const [arenaNotice, setArenaNotice] = useState('Enter an evaluation ID to inspect its durable progress.');
+	const [worlds, setWorlds] = useState<World[]>([]);
+	const [worldIndex, setWorldIndex] = useState(0);
+	const [genomes, setGenomes] = useState<Genome[]>([]);
+	const [champion, setChampion] = useState<Champion>();
+	const [lineageIndex, setLineageIndex] = useState(0);
+	const [detailId, setDetailId] = useState('');
+	const [prompts, setPrompts] = useState<Record<string, string | null>>({});
+	const [reason, setReason] = useState('');
 	const [status, setStatus] = useState<ApiResponse>();
 	const [stale, setStale] = useState(false);
 	const [notice, setNotice] = useState('Connecting to the local control plane…');
@@ -185,6 +197,71 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		return () => clearInterval(timer);
 	}, [arenaJobId, arenaJob, pollMs, refreshArena, view]);
 
+	const world = worlds[worldIndex];
+	const lineageRowsView = world ? lineageRows(genomes, world.world_id, champion) : [];
+	const loadWorlds = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'world_list'}, lifetime.signal);
+			if (response.data?.type === 'worlds') {
+				setWorlds(response.data.worlds);
+				setWorldIndex(index => Math.min(index, Math.max(0, response.data?.type === 'worlds' ? response.data.worlds.length - 1 : 0)));
+				setNotice(`${response.data.worlds.length} registered Worlds`);
+			} else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Worlds unavailable');
+		}
+	}, [client, lifetime]);
+	const loadLineage = useCallback(async (worldId: string) => {
+		try {
+			const [listed, shown] = [
+				await client.request({command: 'genome_list'}, lifetime.signal),
+				await client.request({command: 'champion_show', world_id: worldId}, lifetime.signal),
+			];
+			if (listed.data?.type === 'genomes') setGenomes(listed.data.genomes);
+			else setNotice(messageFor(listed));
+			if (shown.data?.type === 'champion') setChampion(shown.data.champion);
+			else { setChampion(undefined); setNotice(messageFor(shown)); }
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Lineage unavailable');
+		}
+	}, [client, lifetime]);
+	const loadPrompt = useCallback(async (genomeId: string) => {
+		try {
+			const response = await client.request({command: 'genome_prompt', genome_id: genomeId}, lifetime.signal);
+			const prompt = response.data?.type === 'genome_prompt' ? response.data.prompt : null;
+			setPrompts(current => ({...current, [genomeId]: prompt}));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Prompt unavailable');
+		}
+	}, [client, lifetime]);
+	const openGenome = (genomeId: string) => {
+		const genome = genomes.find(candidate => candidate.genome_id === genomeId);
+		if (!genome) return;
+		setDetailId(genomeId);
+		setView('genome');
+		const parent = genome.parent_ids.find(id => genomes.some(candidate => candidate.genome_id === id));
+		for (const id of [genomeId, ...(parent ? [parent] : [])]) if (!(id in prompts)) void loadPrompt(id);
+	};
+	const rollback = async () => {
+		if (!world || busy) return;
+		setBusy(true);
+		setNotice('Requesting Champion rollback…');
+		try {
+			const response = await client.request({
+				command: 'champion_rollback', transition_id: `tui-rollback-${Date.now()}`, world_id: world.world_id, reason: reason.trim(),
+			}, lifetime.signal);
+			if (response.data?.type === 'champion_transition') {
+				const transition = response.data.transition;
+				setNotice(`Rolled back · Champion ${shortId(transition.champion_genome_id)} restored · ${shortId(transition.previous_champion_genome_id ?? '')} quarantined`);
+			} else setNotice(messageFor(response));
+			await loadLineage(world.world_id);
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Rollback failed');
+		} finally {
+			if (!lifetime.signal.aborted) setBusy(false);
+		}
+	};
+
 	const quit = () => {
 		if (closing.current) return;
 		closing.current = true;
@@ -242,6 +319,60 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			if (input.toLowerCase() === 'r') { void refreshArena(arenaJobId); return; }
 			return;
 		}
+		if (view === 'worlds') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.upArrow || input === 'k') setWorldIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setWorldIndex(value => Math.min(Math.max(0, worlds.length - 1), value + 1));
+			if (key.return && world) {
+				setLineageIndex(0);
+				setGenomes([]);
+				setChampion(undefined);
+				setView('lineage');
+				void loadLineage(world.world_id);
+			}
+			return;
+		}
+		if (view === 'lineage') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('worlds'); return; }
+			if (key.upArrow || input === 'k') setLineageIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setLineageIndex(value => Math.min(Math.max(0, lineageRowsView.length - 1), value + 1));
+			if (input.toLowerCase() === 'r' && world) { void loadLineage(world.world_id); return; }
+			if (input.toLowerCase() === 'b') {
+				if (champion && champion.standby_genome_ids.length > 0) { setReason(''); setView('rollback-reason'); }
+				else setNotice('No previous Champion to restore in this World.');
+				return;
+			}
+			if (key.return && lineageRowsView[lineageIndex]) openGenome(lineageRowsView[lineageIndex].genome_id);
+			return;
+		}
+		if (view === 'genome') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) setView('lineage');
+			return;
+		}
+		if (view === 'rollback-reason') {
+			if (key.escape) { setView('lineage'); setNotice('Rollback abandoned.'); return; }
+			if (key.return || input.includes('\r') || input.includes('\n')) {
+				const typed = input.replace(/[\r\n]/g, '').replace(/[\u0000-\u001f\u007f]/g, '');
+				const complete = (reason + typed).slice(0, 200);
+				setReason(complete);
+				if (complete.trim()) setView('confirm-rollback');
+				return;
+			}
+			if (key.backspace || key.delete) setReason(value => value.slice(0, -1));
+			else if (!key.ctrl && !key.meta) {
+				const typed = input.replace(/[\u0000-\u001f\u007f]/g, '');
+				if (typed) setReason(value => (value + typed).slice(0, 200));
+			}
+			return;
+		}
+		if (view === 'confirm-rollback') {
+			if (input.toLowerCase() === 'y') { setView('lineage'); void rollback(); }
+			else if (input.toLowerCase() === 'n' || key.escape) { setView('lineage'); setNotice('Rollback abandoned.'); }
+			return;
+		}
 		if (view === 'confirm-kill') {
 			if (input.toLowerCase() === 'y') { setView('home'); void act({command: 'job_kill', job_id: jobId}, 'Requesting cancellation…'); }
 			else if (input.toLowerCase() === 'n' || key.escape) { setView('home'); setNotice('Cancellation abandoned.'); }
@@ -262,12 +393,17 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 3: setView('confirm-kill-all'); break;
 				case 4: setJobPromptAction('inspect'); setView('job-id'); setJobId(''); break;
 				case 5: setJobPromptAction('cancel'); setView('job-id'); setJobId(''); break;
+				case 7: setView('worlds'); void loadWorlds(); break;
 				case 6: arenaCurrentId.current = ''; setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
 			}
 		}
 	});
 
 	const compact = columns < 72 || rows < 20;
+	const lineageMode = LINEAGE_VIEWS.includes(view);
+	const panelHeight = Math.max(3, rows - (compact ? 10 : 16));
+	const detail = genomes.find(genome => genome.genome_id === detailId);
+	const detailParent = detail ? genomes.find(genome => detail.parent_ids.includes(genome.genome_id)) : undefined;
 	return <Box flexDirection="column" width={Math.max(1, columns)} height={Math.max(1, rows)} paddingX={1}>
 		<Box justifyContent="space-between">
 			<Text bold color="yellow">HEPHAESTUS <Text color="gray">/ OPERATOR</Text></Text>
@@ -277,7 +413,13 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{!compact && arena.map((line, index) => <Text key={index} color={index === 2 ? 'yellow' : 'gray'}>{line}</Text>)}
 			<Text bold color="white">  LOCAL CONTROL · SCHEMA 1 · OWNER SOCKET</Text>
 		</Box>
-		<Box marginTop={compact ? 0 : 1}>
+		{lineageMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
+			{view === 'worlds' && <WorldList worlds={worlds} selected={worldIndex} height={panelHeight} />}
+			{view !== 'worlds' && view !== 'genome' && world && <LineagePanel world={world} rows={lineageRowsView} champion={champion} selected={lineageIndex} height={panelHeight} />}
+			{view === 'genome' && detail && <GenomeDetail genome={detail} parent={detailParent} role={roleOf(detail.genome_id, champion)}
+				prompt={prompts[detail.genome_id]} parentPrompt={detailParent ? prompts[detailParent.genome_id] : ''} height={panelHeight} />}
+		</Box>}
+		{!lineageMode && <Box marginTop={compact ? 0 : 1}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
 				<Text color="gray">OPERATOR ACTIONS</Text>
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
@@ -290,7 +432,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 					<Text>Genomes      {status?.data?.type === 'status' ? status.data.genome_count : '—'}</Text>
 					<Text>Ledger events {status?.data?.type === 'status' ? status.data.event_count : '—'}</Text>
 				</Box>)}
-		</Box>
+		</Box>}
 		{compact && view === 'arena-progress' && <ArenaProgressPanel job={arenaJob} stale={stale || arenaStale} notice={arenaNotice} compact />}
 		{view !== 'home' && <Box marginTop={1} borderStyle="round" borderColor="yellow" paddingX={1}>
 			{view === 'job-id' && <Text>Job ID: {jobId}<Text color="gray">  (Enter {jobPromptAction} · Esc cancel)</Text></Text>}
@@ -298,11 +440,16 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'arena-progress' && <Text color="gray">Arena progress is read-only · Esc back · R refresh</Text>}
 			{view === 'confirm-kill' && <Text color="yellow">Cancel job {safeText(jobId)}? Press Y to request, N/Esc to back out.</Text>}
 			{view === 'confirm-kill-all' && <Text color="red">Cancel ALL active work? Press Y to request, N/Esc to back out.</Text>}
+			{view === 'worlds' && <Text color="gray">Enter open lineage · Esc back</Text>}
+			{view === 'lineage' && <Text color="gray">Enter inspect Genome · B roll back Champion · R refresh · Esc Worlds</Text>}
+			{view === 'genome' && <Text color="gray">Prompt diff against the first registered parent · Esc back</Text>}
+			{view === 'rollback-reason' && <Text>Rollback reason: {reason}<Text color="gray">  (Enter confirm · Esc cancel)</Text></Text>}
+			{view === 'confirm-rollback' && <Text color="red">Restore the previous Champion and quarantine {shortId(champion?.champion_genome_id ?? '')}? Press Y to request, N/Esc to back out.</Text>}
 		</Box>}
 		<Box flexGrow={1} />
 		<Box borderStyle="single" borderColor="gray" paddingX={1}>
 			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' ? 'Esc back · R refresh' : 'Y/N confirm'} · Q quit</Text>
+		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' ? 'Esc back · R refresh' : lineageMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }
