@@ -7,8 +7,8 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, Client, Command, EvaluationRecord,
-    ForgeProposalRecord, GenomeRecord, JobState, ResponseData, SelectionRecord, WorldRecord,
-    data_dir_from_environment,
+    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord, JobState,
+    ResponseData, SelectionRecord, WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -142,6 +142,17 @@ enum GenomeCommand {
         /// Operator-authored hypothesis for the prompt mutation.
         #[arg(long)]
         hypothesis: String,
+    },
+    /// Record measured evidence for a proposed child; never promotes it.
+    Assess {
+        /// Stable idempotency key for this assessment.
+        assessment_id: String,
+        /// Stable proposal identity.
+        #[arg(long)]
+        proposal: String,
+        /// Selection event from a new Arena evaluation of the proposed child.
+        #[arg(long)]
+        selection_event: String,
     },
 }
 
@@ -643,9 +654,19 @@ fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static s
             parent_genome_id: parent,
             hypothesis,
         },
+        GenomeCommand::Assess {
+            assessment_id,
+            proposal,
+            selection_event,
+        } => Command::GenomeAssess {
+            assessment_id,
+            proposal_id: proposal,
+            selection_event_id: selection_event,
+        },
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn print_human(response: &ApiResponse) {
     match (&response.data, &response.error) {
         (
@@ -669,6 +690,9 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Genome { genome }), None) => println!("{}", genome_human(genome)),
         (Some(ResponseData::ForgeProposal { proposal }), None) => {
             println!("{}", forge_proposal_human(proposal));
+        }
+        (Some(ResponseData::ForgeAssessment { assessment }), None) => {
+            println!("{}", forge_assessment_human(assessment));
         }
         (Some(ResponseData::GenomePrompt { prompt, .. }), None) => print!("{prompt}"),
         (Some(ResponseData::Job { job, progress }), None) => println!(
@@ -807,6 +831,28 @@ fn forge_proposal_human(proposal: &ForgeProposalRecord) -> String {
     )
 }
 
+fn forge_assessment_human(assessment: &ForgeAssessmentRecord) -> String {
+    let outcome = match assessment.payload.outcome {
+        ForgeAssessmentOutcome::MetricsPassed => "metrics_passed",
+        ForgeAssessmentOutcome::MetricsRejected => "metrics_rejected",
+    };
+    format!(
+        "assessment={} proposal={} evaluation={} parent={} child={} outcome={} invariant_gate_verified={} promotion_eligible={} selection_event={} event={} sequence={} hash={}",
+        assessment.payload.assessment_id,
+        assessment.payload.proposal_id,
+        assessment.payload.evaluation_id,
+        assessment.payload.parent_genome_id,
+        assessment.payload.child_genome_id,
+        outcome,
+        assessment.payload.invariant_gate_verified,
+        assessment.payload.promotion_eligible,
+        assessment.payload.selection_event_id,
+        assessment.event.event_id,
+        assessment.event.sequence,
+        assessment.event.event_hash,
+    )
+}
+
 fn selection_human(selection: &SelectionRecord) -> String {
     format!(
         "selection={} world={} correctness_regressions={} correctness_improvements={} lower_bps={} metrics_eligible={} pareto_dominates={} invariant_gate_verified={} promotion_eligible={} event={} sequence={} aggregate={} receipt={}",
@@ -836,6 +882,30 @@ mod tests {
         fixture_source_dir, packaged_tui_paths,
     };
     use hephaestus_control::{Command, EvaluationEventRecord, EvaluationRecord};
+
+    #[test]
+    fn genome_assess_maps_stable_ids_to_the_authenticated_command() {
+        let arguments = Arguments::try_parse_from([
+            "hephaestus",
+            "genome",
+            "assess",
+            "assessment-1",
+            "--proposal",
+            "proposal-1",
+            "--selection-event",
+            "selection-event-1",
+        ])
+        .expect("assessment command parses");
+
+        assert_eq!(
+            command_from_cli(arguments.command).expect("command maps"),
+            Command::GenomeAssess {
+                assessment_id: "assessment-1".to_owned(),
+                proposal_id: "proposal-1".to_owned(),
+                selection_event_id: "selection-event-1".to_owned(),
+            }
+        );
+    }
 
     #[test]
     fn arena_evaluate_maps_positional_identifiers_to_paired_command() {

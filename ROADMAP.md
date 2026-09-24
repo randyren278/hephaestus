@@ -60,7 +60,9 @@ This roadmap implements the complete master-plan sequence without presenting lat
 **Hook**: Git-like ancestry and Kubernetes-like reconciliation applied to agent intelligence.
 **Invariants**: Models may recommend but never execute promotion; one transition has one idempotency key; losers are archived, not deleted; rollback always retains a reconstructable Champion.
 
-**Implemented slice**: An authenticated operator can propose one supported reference-prompt operation flip from a verified selection event. The child is compiled and registered with explicit hypothesis and durable idempotent lineage evidence. This does not yet cluster failures automatically, evaluate the child, authorize invariants, promote, or roll back.
+**Implemented slice**: An authenticated operator can propose one supported reference-prompt operation flip from a verified selection event. The child is compiled and registered with explicit hypothesis and durable idempotent lineage evidence. A second child/parent Arena evaluation can produce an evidence-only assessment; automatic failure clustering, trusted invariant authorization, promotion, and rollback remain future work.
+
+**Assessment slice**: A proposal can now be assessed only after a new paired Arena evaluation of its exact parent and child has a verified selection receipt. The idempotent assessment records whether the measured gates passed; it leaves invariant verification and promotion eligibility false and does not declare a winner or alter lineage.
 
 ### 9. TUI-first operator experience
 **Why**: Operators need to understand live experiments, ancestry, authority denials, costs, and evidence before autonomy expands.

@@ -15,8 +15,8 @@ use hephaestus_arena::{
 };
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError, ControlPlane,
-    GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData, RunCompletionReason,
-    WorldRecord,
+    ForgeAssessmentOutcome, GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal,
+    ResponseData, RunCompletionReason, WorldRecord,
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client};
@@ -1005,7 +1005,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
     rebuild_ledger_without(&data_dir, |event| {
         event.event_id == "arena-job:daemon-owned-pair:terminal"
     });
-    let restarted = Daemon::start_with_repository(&data_dir, &repository);
+    let mut restarted = Daemon::start_with_repository(&data_dir, &repository);
     assert!(cli(&data_dir, &["replay"]).status.success());
     let recovered = Client::new(&data_dir)
         .request(Command::JobStatus {
@@ -1457,7 +1457,397 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 .count(),
             1
         );
+
+        restarted.stop();
+        let history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        let proposal_event = history
+            .iter()
+            .find(|event| event.event_type == "forge.proposed")
+            .expect("Forge proposal is durable");
+        let canonical_payload = proposal_event.payload.clone();
+        let canonical_actor = proposal_event.actor.clone();
+        let canonical_hash = proposal_event.hash;
+        let canonical_sequence = proposal_event.sequence;
+        let mut forged: serde_json::Value =
+            serde_json::from_slice(&proposal_event.payload).unwrap();
+        forged["selection_event_hash"] = serde_json::Value::String("0".repeat(64));
+        rewrite_ledger_event_payload(
+            &data_dir,
+            &proposal_event.event_id,
+            &serde_json::to_vec(&forged).unwrap(),
+            None,
+        );
+        let Err(selection_hash_error) = ControlPlane::open_with_repository(&data_dir, &repository)
+        else {
+            panic!("forged selection hash was accepted");
+        };
+        assert!(
+            matches!(
+                selection_hash_error,
+                ControlError::Projection(ref message)
+                    if message.contains("Forge proposal is not bound to its selected candidate")
+            ),
+            "unexpected selection hash rejection: {selection_hash_error:?}"
+        );
+        rewrite_ledger_event_payload(
+            &data_dir,
+            &proposal_event.event_id,
+            &canonical_payload,
+            Some("untrusted-operator"),
+        );
+        let Err(actor_error) = ControlPlane::open_with_repository(&data_dir, &repository) else {
+            panic!("untrusted Forge actor was accepted");
+        };
+        assert!(
+            matches!(
+                actor_error,
+                ControlError::Projection(ref message)
+                    if message.contains("Forge proposal event identity is invalid")
+            ),
+            "unexpected actor rejection: {actor_error:?}"
+        );
+        rewrite_ledger_event_payload(
+            &data_dir,
+            &proposal_event.event_id,
+            &canonical_payload,
+            Some(&canonical_actor),
+        );
+        let restored_history = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        let restored_proposal = restored_history
+            .iter()
+            .find(|event| event.event_id == proposal_event.event_id)
+            .expect("restored Forge proposal is durable");
+        assert_eq!(restored_proposal.payload, canonical_payload);
+        assert_eq!(restored_proposal.actor, canonical_actor);
+        assert_eq!(restored_proposal.hash, canonical_hash);
+        assert_eq!(restored_proposal.sequence, canonical_sequence);
+        restarted = Daemon::start_with_repository(&data_dir, &repository);
         assert!(cli(&data_dir, &["replay"]).status.success());
+
+        let child_evaluation_id = "identity-child-assessment-pair";
+        let child_evaluation = response(&cli(
+            &data_dir,
+            &[
+                "arena",
+                "evaluate",
+                child_evaluation_id,
+                &proposal.payload.parent_genome_id,
+                &proposal.payload.child.genome_id,
+            ],
+        ));
+        assert!(matches!(
+            child_evaluation.data,
+            Some(ResponseData::Evaluation { ref evaluation })
+                if evaluation.parent_genome_id == proposal.payload.parent_genome_id
+                    && evaluation.candidate_genome_id == proposal.payload.child.genome_id
+        ));
+        let child_selection =
+            match response(&cli(&data_dir, &["arena", "select", child_evaluation_id]))
+                .data
+                .expect("child selection")
+            {
+                ResponseData::Selection { selection } => *selection,
+                other => panic!("unexpected child selection response: {other:?}"),
+            };
+        assert_eq!(
+            child_selection.receipt.candidate_genome_id(),
+            proposal.payload.child.genome_id
+        );
+        assert_eq!(
+            child_selection.receipt.parent_genome_id(),
+            proposal.payload.parent_genome_id
+        );
+
+        let proposal_source_selection = cli(
+            &data_dir,
+            &[
+                "genome",
+                "assess",
+                "wrong-pair-assessment",
+                "--proposal",
+                &proposal.payload.proposal_id,
+                "--selection-event",
+                &recovered.event.event_id,
+            ],
+        );
+        assert!(!proposal_source_selection.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&proposal_source_selection.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest,
+            "the pre-proposal source selection cannot assess its child"
+        );
+        let unknown_assessment_proposal = cli(
+            &data_dir,
+            &[
+                "genome",
+                "assess",
+                "unknown-proposal-assessment",
+                "--proposal",
+                "missing-proposal",
+                "--selection-event",
+                &child_selection.event.event_id,
+            ],
+        );
+        assert!(!unknown_assessment_proposal.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&unknown_assessment_proposal.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::NotFound
+        );
+        let unknown_assessment_selection = cli(
+            &data_dir,
+            &[
+                "genome",
+                "assess",
+                "unknown-selection-assessment",
+                "--proposal",
+                &proposal.payload.proposal_id,
+                "--selection-event",
+                "missing-selection-event",
+            ],
+        );
+        assert!(!unknown_assessment_selection.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&unknown_assessment_selection.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::NotFound
+        );
+
+        assert!(cli(&data_dir, &["freeze"]).status.success());
+        let assessment_args = [
+            "genome",
+            "assess",
+            "identity-child-assessment",
+            "--proposal",
+            proposal.payload.proposal_id.as_str(),
+            "--selection-event",
+            child_selection.event.event_id.as_str(),
+        ];
+        let assessment = match response(&cli(&data_dir, &assessment_args))
+            .data
+            .expect("Forge assessment")
+        {
+            ResponseData::ForgeAssessment { assessment } => *assessment,
+            other => panic!("unexpected Forge assessment response: {other:?}"),
+        };
+        assert_eq!(assessment.payload.schema_version, 1);
+        assert_eq!(
+            assessment.payload.assessment_id,
+            "identity-child-assessment"
+        );
+        assert_eq!(assessment.payload.proposal_id, proposal.payload.proposal_id);
+        assert_eq!(
+            assessment.payload.proposal_event_id,
+            proposal.event.event_id
+        );
+        assert_eq!(
+            assessment.payload.proposal_event_hash,
+            proposal.event.event_hash
+        );
+        assert_eq!(
+            assessment.payload.selection_event_id,
+            child_selection.event.event_id
+        );
+        assert_eq!(
+            assessment.payload.selection_event_hash,
+            child_selection.event.event_hash
+        );
+        assert_eq!(
+            assessment.payload.selection_receipt_artifact_id,
+            child_selection.event.receipt_artifact_id
+        );
+        assert_eq!(assessment.payload.evaluation_id, child_evaluation_id);
+        assert_eq!(
+            assessment.payload.evaluation_event_id,
+            child_selection.receipt.evaluation_event_id()
+        );
+        assert_eq!(
+            assessment.payload.evaluation_event_hash,
+            child_selection.receipt.evaluation_event_hash()
+        );
+        assert_eq!(
+            assessment.payload.parent_genome_id,
+            proposal.payload.parent_genome_id
+        );
+        assert_eq!(assessment.payload.world_id, proposal.payload.world_id);
+        assert_eq!(
+            assessment.payload.child_genome_id,
+            proposal.payload.child.genome_id
+        );
+        assert_eq!(
+            assessment.payload.outcome,
+            if child_selection.receipt.metrics_eligible() {
+                ForgeAssessmentOutcome::MetricsPassed
+            } else {
+                ForgeAssessmentOutcome::MetricsRejected
+            }
+        );
+        assert!(!assessment.payload.invariant_gate_verified);
+        assert!(!assessment.payload.promotion_eligible);
+        assert_eq!(
+            assessment.event.event_id,
+            "forge-assessment:identity-child-assessment:recorded"
+        );
+        assert_eq!(
+            assessment.event.aggregate_id,
+            format!("forge:{}", proposal.payload.proposal_id)
+        );
+        assert!(proposal.event.sequence < child_selection.event.sequence);
+        assert!(child_selection.event.sequence < assessment.event.sequence);
+        assert!(matches!(
+            response(&cli(&data_dir, &["status"])).data,
+            Some(ResponseData::Status { frozen: true, .. })
+        ));
+        assert_eq!(
+            response(&cli(&data_dir, &assessment_args)).data,
+            Some(ResponseData::ForgeAssessment {
+                assessment: Box::new(assessment.clone())
+            })
+        );
+        let conflicting_assessment_reuse = cli(
+            &data_dir,
+            &[
+                "genome",
+                "assess",
+                "identity-child-assessment",
+                "--proposal",
+                &proposal.payload.proposal_id,
+                "--selection-event",
+                &recovered.event.event_id,
+            ],
+        );
+        assert!(!conflicting_assessment_reuse.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&conflicting_assessment_reuse.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        restarted.stop();
+        restarted = Daemon::start_with_repository(&data_dir, &repository);
+        assert!(cli(&data_dir, &["replay"]).status.success());
+        assert_eq!(
+            response(&cli(&data_dir, &assessment_args)).data,
+            Some(ResponseData::ForgeAssessment {
+                assessment: Box::new(assessment)
+            })
+        );
+        assert!(cli(&data_dir, &["unfreeze"]).status.success());
+        assert!(cli(&data_dir, &["replay"]).status.success());
+
+        restarted.stop();
+        let slow_worker = directory.path().join("assessment-active-worker.sh");
+        fs::write(
+            &slow_worker,
+            "#!/bin/sh\nprintf started > \"$HOME/assessment-worker-started\"\nexec /bin/sleep 60\n",
+        )
+        .expect("write bounded active-job worker");
+        fs::set_permissions(&slow_worker, fs::Permissions::from_mode(0o700))
+            .expect("make active-job worker executable");
+        restarted = Daemon::start_with_worker(&data_dir, &repository, &slow_worker);
+        let active_job_id = "assessment-active-job";
+        let active_assessment_args = [
+            "genome",
+            "assess",
+            "assessment-while-active",
+            "--proposal",
+            proposal.payload.proposal_id.as_str(),
+            "--selection-event",
+            child_selection.event.event_id.as_str(),
+        ];
+        assert!(matches!(
+            response(&cli(
+                &data_dir,
+                &["submit", active_job_id, &proposal.payload.child.genome_id]
+            ))
+            .data,
+            Some(ResponseData::Job { .. })
+        ));
+        let worker_started_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let started = fs::read_dir(data_dir.join("sandboxes"))
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|entry| {
+                    entry
+                        .path()
+                        .join("execution/assessment-worker-started")
+                        .is_file()
+                });
+            if started {
+                break;
+            }
+            assert!(
+                Instant::now() < worker_started_deadline,
+                "active assessment worker did not start"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        let assessment_while_active = cli(&data_dir, &active_assessment_args);
+        assert!(!assessment_while_active.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&assessment_while_active.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::Busy,
+            "assessment is refused while a job is active"
+        );
+        let active_history = EventStore::open(data_dir.join("events.sqlite3"))
+            .expect("open active assessment ledger")
+            .replay_verified()
+            .expect("verify active assessment ledger");
+        assert_eq!(
+            active_history
+                .iter()
+                .filter(|event| event.event_type == "forge.assessed")
+                .count(),
+            1,
+            "a busy assessment must not append an event"
+        );
+        assert!(matches!(
+            response(&cli(&data_dir, &["kill", "--all"])).data,
+            Some(ResponseData::Acknowledged { .. })
+        ));
+        let active_terminal_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let active_status = response(&cli(&data_dir, &["job", "status", active_job_id]));
+            let Some(ResponseData::Job { job, .. }) = active_status.data else {
+                panic!("active assessment job status is missing");
+            };
+            if job.state == JobState::Interrupted {
+                assert_eq!(job.terminal, Some(JobTerminal::Cancelled));
+                break;
+            }
+            assert!(
+                Instant::now() < active_terminal_deadline,
+                "active assessment test job did not terminate"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        restarted.stop();
+        restarted = Daemon::start_with_repository(&data_dir, &repository);
     }
     restarted.stop();
 
@@ -2161,56 +2551,6 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         recorded.candidate_result().summary.candidate_genome_id,
         candidate.genome_id
     );
-    #[cfg(feature = "test-support")]
-    {
-        let history = EventStore::open(data_dir.join("events.sqlite3"))
-            .unwrap()
-            .replay_verified()
-            .unwrap();
-        let proposal_event = history
-            .iter()
-            .find(|event| event.event_type == "forge.proposed")
-            .expect("Forge proposal is durable");
-        let canonical_payload = proposal_event.payload.clone();
-        let mut forged: serde_json::Value =
-            serde_json::from_slice(&proposal_event.payload).unwrap();
-        forged["selection_event_hash"] = serde_json::Value::String("0".repeat(64));
-        rewrite_ledger_event_payload(
-            &data_dir,
-            &proposal_event.event_id,
-            &serde_json::to_vec(&forged).unwrap(),
-            None,
-        );
-        let Err(selection_hash_error) = ControlPlane::open_with_repository(&data_dir, &repository)
-        else {
-            panic!("forged selection hash was accepted");
-        };
-        assert!(
-            matches!(
-                selection_hash_error,
-                ControlError::Projection(ref message)
-                    if message.contains("Forge proposal is not bound to its selected candidate")
-            ),
-            "unexpected selection hash rejection: {selection_hash_error:?}"
-        );
-        rewrite_ledger_event_payload(
-            &data_dir,
-            &proposal_event.event_id,
-            &canonical_payload,
-            Some("untrusted-operator"),
-        );
-        let Err(actor_error) = ControlPlane::open_with_repository(&data_dir, &repository) else {
-            panic!("untrusted Forge actor was accepted");
-        };
-        assert!(
-            matches!(
-                actor_error,
-                ControlError::Projection(ref message)
-                    if message.contains("Forge proposal event identity is invalid")
-            ),
-            "unexpected actor rejection: {actor_error:?}"
-        );
-    }
 }
 
 #[cfg(feature = "test-support")]

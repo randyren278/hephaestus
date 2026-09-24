@@ -223,6 +223,7 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus genome list` / `show <id>` | Inspect registered Genomes |
 | `hephaestus genome prompt <id>` | Print the verified reserved prompt body for a Markdown Genome |
 | `hephaestus genome propose <id> --selection-event <event> --parent <genome> --hypothesis <text>` | Propose one evidence-bound prompt mutation; never promotes |
+| `hephaestus genome assess <id> --proposal <proposal> --selection-event <event>` | Record measured evidence for a proposed child; never promotes |
 | `hephaestus run <genome>` | One isolated reference run with signed evidence |
 | `hephaestus submit <job-id> <genome>` | Submit a bounded async direct reference run |
 | `hephaestus job status <job-id>` | Inspect durable state and last recorded trace progress |

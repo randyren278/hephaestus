@@ -61,6 +61,20 @@ The daemon re-verifies the exact selection event, receipt, registered World, and
 
 This is operator-directed hypothesis capture and a single deterministic mutation proposal. The current aggregate selection receipt contains no task-level failure clusters, so this command does not infer hypotheses from clusters. It does not evaluate, select, or promote the child, and its response always reports `promotion_eligible=false`.
 
+## Evidence-only Forge assessment
+
+After proposing a child, evaluate that child against the proposal's parent in a new paired Arena evaluation, then record a deterministic selection receipt for that evaluation. Assess the proposal against this child-selection event:
+
+```sh
+hephaestus genome assess <assessment-id> \
+  --proposal <proposal-id> \
+  --selection-event <child-selection-event-id>
+```
+
+The daemon verifies that the selection event belongs to an evaluation of the exact proposed child and parent, then binds the verified receipt and proposal event into one `forge.assessed` event. Its outcome is `metrics_passed` or `metrics_rejected` according to the receipt's `metrics_eligible` result. The proposal's original source selection is pre-mutation evidence and cannot assess the child. Assessment is allowed while evolution is frozen, but refused while another job is active. Repeating the same assessment ID and inputs returns the recorded assessment; conflicting inputs fail closed.
+
+An assessment records measured evidence only. `invariant_gate_verified` and `promotion_eligible` remain false for both outcomes. `metrics_passed` does not declare a winner, change lineage state, or promote a Genome.
+
 ## Compilation contract
 
 Compilation rejects unknown fields and schema versions, source documents larger than 1 MiB, blank stable names or model fields, malformed or unverifiable artifact addresses, unresolved parents, spoofed parent lookup keys, and authority wider than either the World or any parent. Parent and objective ordering is normalized before hashing.
