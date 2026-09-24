@@ -86,7 +86,8 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [lifetime] = useState(() => new AbortController());
 	const closing = useRef(false);
 	const refreshing = useRef(false);
-	const arenaRefreshing = useRef(false);
+	const arenaCurrentId = useRef('');
+	const arenaRefreshing = useRef<string | null>(null);
 	const refresh = useCallback(async (announce = true): Promise<ApiResponse | undefined> => {
 		if (closing.current || refreshing.current) return undefined;
 		refreshing.current = true;
@@ -149,10 +150,11 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	};
 
 	const refreshArena = useCallback(async (evaluationId: string) => {
-		if (closing.current || !evaluationId || arenaRefreshing.current) return;
-		arenaRefreshing.current = true;
+		if (closing.current || !evaluationId || arenaRefreshing.current === evaluationId) return;
+		arenaRefreshing.current = evaluationId;
 		try {
 			const response = await client.request({command: 'job_status', job_id: evaluationId}, lifetime.signal);
+			if (arenaCurrentId.current !== evaluationId) return;
 			if (response.error) {
 				setArenaJob(undefined);
 				setArenaStale(false);
@@ -169,12 +171,12 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			setArenaStale(false);
 			setArenaNotice('Live progress from the daemon.');
 		} catch (error) {
-			if (!lifetime.signal.aborted) {
+			if (!lifetime.signal.aborted && arenaCurrentId.current === evaluationId) {
 				setArenaStale(true);
 				setArenaNotice(error instanceof Error ? safeText(error.message) : 'Arena progress unavailable');
 			}
 		} finally {
-			arenaRefreshing.current = false;
+			if (arenaRefreshing.current === evaluationId) arenaRefreshing.current = null;
 		}
 	}, [client, lifetime]);
 	useEffect(() => {
@@ -217,6 +219,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				const typed = input.replace(/[\r\n]/g, '').split('').filter(char => /^[a-zA-Z0-9._-]$/.test(char)).join('');
 				const cleaned = (arenaInput + typed).trim().slice(0, 128);
 				if (cleaned) {
+					arenaCurrentId.current = cleaned;
 					setArenaJobId(cleaned);
 					setArenaJob(undefined);
 					setArenaStale(false);
@@ -235,7 +238,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		}
 		if (view === 'arena-progress') {
 			if (input.toLowerCase().includes('q')) { quit(); return; }
-			if (key.escape) { setView('home'); return; }
+			if (key.escape) { arenaCurrentId.current = ''; setView('home'); return; }
 			if (input.toLowerCase() === 'r') { void refreshArena(arenaJobId); return; }
 			return;
 		}
@@ -259,7 +262,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 3: setView('confirm-kill-all'); break;
 				case 4: setJobPromptAction('inspect'); setView('job-id'); setJobId(''); break;
 				case 5: setJobPromptAction('cancel'); setView('job-id'); setJobId(''); break;
-				case 6: setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
+				case 6: arenaCurrentId.current = ''; setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
 			}
 		}
 	});
