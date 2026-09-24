@@ -401,7 +401,16 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 
 	const compact = columns < 72 || rows < 20;
 	const lineageMode = LINEAGE_VIEWS.includes(view);
+	// Reserved for everything outside the lineage panel (header, banner, hint
+	// bar, notice bar, help line); see the layout budget below.
 	const panelHeight = Math.max(3, rows - (compact ? 10 : 16));
+	// Each panel draws its own border plus a few fixed header lines on top of
+	// the `height` rows it's given, so the row budget passed to it must be
+	// shrunk by that fixed overhead or the panel's total height overruns
+	// `panelHeight` and the layout overflows the terminal.
+	const worldListHeight = Math.max(1, panelHeight - 3); // border(2) + "WORLDS"(1)
+	const lineagePanelHeight = Math.max(1, panelHeight - 4); // border(2) + title + Champion summary
+	const genomeDetailHeight = Math.max(1, panelHeight - 8); // border(2) + 5 fixed fields + optional status line
 	const detail = genomes.find(genome => genome.genome_id === detailId);
 	const detailParent = detail ? genomes.find(genome => detail.parent_ids.includes(genome.genome_id)) : undefined;
 	return <Box flexDirection="column" width={Math.max(1, columns)} height={Math.max(1, rows)} paddingX={1}>
@@ -414,10 +423,10 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			<Text bold color="white">  LOCAL CONTROL · SCHEMA 1 · OWNER SOCKET</Text>
 		</Box>
 		{lineageMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
-			{view === 'worlds' && <WorldList worlds={worlds} selected={worldIndex} height={panelHeight} />}
-			{view !== 'worlds' && view !== 'genome' && world && <LineagePanel world={world} rows={lineageRowsView} champion={champion} selected={lineageIndex} height={panelHeight} />}
+			{view === 'worlds' && <WorldList worlds={worlds} selected={worldIndex} height={worldListHeight} />}
+			{view !== 'worlds' && view !== 'genome' && world && <LineagePanel world={world} rows={lineageRowsView} champion={champion} selected={lineageIndex} height={lineagePanelHeight} />}
 			{view === 'genome' && detail && <GenomeDetail genome={detail} parent={detailParent} role={roleOf(detail.genome_id, champion)}
-				prompt={prompts[detail.genome_id]} parentPrompt={detailParent ? prompts[detailParent.genome_id] : ''} height={panelHeight} />}
+				prompt={prompts[detail.genome_id]} parentPrompt={detailParent ? prompts[detailParent.genome_id] : ''} height={genomeDetailHeight} />}
 		</Box>}
 		{!lineageMode && <Box marginTop={compact ? 0 : 1}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
