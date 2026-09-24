@@ -2,11 +2,13 @@
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "gauntlet_reference.py"
@@ -91,6 +93,27 @@ class GauntletReferenceTests(unittest.TestCase):
         capture.append(b"12345678")
         self.assertEqual(capture.text(), "defghijk12345678")
         self.assertLessEqual(len(capture.data), 16)
+
+    def test_exited_leader_with_pipe_holding_child_is_killed_before_reap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "late-child-write"
+            child = "import pathlib,sys,time; time.sleep(.8); pathlib.Path(sys.argv[1]).write_text('late')"
+            parent = "import subprocess,sys; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]])"
+            observed = []
+            original_kill_group = gauntlet._kill_process_group
+
+            def verify_anchor(process):
+                status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                observed.append(status is not None and status.si_pid == process.pid)
+                original_kill_group(process)
+
+            with patch.object(gauntlet, "PIPE_DRAIN_SECONDS", 0.1):
+                with patch.object(gauntlet, "_kill_process_group", side_effect=verify_anchor):
+                    with self.assertRaisesRegex(gauntlet.RunnerError, "descendant holding"):
+                        gauntlet._run([sys.executable, "-c", parent, child, str(marker)], timeout=2)
+            self.assertEqual(observed, [True], "PGID was signaled after releasing the leader anchor")
+            time.sleep(0.9)
+            self.assertFalse(marker.exists(), "pipe-holding descendant survived after leader exit")
 
     def test_timeout_terminates_descendants_in_the_owned_process_group(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -82,6 +82,17 @@ def _kill_process_group(process: subprocess.Popen[Any]) -> None:
         pass
 
 
+def _leader_exited_unreaped(process: subprocess.Popen[Any]) -> bool:
+    """Observe exit without releasing the PID/PGID before cleanup is decided."""
+    if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")):
+        raise RunnerError("safe owned process-group cleanup requires waitid(WNOWAIT)")
+    try:
+        status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError as error:
+        raise RunnerError("owned process was reaped before process-group cleanup") from error
+    return status is not None and status.si_pid == process.pid
+
+
 def _finish_killed_process(process: subprocess.Popen[Any], readers: list[threading.Thread]) -> None:
     try:
         process.wait(timeout=PROCESS_EXIT_SECONDS)
@@ -147,7 +158,7 @@ def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) ->
     deadline = time.monotonic() + timeout
     failure: str | None = None
     try:
-        while process.poll() is None:
+        while not _leader_exited_unreaped(process):
             if stdout.overflow.is_set() or stderr.overflow.is_set():
                 failure = f"command output exceeded {MAX_COMMAND_OUTPUT} bytes"
                 break
@@ -159,7 +170,6 @@ def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) ->
             _kill_process_group(process)
             _finish_killed_process(process, readers)
             raise RunnerError(failure)
-        process.wait(timeout=PROCESS_EXIT_SECONDS)
         drain_deadline = time.monotonic() + PIPE_DRAIN_SECONDS
         for reader in readers:
             reader.join(timeout=max(0.0, drain_deadline - time.monotonic()))
@@ -168,11 +178,15 @@ def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) ->
             _finish_killed_process(process, readers)
             raise RunnerError(f"command left a descendant holding its output pipe: {Path(command[0]).name}")
         if stdout.overflow.is_set() or stderr.overflow.is_set():
+            process.wait(timeout=PROCESS_EXIT_SECONDS)
             raise RunnerError(f"command output exceeded {MAX_COMMAND_OUTPUT} bytes")
         output = stdout.text()
-        if process.returncode != 0:
+        # Drained pipes prove no descendant holds an inherited output stream.
+        # Reap only after deciding there is no remaining reason to signal the PGID.
+        return_code = process.wait(timeout=PROCESS_EXIT_SECONDS)
+        if return_code != 0:
             detail = stderr.text().strip().replace("\n", " ")[:500]
-            raise RunnerError(f"{Path(command[0]).name} failed ({process.returncode}): {detail}")
+            raise RunnerError(f"{Path(command[0]).name} failed ({return_code}): {detail}")
         return output.strip()
     finally:
         for stream in (process.stdout, process.stderr):
@@ -230,7 +244,7 @@ def _start_daemon(command: list[str], cli: Path, data_dir: Path) -> _OwnedDaemon
     try:
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
-            if process.poll() is not None:
+            if _leader_exited_unreaped(process):
                 tail = output_tail.text().strip()[-2000:]
                 raise RunnerError(f"fixture-owned daemon exited during startup: {tail}")
             try:
@@ -249,7 +263,8 @@ def _terminate_owned(daemon: _OwnedDaemon | None) -> None:
     if daemon is None:
         return
     process = daemon.process
-    _kill_process_group(process)
+    if not _leader_exited_unreaped(process) or daemon.reader.is_alive():
+        _kill_process_group(process)
     _finish_killed_process(process, [daemon.reader])
 
 
@@ -368,30 +383,36 @@ def run_fixture(args: argparse.Namespace) -> dict[str, Any]:
             world_text = world_text.replace(token, value)
         world_path = root / "operator-fixtures" / "world.json"
         _write(world_path, world_text)
-        world_id = _data(cli, data_dir, "world", "world", "register", str(world_path))["world"]["world_id"]
+        world = _data(cli, data_dir, "world", "world", "register", str(world_path)).get("world")
+        if not isinstance(world, dict) or not world.get("world_id", "").startswith("hephaestus:world:"):
+            raise RunnerError("World registration did not return its canonical identity")
+        world_id = world["world_id"]
+
+        def register_genome(path: Path) -> str:
+            registered = _data(cli, data_dir, "genome", "genome", "register", str(path),
+                               "--world", world_id).get("genome")
+            if not isinstance(registered, dict) or registered.get("world_id") != world_id:
+                raise RunnerError("Markdown Genome registration returned a different World identity")
+            return registered["genome_id"]
 
         identity_source = (FIXTURE_ROOT / "agents" / "identity.md").read_text(encoding="utf-8")
         uppercase_template = (FIXTURE_ROOT / "agents" / "uppercase.md").read_text(encoding="utf-8")
         identity_path = root / "operator-fixtures" / "identity.md"
         _write(identity_path, identity_source)
-        identity_id = _data(cli, data_dir, "genome", "genome", "register", str(identity_path),
-                            "--world", world_id)["genome"]["genome_id"]
+        identity_id = register_genome(identity_path)
         uppercase_path = root / "operator-fixtures" / "uppercase.md"
         _write(uppercase_path, uppercase_template.replace("__PARENT_ID__", identity_id))
-        uppercase_id = _data(cli, data_dir, "genome", "genome", "register", str(uppercase_path),
-                             "--world", world_id)["genome"]["genome_id"]
+        uppercase_id = register_genome(uppercase_path)
         regression_path = root / "operator-fixtures" / "identity-regression.md"
         _write(regression_path, _identity_child(identity_source,
                                                 name="gauntlet-identity-regression",
                                                 parent_id=uppercase_id))
-        regression_id = _data(cli, data_dir, "genome", "genome", "register", str(regression_path),
-                              "--world", world_id)["genome"]["genome_id"]
+        regression_id = register_genome(regression_path)
         tie_path = root / "operator-fixtures" / "identity-tie.md"
         _write(tie_path, _identity_child(identity_source,
                                          name="gauntlet-identity-tie",
                                          parent_id=identity_id))
-        tie_id = _data(cli, data_dir, "genome", "genome", "register", str(tie_path),
-                       "--world", world_id)["genome"]["genome_id"]
+        tie_id = register_genome(tie_path)
         status = _data(cli, data_dir, "acknowledged", "unfreeze")
         if status.get("frozen") is not False:
             raise RunnerError("isolated daemon did not acknowledge unfreeze")
@@ -408,14 +429,30 @@ def run_fixture(args: argparse.Namespace) -> dict[str, Any]:
                                evaluation_id, parent_id, candidate_id,
                                timeout=args.timeout_seconds)
             record = evaluation.get("evaluation")
-            if not isinstance(record, dict) or record.get("event", {}).get("event_type") != "evaluation.recorded":
+            if (not isinstance(record, dict)
+                    or record.get("evaluation_id") != evaluation_id
+                    or record.get("world_id") != world_id
+                    or record.get("event", {}).get("event_type") != "evaluation.recorded"
+                    or record.get("event", {}).get("event_id") != f"arena:evaluation:{evaluation_id}:recorded"
+                    or record.get("event", {}).get("aggregate_id") != f"arena:evaluation:{evaluation_id}"):
                 raise RunnerError(f"{label} evaluation did not return durable Arena event metadata")
             if (record.get("parent_genome_id"), record.get("candidate_genome_id"), record.get("visible_total")) != (
                     parent_id, candidate_id, 2):
                 raise RunnerError(f"{label} evaluation was not bound to the expected pair and visible task count")
             selection_data = _data(cli, data_dir, "selection", "arena", "select", evaluation_id)
             selection = selection_data.get("selection")
-            if not isinstance(selection, dict):
+            if (not isinstance(selection, dict)
+                    or selection.get("evaluation_id") != evaluation_id
+                    or selection.get("world_id") != world_id
+                    or selection.get("receipt", {}).get("evaluation_id") != evaluation_id
+                    or selection.get("receipt", {}).get("world_id") != world_id
+                    or selection.get("receipt", {}).get("evaluation_event_id") !=
+                    f"arena:evaluation:{evaluation_id}:recorded"
+                    or selection.get("receipt", {}).get("parent_genome_id") != parent_id
+                    or selection.get("receipt", {}).get("candidate_genome_id") != candidate_id
+                    or selection.get("event", {}).get("event_id") !=
+                    f"arena:selection:{evaluation_id}:selected"
+                    or selection.get("event", {}).get("aggregate_id") != f"arena:selection:{evaluation_id}"):
                 raise RunnerError(f"{label} selection did not return a durable receipt")
             metrics = _expected_outcome(label, selection)
             report["comparisons"].append({
