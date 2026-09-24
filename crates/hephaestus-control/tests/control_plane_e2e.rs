@@ -1527,6 +1527,170 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 .unwrap();
         }
         drop(ledger);
+
+        let admitted = recovered_history
+            .iter()
+            .find(|event| {
+                event.event_type == "arena.job.admitted"
+                    && event.event_id == "arena-job:daemon-owned-pair:admitted"
+            })
+            .expect("successful evaluation has an admitted Arena record");
+        let canonical_record =
+            |evaluation_id: &str, candidate_genome_id: &str, state: &str, phase: &str| {
+                let record: serde_json::Value =
+                    serde_json::from_slice(&admitted.payload).expect("decode admitted record");
+                let parent_trial_count = record["parent_trial_count"]
+                    .as_u64()
+                    .expect("parent trial count");
+                let parent_trial_count =
+                    usize::try_from(parent_trial_count).expect("parent trial count fits usize");
+                let total_trials =
+                    usize::try_from(record["total_trials"].as_u64().expect("total trial count"))
+                        .expect("total trial count fits usize");
+                let prefix = format!(
+                    "paired-{}",
+                    &blake3::hash(evaluation_id.as_bytes()).to_hex().to_string()[..24]
+                );
+                let run_ids = (0..total_trials)
+                    .map(|index| {
+                        if index < parent_trial_count {
+                            format!("{prefix}-parent-{index}")
+                        } else {
+                            format!("{prefix}-candidate-{}", index - parent_trial_count)
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let plan_commitment = serde_json::to_vec(&(
+                    evaluation_id,
+                    record["parent_genome_id"].as_str().unwrap(),
+                    candidate_genome_id,
+                    record["world_id"].as_str().unwrap(),
+                    record["visible_manifest_id"].as_str().unwrap(),
+                    record["sealed_manifest_id"].as_str().unwrap(),
+                    record["source_revision"].as_str().unwrap(),
+                    record["environment_id"].as_str().unwrap(),
+                    &run_ids,
+                ))
+                .expect("encode Arena plan commitment");
+                let mut payload = String::from_utf8(admitted.payload.clone())
+                    .expect("Arena record is UTF-8 JSON");
+                let replace_field = |payload: &mut String, field: &str, old: &str, new: &str| {
+                    let old = format!("\"{field}\":{}", serde_json::to_string(old).unwrap());
+                    let new = format!("\"{field}\":{}", serde_json::to_string(new).unwrap());
+                    assert!(payload.contains(&old), "canonical record has {field}");
+                    *payload = payload.replacen(&old, &new, 1);
+                };
+                replace_field(
+                    &mut payload,
+                    "evaluation_id",
+                    record["evaluation_id"].as_str().unwrap(),
+                    evaluation_id,
+                );
+                replace_field(
+                    &mut payload,
+                    "job_id",
+                    record["job_id"].as_str().unwrap(),
+                    evaluation_id,
+                );
+                replace_field(
+                    &mut payload,
+                    "candidate_genome_id",
+                    record["candidate_genome_id"].as_str().unwrap(),
+                    candidate_genome_id,
+                );
+                replace_field(
+                    &mut payload,
+                    "state",
+                    record["state"].as_str().unwrap(),
+                    state,
+                );
+                replace_field(
+                    &mut payload,
+                    "phase",
+                    record["phase"].as_str().unwrap(),
+                    phase,
+                );
+                let old_run_ids = serde_json::to_string(&record["ordered_trial_run_ids"]).unwrap();
+                let new_run_ids = serde_json::to_string(&run_ids).unwrap();
+                let old_run_ids_field = format!("\"ordered_trial_run_ids\":{old_run_ids}");
+                let new_run_ids_field = format!("\"ordered_trial_run_ids\":{new_run_ids}");
+                assert!(payload.contains(&old_run_ids_field));
+                payload = payload.replacen(&old_run_ids_field, &new_run_ids_field, 1);
+                let commitment = blake3::hash(&plan_commitment).to_hex().to_string();
+                replace_field(
+                    &mut payload,
+                    "plan_commitment",
+                    record["plan_commitment"].as_str().unwrap(),
+                    &commitment,
+                );
+                payload.into_bytes()
+            };
+        let append_replay_case = |event_type: &str, evaluation_id: &str, payload: Vec<u8>| {
+            for suffix in ["", "-wal", "-shm"] {
+                let _ignored = fs::remove_file(format!("{}{suffix}", events_path.display()));
+            }
+            let mut ledger = EventStore::open(&events_path).unwrap();
+            for event in &recovered_history {
+                ledger
+                    .append(EventInput::new(
+                        event.event_id.clone(),
+                        event.aggregate_id.clone(),
+                        event.event_type.clone(),
+                        event.actor.clone(),
+                        event.timestamp_millis,
+                        event.payload.clone(),
+                    ))
+                    .unwrap();
+            }
+            let suffix = event_type.strip_prefix("arena.job.").unwrap();
+            ledger
+                .append(EventInput::new(
+                    format!("arena-job:{evaluation_id}:{suffix}"),
+                    format!("arena-job:{evaluation_id}"),
+                    event_type,
+                    "daemon-runtime",
+                    recovered_history.last().unwrap().timestamp_millis + 1,
+                    payload,
+                ))
+                .unwrap();
+            drop(ledger);
+        };
+
+        // Replay rejects a structurally valid plan whose candidate Genome was never registered.
+        let missing_genome = format!("hephaestus:genome:{}", "f".repeat(64));
+        let missing_id = "replay-unregistered-candidate";
+        append_replay_case(
+            "arena.job.admitted",
+            missing_id,
+            canonical_record(missing_id, &missing_genome, "admitted", "preparing"),
+        );
+        assert!(matches!(
+            ControlPlane::open_with_repository(&data_dir, &repository),
+            Err(ControlError::Projection(message))
+                if message.contains("Arena candidate Genome is not registered")
+        ));
+
+        // A canonical running event cannot create a job without its admitted predecessor.
+        let transition_id = "replay-running-without-admission";
+        append_replay_case(
+            "arena.job.running",
+            transition_id,
+            canonical_record(
+                transition_id,
+                &candidate.genome_id,
+                "running",
+                "parent_trials",
+            ),
+        );
+        let transition_error = ControlPlane::open_with_repository(&data_dir, &repository)
+            .err()
+            .expect("replay rejects a running Arena record without admission");
+        assert!(
+            transition_error
+                .to_string()
+                .contains("Arena job lifecycle transition is invalid"),
+            "unexpected transition rejection: {transition_error}"
+        );
     }
 
     let binding = EvaluationBinding::new(
