@@ -773,6 +773,69 @@ fn canonical_writer_unavailable_cancels_and_fails_an_admitted_direct_job() {
 }
 
 #[test]
+fn canonical_writer_cancels_active_job_on_cross_run_evidence() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    plane
+        .submit_job("evidence-cancel", &genome.genome_id)
+        .expect("admit bounded reference job");
+
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (reply, result) = mpsc::channel();
+    sender
+        .send(EvidenceRequest::EnsureCapacity {
+            run_id: "different-run".to_owned(),
+            needed: 2,
+            reply,
+        })
+        .expect("queue cross-run evidence");
+    plane.job_evidence_receiver = Some(receiver);
+    plane
+        .service_async_messages()
+        .expect("reject cross-run evidence safely");
+    assert!(
+        result
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer returns evidence rejection")
+            .is_err()
+    );
+    assert!(
+        plane
+            .active_job
+            .as_ref()
+            .expect("admitted job remains active while cancellation propagates")
+            .cancel
+            .load(Ordering::Acquire),
+        "cross-run evidence cancels the active worker"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("drain cancelled worker result");
+        assert!(Instant::now() < deadline, "cancelled job did not unwind");
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let terminal = &plane.state.jobs["evidence-cancel"];
+    assert_eq!(terminal.state, JobState::Failed);
+    assert_eq!(terminal.terminal, Some(JobTerminal::Failed));
+    assert!(matches!(
+        plane.replay_response().expect("replay rejected evidence"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
 fn canonical_writer_cas_failure_rejects_trace_and_cancels_admitted_job() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
