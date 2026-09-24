@@ -2698,6 +2698,7 @@ fn async_direct_reference_job_persists_signed_output_and_replays_success() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn direct_job_terminal_sqlite_rejection_recovers_signed_success_after_restart() {
     let directory = tempdir().expect("temporary directory");
     let data_dir = directory.path().join("data");
