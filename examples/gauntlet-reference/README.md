@@ -28,7 +28,9 @@ The script starts an isolated daemon against a new owner-only scratch Git repo
 and data directory. It never attaches to an existing daemon, removes a supplied
 path, or calls the CLI's daemon-stop command. It terminates only the daemon
 process it started and retains the scratch directory printed in the bounded JSON
-report. Pass `--work-dir` to choose a new, nonexistent scratch directory.
+report. Subprocess output is streamed into bounded captures; the fixture daemon
+keeps only a 16 KiB diagnostic tail in memory. Pass `--work-dir` to choose a new,
+nonexistent scratch directory.
 
 The runner publishes task manifests from outside the candidate repo, registers
 the World and Markdown Genomes through the CLI, unfreezes its isolated daemon,

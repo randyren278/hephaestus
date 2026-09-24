@@ -11,7 +11,9 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +21,84 @@ from typing import Any
 MAX_COMMAND_OUTPUT = 64 * 1024
 MAX_EVALUATION_SECONDS = 180
 MAX_REPORT_BYTES = 16 * 1024
+MAX_DAEMON_TAIL_BYTES = 16 * 1024
+PIPE_DRAIN_SECONDS = 1.0
+PROCESS_EXIT_SECONDS = 2.0
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "gauntlet-reference"
 EXPECTED_OPS = ("identity", "ascii_uppercase")
 
 
 class RunnerError(RuntimeError):
     """A bounded, user-actionable fixture failure."""
+
+
+class _Capture:
+    """Thread-safe bounded byte capture for a subprocess pipe."""
+
+    def __init__(self, limit: int, *, keep_tail: bool = False) -> None:
+        self.limit = limit
+        self.keep_tail = keep_tail
+        self.data = bytearray()
+        self.overflow = threading.Event()
+        self._lock = threading.Lock()
+
+    def append(self, chunk: bytes) -> None:
+        with self._lock:
+            if self.keep_tail:
+                self.data.extend(chunk)
+                if len(self.data) > self.limit:
+                    del self.data[:len(self.data) - self.limit]
+                return
+            available = self.limit - len(self.data)
+            self.data.extend(chunk[:available])
+            if len(chunk) > available:
+                self.overflow.set()
+
+    def text(self) -> str:
+        with self._lock:
+            return self.data.decode("utf-8", errors="replace")
+
+
+@dataclass
+class _OwnedDaemon:
+    process: subprocess.Popen[bytes]
+    output_tail: _Capture
+    reader: threading.Thread
+
+
+def _pump(stream: Any, capture: _Capture) -> None:
+    try:
+        while chunk := stream.read(8192):
+            capture.append(chunk)
+    except (OSError, ValueError):
+        # Closing a pipe after the bounded drain deadline ends this reader.
+        pass
+
+
+def _kill_process_group(process: subprocess.Popen[Any]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _finish_killed_process(process: subprocess.Popen[Any], readers: list[threading.Thread]) -> None:
+    try:
+        process.wait(timeout=PROCESS_EXIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=PROCESS_EXIT_SECONDS)
+        except subprocess.TimeoutExpired as error:
+            raise RunnerError("owned subprocess did not exit after process-group termination") from error
+    deadline = time.monotonic() + PIPE_DRAIN_SECONDS
+    for reader in readers:
+        reader.join(timeout=max(0.0, deadline - time.monotonic()))
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
+    for reader in readers:
+        reader.join(timeout=0.1)
 
 
 def _binary(value: str, label: str) -> Path:
@@ -47,30 +121,69 @@ def _scratch_root(requested: str | None) -> Path:
     return root
 
 
-def _run(command: list[str], *, timeout: int = 20, cwd: Path | None = None) -> str:
+def _run(command: list[str], *, timeout: float = 20, cwd: Path | None = None) -> str:
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=cwd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            bufsize=0,
             env={**os.environ, "LC_ALL": "C", "LANG": "C"},
         )
-    except subprocess.TimeoutExpired as error:
-        raise RunnerError(f"command exceeded its {timeout}s deadline: {Path(command[0]).name}") from error
-    output = completed.stdout
-    if (len(output.encode("utf-8")) > MAX_COMMAND_OUTPUT
-            or len(completed.stderr.encode("utf-8")) > MAX_COMMAND_OUTPUT):
-        raise RunnerError(f"command output exceeded {MAX_COMMAND_OUTPUT} bytes")
-    if completed.returncode != 0:
-        detail = completed.stderr.strip().replace("\n", " ")[:500]
-        raise RunnerError(f"{Path(command[0]).name} failed ({completed.returncode}): {detail}")
-    return output.strip()
+    except OSError as error:
+        raise RunnerError(f"could not start command {Path(command[0]).name}") from error
+
+    stdout = _Capture(MAX_COMMAND_OUTPUT)
+    stderr = _Capture(MAX_COMMAND_OUTPUT)
+    readers = [
+        threading.Thread(target=_pump, args=(process.stdout, stdout), daemon=True),
+        threading.Thread(target=_pump, args=(process.stderr, stderr), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+    deadline = time.monotonic() + timeout
+    failure: str | None = None
+    try:
+        while process.poll() is None:
+            if stdout.overflow.is_set() or stderr.overflow.is_set():
+                failure = f"command output exceeded {MAX_COMMAND_OUTPUT} bytes"
+                break
+            if time.monotonic() >= deadline:
+                failure = f"command exceeded its {timeout:g}s deadline: {Path(command[0]).name}"
+                break
+            time.sleep(0.01)
+        if failure is not None:
+            _kill_process_group(process)
+            _finish_killed_process(process, readers)
+            raise RunnerError(failure)
+        process.wait(timeout=PROCESS_EXIT_SECONDS)
+        drain_deadline = time.monotonic() + PIPE_DRAIN_SECONDS
+        for reader in readers:
+            reader.join(timeout=max(0.0, drain_deadline - time.monotonic()))
+        if any(reader.is_alive() for reader in readers):
+            _kill_process_group(process)
+            _finish_killed_process(process, readers)
+            raise RunnerError(f"command left a descendant holding its output pipe: {Path(command[0]).name}")
+        if stdout.overflow.is_set() or stderr.overflow.is_set():
+            raise RunnerError(f"command output exceeded {MAX_COMMAND_OUTPUT} bytes")
+        output = stdout.text()
+        if process.returncode != 0:
+            detail = stderr.text().strip().replace("\n", " ")[:500]
+            raise RunnerError(f"{Path(command[0]).name} failed ({process.returncode}): {detail}")
+        return output.strip()
+    finally:
+        for stream in (process.stdout, process.stderr):
+            if stream is not None and not stream.closed:
+                stream.close()
+        for reader in readers:
+            if reader.is_alive():
+                reader.join(timeout=0.1)
 
 
-def _cli(cli: Path, data_dir: Path, *arguments: str, timeout: int = 20) -> dict[str, Any]:
+def _cli(cli: Path, data_dir: Path, *arguments: str, timeout: float = 20) -> dict[str, Any]:
     output = _run(
         [str(cli), "--data-dir", str(data_dir), "--json", *arguments],
         timeout=timeout,
@@ -90,7 +203,7 @@ def _cli(cli: Path, data_dir: Path, *arguments: str, timeout: int = 20) -> dict[
 
 
 def _data(cli: Path, data_dir: Path, expected_type: str, *arguments: str,
-          timeout: int = 20) -> dict[str, Any]:
+          timeout: float = 20) -> dict[str, Any]:
     data = _cli(cli, data_dir, *arguments, timeout=timeout)
     if data.get("type") != expected_type:
         raise RunnerError(f"expected {expected_type} response from {arguments[0]}")
@@ -107,36 +220,37 @@ def _daemon_command(daemon: Path, worker: Path, evaluator: Path,
     ]
 
 
-def _start_daemon(command: list[str], cli: Path, data_dir: Path) -> subprocess.Popen[str]:
-    log_path = data_dir / "daemon.log"
-    log = log_path.open("ab", buffering=0)
-    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                               start_new_session=True, text=True)
-    log.close()
+def _start_daemon(command: list[str], cli: Path, data_dir: Path) -> _OwnedDaemon:
+    process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, start_new_session=True, bufsize=0)
+    output_tail = _Capture(MAX_DAEMON_TAIL_BYTES, keep_tail=True)
+    reader = threading.Thread(target=_pump, args=(process.stdout, output_tail), daemon=True)
+    reader.start()
+    daemon = _OwnedDaemon(process, output_tail, reader)
     try:
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RunnerError(f"fixture-owned daemon exited during startup; inspect {log_path}")
+                tail = output_tail.text().strip()[-2000:]
+                raise RunnerError(f"fixture-owned daemon exited during startup: {tail}")
             try:
                 _data(cli, data_dir, "status", "status", timeout=2)
-                return process
+                return daemon
             except RunnerError:
                 time.sleep(0.1)
-        raise RunnerError(f"fixture-owned daemon did not become ready within 12 seconds; inspect {log_path}")
+        tail = output_tail.text().strip()[-2000:]
+        raise RunnerError(f"fixture-owned daemon did not become ready within 12 seconds: {tail}")
     except RunnerError:
-        _terminate_owned(process)
+        _terminate_owned(daemon)
         raise
 
 
-def _terminate_owned(process: subprocess.Popen[str] | None) -> None:
-    if process is None or process.poll() is not None:
+def _terminate_owned(daemon: _OwnedDaemon | None) -> None:
+    if daemon is None:
         return
-    os.killpg(process.pid, signal.SIGKILL)
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired as error:
-        raise RunnerError("fixture-owned daemon did not terminate") from error
+    process = daemon.process
+    _kill_process_group(process)
+    _finish_killed_process(process, [daemon.reader])
 
 
 def _write(path: Path, contents: str) -> None:
@@ -231,7 +345,7 @@ def run_fixture(args: argparse.Namespace) -> dict[str, Any]:
     root = _scratch_root(args.work_dir)
     repo, data_dir, external = _setup_scratch(root)
     daemon_command = _daemon_command(daemon, worker, evaluator, data_dir, repo)
-    process: subprocess.Popen[str] | None = None
+    process: _OwnedDaemon | None = None
     report: dict[str, Any] = {
         "schema_version": 1,
         "scope": "offline-reference-instructions",

@@ -2,7 +2,9 @@
 
 import importlib.util
 import json
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -11,6 +13,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "gauntlet_reference.py"
 SPEC = importlib.util.spec_from_file_location("gauntlet_reference", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 gauntlet = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = gauntlet
 SPEC.loader.exec_module(gauntlet)
 
 
@@ -76,6 +79,28 @@ class GauntletReferenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(gauntlet.RunnerError):
                 gauntlet._scratch_root(temporary)
+
+    def test_run_terminates_process_group_when_output_exceeds_capture_bound(self):
+        command = [sys.executable, "-c", "import os; [os.write(1, b'x' * 8192) for _ in range(100)]"]
+        with self.assertRaisesRegex(gauntlet.RunnerError, "output exceeded"):
+            gauntlet._run(command, timeout=3)
+
+    def test_daemon_diagnostic_capture_keeps_only_a_bounded_tail(self):
+        capture = gauntlet._Capture(16, keep_tail=True)
+        capture.append(b"abcdefghijk")
+        capture.append(b"12345678")
+        self.assertEqual(capture.text(), "defghijk12345678")
+        self.assertLessEqual(len(capture.data), 16)
+
+    def test_timeout_terminates_descendants_in_the_owned_process_group(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "late-child-write"
+            child = "import pathlib,sys,time; time.sleep(.6); pathlib.Path(sys.argv[1]).write_text('late')"
+            parent = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]); time.sleep(5)"
+            with self.assertRaisesRegex(gauntlet.RunnerError, "deadline"):
+                gauntlet._run([sys.executable, "-c", parent, child, str(marker)], timeout=0.15)
+            time.sleep(0.7)
+            self.assertFalse(marker.exists(), "timed-out descendant survived its owned process group")
 
 
 if __name__ == "__main__":
