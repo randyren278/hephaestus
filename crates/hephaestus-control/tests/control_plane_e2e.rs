@@ -1070,6 +1070,159 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         assert!(cli(&data_dir, &["unfreeze"]).status.success());
         let hypothesis =
             "If task-facing behavior needs to preserve case, the child should return identity.";
+        let unknown_selection_proposal = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "unknown-selection-proposal",
+                "--selection-event",
+                "missing-selection-event",
+                "--parent",
+                &candidate.genome_id,
+                "--hypothesis",
+                hypothesis,
+            ],
+        );
+        assert!(!unknown_selection_proposal.status.success());
+        let unknown_selection_error =
+            serde_json::from_slice::<ApiResponse>(&unknown_selection_proposal.stdout)
+                .unwrap()
+                .error
+                .unwrap();
+        assert_eq!(unknown_selection_error.code, ApiErrorCode::NotFound);
+
+        let wrong_type_selection_event = format!("genome:{}:registered", candidate.genome_id);
+        let wrong_type_selection = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "wrong-type-selection-proposal",
+                "--selection-event",
+                &wrong_type_selection_event,
+                "--parent",
+                &candidate.genome_id,
+                "--hypothesis",
+                hypothesis,
+            ],
+        );
+        assert!(!wrong_type_selection.status.success());
+        let wrong_type_error = serde_json::from_slice::<ApiResponse>(&wrong_type_selection.stdout)
+            .unwrap()
+            .error
+            .unwrap();
+        assert_eq!(wrong_type_error.code, ApiErrorCode::InvalidRequest);
+        assert_eq!(
+            wrong_type_error.message,
+            "selection_event_id does not identify a selection"
+        );
+
+        let invalid_hypothesis = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "invalid-hypothesis-proposal",
+                "--selection-event",
+                &recovered.event.event_id,
+                "--parent",
+                &candidate.genome_id,
+                "--hypothesis",
+                "  ",
+            ],
+        );
+        assert!(!invalid_hypothesis.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&invalid_hypothesis.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::InvalidRequest
+        );
+        let noncanonical_prompt_path = directory.path().join("noncanonical-prompt.md");
+        let canonical_uppercase = "{\"schema_version\":1,\"operation\":\"ascii_uppercase\"}";
+        let noncanonical_uppercase =
+            "{ \"schema_version\": 1, \"operation\": \"ascii_uppercase\" }";
+        let noncanonical_source = metadata(
+            "daemon-candidate-noncanonical",
+            &format!("[\"{}\"]", parent.genome_id),
+            "ascii_uppercase",
+        )
+        .replace(canonical_uppercase, noncanonical_uppercase);
+        fs::write(&noncanonical_prompt_path, noncanonical_source).unwrap();
+        let noncanonical_genome = match response(&cli(
+            &data_dir,
+            &[
+                "genome",
+                "register",
+                noncanonical_prompt_path.to_str().unwrap(),
+                "--world",
+                world.id(),
+            ],
+        ))
+        .data
+        .unwrap()
+        {
+            ResponseData::Genome { genome } => genome,
+            other => panic!("unexpected noncanonical prompt Genome: {other:?}"),
+        };
+        let noncanonical_evaluation_id = "noncanonical-prompt-pair";
+        assert!(matches!(
+            response(&cli(
+                &data_dir,
+                &[
+                    "arena",
+                    "evaluate",
+                    noncanonical_evaluation_id,
+                    &parent.genome_id,
+                    &noncanonical_genome.genome_id,
+                ],
+            ))
+            .data,
+            Some(ResponseData::Evaluation { .. })
+        ));
+        let noncanonical_selection = match response(&cli(
+            &data_dir,
+            &["arena", "select", noncanonical_evaluation_id],
+        ))
+        .data
+        .unwrap()
+        {
+            ResponseData::Selection { selection } => selection,
+            other => panic!("unexpected noncanonical prompt selection: {other:?}"),
+        };
+        assert_eq!(
+            noncanonical_selection.receipt.candidate_genome_id(),
+            noncanonical_genome.genome_id
+        );
+        let unsupported_prompt_proposal = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "unsupported-prompt-proposal",
+                "--selection-event",
+                &noncanonical_selection.event.event_id,
+                "--parent",
+                &noncanonical_genome.genome_id,
+                "--hypothesis",
+                hypothesis,
+            ],
+        );
+        assert!(!unsupported_prompt_proposal.status.success());
+        let unsupported_prompt_error =
+            serde_json::from_slice::<ApiResponse>(&unsupported_prompt_proposal.stdout)
+                .unwrap()
+                .error
+                .unwrap();
+        assert_eq!(unsupported_prompt_error.code, ApiErrorCode::InvalidRequest);
+        assert_eq!(
+            unsupported_prompt_error.message,
+            "the selected candidate prompt is outside the Forge mutation scope"
+        );
+
         let proposal_args = [
             "genome",
             "propose",
@@ -1164,6 +1317,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 .code,
             ApiErrorCode::InvalidRequest
         );
+
         let proposal_history = EventStore::open(data_dir.join("events.sqlite3"))
             .unwrap()
             .replay_verified()
@@ -1172,6 +1326,134 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             proposal_history
                 .iter()
                 .filter(|event| event.event_type == "forge.proposed")
+                .count(),
+            1
+        );
+
+        let duplicate_child_path = directory.path().join("pre-registered-forge-child.md");
+        let candidate_parent = format!("[\"{}\"]", candidate.genome_id);
+        fs::write(
+            &duplicate_child_path,
+            metadata(
+                "daemon-candidate-forge-duplicate-child-proposal",
+                &candidate_parent,
+                "identity",
+            ),
+        )
+        .unwrap();
+        let duplicate_child = cli(
+            &data_dir,
+            &[
+                "genome",
+                "register",
+                duplicate_child_path.to_str().unwrap(),
+                "--world",
+                world.id(),
+            ],
+        );
+        let duplicate_child_record = match response(&duplicate_child).data.unwrap() {
+            ResponseData::Genome { genome } => genome,
+            other => panic!("unexpected duplicate child registration: {other:?}"),
+        };
+        let duplicate_child_proposal = cli(
+            &data_dir,
+            &[
+                "genome",
+                "propose",
+                "duplicate-child-proposal",
+                "--selection-event",
+                &recovered.event.event_id,
+                "--parent",
+                &candidate.genome_id,
+                "--hypothesis",
+                hypothesis,
+            ],
+        );
+        assert!(!duplicate_child_proposal.status.success());
+        let duplicate_child_error =
+            serde_json::from_slice::<ApiResponse>(&duplicate_child_proposal.stdout)
+                .unwrap()
+                .error
+                .unwrap();
+        assert_eq!(duplicate_child_error.code, ApiErrorCode::InvalidRequest);
+        assert_eq!(
+            duplicate_child_error.message,
+            "derived child identity is already registered"
+        );
+        assert_eq!(
+            duplicate_child_record.name,
+            "daemon-candidate-forge-duplicate-child-proposal"
+        );
+
+        let append_retry_id = "append-retry-proposal";
+        let database = data_dir.join("events.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_fixture_forge_proposal
+                 BEFORE INSERT ON events
+                 WHEN NEW.event_type = 'forge.proposed'
+                  AND NEW.event_id = 'forge:append-retry-proposal:proposed'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'fixture rejects Forge proposal append');
+                 END;",
+            )
+            .unwrap();
+        let append_retry_args = [
+            "genome",
+            "propose",
+            append_retry_id,
+            "--selection-event",
+            recovered.event.event_id.as_str(),
+            "--parent",
+            candidate.genome_id.as_str(),
+            "--hypothesis",
+            hypothesis,
+        ];
+        let rejected_append = cli(&data_dir, &append_retry_args);
+        assert!(!rejected_append.status.success());
+        assert_eq!(
+            serde_json::from_slice::<ApiResponse>(&rejected_append.stdout)
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::Internal
+        );
+        assert!(cli(&data_dir, &["status"]).status.success());
+        let history_without_forge = EventStore::open(&database)
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        assert!(
+            !history_without_forge
+                .iter()
+                .any(|event| event.event_id == "forge:append-retry-proposal:proposed")
+        );
+        connection
+            .execute_batch("DROP TRIGGER reject_fixture_forge_proposal;")
+            .unwrap();
+        let retried_append = response(&cli(&data_dir, &append_retry_args));
+        assert!(matches!(
+            retried_append.data,
+            Some(ResponseData::ForgeProposal { proposal })
+                if proposal.payload.proposal_id == append_retry_id
+        ));
+        let history_after_retry = EventStore::open(&database)
+            .unwrap()
+            .replay_verified()
+            .unwrap();
+        assert_eq!(
+            history_after_retry
+                .iter()
+                .filter(|event| event.event_type == "forge.proposed")
+                .count(),
+            2
+        );
+        assert_eq!(
+            history_after_retry
+                .iter()
+                .filter(|event| event.event_id == "forge:append-retry-proposal:proposed")
                 .count(),
             1
         );
