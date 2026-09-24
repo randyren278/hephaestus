@@ -108,6 +108,32 @@ jobs:
       - name: Tests
         run: npm test
 
+  web:
+    name: Web console checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/hephaestus-web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build bundled server and console
+        run: npm run build
+
+      - name: Tests
+        run: npm test
+
   tui-pty:
     name: TUI live-daemon PTY
     runs-on: ubuntu-24.04

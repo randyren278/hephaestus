@@ -111,6 +111,7 @@ This roadmap implements the complete master-plan sequence without presenting lat
 **Risk**: Network exposure, multi-writer state, and distributed failure substantially expand the threat model.
 **Hook**: Local-first domain boundaries scale to distributed execution without replacing the trustworthy core.
 **Invariants**: Browsers and agents never access canonical storage directly; remote identities are scoped and expiring; duplicate delivery is idempotent; tool schemas and calls are versioned.
+**Slice done**: `apps/hephaestus-web` is a local, read-only web console. It proxies a fixed allowlist of read-only daemon commands (`status`, `world_list`, `genome_list`, `genome_show`, `genome_prompt`, `champion_show`, `job_status`) over the same owner-only Unix socket protocol the TUI uses, renders Worlds, Genome lineage with Champion/standby/quarantined roles, a Genome prompt diff against its parent, and Champion transition history, and adds a per-launch session token, `Host`/`Origin` checks against DNS rebinding and CSRF, and a strict no-CDN CSP. It never forwards a mutating command. There is no MCP gateway and no authenticated remote worker execution yet; costs, drift, and full evidence/experiment views are also still open. See [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md).
 
 ### 15. Public Gauntlet, production hardening, and self-dogfooding
 **Why**: A public system needs adversarial proof, reproducible releases, and evidence that Hephaestus can safely work on itself.

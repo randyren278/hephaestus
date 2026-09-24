@@ -1,0 +1,45 @@
+import { mkdir, writeFile, copyFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+
+await mkdir('dist/web', { recursive: true });
+
+function esbuild(args) {
+	const build = spawnSync('node_modules/.bin/esbuild', args, { stdio: 'inherit' });
+	if (build.error) throw build.error;
+	if (build.status !== 0) process.exit(build.status ?? 1);
+}
+
+// Server bundle: reuses the TUI's client/protocol/lineage modules directly
+// from ../hephaestus-tui/src via relative import, so esbuild inlines them
+// here rather than the packaged console depending on that sibling package.
+esbuild([
+	'src/main.ts',
+	'--bundle',
+	'--platform=node',
+	'--target=node22',
+	'--format=esm',
+	'--outfile=dist/main.bundle.mjs',
+]);
+
+await writeFile(
+	'dist/main.mjs',
+	[
+		"import { createRequire } from 'node:module';",
+		'globalThis.require ??= createRequire(import.meta.url);',
+		"await import('./main.bundle.mjs');",
+		'',
+	].join('\n'),
+);
+
+// Browser bundle: the single-page console, no CDN, no external requests.
+esbuild([
+	'src/web/app.ts',
+	'--bundle',
+	'--platform=browser',
+	'--target=es2022',
+	'--format=iife',
+	'--outfile=dist/web/app.js',
+]);
+
+await copyFile('src/web/index.html', 'dist/web/index.html');
+await copyFile('src/web/styles.css', 'dist/web/styles.css');

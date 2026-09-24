@@ -120,8 +120,15 @@ and that decision is itself a ledgered event.
   screens, and no packaged-install authoring flow (author/validate/register a
   Markdown agent from the TUI); those remain roadmap item 9 work. See
   [the setup guide](apps/hephaestus-tui/README.md) and
-  [macOS package instructions](docs/MACOS_INSTALL.md). There is no web console,
-  Gene Bank, drift detection, or autonomous loop yet.
+  [macOS package instructions](docs/MACOS_INSTALL.md).
+- **The web console is a local, read-only browser view.** It proxies a fixed
+  allowlist of read-only daemon commands (`status`, `world_list`,
+  `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
+  `job_status`) over an owner-only Unix socket, the same way the TUI does; it
+  can never mutate canonical state. See
+  [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md). There is no
+  MCP gateway, no remote workers, Gene Bank, drift detection, or autonomous
+  loop yet.
 
 ---
 
