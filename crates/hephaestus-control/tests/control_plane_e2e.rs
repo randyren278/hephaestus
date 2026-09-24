@@ -290,7 +290,11 @@ fn markdown_reference_instructions_use_one_pinned_worker_for_paired_trials() {
     else {
         panic!("expected idempotent job response");
     };
-    assert_eq!(repeated_job, job);
+    // An idempotent retry can observe a later lifecycle state than admission.
+    let mut admitted_binding = job.clone();
+    admitted_binding.state = repeated_job.state;
+    admitted_binding.terminal = repeated_job.terminal;
+    assert_eq!(repeated_job, admitted_binding);
     let conflicting = cli(&data_dir, &["submit", "job-async-1", &parent.genome_id]);
     assert!(!conflicting.status.success());
     let deadline = Instant::now() + Duration::from_secs(10);
