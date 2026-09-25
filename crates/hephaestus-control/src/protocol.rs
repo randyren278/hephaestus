@@ -224,6 +224,11 @@ pub enum Command {
         /// Stable drift idempotency key.
         drift_id: String,
     },
+    /// List recent drift records, newest first, bounded by `limit`.
+    DriftList {
+        /// Maximum number of entries returned; capped at 200.
+        limit: u32,
+    },
     /// Start (or idempotently re-admit) a staged canary rollout bound to a
     /// candidate Genome and a passing Forge assessment. The prior Champion
     /// stays Champion until the canary completes.
@@ -260,6 +265,11 @@ pub enum Command {
     CanaryShow {
         /// Stable canary idempotency key.
         canary_id: String,
+    },
+    /// List recent canaries, newest first, bounded by `limit`.
+    CanaryList {
+        /// Maximum number of entries returned; capped at 200.
+        limit: u32,
     },
     /// Extract a Gene from one promoted, evidence-bound Champion transition.
     GeneExtract {
@@ -666,6 +676,11 @@ pub enum ResponseData {
         /// Drift payload and canonical event metadata.
         drift: Box<DriftRecord>,
     },
+    /// Recent drift records, newest first and bounded.
+    DriftList {
+        /// Entries in newest-first order.
+        drifts: Vec<DriftRecord>,
+    },
     /// One durable, policy-checked canary transition.
     CanaryTransition {
         /// Transition payload and canonical event metadata.
@@ -675,6 +690,11 @@ pub enum ResponseData {
     Canary {
         /// Current stage and transition history.
         canary: Box<CanaryRecord>,
+    },
+    /// Recent canaries, newest first and bounded.
+    CanaryList {
+        /// Entries in newest-first order.
+        canaries: Vec<CanaryRecord>,
     },
     /// One extracted Gene bound to its origin evidence.
     Gene {

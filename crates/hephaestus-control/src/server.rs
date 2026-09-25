@@ -1063,10 +1063,12 @@ impl ControlPlane {
                 evidence_evaluation_id,
             } => self.record_drift(&drift_id, &world_id, kind, &evidence_evaluation_id),
             Command::DriftShow { drift_id } => self.drift_show(&drift_id),
+            Command::DriftList { limit } => self.drift_list(limit),
             command @ (Command::CanaryStart { .. }
             | Command::CanaryAdvance { .. }
             | Command::CanaryLiveCheck { .. }) => self.canary_transition_command(command),
             Command::CanaryShow { canary_id } => self.canary_show(&canary_id),
+            Command::CanaryList { limit } => self.canary_list(limit),
             Command::GeneExtract {
                 gene_id,
                 promotion_transition_id,
@@ -1326,6 +1328,18 @@ impl ControlPlane {
         })
     }
 
+    /// Recent drift records, newest first, bounded by `limit`.
+    fn drift_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let drifts =
+            drift::drift_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::DriftList { drifts })
+    }
+
     fn canary_transition_command(
         &mut self,
         command: Command,
@@ -1493,6 +1507,18 @@ impl ControlPlane {
         Ok(ResponseData::Canary {
             canary: Box::new(canary),
         })
+    }
+
+    /// Recent canaries, newest first, bounded by `limit`.
+    fn canary_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let canaries =
+            canary::canary_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::CanaryList { canaries })
     }
 
     fn gene_extract(
@@ -7175,7 +7201,9 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     if let Command::RunList { limit }
     | Command::EvaluationList { limit }
     | Command::DenialList { limit }
-    | Command::MetaList { limit } = command
+    | Command::MetaList { limit }
+    | Command::DriftList { limit }
+    | Command::CanaryList { limit } = command
         && (*limit == 0 || *limit > MAX_LIST_LIMIT)
     {
         return Err(ExecuteError::Invalid("limit must be between 1 and 200"));
@@ -9373,10 +9401,12 @@ fn event_type(command: &Command) -> &'static str {
         Command::ChampionShow { .. } => "control.champion_show",
         Command::DriftRecord { .. } => "control.drift_record",
         Command::DriftShow { .. } => "control.drift_show",
+        Command::DriftList { .. } => "control.drift_list",
         Command::CanaryStart { .. } => "control.canary_start",
         Command::CanaryAdvance { .. } => "control.canary_advance",
         Command::CanaryLiveCheck { .. } => "control.canary_live_check",
         Command::CanaryShow { .. } => "control.canary_show",
+        Command::CanaryList { .. } => "control.canary_list",
         Command::GeneExtract { .. } => "control.gene_extract",
         Command::GeneTransfer { .. } => "control.gene_transfer",
         Command::GeneRecord { .. } => "control.gene_record",

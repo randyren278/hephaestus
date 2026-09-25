@@ -83,6 +83,26 @@ pub(super) fn drift_projection(
     Ok(None)
 }
 
+/// Recent drift records, newest first, bounded by `limit`.
+pub(super) fn drift_list(
+    history: &[StoredEvent],
+    limit: u32,
+) -> Result<Vec<DriftRecord>, ControlError> {
+    let mut drifts = Vec::new();
+    for event in history
+        .iter()
+        .rev()
+        .filter(|event| event.event_type == DRIFT_EVENT_TYPE)
+    {
+        if drifts.len() >= limit as usize {
+            break;
+        }
+        let payload = decode_drift_record(event)?;
+        drifts.push(drift_record(payload, event));
+    }
+    Ok(drifts)
+}
+
 pub(super) fn existing_drift_record(
     history: &[StoredEvent],
     drift_id: &str,

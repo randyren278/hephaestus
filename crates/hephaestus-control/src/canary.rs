@@ -223,6 +223,36 @@ pub(super) fn canary_projection(
     Ok(record)
 }
 
+/// Recent canaries, newest first (by their most recent transition), bounded
+/// by `limit`. Each entry is the full projection of one canary, identical to
+/// what `canary_projection` returns for that `canary_id`.
+pub(super) fn canary_list(
+    history: &[StoredEvent],
+    limit: u32,
+) -> Result<Vec<CanaryRecord>, ControlError> {
+    let mut seen = Vec::new();
+    for event in history
+        .iter()
+        .rev()
+        .filter(|event| event.event_type == CANARY_EVENT_TYPE)
+    {
+        let payload = decode_canary_transition(event)?;
+        if !seen.contains(&payload.canary_id) {
+            seen.push(payload.canary_id);
+        }
+        if seen.len() >= limit as usize {
+            break;
+        }
+    }
+    let mut canaries = Vec::with_capacity(seen.len());
+    for canary_id in seen {
+        if let Some(record) = canary_projection(history, &canary_id)? {
+            canaries.push(record);
+        }
+    }
+    Ok(canaries)
+}
+
 /// Returns the recorded transition for the request's deterministic event ID
 /// if the request matches it.
 pub(super) fn existing_canary_transition(

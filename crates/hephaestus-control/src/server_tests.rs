@@ -11329,6 +11329,19 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     assert_eq!(canary.stage, CanaryStage::Completed);
     assert_eq!(canary.transitions.len(), 5, "started plus four advances");
 
+    let listed = match dispatch_call(
+        &mut plane,
+        &token,
+        "canary-list",
+        Command::CanaryList { limit: 10 },
+    )
+    .data
+    {
+        Some(ResponseData::CanaryList { canaries }) => canaries,
+        other => panic!("unexpected canary list response: {other:?}"),
+    };
+    assert_eq!(listed, vec![canary.clone()], "the one canary is listed newest first");
+
     // A terminal canary refuses further advancement.
     let evidence_5 = canary_healthy_evidence_evaluation(
         &mut plane,
@@ -11928,6 +11941,30 @@ fn drift_record_derives_from_verified_evidence_and_replays() {
         other => panic!("unexpected drift show response: {other:?}"),
     };
     assert_eq!(shown, recorded);
+
+    let listed = match dispatch_call(
+        &mut plane,
+        &token,
+        "drift-list",
+        Command::DriftList { limit: 10 },
+    )
+    .data
+    {
+        Some(ResponseData::DriftList { drifts }) => drifts,
+        other => panic!("unexpected drift list response: {other:?}"),
+    };
+    assert_eq!(listed, vec![recorded.clone()], "the one recorded drift is listed newest first");
+    let Some(capped) = dispatch_call(
+        &mut plane,
+        &token,
+        "drift-list-capped",
+        Command::DriftList { limit: 0 },
+    )
+    .error
+    else {
+        panic!("a zero limit must be rejected")
+    };
+    assert_eq!(capped.message, "limit must be between 1 and 200");
 
     // Drift never directly replaces a Champion.
     assert_eq!(
