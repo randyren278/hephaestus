@@ -6,7 +6,7 @@ This slice adds three durable, replay-verified primitives on top of the
 existing Champion, Forge, and Arena primitives: drift records, a canary's
 shadow evaluation (the existing Forge assessment, reused), and a staged
 canary rollout that promotes or rolls back only through the existing
-`champion.rs` promotion and rollback policy.
+`crates/hephaestus-control/src/champion.rs` promotion and rollback policy.
 
 ```sh
 hephaestus drift record <drift-id> --world <world-id> --kind latency|cost|correctness|workload --evidence <evaluation-id>

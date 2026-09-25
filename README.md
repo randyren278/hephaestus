@@ -254,6 +254,12 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |
 | `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
 | `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
+| `hephaestus drift record <id> --world <w> --kind latency\|cost\|correctness\|workload --evidence <evaluation>` | Record verified drift evidence against the current Champion; never replaces it ([docs/CANARY.md](docs/CANARY.md)) |
+| `hephaestus drift show <id>` | Inspect one recorded drift observation |
+| `hephaestus canary start <id> --world <w> --candidate <genome> --assessment <assessment>` | Start a staged canary bound to a shadow-evaluated candidate; the prior Champion stays Champion |
+| `hephaestus canary advance <id> --evidence <evaluation>` | Advance 5% -> 25% -> 50% -> 100% on healthy evidence; automatically aborts on a regression |
+| `hephaestus canary live-check <id> --evidence <evaluation>` | Check a completed canary's Champion against the previous one; a regression automatically rolls back through the existing Champion policy |
+| `hephaestus canary show <id>` | Inspect one canary's stage and transition history |
 | `hephaestus replay` | Verify history and compare it with live state |
 | `hephaestus runs --limit <n>` | Recent direct runs and jobs, newest first, bounded (default 20, max 200) |
 | `hephaestus evaluations --limit <n>` | Recent Arena evaluations with selection, invariant, and Forge evidence references, newest first |
@@ -314,6 +320,7 @@ scopes it to one crate while iterating.
 - [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): compiler contracts and source schemas
 - [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md)
 - [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
+- [Evolution runs](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md)
 - [Roadmap](ROADMAP.md) · [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
 
 ## License
