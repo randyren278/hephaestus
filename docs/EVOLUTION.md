@@ -7,7 +7,22 @@ hephaestus evolve start <run-id> --world <world-id> --from <genome-id> \
   --generations <n> --budget <paired-evaluations>
 hephaestus evolve status <run-id>
 hephaestus evolve cancel <run-id>
+hephaestus evolve coding --budget <paired-evaluations>
 ```
+
+`evolve coding` is a CLI convenience, not a different engine. It registers
+the bundled `examples/gauntlet/coding` World and its parent (`identity`) and
+candidate (`ascii_uppercase`) reference Genomes against the connected daemon
+(idempotently, if already registered — the evaluator binary it publishes is
+found next to the `hephaestus` executable, and its runtime verifier key
+comes from that daemon's own `verifier` command), then runs `evolve start`
+with `--generations 3` and the given `--budget` and polls `evolve status`
+until the run finishes. The daemon must already be running and reachable at
+`--data-dir`; the command unfreezes it if needed. Every Genome it registers
+still uses the plain reference operations, so this proves the unattended
+multi-generation *mechanism* against a Gauntlet-flavored World, not that the
+optimizer can solve a real coding task — see
+[examples/gauntlet/README.md](../examples/gauntlet/README.md).
 
 `--from` is seeded as generation zero's Champion, or kept if it already is one. The World needs a second registered Genome, which the run uses as the fixed baseline for each generation's diagnostic evaluation. `--budget` caps paired Arena evaluations; each generation consumes exactly two.
 
@@ -28,4 +43,4 @@ hephaestus evolve cancel <run-id>
 
 ## What this proves today
 
-With the deterministic reference runtime, a run can complete at least three unattended generations, promoting an improving child and rejecting the rest; in-process tests cover a three-generation run, freeze and resume, cancellation, budget exhaustion, and replay rejection of forged promotions. The only mutation available is the reference-operation flip, so improvement is bounded to that one change. Statistically supported improvement on a sealed holdout, and the adversarial Gauntlet failure modes, need richer runtimes; see [examples/gauntlet/README.md](../examples/gauntlet/README.md) for what is and is not expressible today.
+With the deterministic reference runtime, a run can complete at least three unattended generations, promoting an improving child and rejecting the rest; in-process tests cover a three-generation run (both a hand-registered World and the bundled `evolve coding` fixture), freeze and resume, cancellation, budget exhaustion, and replay rejection of forged promotions. The only mutation available is the reference-operation flip, so improvement is bounded to that one change. Statistically supported improvement on a sealed holdout needs a richer optimizer. The seven named Gauntlet failure modes are now real, deterministic reference-worker operation pairs, each provably rejecting a "bad" operation and passing its "fix" via direct Arena evaluation — but not yet through `evolve` itself, since Forge's mutation operator only knows the identity/ascii_uppercase flip; see [examples/gauntlet/README.md](../examples/gauntlet/README.md) for exactly what is and is not expressible today.
