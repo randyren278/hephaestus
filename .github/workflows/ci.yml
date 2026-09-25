@@ -178,7 +178,7 @@ jobs:
         include:
           - scope: hephaestus-arena
             prefix: crates/hephaestus-arena/
-            minimum: 63
+            minimum: 67
             timeout_minutes: 20
           - scope: hephaestus-core
             prefix: crates/hephaestus-core/

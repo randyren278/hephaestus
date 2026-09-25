@@ -1,5 +1,6 @@
 //! Trusted deterministic evaluation with sealed task boundaries and durable receipts.
 
+mod clusters;
 mod error;
 #[doc(hidden)]
 pub mod evaluator_protocol;
@@ -9,6 +10,11 @@ mod selection;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use clusters::{
+    CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, FailureCluster, OperatorClusterAnalysis,
+    SuggestedMutation, VisibleTrial, check_failure_clusters, cluster_event_references,
+    cluster_trials, load_failure_clusters, verify_cluster_event,
+};
 pub use error::ArenaError;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultVerifier,

@@ -1,4 +1,6 @@
-use hephaestus_arena::{InvariantEvent, InvariantReceipt, SelectionReceipt};
+use hephaestus_arena::{
+    ClusterAnalysis, ClusterEvent, InvariantEvent, InvariantReceipt, SelectionReceipt,
+};
 use hephaestus_experience::RunBudgetReceipt;
 pub use hephaestus_experience::RunCompletionReason;
 pub use hephaestus_genome::{GenomeRecord, WorldRecord};
@@ -53,6 +55,11 @@ pub enum Command {
         world_id: String,
     },
     /// Propose one compiler-validated prompt mutation from a trusted selection.
+    ///
+    /// Exactly one of `hypothesis` or (`analysis_id` and `cluster_index`) must
+    /// be supplied. The operator-hypothesis path is unchanged; supplying an
+    /// analysis binding instead derives the hypothesis and confirms the
+    /// mutation from one verified `forge.clustered` cluster.
     GenomePropose {
         /// Stable idempotency key for this proposal.
         proposal_id: String,
@@ -61,7 +68,14 @@ pub enum Command {
         /// Parent Genome; must be the selected candidate.
         parent_genome_id: String,
         /// Operator-authored, bounded hypothesis for the one prompt change.
-        hypothesis: String,
+        #[serde(default)]
+        hypothesis: Option<String>,
+        /// Verified `forge.clustered` analysis supplying the hypothesis and mutation.
+        #[serde(default)]
+        analysis_id: Option<String>,
+        /// Index into that analysis's `clusters`, in canonical signature order.
+        #[serde(default)]
+        cluster_index: Option<u32>,
     },
     /// Assess one proposed child against a verified Arena selection receipt.
     GenomeAssess {
@@ -71,6 +85,13 @@ pub enum Command {
         proposal_id: String,
         /// Exact child-selection event whose receipt supplies the metrics outcome.
         selection_event_id: String,
+    },
+    /// Cluster one candidate's failed trials and suggest hypotheses and mutations.
+    ForgeAnalyze {
+        /// Stable idempotency key for this analysis.
+        analysis_id: String,
+        /// Stable Arena evaluation identity whose authenticated candidate trials are clustered.
+        evaluation_id: String,
     },
     /// Inspect one immutable World record.
     WorldShow {
@@ -289,6 +310,12 @@ pub enum ResponseData {
     ForgeAssessment {
         /// Assessment payload and canonical event metadata.
         assessment: Box<ForgeAssessmentRecord>,
+    },
+    /// One deterministic failure-cluster analysis. Models may recommend a
+    /// mutation from it; nothing here proposes, mutates, or promotes.
+    ForgeAnalysis {
+        /// Canonical clusters and their canonical event metadata.
+        analysis: Box<ForgeAnalysisRecord>,
     },
     /// Exact UTF-8 body bytes of a registered Genome's reserved prompt.
     GenomePrompt {
@@ -556,7 +583,7 @@ pub struct ForgeProposalPayload {
     pub parent_genome_id: String,
     /// Child registration compiled by the ordinary Genome compiler.
     pub child: GenomeRecord,
-    /// Explicit operator-authored hypothesis.
+    /// Explicit hypothesis: operator-authored, or derived from a bound cluster.
     pub hypothesis: String,
     /// Reserved artifact mutated by this proposal; currently always `agent.prompt`.
     pub artifact_name: String,
@@ -568,6 +595,40 @@ pub struct ForgeProposalPayload {
     pub operation_before: String,
     /// Single operation proposed for the child prompt.
     pub operation_after: String,
+    /// The verified `forge.clustered` analysis and cluster this proposal was
+    /// derived from, when one was supplied. Absent for an operator-authored
+    /// hypothesis. This field was added after `schema_version` 1 shipped; it
+    /// defaults to `None` so every previously recorded proposal event still
+    /// replays byte-for-byte.
+    #[serde(default)]
+    pub analysis_binding: Option<ForgeAnalysisBinding>,
+}
+
+/// Binds one Forge proposal to the exact verified cluster analysis and
+/// cluster it was derived from.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeAnalysisBinding {
+    /// The bound analysis's idempotency key.
+    pub analysis_id: String,
+    /// Exact verified `forge.clustered` event identity.
+    pub analysis_event_id: String,
+    /// Hash of the exact analysis event.
+    pub analysis_event_hash: String,
+    /// Index into the analysis's `clusters`, in canonical signature order.
+    pub cluster_index: u32,
+    /// The bound cluster's stable signature, for operator-visible confirmation.
+    pub cluster_signature: String,
+}
+
+/// Operator-visible cluster analysis and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeAnalysisRecord {
+    /// Canonical clustered failure analysis.
+    pub analysis: ClusterAnalysis,
+    /// Canonical event metadata.
+    pub event: ClusterEvent,
 }
 
 /// Canonical event metadata accompanying a Forge proposal response.

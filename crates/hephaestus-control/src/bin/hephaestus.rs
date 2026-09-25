@@ -8,9 +8,10 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, ChampionRecord, ChampionTransitionRecord, Client,
-    Command, DenialEntry, EvaluationListEntry, EvaluationRecord, ForgeAssessmentOutcome,
-    ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord, InvariantRecord, JobState,
-    ResponseData, RunListEntry, SelectionRecord, WorldRecord, data_dir_from_environment,
+    Command, DenialEntry, EvaluationListEntry, EvaluationRecord, ForgeAnalysisRecord,
+    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord,
+    InvariantRecord, JobState, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
+    data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -95,6 +96,11 @@ enum CliCommand {
         #[command(subcommand)]
         command: ArenaCommand,
     },
+    /// Cluster failure evidence and suggest hypotheses and mutations.
+    Forge {
+        #[command(subcommand)]
+        command: ForgeCommand,
+    },
     /// Verify and replay the canonical event stream.
     Replay,
     /// List recent direct runs and jobs, newest first.
@@ -155,6 +161,9 @@ enum GenomeCommand {
         world: String,
     },
     /// Propose one prompt operation mutation from an exact trusted Arena selection.
+    ///
+    /// Supply either `--hypothesis`, or both `--analysis` and `--cluster` to
+    /// derive the hypothesis and mutation from one verified `forge analyze` cluster.
     Propose {
         /// Stable idempotency key for this proposal.
         proposal_id: String,
@@ -166,7 +175,13 @@ enum GenomeCommand {
         parent: String,
         /// Operator-authored hypothesis for the prompt mutation.
         #[arg(long)]
-        hypothesis: String,
+        hypothesis: Option<String>,
+        /// Verified `forge analyze` analysis to derive the hypothesis and mutation from.
+        #[arg(long)]
+        analysis: Option<String>,
+        /// Index into that analysis's clusters, in canonical signature order.
+        #[arg(long)]
+        cluster: Option<u32>,
     },
     /// Record measured evidence for a proposed child; never promotes it.
     Assess {
@@ -273,6 +288,18 @@ enum ArenaCommand {
     Invariants {
         /// Stable Arena evaluation identity.
         evaluation_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ForgeCommand {
+    /// Cluster one candidate's failed trials and suggest hypotheses and mutations.
+    Analyze {
+        /// Stable idempotency key for this analysis.
+        analysis_id: String,
+        /// Stable Arena evaluation identity to cluster.
+        #[arg(long)]
+        evaluation: String,
     },
 }
 
@@ -700,6 +727,16 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Arena {
             command: ArenaCommand::Invariants { evaluation_id },
         } => Command::ArenaInvariants { evaluation_id },
+        CliCommand::Forge {
+            command:
+                ForgeCommand::Analyze {
+                    analysis_id,
+                    evaluation,
+                },
+        } => Command::ForgeAnalyze {
+            analysis_id,
+            evaluation_id: evaluation,
+        },
         CliCommand::Champion { command } => champion_command_from_cli(command),
         CliCommand::Replay => Command::Replay,
         CliCommand::Runs { limit } => Command::RunList { limit },
@@ -760,11 +797,15 @@ fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static s
             selection_event,
             parent,
             hypothesis,
+            analysis,
+            cluster,
         } => Command::GenomePropose {
             proposal_id,
             selection_event_id: selection_event,
             parent_genome_id: parent,
             hypothesis,
+            analysis_id: analysis,
+            cluster_index: cluster,
         },
         GenomeCommand::Assess {
             assessment_id,
@@ -867,6 +908,9 @@ fn print_human(response: &ApiResponse) {
         }
         (Some(ResponseData::ArenaInvariants { invariants }), None) => {
             println!("{}", invariants_human(invariants));
+        }
+        (Some(ResponseData::ForgeAnalysis { analysis }), None) => {
+            println!("{}", forge_analysis_human(analysis));
         }
         (Some(ResponseData::ArenaJob { job }), None) => {
             println!("{}", arena_job_human(job));
@@ -1149,6 +1193,41 @@ fn invariants_human(invariants: &InvariantRecord) -> String {
         invariants.event.sequence,
         invariants.event.event_hash,
         invariants.event.receipt_artifact_id,
+    )
+}
+
+fn forge_analysis_human(analysis: &ForgeAnalysisRecord) -> String {
+    let clusters = analysis
+        .analysis
+        .clusters
+        .iter()
+        .enumerate()
+        .map(|(index, cluster)| {
+            let mutation = cluster
+                .suggested_mutation
+                .map_or_else(|| "none".to_owned(), |mutation| format!("{mutation:?}"));
+            format!(
+                "[{index}]{}:visible={},sealed={},mutation={},hypothesis={:?}",
+                cluster.signature,
+                cluster.visible_count,
+                cluster.sealed_count,
+                mutation,
+                cluster.hypothesis
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!(
+        "analysis={} evaluation={} world={} visible_failed={} sealed_failed={} clusters=[{}] event={} sequence={} hash={}",
+        analysis.analysis.analysis_id,
+        analysis.analysis.evaluation_id,
+        analysis.analysis.world_id,
+        analysis.analysis.total_visible_failed_trials,
+        analysis.analysis.total_sealed_failed_trials,
+        clusters,
+        analysis.event.event_id,
+        analysis.event.sequence,
+        analysis.event.event_hash,
     )
 }
 

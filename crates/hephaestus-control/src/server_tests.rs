@@ -1093,7 +1093,9 @@ fn command_audit_types_and_source_extensions_are_stable() {
                 proposal_id: "proposal-1".into(),
                 selection_event_id: "selection-event".into(),
                 parent_genome_id: "candidate".into(),
-                hypothesis: "The child should preserve case.".into(),
+                hypothesis: Some("The child should preserve case.".into()),
+                analysis_id: None,
+                cluster_index: None,
             },
             "control.genome_propose",
         ),
@@ -7047,6 +7049,7 @@ fn job_transition_rules_cover_admission_running_cancellation_and_terminal_edges(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn command_field_validation_rejects_empty_ids_and_paths() {
     let invalid = [
         Command::GenomeShow {
@@ -7090,25 +7093,33 @@ fn command_field_validation_rejects_empty_ids_and_paths() {
             proposal_id: String::new(),
             selection_event_id: "selection".to_owned(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "valid hypothesis".to_owned(),
+            hypothesis: Some("valid hypothesis".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::GenomePropose {
             proposal_id: "proposal".to_owned(),
             selection_event_id: String::new(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "valid hypothesis".to_owned(),
+            hypothesis: Some("valid hypothesis".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::GenomePropose {
             proposal_id: "proposal".to_owned(),
             selection_event_id: "selection".to_owned(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "\n".to_owned(),
+            hypothesis: Some("\n".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::GenomePropose {
             proposal_id: "proposal".to_owned(),
             selection_event_id: "selection".to_owned(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "x".repeat(513),
+            hypothesis: Some("x".repeat(513)),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::RunReference {
             genome_id: String::new(),
@@ -9408,6 +9419,226 @@ fn assert_promotion_refused_by_invariants(manifest: &[u8], regressions_within_bu
             .as_deref(),
         Some(initial_candidate.genome_id.as_str())
     );
+}
+
+// --- Failure-cluster analysis: `forge.clustered` ledger events and their use
+// in an analysis-derived `genome propose`. Every default-identity candidate
+// in this fixture already fails `visible-task` ("visible" != "VISIBLE") with
+// a pure letter-case mismatch, so no extra fixture wiring is needed to
+// produce a `shape_case_mismatch` cluster with a supported mutation.
+
+fn cluster_analyze(
+    plane: &mut ControlPlane,
+    token: &str,
+    analysis_id: &str,
+    evaluation_id: &str,
+) -> Box<ForgeAnalysisRecord> {
+    let response = dispatch_call(
+        plane,
+        token,
+        analysis_id,
+        Command::ForgeAnalyze {
+            analysis_id: analysis_id.to_owned(),
+            evaluation_id: evaluation_id.to_owned(),
+        },
+    );
+    match (response.data, response.error) {
+        (Some(ResponseData::ForgeAnalysis { analysis }), None) => analysis,
+        (data, error) => panic!("forge analyze should return its record: {data:?} {error:?}"),
+    }
+}
+
+#[test]
+fn cluster_analyze_records_deterministic_clusters_and_idempotent_replay() {
+    let directory = tempdir().expect("cluster analysis fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    complete_arena_test_job(
+        &mut plane,
+        "cluster-evaluation",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+
+    let analysis = cluster_analyze(&mut plane, &token, "cluster-analysis", "cluster-evaluation");
+    assert_eq!(analysis.analysis.analysis_id, "cluster-analysis");
+    assert_eq!(analysis.analysis.evaluation_id, "cluster-evaluation");
+    assert_eq!(analysis.analysis.candidate_genome_id, candidate.genome_id);
+    assert_eq!(
+        analysis.event.event_id,
+        "forge:analysis:cluster-analysis:clustered"
+    );
+    assert_eq!(analysis.event.event_type, "forge.clustered");
+    let case_mismatch = analysis
+        .analysis
+        .clusters
+        .iter()
+        .find(|cluster| cluster.signature == "shape_case_mismatch")
+        .expect("candidate's identity output should mismatch the uppercase-expected task");
+    assert_eq!(case_mismatch.visible_count, 1);
+    assert_eq!(
+        case_mismatch.suggested_mutation,
+        Some(SuggestedMutation::ReferenceOperationFlip)
+    );
+
+    // Sealed task content never appears in the operator-visible analysis.
+    let analysis_json = serde_json::to_string(&analysis.analysis).expect("encode analysis");
+    assert!(!analysis_json.contains("SEALED"));
+    assert!(!analysis_json.contains("sealed-task"));
+
+    // An exact retry recomputes and returns the identical record.
+    let retry = cluster_analyze(&mut plane, &token, "cluster-analysis", "cluster-evaluation");
+    assert_eq!(retry.analysis, analysis.analysis);
+    assert_eq!(retry.event, analysis.event);
+
+    // Replay independently re-verifies the recorded `forge.clustered` event.
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+}
+
+#[test]
+fn cluster_analyze_rejects_empty_identifiers() {
+    let directory = tempdir().expect("cluster validation fixture");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+
+    for (analysis_id, evaluation_id) in [("", "evaluation"), ("analysis", "")] {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            "cluster-invalid",
+            Command::ForgeAnalyze {
+                analysis_id: analysis_id.to_owned(),
+                evaluation_id: evaluation_id.to_owned(),
+            },
+        );
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest
+        ));
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn cluster_propose_from_analysis_binds_hash_and_derives_hypothesis() {
+    let directory = tempdir().expect("cluster proposal fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    complete_arena_test_job(
+        &mut plane,
+        "cluster-proposal-source",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation("cluster-proposal-source")
+        .expect("select Forge source")
+    else {
+        panic!("source selection should produce a receipt");
+    };
+    let analysis = cluster_analyze(
+        &mut plane,
+        &token,
+        "cluster-proposal-analysis",
+        "cluster-proposal-source",
+    );
+    let (cluster_index, cluster) = analysis
+        .analysis
+        .clusters
+        .iter()
+        .enumerate()
+        .find(|(_, cluster)| cluster.suggested_mutation.is_some())
+        .expect("a supported-mutation cluster exists");
+    let cluster_index = u32::try_from(cluster_index).expect("small cluster index");
+    let expected_hypothesis = cluster.hypothesis.clone();
+    let expected_signature = cluster.signature.clone();
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "cluster-proposal",
+        Command::GenomePropose {
+            proposal_id: "cluster-proposal".to_owned(),
+            selection_event_id: selection.event.event_id.clone(),
+            parent_genome_id: candidate.genome_id.clone(),
+            hypothesis: None,
+            analysis_id: Some("cluster-proposal-analysis".to_owned()),
+            cluster_index: Some(cluster_index),
+        },
+    );
+    let Some(ResponseData::ForgeProposal { proposal }) = response.data else {
+        panic!(
+            "analysis-derived proposal should succeed: {:?}",
+            response.error
+        );
+    };
+    assert_eq!(proposal.payload.hypothesis, expected_hypothesis);
+    let binding = proposal
+        .payload
+        .analysis_binding
+        .as_ref()
+        .expect("proposal should bind the source analysis");
+    assert_eq!(binding.analysis_id, "cluster-proposal-analysis");
+    assert_eq!(binding.analysis_event_id, analysis.event.event_id);
+    assert_eq!(binding.analysis_event_hash, analysis.event.event_hash);
+    assert_eq!(binding.cluster_index, cluster_index);
+    assert_eq!(binding.cluster_signature, expected_signature);
+
+    // The unchanged operator-hypothesis path never sets a binding.
+    let operator_response = dispatch_call(
+        &mut plane,
+        &token,
+        "cluster-proposal-operator",
+        Command::GenomePropose {
+            proposal_id: "cluster-proposal-operator".to_owned(),
+            selection_event_id: selection.event.event_id.clone(),
+            parent_genome_id: candidate.genome_id.clone(),
+            hypothesis: Some("Operator-authored hypothesis.".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
+        },
+    );
+    let Some(ResponseData::ForgeProposal {
+        proposal: operator_proposal,
+    }) = operator_response.data
+    else {
+        panic!(
+            "operator-hypothesis proposal should still succeed: {:?}",
+            operator_response.error
+        );
+    };
+    assert!(operator_proposal.payload.analysis_binding.is_none());
+
+    // Supplying both or neither is rejected before any evidence is touched.
+    for command in [
+        Command::GenomePropose {
+            proposal_id: "cluster-proposal-both".to_owned(),
+            selection_event_id: selection.event.event_id.clone(),
+            parent_genome_id: candidate.genome_id.clone(),
+            hypothesis: Some("Operator-authored hypothesis.".to_owned()),
+            analysis_id: Some("cluster-proposal-analysis".to_owned()),
+            cluster_index: Some(cluster_index),
+        },
+        Command::GenomePropose {
+            proposal_id: "cluster-proposal-neither".to_owned(),
+            selection_event_id: selection.event.event_id.clone(),
+            parent_genome_id: candidate.genome_id.clone(),
+            hypothesis: None,
+            analysis_id: None,
+            cluster_index: None,
+        },
+    ] {
+        let response = dispatch_call(&mut plane, &token, "cluster-proposal-invalid", command);
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest
+        ));
+    }
 }
 
 // --- Evidence API: RunList, EvaluationList, DenialList (roadmap item 9 prerequisite) ---
