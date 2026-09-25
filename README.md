@@ -247,6 +247,7 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
 | `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
 | `hephaestus arena invariants <id>` | Record aggregate reference-output invariant evidence; never promotes |
+| `hephaestus forge analyze <id> --evaluation <evaluation>` | Record deterministic failure clusters with hypotheses and suggested minimal mutations; never promotes |
 | `hephaestus champion seed <id> --world <world> --genome <genome> --reason <text>` | Bootstrap a World's first Champion by operator authority |
 | `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |
 | `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |

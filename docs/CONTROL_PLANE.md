@@ -45,6 +45,7 @@ hephaestus evaluate <genome-id> --task-id <id> --input <text> --seed <u64> \
 hephaestus arena evaluate <evaluation-id> <parent-id> <candidate-id>
 hephaestus arena select <evaluation-id>
 hephaestus arena invariants <evaluation-id>
+hephaestus forge analyze <analysis-id> --evaluation <evaluation-id>
 hephaestus champion seed <transition-id> --world <world-id> --genome <genome-id> --reason <text>
 hephaestus champion promote <transition-id> --assessment <assessment-id>
 hephaestus champion rollback <transition-id> --world <world-id> --reason <text>

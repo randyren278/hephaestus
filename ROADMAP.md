@@ -68,6 +68,8 @@ This roadmap implements the complete master-plan sequence without presenting lat
 
 **Invariant evidence slice**: An authenticated operator can record replay-verified aggregate reference-output invariant evidence for an exact paired evaluation. The response excludes task identities and raw outputs. This evidence is separate from selection and Forge assessment, leaves their flags unchanged, and does not authorize promotion.
 
+**Failure-cluster slice**: `forge analyze` records a deterministic, replay-verified `forge.clustered` receipt that groups a candidate's failed trials by observable signature, never reading sealed task content, and each cluster names an explicit hypothesis plus its single supported minimal mutation when one exists. `genome propose --analysis --cluster` turns a cluster into a bound Forge proposal. Only the reference-operation flip is a supported mutation today.
+
 **Champion slice**: An authenticated operator can seed a World's first Champion, promote an assessed child only when its `metrics_passed` assessment names the current Champion as parent and a verified invariant receipt for the same evaluation satisfies the World contract, and roll back to the previous Champion, which quarantines the replaced one. Each transition is one idempotent, hash-chained ledger event that replay recomputes from the history before it. Automatic failure clustering and automatic regression-triggered rollback remain future work.
 
 ### 9. TUI-first operator experience

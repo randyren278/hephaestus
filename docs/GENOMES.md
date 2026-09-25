@@ -75,6 +75,12 @@ The daemon verifies that the selection event belongs to an evaluation of the exa
 
 An assessment records measured evidence only. `invariant_gate_verified` and `promotion_eligible` remain false for both outcomes. `metrics_passed` does not declare a winner, change lineage state, or promote a Genome.
 
+## Failure-cluster analysis
+
+`hephaestus forge analyze <analysis-id> --evaluation <evaluation-id>` groups the candidate's failed trials in one verified paired evaluation into deterministic clusters by observable failure signature: terminal completion reason, budget exhaustion, and, for visible tasks only, how the actual output differs from the expected one (for example a case mismatch). Sealed tasks contribute aggregate counts only; their inputs, expected outputs, and outputs are never read for shape analysis. Each cluster carries an explicit hypothesis and, when one exists, the single supported minimal mutation that addresses it. Today that is only the reference-operation flip between `identity` and `ascii_uppercase`; any other cluster reports no supported mutation instead of guessing.
+
+The analysis is recorded as one idempotent `forge.clustered` event (algorithm `failure-cluster-v1`) whose receipt is recomputed from signed evidence on retry, startup, and replay. `genome propose <proposal-id> --selection-event <event> --parent <genome> --analysis <analysis-id> --cluster <index>` proposes a cluster's suggested mutation with its generated hypothesis and binds the analysis event hash into the proposal; `--hypothesis` remains available for operator-authored hypotheses. Analysis only recommends: it never evaluates, selects, or promotes.
+
 ## Champion transitions
 
 A World has at most one Champion. Three operator commands change it, and each records one `champion.transitioned` event keyed by a caller-chosen transition ID. Retrying the same ID with identical inputs returns the recorded transition; reusing it with different inputs fails closed.
