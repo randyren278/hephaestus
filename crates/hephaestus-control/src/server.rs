@@ -4147,10 +4147,14 @@ fn resolve_forge_hypothesis(
             let analysis_event_hash = verified.event().event_hash.clone();
             drop(verified.into_stores());
             if analysis.evaluation_id != evaluation_id
-                || analysis.parent_genome_id != parent_genome_id
+                || analysis.candidate_genome_id != parent_genome_id
             {
+                // Forge's "parent" for this proposal is the winning candidate
+                // from the analyzed evaluation: the same role `verified_forge_source`
+                // requires the selection's `candidate_genome_id` to match.
                 return Err(ExecuteError::Rejected(
-                    "the bound analysis must be of the exact same parent evaluation".to_owned(),
+                    "the bound analysis must have clustered the exact same selected candidate"
+                        .to_owned(),
                 ));
             }
             let cluster = analysis
