@@ -2411,6 +2411,7 @@ fn arena_job_record_validation_rejects_plan_and_event_tampering() {
             &sealed_manifest_id,
             &source_revision,
             &format!("reference-v1.{environment_digest}"),
+            &format!("reference-v1.{environment_digest}"),
             &ordered_trial_run_ids,
         ))
         .expect("serialize committed plan"),
@@ -2429,6 +2430,7 @@ fn arena_job_record_validation_rejects_plan_and_event_tampering() {
         source_revision,
         worker_digest: "5".repeat(64),
         environment_id: format!("reference-v1.{environment_digest}"),
+        candidate_environment_id: None,
         seed: PAIRED_EVALUATION_SEED,
         trial_budget: RunBudgetReceipt {
             wall_millis: 10_000,
@@ -2505,6 +2507,7 @@ fn admitted_arena_record(
             &sealed_manifest_id,
             &source_revision,
             &environment_id,
+            &environment_id,
             &ordered_trial_run_ids,
         ))
         .expect("serialize admitted plan"),
@@ -2523,6 +2526,7 @@ fn admitted_arena_record(
         source_revision,
         worker_digest: "f".repeat(64),
         environment_id,
+        candidate_environment_id: None,
         seed: PAIRED_EVALUATION_SEED,
         trial_budget: RunBudgetReceipt {
             wall_millis: 10_000,
@@ -11086,25 +11090,45 @@ fn provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_tra
         "stdout must be the extracted final answer, not the raw NDJSON stream"
     );
 
-    // `submit` deliberately fails closed for provider Genomes today: its
-    // canonical job-record projection hard-codes the reference-worker
-    // contract (a digest-pinned environment_id, the fixed inventory task_id,
-    // and a zero-cost budget), none of which fit an operator-configured CLI
-    // adapter. See docs/RUNTIMES.md for what extending it would need.
+    // `submit` (the async job path) now supports a provider Genome too: its
+    // job-record projection accepts a `provider-v1.<digest>` environment
+    // identity pinned to the configured executable and a cost budget bounded
+    // by the Genome's own registered World Law.
     let submit_response = dispatch_call(
         &mut plane,
         &token,
-        "claude-submit-rejected",
+        "claude-submit",
         Command::RunSubmit {
             job_id: "claude-submit".to_owned(),
             genome_id: genome.genome_id.clone(),
         },
     );
-    let submit_error = submit_response
-        .error
-        .expect("submit must reject a provider Genome instead of writing an unvalidatable job");
-    assert_eq!(submit_error.code, ApiErrorCode::InvalidRequest);
-    assert!(!plane.state.jobs.contains_key("claude-submit"));
+    assert!(
+        submit_response.error.is_none(),
+        "submit must admit a provider Genome job: {:?}",
+        submit_response.error
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist provider job evidence");
+        assert!(Instant::now() < deadline, "provider job stalled");
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let submitted_job = plane
+        .state
+        .jobs
+        .get("claude-submit")
+        .expect("submitted provider job is recorded");
+    assert_eq!(submitted_job.state, JobState::Succeeded);
+    assert!(
+        submitted_job.environment_id.starts_with("provider-v1."),
+        "provider job must bind a provider-shaped environment identity"
+    );
+    assert_eq!(submitted_job.budget.maximum_cost_microusd, 1_000_000);
 
     // Replay proves the signed run result verifies from canonical history.
     let history = plane
@@ -12073,4 +12097,307 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         verify_gene_bank_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
         "a transfer record cannot precede the trial it applies to"
     );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_candidate_selects_and_replays()
+ {
+    let directory = tempdir().expect("mixed Arena fixture");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Mixed Arena fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("mixed-fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+    let fake_claude = directory.path().join("mixed-fake-claude");
+    write_fake_claude_binary(&fake_claude);
+
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open mixed Arena fixture")
+    .with_provider_executables_for_testing(
+        "/nonexistent/codex-should-not-be-invoked",
+        &fake_claude,
+        Vec::new(),
+    );
+    let token = plane.token_hex.clone();
+
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        "mixed-visible",
+        Visibility::Visible,
+        vec![
+            hephaestus_arena::TrustedTask::new("visible-task", "visible", "VISIBLE")
+                .expect("visible task"),
+        ],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "mixed-sealed",
+        Visibility::Sealed,
+        vec![
+            hephaestus_arena::TrustedTask::new("sealed-task", "sealed", "SEALED")
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator_id = artifacts
+        .put(&fs::read(&evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    drop(artifacts);
+
+    let world_path = directory.path().join("mixed-arena-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"mixed-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000,"allow_mixed_environments":true}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+        ),
+    )
+    .expect("write mixed Arena World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "mixed-arena-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("mixed Arena World registration should succeed");
+    };
+
+    let parent_path = directory.path().join("mixed-parent.md");
+    fs::write(
+        &parent_path,
+        "---\nschema_version: 1\nname: mixed-parent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write parent Genome");
+    let Some(ResponseData::Genome { genome: parent }) = dispatch_call(
+        &mut plane,
+        &token,
+        "mixed-parent",
+        Command::GenomeRegister {
+            path: parent_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("parent Genome registration should succeed");
+    };
+    let candidate =
+        register_claude_provider_genome(&mut plane, &token, &directory, &world.world_id);
+
+    assert!(
+        dispatch_call(&mut plane, &token, "mixed-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    complete_arena_test_job(
+        &mut plane,
+        "mixed-eval",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+
+    let job = plane
+        .state
+        .arena_jobs
+        .get("mixed-eval")
+        .expect("mixed Arena job recorded");
+    assert!(
+        job.environment_id.starts_with("reference-v1."),
+        "parent trial must keep the reference-worker environment identity"
+    );
+    assert_eq!(
+        job.candidate_environment_id
+            .as_deref()
+            .map(|id| id.starts_with("provider-v1.")),
+        Some(true),
+        "mixed pair must record both a reference parent and a provider candidate environment"
+    );
+    assert!(job.evaluation.is_some());
+
+    // Selection runs over the recorded mixed-environment evaluation exactly
+    // like a homogeneous one.
+    assert!(matches!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "mixed-select",
+            Command::ArenaSelect {
+                evaluation_id: "mixed-eval".to_owned(),
+            },
+        )
+        .data,
+        Some(ResponseData::Selection { .. })
+    ));
+
+    // Replay proves the mixed-environment job and its evaluation verify from
+    // canonical history, in-process and from a fresh reopen.
+    assert!(matches!(
+        plane.replay_response().expect("replay mixed Arena history"),
+        ResponseData::Replay { .. }
+    ));
+    drop(plane);
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("reopen mixed Arena fixture from canonical history");
+    assert_eq!(
+        reopened.state.arena_jobs["mixed-eval"].terminal,
+        Some(JobTerminal::Succeeded)
+    );
+}
+
+#[test]
+fn submit_admits_and_cancels_a_provider_job_through_daemon_stop() {
+    let directory = tempdir().expect("fixture directory");
+    let (repository, _source_revision) = committed_reference_fixture(directory.path());
+    let data_dir = directory.path().join("data");
+    let current_executable = env::current_exe().expect("test executable");
+    let fake_claude = directory.path().join("cancel-fake-claude");
+    write_fake_claude_binary(&fake_claude);
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &current_executable,
+    )
+    .expect("open control plane for provider job cancellation")
+    .with_provider_executables_for_testing(
+        "/nonexistent/codex-should-not-be-invoked",
+        &fake_claude,
+        Vec::new(),
+    );
+    let token = plane.token_hex.clone();
+    let world_path = directory.path().join("cancel-provider-world.json");
+    fs::write(
+        &world_path,
+        r#"{"schema_version":1,"name":"cancel-provider-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#,
+    )
+    .expect("write provider World source");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-cancel-provider-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("provider World registration should succeed");
+    };
+    let genome = register_claude_provider_genome(&mut plane, &token, &directory, &world.world_id);
+    assert!(
+        dispatch_call(&mut plane, &token, "cancel-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let submit_response = dispatch_call(
+        &mut plane,
+        &token,
+        "provider-submit-for-cancel",
+        Command::RunSubmit {
+            job_id: "provider-cancel-job".to_owned(),
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    assert!(
+        submit_response.error.is_none(),
+        "submit must admit a provider Genome job: {:?}",
+        submit_response.error
+    );
+
+    // Requesting daemon stop while the job is active cancels it instead of
+    // shutting down immediately, exactly like the reference-worker path.
+    assert!(matches!(
+        plane.request_daemon_stop(),
+        Err(ExecuteError::Busy)
+    ));
+    assert!(!plane.shutdown_requested);
+    assert_eq!(
+        plane.state.jobs["provider-cancel-job"].state,
+        JobState::CancellationRequested
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist provider cancellation");
+        assert!(
+            Instant::now() < deadline,
+            "provider job cancellation stalled"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    let terminal_state = plane.state.jobs["provider-cancel-job"].state;
+    assert!(
+        matches!(terminal_state, JobState::Interrupted | JobState::Succeeded),
+        "cancellation must race safely to either Interrupted or a completed Succeeded job, got {terminal_state:?}"
+    );
+    assert!(plane.request_daemon_stop().is_ok());
+    assert!(plane.shutdown_requested);
+
+    // Replay proves the cancelled (or completed) provider job verifies from
+    // canonical history.
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay provider job cancellation"),
+        ResponseData::Replay { .. }
+    ));
 }

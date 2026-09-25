@@ -1203,8 +1203,8 @@
     {
       "id": "arena-environment-unbound",
       "file": "crates/hephaestus-arena/src/lib.rs",
-      "invariant": "Every paired trial uses the exact evaluation environment identity.",
-      "find": "            || receipt.environment_id != binding.environment_id\n",
+      "invariant": "Every paired trial uses the exact evaluation environment identity for its own role (a mixed pair's candidate binds its own distinct environment).",
+      "find": "            || receipt.environment_id != expected_environment_id\n",
       "replace": ""
     },
     {

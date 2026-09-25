@@ -2072,6 +2072,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 sealed_id.as_str(),
                 &revision,
                 &environment_id,
+                &environment_id,
                 &run_ids,
             ))
             .unwrap(),
@@ -2165,6 +2166,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 sealed_id.as_str(),
                 &interrupted.source_revision,
                 &interrupted.environment_id,
+                &interrupted.environment_id,
                 &incomplete_run_ids,
             ))
             .unwrap(),
@@ -2231,6 +2233,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                 visible_id.as_str(),
                 sealed_id.as_str(),
                 &interrupted.source_revision,
+                &interrupted.environment_id,
                 &interrupted.environment_id,
                 &cancelled_run_ids,
             ))
@@ -2521,6 +2524,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
                     record["visible_manifest_id"].as_str().unwrap(),
                     record["sealed_manifest_id"].as_str().unwrap(),
                     record["source_revision"].as_str().unwrap(),
+                    record["environment_id"].as_str().unwrap(),
                     record["environment_id"].as_str().unwrap(),
                     &run_ids,
                 ))

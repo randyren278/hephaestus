@@ -202,7 +202,15 @@ struct ArenaJobRecord {
     evaluator_id: String,
     source_revision: String,
     worker_digest: String,
+    /// Parent's execution-environment identity, and the candidate's too
+    /// unless `candidate_environment_id` is set.
     environment_id: String,
+    /// Set only for a mixed pair permitted by the World's Law: the
+    /// candidate's own distinct execution-environment identity. Omitted
+    /// (`None`) for a homogeneous pair, so every previously admitted job
+    /// still round-trips byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    candidate_environment_id: Option<String>,
     seed: u64,
     trial_budget: RunBudgetReceipt,
     overall_budget: RunBudgetReceipt,
@@ -219,10 +227,21 @@ struct ArenaJobRecord {
     evaluation: Option<EvaluationRecord>,
 }
 
+impl ArenaJobRecord {
+    /// The candidate's execution-environment identity: its own distinct one
+    /// for a mixed pair, otherwise the same one the parent uses.
+    fn effective_candidate_environment_id(&self) -> &str {
+        self.candidate_environment_id
+            .as_deref()
+            .unwrap_or(&self.environment_id)
+    }
+}
+
 #[derive(Clone)]
 struct ArenaTrialSpec {
     genome: GenomeRecord,
     spec: RunSpec,
+    provider: Option<Provider>,
 }
 
 struct ActiveArenaJob {
@@ -263,6 +282,10 @@ struct AsyncArenaTrialLaunch {
     guardian: PathBuf,
     protected_paths: Vec<PathBuf>,
     worker: Arc<PinnedReferenceWorker>,
+    codex_executable: PathBuf,
+    claude_executable: PathBuf,
+    provider_extra_env: Vec<(String, String)>,
+    redaction: RedactionPolicy,
     cancel: Arc<std::sync::atomic::AtomicBool>,
     trials: Vec<ArenaTrialSpec>,
     evidence: hephaestus_experience::ChannelEvidenceSink,
@@ -2117,23 +2140,28 @@ impl ControlPlane {
             return Err(ExecuteError::Busy);
         }
         let genome = self.runnable_genome(genome_id)?;
-        // `submit`'s canonical job-record projection (`validate_job_record`)
-        // hard-codes the reference-worker contract: a digest-pinned
-        // `environment_id`, the fixed inventory `task_id`, and a zero-cost
-        // budget. A Codex/Claude adapter fits none of those, and writing a
-        // job event the projection cannot validate would corrupt canonical
-        // history (`ControlPlane::open` replays and validates all of it), so
-        // this fails closed before any event is appended. `run` already
-        // supports provider Genomes end to end; see docs/RUNTIMES.md for
-        // what a `submit` extension needs.
-        if self.selected_run_provider(genome_id)?.is_some() {
-            return Err(ExecuteError::Rejected(
-                "async submit does not yet support provider Genomes; use run instead".to_owned(),
-            ));
-        }
+        let selected_provider = self.selected_run_provider(genome_id)?;
         let run_id = job_run_id(job_id);
-        let worker = Arc::new(self.pin_reference_worker()?);
-        let spec = self.async_reference_spec(&run_id, &genome, &worker)?;
+        // A reference-worker job pins a private copy of the worker binary and
+        // proves it never changed identity mid-run; a provider job instead
+        // pins the operator-configured Codex/Claude executable's digest into
+        // the environment identity (`provider_job_environment`) and bounds
+        // its cost by the Genome's registered World Law, matching the
+        // already-working synchronous `run` path (`run_with_context`).
+        let worker = if selected_provider.is_none() {
+            Some(Arc::new(self.pin_reference_worker()?))
+        } else {
+            None
+        };
+        let spec = if let Some(provider) = selected_provider {
+            self.async_provider_spec(&run_id, &genome, provider)?
+        } else {
+            self.async_reference_spec(
+                &run_id,
+                &genome,
+                worker.as_ref().ok_or(ExecuteError::Internal)?,
+            )?
+        };
         let budget = spec.budget();
         let admitted = JobRecord {
             job_id: job_id.to_owned(),
@@ -2165,7 +2193,6 @@ impl ControlPlane {
         let (evidence_sink, evidence_receiver) = hephaestus_experience::bounded_evidence_channel(1);
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let worker_copy = Arc::clone(&worker);
         let spec_copy = spec.clone();
         let genome_copy = genome.clone();
         let data_dir = self.data_dir.clone();
@@ -2181,28 +2208,61 @@ impl ControlPlane {
             "hephaestus-job-{}",
             &blake3::hash(job_id.as_bytes()).to_hex()[..8]
         );
-        let task = move || {
-            let output = execute_async_reference(
-                AsyncReferenceLaunch {
-                    data_dir,
-                    guardian,
-                    protected_paths: protected,
-                    worker: worker_copy,
-                    cancel: thread_cancel,
-                },
-                &spec_copy,
-                evidence_sink,
-                initial_sequence,
-            );
-            #[cfg(test)]
-            if drop_result_after_execution {
-                return;
-            }
-            let _ignored = result_sender.send(AsyncJobResult {
-                job_id: thread_job_id,
-                output,
-            });
-            drop(genome_copy);
+        let task: Box<dyn FnOnce() + Send> = if let Some(provider) = selected_provider {
+            let executable = self.provider_executable(provider)?;
+            let extra_env = resolve_provider_extra_env(&self.provider_env_allowlist);
+            let redaction = RedactionPolicy::new([self.token_hex.clone()]);
+            Box::new(move || {
+                let output = execute_async_provider(
+                    AsyncProviderLaunch {
+                        data_dir,
+                        guardian,
+                        protected_paths: protected,
+                        provider,
+                        executable,
+                        extra_env,
+                        redaction,
+                        cancel: thread_cancel,
+                    },
+                    &spec_copy,
+                    evidence_sink,
+                    initial_sequence,
+                );
+                #[cfg(test)]
+                if drop_result_after_execution {
+                    return;
+                }
+                let _ignored = result_sender.send(AsyncJobResult {
+                    job_id: thread_job_id,
+                    output,
+                });
+                drop(genome_copy);
+            })
+        } else {
+            let worker_copy = Arc::clone(worker.as_ref().ok_or(ExecuteError::Internal)?);
+            Box::new(move || {
+                let output = execute_async_reference(
+                    AsyncReferenceLaunch {
+                        data_dir,
+                        guardian,
+                        protected_paths: protected,
+                        worker: worker_copy,
+                        cancel: thread_cancel,
+                    },
+                    &spec_copy,
+                    evidence_sink,
+                    initial_sequence,
+                );
+                #[cfg(test)]
+                if drop_result_after_execution {
+                    return;
+                }
+                let _ignored = result_sender.send(AsyncJobResult {
+                    job_id: thread_job_id,
+                    output,
+                });
+                drop(genome_copy);
+            })
         };
         #[cfg(test)]
         let spawn_result = spawn_named_thread(
@@ -2267,6 +2327,42 @@ impl ControlPlane {
         .map_err(|_| ExecuteError::Invalid("run specification is invalid"))?;
         spec.with_reference_instruction(instruction)
             .map_err(|_| ExecuteError::Invalid("reference task input is oversized"))
+    }
+
+    /// Provider-adapter counterpart of `async_reference_spec`: same fixed
+    /// task/prompt and seed (`submit`'s canonical job contract is unchanged),
+    /// but the environment identity binds the configured provider
+    /// executable's digest, the cost budget is bounded by the Genome's
+    /// registered World Law instead of a fixed zero, and the Genome's own
+    /// compiled authority ceiling is used instead of the reference worker's
+    /// deliberately empty capability set.
+    fn async_provider_spec(
+        &self,
+        run_id: &str,
+        genome: &GenomeRecord,
+        provider: Provider,
+    ) -> Result<RunSpec, ExecuteError> {
+        let executable = self.provider_executable(provider)?;
+        let digest = executable_digest(&executable).map_err(|_| ExecuteError::Internal)?;
+        let task_id = "repository-inventory-v1";
+        let prompt = "Inventory the isolated repository without modifying it or using the network.";
+        let cost_ceiling = self.registered_world_cost_ceiling(&genome.world_id)?;
+        let budget = validated_evaluation_budget(10_000, 1_048_576, cost_ceiling)?;
+        let environment_id = Self::provider_job_environment(provider, &digest);
+        let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), 0, environment_id)
+            .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
+        let capabilities = self.compiled_genome(&genome.genome_id)?.authority();
+        RunSpec::new_for_experiment(
+            run_id,
+            &genome.genome_id,
+            &genome.world_id,
+            &self.source_repository,
+            prompt,
+            capabilities,
+            budget,
+            experiment,
+        )
+        .map_err(|_| ExecuteError::Invalid("run specification is invalid"))
     }
 
     fn job_status(&self, job_id: &str) -> Result<ResponseData, ExecuteError> {
@@ -3214,13 +3310,27 @@ impl ControlPlane {
                 ExecuteError::Rejected("World does not declare arena.evaluator".to_owned())
             })?
             .to_owned();
+        let parent_provider = self.selected_run_provider(parent_genome_id)?;
+        let candidate_provider = self.selected_run_provider(candidate_genome_id)?;
+        // A paired trial's cost ceiling is bounded by the World's own Law
+        // exactly like a single provider `run`, rather than the reference
+        // smoke test's fixed zero; a homogeneous reference-only pair keeps
+        // that zero ceiling unchanged.
+        let per_trial_cost_ceiling = if parent_provider.is_some() || candidate_provider.is_some() {
+            self.registered_world_cost_ceiling(&parent_genome.world_id)?
+        } else {
+            0
+        };
         let per_trial_wall = PAIRED_EVALUATION_WALL_MILLIS;
-        let budget =
-            validated_evaluation_budget(per_trial_wall, PAIRED_EVALUATION_OUTPUT_BYTES, 0)?;
+        let budget = validated_evaluation_budget(
+            per_trial_wall,
+            PAIRED_EVALUATION_OUTPUT_BYTES,
+            per_trial_cost_ceiling,
+        )?;
         let trial_budget = RunBudgetReceipt {
             wall_millis: per_trial_wall,
             maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES,
-            maximum_cost_microusd: 0,
+            maximum_cost_microusd: per_trial_cost_ceiling,
         };
         let tasks = visible
             .operator_tasks()
@@ -3251,7 +3361,9 @@ impl ControlPlane {
             maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES
                 .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
                 .ok_or(ExecuteError::Internal)?,
-            maximum_cost_microusd: 0,
+            maximum_cost_microusd: per_trial_cost_ceiling
+                .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
+                .ok_or(ExecuteError::Internal)?,
         };
         let evaluator_limits = WorkerLimits::new(
             Duration::from_millis(PAIRED_EVALUATION_WALL_MILLIS),
@@ -3260,23 +3372,63 @@ impl ControlPlane {
         )
         .map_err(|_| ExecuteError::Internal)?;
         let evaluator = Arc::new(self.open_evaluator(&evaluator_id, evaluator_limits)?);
+        // The reference worker is pinned unconditionally: even a fully
+        // provider paired trial keeps the same admission shape, and a mixed
+        // pair needs it for whichever role stays on the reference path.
         let worker = Arc::new(self.pin_reference_worker()?);
-        let environment_id = Self::reference_execution_environment(&worker);
+        let reference_environment_id = Self::reference_execution_environment(&worker);
+        let provider_environment_id = |provider: Provider| -> Result<String, ExecuteError> {
+            let executable = self.provider_executable(provider)?;
+            let digest = executable_digest(&executable).map_err(|_| ExecuteError::Internal)?;
+            Ok(Self::provider_job_environment(provider, &digest))
+        };
+        let parent_environment_id = match parent_provider {
+            Some(provider) => provider_environment_id(provider)?,
+            None => reference_environment_id.clone(),
+        };
+        let candidate_environment_id = match candidate_provider {
+            Some(provider) => provider_environment_id(provider)?,
+            None => reference_environment_id.clone(),
+        };
+        let mixed_environments = parent_environment_id != candidate_environment_id;
+        if mixed_environments && !world.evaluation_policy().allow_mixed_environments() {
+            return Err(ExecuteError::Rejected(
+                "World does not permit a parent and candidate to run in distinct execution environments"
+                    .to_owned(),
+            ));
+        }
         let revision = self.paired_revision(evaluation_id)?;
-        let binding = EvaluationBinding::new(
+        let mut binding = EvaluationBinding::new(
             world.id(),
             PAIRED_EVALUATION_SEED,
-            &environment_id,
+            &parent_environment_id,
             &evaluator_id,
             trial_budget,
         )
         .map_err(|_| ExecuteError::Internal)?;
+        if mixed_environments {
+            binding = binding
+                .with_candidate_environment(&candidate_environment_id)
+                .map_err(|_| ExecuteError::Internal)?;
+        }
         let mut trial_specs = Vec::with_capacity(total_trials);
         let mut parent_plan = Vec::with_capacity(tasks.len());
         let mut candidate_plan = Vec::with_capacity(tasks.len());
-        for (role, genome, plan) in [
-            ("parent", &parent_genome, &mut parent_plan),
-            ("candidate", &candidate_genome, &mut candidate_plan),
+        for (role, genome, plan, provider, role_environment_id) in [
+            (
+                "parent",
+                &parent_genome,
+                &mut parent_plan,
+                parent_provider,
+                &parent_environment_id,
+            ),
+            (
+                "candidate",
+                &candidate_genome,
+                &mut candidate_plan,
+                candidate_provider,
+                &candidate_environment_id,
+            ),
         ] {
             for (index, task) in tasks.iter().enumerate() {
                 let run_id = paired_run_id(evaluation_id, role, index);
@@ -3285,30 +3437,38 @@ impl ControlPlane {
                     &task.task_id,
                     task.input.as_bytes(),
                     PAIRED_EVALUATION_SEED,
-                    &environment_id,
+                    role_environment_id.clone(),
                 )
                 .map_err(|_| ExecuteError::Internal)?;
-                let instruction = self
-                    .reference_instruction(&genome.genome_id)?
-                    .unwrap_or(ReferenceInstruction::Identity);
-                let spec = RunSpec::new_for_experiment_at_revision(
+                let capabilities = match provider {
+                    Some(_) => self.compiled_genome(&genome.genome_id)?.authority(),
+                    None => CapabilitySet::new(false, false),
+                };
+                let mut spec = RunSpec::new_for_experiment_at_revision(
                     &run_id,
                     &genome.genome_id,
                     &genome.world_id,
                     &self.source_repository,
                     &revision,
                     &task.input,
-                    CapabilitySet::new(false, false),
+                    capabilities,
                     budget,
                     experiment,
                 )
-                .map_err(|_| ExecuteError::Internal)?
-                .with_reference_instruction(instruction)
                 .map_err(|_| ExecuteError::Internal)?;
+                if provider.is_none() {
+                    let instruction = self
+                        .reference_instruction(&genome.genome_id)?
+                        .unwrap_or(ReferenceInstruction::Identity);
+                    spec = spec
+                        .with_reference_instruction(instruction)
+                        .map_err(|_| ExecuteError::Internal)?;
+                }
                 plan.push((task.task_id.clone(), event_id));
                 trial_specs.push(ArenaTrialSpec {
                     genome: genome.clone(),
                     spec,
+                    provider,
                 });
             }
         }
@@ -3329,7 +3489,8 @@ impl ControlPlane {
                 &visible_manifest_id,
                 &sealed_manifest_id,
                 &revision,
-                &environment_id,
+                &parent_environment_id,
+                &candidate_environment_id,
                 &run_ids,
             ))
             .map_err(|_| ExecuteError::Internal)?,
@@ -3353,7 +3514,8 @@ impl ControlPlane {
             evaluator_id,
             source_revision: revision,
             worker_digest: worker.digest.clone(),
-            environment_id: environment_id.clone(),
+            environment_id: parent_environment_id.clone(),
+            candidate_environment_id: mixed_environments.then(|| candidate_environment_id.clone()),
             seed: PAIRED_EVALUATION_SEED,
             trial_budget,
             overall_budget,
@@ -3386,6 +3548,10 @@ impl ControlPlane {
             guardian: self.guardian_executable.clone(),
             protected_paths: self.protected_runtime_paths(),
             worker: Arc::clone(&worker),
+            codex_executable: self.codex_executable.clone(),
+            claude_executable: self.claude_executable.clone(),
+            provider_extra_env: resolve_provider_extra_env(&self.provider_env_allowlist),
+            redaction: RedactionPolicy::new([self.token_hex.clone()]),
             cancel: Arc::clone(&cancel),
             trials: trial_specs,
             evidence,
@@ -3780,6 +3946,40 @@ impl ControlPlane {
             "reference-v1.{}",
             blake3::hash(identity.as_bytes()).to_hex()
         )
+    }
+
+    /// Versioned execution-environment identity for a job/Arena admission
+    /// record that binds a Codex or Claude provider instead of the reference
+    /// worker. Distinct from `provider_execution_environment` (used by the
+    /// already-working synchronous `run`/`RunEvaluation` paths): this one is
+    /// content-addressed like `reference_execution_environment` above so a
+    /// canonical job or Arena record can carry it as an opaque, replay-stable
+    /// string, and it binds the exact configured executable's digest rather
+    /// than only the provider name — the identity a job/Arena admission needs
+    /// to prove exactly which binary produced the receipt.
+    fn provider_job_environment(provider: Provider, executable_digest: &str) -> String {
+        let name = match provider {
+            Provider::Codex => "codex-cli",
+            Provider::Claude => "claude-cli",
+            Provider::Deterministic => "deterministic",
+        };
+        let identity = format!(
+            "{name}-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git|provider-instruction-language-v1|exe-{executable_digest}",
+            env!("CARGO_PKG_VERSION"),
+            RUN_RESULT_SCHEMA_VERSION,
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+        format!("provider-v1.{}", blake3::hash(identity.as_bytes()).to_hex())
+    }
+
+    /// Resolves the exact executable path currently configured for `provider`.
+    fn provider_executable(&self, provider: Provider) -> Result<PathBuf, ExecuteError> {
+        match provider {
+            Provider::Codex => Ok(self.codex_executable.clone()),
+            Provider::Claude => Ok(self.claude_executable.clone()),
+            Provider::Deterministic => Err(ExecuteError::Internal),
+        }
     }
 
     fn world_manifest(
@@ -6044,12 +6244,116 @@ fn execute_async_reference(
     result
 }
 
+struct AsyncProviderLaunch {
+    data_dir: PathBuf,
+    guardian: PathBuf,
+    protected_paths: Vec<PathBuf>,
+    provider: Provider,
+    executable: PathBuf,
+    extra_env: Vec<(String, String)>,
+    redaction: RedactionPolicy,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Async counterpart of `execute_async_reference` for a Codex/Claude adapter:
+/// same private sandbox, process-group supervision, cancellation polling, and
+/// streamed evidence sink, but the terminal stdout goes through
+/// `extract_final_answer`/`extract_actual_cost_microusd` and redaction the
+/// same way the synchronous `execute_provider_runtime` path does.
+fn execute_async_provider(
+    launch: AsyncProviderLaunch,
+    spec: &RunSpec,
+    evidence: hephaestus_experience::ChannelEvidenceSink,
+    initial_sequence: u64,
+) -> Result<ReferenceExecution, String> {
+    let AsyncProviderLaunch {
+        data_dir,
+        guardian,
+        protected_paths,
+        provider,
+        executable,
+        extra_env,
+        redaction,
+        cancel,
+    } = launch;
+    let manager = SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30))
+        .map_err(|_| "sandbox could not be opened".to_owned())?;
+    let (sandbox, token) = manager
+        .create(spec)
+        .map_err(|_| "sandbox could not be created".to_owned())?;
+    let sandbox = SandboxCleanupGuard::new(sandbox);
+    let runtime = SupervisedRuntime::provider_guarded(
+        candidate_isolation(protected_paths),
+        provider,
+        executable,
+        &guardian,
+        extra_env,
+    )
+    .map_err(|_| "guarded provider could not be configured".to_owned())?;
+    let mut runtime = RecordedRuntime::with_sink(runtime, evidence, initial_sequence);
+    let result = (|| {
+        runtime
+            .start(
+                spec,
+                sandbox.sandbox().map_err(|_| "sandbox unavailable")?,
+                &token,
+            )
+            .map_err(|_| "guarded provider did not start".to_owned())?;
+        loop {
+            if cancel.load(Ordering::Acquire) {
+                runtime
+                    .interrupt(spec.run_id())
+                    .map_err(|_| "guarded provider did not confirm cancellation".to_owned())?;
+            }
+            let snapshot = runtime
+                .snapshot(spec.run_id())
+                .map_err(|_| "guarded provider status failed".to_owned())?;
+            if snapshot.status != RunStatus::Running {
+                let completion_reason = snapshot
+                    .completion_reason
+                    .ok_or_else(|| "terminal provider omitted completion reason".to_owned())?;
+                let raw_stdout = fs::read(&snapshot.stdout_path)
+                    .map_err(|_| "provider output could not be read".to_owned())?;
+                let raw_stderr = fs::read(&snapshot.stderr_path)
+                    .map_err(|_| "provider diagnostics could not be read".to_owned())?;
+                let latency_millis = u64::try_from(snapshot.elapsed.as_millis())
+                    .map_err(|_| "provider latency is invalid".to_owned())?;
+                let final_answer = extract_final_answer(provider, &raw_stdout);
+                let actual_cost_microusd = extract_actual_cost_microusd(provider, &raw_stdout);
+                let stdout = redact_bytes(&redaction, &final_answer);
+                let stderr = redact_bytes(&redaction, &raw_stderr);
+                return Ok(ReferenceExecution {
+                    completion_reason: map_run_completion_reason(completion_reason),
+                    latency_millis,
+                    stdout,
+                    stderr,
+                    trace_artifact_ids: runtime.trace_artifact_ids().to_vec(),
+                    actual_cost_microusd,
+                });
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    })();
+    if result.is_err() {
+        let _ignored = runtime.interrupt(spec.run_id());
+    }
+    drop(runtime);
+    sandbox
+        .cleanup()
+        .map_err(|_| "sandbox cleanup failed".to_owned())?;
+    result
+}
+
 fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
     let AsyncArenaTrialLaunch {
         data_dir,
         guardian,
         protected_paths,
         worker,
+        codex_executable,
+        claude_executable,
+        provider_extra_env,
+        redaction,
         cancel,
         trials,
         evidence,
@@ -6063,18 +6367,44 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
             outcome = Err("paired evaluation was cancelled".to_owned());
             break;
         }
-        let output = execute_async_reference(
-            AsyncReferenceLaunch {
-                data_dir: data_dir.clone(),
-                guardian: guardian.clone(),
-                protected_paths: protected_paths.clone(),
-                worker: Arc::clone(&worker),
-                cancel: Arc::clone(&cancel),
-            },
-            &trial.spec,
-            evidence.clone(),
-            initial_sequence,
-        );
+        let output = if let Some(provider) = trial.provider {
+            let executable = match provider {
+                Provider::Codex => codex_executable.clone(),
+                Provider::Claude => claude_executable.clone(),
+                Provider::Deterministic => {
+                    outcome = Err("paired trial has an invalid provider binding".to_owned());
+                    break;
+                }
+            };
+            execute_async_provider(
+                AsyncProviderLaunch {
+                    data_dir: data_dir.clone(),
+                    guardian: guardian.clone(),
+                    protected_paths: protected_paths.clone(),
+                    provider,
+                    executable,
+                    extra_env: provider_extra_env.clone(),
+                    redaction: redaction.clone(),
+                    cancel: Arc::clone(&cancel),
+                },
+                &trial.spec,
+                evidence.clone(),
+                initial_sequence,
+            )
+        } else {
+            execute_async_reference(
+                AsyncReferenceLaunch {
+                    data_dir: data_dir.clone(),
+                    guardian: guardian.clone(),
+                    protected_paths: protected_paths.clone(),
+                    worker: Arc::clone(&worker),
+                    cancel: Arc::clone(&cancel),
+                },
+                &trial.spec,
+                evidence.clone(),
+                initial_sequence,
+            )
+        };
         let (reply, response) = mpsc::channel();
         if messages
             .send(ArenaWorkerMessage::Trial {
@@ -6667,17 +6997,23 @@ impl ControlState {
                 "Arena trial result is out of admitted order".to_owned(),
             ));
         }
-        let expected_genome =
-            if trial_index < usize::try_from(job.parent_trial_count).unwrap_or(usize::MAX) {
-                &job.parent_genome_id
-            } else {
-                &job.candidate_genome_id
-            };
+        let is_parent_trial =
+            trial_index < usize::try_from(job.parent_trial_count).unwrap_or(usize::MAX);
+        let expected_genome = if is_parent_trial {
+            &job.parent_genome_id
+        } else {
+            &job.candidate_genome_id
+        };
+        let expected_environment_id = if is_parent_trial {
+            job.environment_id.as_str()
+        } else {
+            job.effective_candidate_environment_id()
+        };
         if receipt.genome_id != *expected_genome
             || receipt.world_id != job.world_id
             || receipt.source_revision != job.source_revision
             || receipt.seed != job.seed
-            || receipt.environment_id != job.environment_id
+            || receipt.environment_id != expected_environment_id
             || receipt.budget != job.trial_budget
         {
             return Err(ControlError::Projection(
@@ -6729,6 +7065,35 @@ impl ControlState {
         {
             return Err(ControlError::Projection(
                 "Arena job differs from registered World and Genome bindings".to_owned(),
+            ));
+        }
+        // The environment shape bound for each role must match that role's
+        // own Genome provider configuration, and a mixed pair (parent and
+        // candidate under distinct environments) is only ever valid when the
+        // World's Law opted in.
+        let parent_selects_provider =
+            matches!(parent.compiled().model_provider(), "codex" | "claude");
+        let candidate_selects_provider =
+            matches!(candidate.compiled().model_provider(), "codex" | "claude");
+        let parent_environment_is_provider = record.environment_id.starts_with("provider-v1.");
+        let candidate_environment_is_provider = record
+            .effective_candidate_environment_id()
+            .starts_with("provider-v1.");
+        if parent_environment_is_provider != parent_selects_provider
+            || candidate_environment_is_provider != candidate_selects_provider
+        {
+            return Err(ControlError::Projection(
+                "Arena job environment does not match a Genome's provider configuration".to_owned(),
+            ));
+        }
+        if record.candidate_environment_id.is_some()
+            && !world
+                .compiled()
+                .evaluation_policy()
+                .allow_mixed_environments()
+        {
+            return Err(ControlError::Projection(
+                "Arena job pairs distinct environments but the World does not permit it".to_owned(),
             ));
         }
         if !self.arena_job_transition_is_valid(event, &record) {
@@ -6829,15 +7194,43 @@ impl ControlState {
         require_projection_text(&record.source_revision, "source_revision")?;
         validate_content_id(&record.genome_id, "genome")?;
         validate_content_id(&record.world_id, "world")?;
-        let environment_digest = record
-            .environment_id
-            .strip_prefix("reference-v1.")
-            .ok_or_else(|| ControlError::Projection("job environment is invalid".to_owned()))?;
-        ArtifactId::parse(environment_digest.to_owned())?;
+        let is_provider_environment =
+            if let Some(digest) = record.environment_id.strip_prefix("reference-v1.") {
+                ArtifactId::parse(digest.to_owned())?;
+                false
+            } else if let Some(digest) = record.environment_id.strip_prefix("provider-v1.") {
+                ArtifactId::parse(digest.to_owned())?;
+                true
+            } else {
+                return Err(ControlError::Projection(
+                    "job environment is invalid".to_owned(),
+                ));
+            };
         let genome = self
             .registered
             .genome(&record.genome_id)
             .ok_or_else(|| ControlError::Projection("job Genome is unregistered".to_owned()))?;
+        // The environment shape must match what the Genome's own `model.provider`
+        // selects: a reference-shaped identity for a deterministic Genome, a
+        // provider-shaped one for a `codex`/`claude` Genome. This is the same
+        // binding `selected_run_provider` enforces live at admission.
+        let genome_selects_provider =
+            matches!(genome.compiled().model_provider(), "codex" | "claude");
+        if is_provider_environment != genome_selects_provider {
+            return Err(ControlError::Projection(
+                "job environment does not match the Genome's provider configuration".to_owned(),
+            ));
+        }
+        let expected_cost_microusd = if is_provider_environment {
+            self.registered
+                .world(&genome.record().world_id)
+                .ok_or_else(|| ControlError::Projection("job World is unregistered".to_owned()))?
+                .compiled()
+                .evaluation_policy()
+                .maximum_cost_microusd()
+        } else {
+            0
+        };
         let fixed_input =
             "Inventory the isolated repository without modifying it or using the network.";
         if record.run_id != job_run_id(&record.job_id)
@@ -6849,7 +7242,7 @@ impl ControlState {
                 != (RunBudgetReceipt {
                     wall_millis: 10_000,
                     maximum_output_bytes: 1_048_576,
-                    maximum_cost_microusd: 0,
+                    maximum_cost_microusd: expected_cost_microusd,
                 })
         {
             return Err(ControlError::Projection(
@@ -7203,6 +7596,7 @@ struct ProjectionSnapshot {
     event_count: u64,
 }
 
+#[allow(clippy::too_many_lines)]
 fn validate_arena_job_record(
     event: &StoredEvent,
     record: &ArenaJobRecord,
@@ -7217,11 +7611,17 @@ fn validate_arena_job_record(
     ArtifactId::parse(record.visible_manifest_id.clone())?;
     ArtifactId::parse(record.sealed_manifest_id.clone())?;
     ArtifactId::parse(record.evaluator_id.clone())?;
-    let environment_digest = record
-        .environment_id
-        .strip_prefix("reference-v1.")
-        .ok_or_else(|| ControlError::Projection("Arena environment is invalid".to_owned()))?;
-    ArtifactId::parse(environment_digest.to_owned())?;
+    validate_arena_environment_id(&record.environment_id)?;
+    if let Some(candidate_environment_id) = &record.candidate_environment_id {
+        if candidate_environment_id == &record.environment_id {
+            // A mixed-pair field must actually be distinct; use `None`
+            // instead of restating the shared environment.
+            return Err(ControlError::Projection(
+                "Arena candidate environment must differ from the parent's".to_owned(),
+            ));
+        }
+        validate_arena_environment_id(candidate_environment_id)?;
+    }
     let revision_valid = matches!(record.source_revision.len(), 40 | 64)
         && record
             .source_revision
@@ -7277,6 +7677,7 @@ fn validate_arena_job_record(
         &record.sealed_manifest_id,
         &record.source_revision,
         &record.environment_id,
+        &record.effective_candidate_environment_id(),
         &record.ordered_trial_run_ids,
     ))?);
     if expected_commitment.to_hex().as_str() != record.plan_commitment {
@@ -7333,6 +7734,7 @@ fn arena_job_immutable_fields_match(old: &ArenaJobRecord, new: &ArenaJobRecord) 
         && old.source_revision == new.source_revision
         && old.worker_digest == new.worker_digest
         && old.environment_id == new.environment_id
+        && old.candidate_environment_id == new.candidate_environment_id
         && old.seed == new.seed
         && old.trial_budget == new.trial_budget
         && old.overall_budget == new.overall_budget
@@ -7425,6 +7827,18 @@ fn trace_artifacts_for_run(
 
 fn run_completion_reason(reason: CompletionReason) -> RunCompletionReason {
     reason.into()
+}
+
+/// Validates a job/Arena environment identity's versioned shape: either the
+/// reference worker's `reference-v1.<digest>` or a provider's
+/// `provider-v1.<digest>` (see `provider_job_environment`).
+fn validate_arena_environment_id(environment_id: &str) -> Result<(), ControlError> {
+    let digest = environment_id
+        .strip_prefix("reference-v1.")
+        .or_else(|| environment_id.strip_prefix("provider-v1."))
+        .ok_or_else(|| ControlError::Projection("Arena environment is invalid".to_owned()))?;
+    ArtifactId::parse(digest.to_owned())?;
+    Ok(())
 }
 
 fn validate_content_id<'a>(value: &'a str, namespace: &str) -> Result<&'a str, ControlError> {

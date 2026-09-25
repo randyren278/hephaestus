@@ -28,7 +28,7 @@ A World is the versioned root of evaluation semantics. Its content-derived ident
 
 | Field | Meaning |
 |---|---|
-| `laws` | Non-evolvable physics. `candidate_evaluator_access` must be `false`; `maximum_cost_microusd` caps every run's declared budget. |
+| `laws` | Non-evolvable physics. `candidate_evaluator_access` must be `false`; `maximum_cost_microusd` caps every run's declared budget; `allow_mixed_environments` (optional, defaults `false`) permits a paired Arena trial to compare a parent and candidate running under two distinct execution environments (for example, a reference-worker parent against a provider-adapter candidate) — see [RUNTIMES.md](RUNTIMES.md). |
 | `authority_ceiling` | The widest capabilities any Genome in this World may request. |
 | `mutation_scope` | Which targets the Forge may later change. Only `harness` compiles; `law` and `evaluator` are refused. |
 | `promotion` | Deterministic policy for the future selection engine; `confidence_bps` must lie in 1–10000. |

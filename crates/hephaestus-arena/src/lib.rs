@@ -52,8 +52,15 @@ pub struct EvaluationBinding {
     world_id: String,
     /// Explicit deterministic seed.
     seed: u64,
-    /// Immutable execution-environment identity.
+    /// Immutable execution-environment identity used by every parent trial,
+    /// and by every candidate trial too unless `candidate_environment_id` is
+    /// set.
     environment_id: String,
+    /// Set only for a mixed pair: the candidate's own execution-environment
+    /// identity, distinct from the parent's. `None` means the pair is
+    /// homogeneous (the schema-v1 shape every existing evaluation used).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    candidate_environment_id: Option<String>,
     /// Immutable evaluator identity.
     evaluator_id: String,
     /// Exact hard budget tuple required for every paired trial.
@@ -61,7 +68,8 @@ pub struct EvaluationBinding {
 }
 
 impl EvaluationBinding {
-    /// Creates and validates an evaluation binding.
+    /// Creates and validates a homogeneous evaluation binding, where the
+    /// parent and candidate run under the same execution environment.
     ///
     /// # Errors
     ///
@@ -77,6 +85,7 @@ impl EvaluationBinding {
             world_id: world_id.into(),
             seed,
             environment_id: environment_id.into(),
+            candidate_environment_id: None,
             evaluator_id: evaluator_id.into(),
             budget,
         };
@@ -84,6 +93,24 @@ impl EvaluationBinding {
         validate_id("environment_id", &binding.environment_id)?;
         ArtifactId::parse(binding.evaluator_id.clone())?;
         Ok(binding)
+    }
+
+    /// Rebinds the candidate to a distinct execution-environment identity,
+    /// producing a mixed-pair binding (for example, a reference-worker
+    /// parent compared against a provider-adapter candidate). Callers must
+    /// only do this when the World's Law permits mixed environments.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a malformed candidate environment identity.
+    pub fn with_candidate_environment(
+        mut self,
+        candidate_environment_id: impl Into<String>,
+    ) -> Result<Self, ArenaError> {
+        let candidate_environment_id = candidate_environment_id.into();
+        validate_id("candidate_environment_id", &candidate_environment_id)?;
+        self.candidate_environment_id = Some(candidate_environment_id);
+        Ok(self)
     }
 
     /// Returns the immutable compiled World identity.
@@ -98,10 +125,27 @@ impl EvaluationBinding {
         self.seed
     }
 
-    /// Returns the immutable execution-environment identity.
+    /// Returns the parent's immutable execution-environment identity.
     #[must_use]
     pub fn environment_id(&self) -> &str {
         &self.environment_id
+    }
+
+    /// Returns the candidate's immutable execution-environment identity: its
+    /// own distinct identity for a mixed pair, otherwise the same identity
+    /// the parent uses.
+    #[must_use]
+    pub fn candidate_environment_id(&self) -> &str {
+        self.candidate_environment_id
+            .as_deref()
+            .unwrap_or(&self.environment_id)
+    }
+
+    /// Whether the parent and candidate run under distinct execution
+    /// environments.
+    #[must_use]
+    pub const fn is_mixed_environment(&self) -> bool {
+        self.candidate_environment_id.is_some()
     }
 
     /// Returns the immutable evaluator identity.
@@ -720,6 +764,12 @@ struct OperatorReceipt {
     world_id: String,
     seed: u64,
     environment_id: String,
+    /// Set only for a mixed pair (`schema_version` 3): the candidate's own
+    /// distinct execution-environment identity. Omitted from the wire
+    /// encoding for a homogeneous pair (`schema_version` 2), so every
+    /// previously recorded receipt still verifies byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    candidate_environment_id: Option<String>,
     evaluator_id: String,
     budget: RunBudgetReceipt,
     parent_submission_id: String,
@@ -1227,13 +1277,16 @@ fn evaluate_and_record_inner(
         visible_total: aggregate.visible_total,
     };
     let receipt = OperatorReceipt {
-        schema_version: 2,
+        schema_version: if binding.is_mixed_environment() { 3 } else { 2 },
         evaluation_id: context.evaluation_id.clone(),
         caller_id: context.caller_id.clone(),
         timestamp_millis: context.timestamp_millis,
         world_id: binding.world_id.clone(),
         seed: binding.seed,
         environment_id: binding.environment_id.clone(),
+        candidate_environment_id: binding
+            .is_mixed_environment()
+            .then(|| binding.candidate_environment_id().to_owned()),
         evaluator_id: binding.evaluator_id.clone(),
         budget: binding.budget,
         parent_submission_id: parent.id.clone(),
@@ -1495,7 +1548,12 @@ fn rehydrate_operator_receipt(
     history: &[StoredEvent],
 ) -> Result<OperatorReceipt, ArenaError> {
     let receipt: OperatorReceipt = serde_json::from_slice(&event.payload)?;
-    if receipt.schema_version != 2
+    let schema_version_matches_shape = match receipt.schema_version {
+        2 => receipt.candidate_environment_id.is_none(),
+        3 => receipt.candidate_environment_id.is_some(),
+        _ => false,
+    };
+    if !schema_version_matches_shape
         || serde_json::to_vec(&receipt)? != event.payload
         || event.event_id != canonical_event_id(&receipt.evaluation_id)
         || event.aggregate_id != canonical_aggregate_id(&receipt.evaluation_id)
@@ -1788,10 +1846,15 @@ fn resolve_plan(
         if receipt.world_id != binding.world_id {
             return Err(ArenaError::RunWorldMismatch(event_id.clone()));
         }
+        let expected_environment_id = if plan_name == "candidate" {
+            binding.candidate_environment_id()
+        } else {
+            binding.environment_id()
+        };
         if receipt.task_id != *task_id
             || receipt.input_commitment != expected_tasks[task_id]
             || receipt.seed != binding.seed
-            || receipt.environment_id != binding.environment_id
+            || receipt.environment_id != expected_environment_id
             || receipt.budget != binding.budget
         {
             return Err(ArenaError::BindingMismatch("runtime experiment context"));

@@ -30,6 +30,7 @@ pub struct WorldEvaluationPolicy {
     minimum_delta_bps: i64,
     maximum_regressions: u32,
     confidence_bps: u16,
+    allow_mixed_environments: bool,
 }
 
 impl WorldEvaluationPolicy {
@@ -55,6 +56,16 @@ impl WorldEvaluationPolicy {
     #[must_use]
     pub const fn confidence_bps(self) -> u16 {
         self.confidence_bps
+    }
+
+    /// Whether this World permits a paired Arena trial to compare a parent
+    /// and candidate running under two different execution environments
+    /// (for example, a reference-worker parent against a provider-adapter
+    /// candidate). Defaults to `false`: a World that never opted in keeps the
+    /// existing single-environment-per-pair guarantee.
+    #[must_use]
+    pub const fn allow_mixed_environments(self) -> bool {
+        self.allow_mixed_environments
     }
 }
 
@@ -127,6 +138,8 @@ struct RawLaws {
     candidate_network: bool,
     candidate_evaluator_access: bool,
     maximum_cost_microusd: u64,
+    #[serde(default)]
+    allow_mixed_environments: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -182,6 +195,7 @@ pub fn compile_world(
         minimum_delta_bps: raw.promotion.minimum_delta_bps,
         maximum_regressions: raw.promotion.maximum_regressions,
         confidence_bps: raw.promotion.confidence_bps,
+        allow_mixed_environments: raw.laws.allow_mixed_environments,
     };
     Ok(CompiledWorld {
         id: content_id("world", &canonical_json),
