@@ -1073,19 +1073,20 @@ impl ControlPlane {
             .iter()
             .filter(|event| event.event_type == "selection.recorded")
         {
-            let Ok((event_evaluation_id, world_id)) = selection_event_references(event) else {
-                continue;
-            };
+            // History was verified before this read; a failure here is internal.
+            let (event_evaluation_id, world_id) =
+                selection_event_references(event).map_err(|_| ExecuteError::Internal)?;
             if event_evaluation_id != evaluation_id {
                 continue;
             }
-            let Some(world) = self.state.registered.world(&world_id) else {
-                continue;
-            };
-            let stores = self.open_arena_stores()?;
-            let Ok(verified) = verify_selection_event(stores, event, world.compiled()) else {
-                continue;
-            };
+            let world = self
+                .state
+                .registered
+                .world(&world_id)
+                .ok_or(ExecuteError::Internal)?;
+            let verified =
+                verify_selection_event(self.open_arena_stores()?, event, world.compiled())
+                    .map_err(|_| ExecuteError::Internal)?;
             let receipt = verified.receipt().clone();
             drop(verified.into_stores());
             return Ok(Some(EvaluationSelectionSummary {
@@ -1113,21 +1114,23 @@ impl ControlPlane {
             .iter()
             .filter(|event| event.event_type == "invariants.recorded")
         {
-            let Ok((event_evaluation_id, world_id)) = invariant_event_references(event) else {
-                continue;
-            };
+            // History was verified before this read; a failure here is internal.
+            let (event_evaluation_id, world_id) =
+                invariant_event_references(event).map_err(|_| ExecuteError::Internal)?;
             if event_evaluation_id != evaluation_id {
                 continue;
             }
-            let Some(world) = self.state.registered.world(&world_id) else {
-                continue;
-            };
-            let stores = self.open_arena_stores()?;
-            let Ok(verified) =
-                verify_reference_output_invariant_event(stores, event, world.compiled())
-            else {
-                continue;
-            };
+            let world = self
+                .state
+                .registered
+                .world(&world_id)
+                .ok_or(ExecuteError::Internal)?;
+            let verified = verify_reference_output_invariant_event(
+                self.open_arena_stores()?,
+                event,
+                world.compiled(),
+            )
+            .map_err(|_| ExecuteError::Internal)?;
             let receipt = verified.receipt().clone();
             drop(verified.into_stores());
             return Ok(Some(EvaluationInvariantSummary {

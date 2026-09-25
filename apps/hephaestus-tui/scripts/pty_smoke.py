@@ -25,6 +25,8 @@ def main() -> int:
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     terminal_before = termios.tcgetattr(slave)
     env = os.environ.copy()
+    # Ink suppresses intermediate frames when it detects CI; this test reads them.
+    env["CI"] = "false"
     env["COLUMNS"] = "80"
     env["LINES"] = "24"
     if launcher:

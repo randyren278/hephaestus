@@ -9547,6 +9547,13 @@ fn evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides
     plane
         .check_arena_invariants("evidence-evaluation-1")
         .expect("check invariants");
+    // A later evaluation with no selection or invariant evidence yet.
+    complete_arena_test_job(
+        &mut plane,
+        "evidence-evaluation-2",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
 
     let response = dispatch_call(
         &mut plane,
@@ -9557,8 +9564,14 @@ fn evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides
     let Some(ResponseData::EvaluationList { evaluations }) = response.data.clone() else {
         panic!("evaluation list should succeed");
     };
-    assert_eq!(evaluations.len(), 1);
-    let entry = &evaluations[0];
+    assert_eq!(evaluations.len(), 2);
+    let pending = &evaluations[0];
+    assert_eq!(pending.evaluation.evaluation_id, "evidence-evaluation-2");
+    assert!(
+        pending.selection.is_none() && pending.invariants.is_none(),
+        "evidence recorded for another evaluation must not be attributed to this one"
+    );
+    let entry = &evaluations[1];
     assert_eq!(entry.evaluation.evaluation_id, "evidence-evaluation-1");
     assert!(
         entry.selection.is_some(),

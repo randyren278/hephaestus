@@ -31,6 +31,8 @@ def main() -> int:
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     terminal_before = termios.tcgetattr(slave)
     env = os.environ.copy()
+    # Ink suppresses intermediate frames when it detects CI; this test reads them.
+    env["CI"] = "false"
     env.update({"HEPHAESTUS_HOME": data_dir, "COLUMNS": "100", "LINES": "30"})
     child = subprocess.Popen(
         ["npm", "run", "start"], cwd=app_dir, env=env,
