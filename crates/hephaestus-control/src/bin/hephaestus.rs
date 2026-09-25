@@ -1187,6 +1187,47 @@ fn print_human(response: &ApiResponse) {
                 println!("{}", denial_human(denial));
             }
         }
+        (
+            Some(ResponseData::WorkerCredential {
+                credential_id,
+                token,
+                worker_id,
+                expires_at_millis,
+                scope: _,
+            }),
+            None,
+        ) => {
+            println!(
+                "credential_id={credential_id} worker_id={worker_id} expires_at_millis={expires_at_millis}"
+            );
+            println!("token={token}");
+        }
+        (
+            Some(ResponseData::RemoteJob {
+                job_id,
+                genome_id,
+                state,
+                completion_reason,
+                latency_millis,
+                stdout_artifact_id,
+            }),
+            None,
+        ) => {
+            print!("job_id={job_id} genome_id={genome_id} state={state:?}");
+            if let Some(reason) = completion_reason {
+                print!(" completion_reason={reason:?}");
+            }
+            if let Some(latency) = latency_millis {
+                print!(" latency_millis={latency}");
+            }
+            if let Some(artifact) = stdout_artifact_id {
+                print!(" stdout_artifact_id={artifact}");
+            }
+            println!();
+        }
+        (Some(ResponseData::McpDenied { reason }), None) => {
+            println!("denied: {reason}");
+        }
         (_, Some(error)) => eprintln!("{:?}: {}", error.code, error.message),
         _ => eprintln!("invalid daemon response"),
     }
@@ -1420,7 +1461,7 @@ fn evaluation_list_entry_human(entry: &EvaluationListEntry) -> String {
 
 fn denial_human(denial: &DenialEntry) -> String {
     format!(
-        "kind={:?} timestamp_ms={} request={} command={} run={} genome={} world={}",
+        "kind={:?} timestamp_ms={} request={} command={} run={} genome={} world={} client={}",
         denial.kind,
         denial.timestamp_millis,
         denial.request_id.as_deref().unwrap_or("none"),
@@ -1428,6 +1469,7 @@ fn denial_human(denial: &DenialEntry) -> String {
         denial.run_id.as_deref().unwrap_or("none"),
         denial.genome_id.as_deref().unwrap_or("none"),
         denial.world_id.as_deref().unwrap_or("none"),
+        denial.client_id.as_deref().unwrap_or("none"),
     )
 }
 
