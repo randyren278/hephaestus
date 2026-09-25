@@ -54,7 +54,9 @@
     "crates/hephaestus-experience/src/sink.rs",
     "crates/hephaestus-arena/src/invariants.rs",
     "crates/hephaestus-control/src/champion.rs",
-    "crates/hephaestus-arena/src/clusters.rs"
+    "crates/hephaestus-arena/src/clusters.rs",
+    "crates/hephaestus-control/src/drift.rs",
+    "crates/hephaestus-control/src/canary.rs"
   ],
   "mutations": [
     {
@@ -1804,8 +1806,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2338,6 +2340,41 @@
       "invariant": "A stored forge.clustered event that decodes cleanly but recomputes to different content under the same analysis_id must fail closed as a conflict, not replay as an idempotent retry.",
       "find": "        || analysis != *expected",
       "replace": "        || false && analysis != *expected"
+    },
+    {
+      "id": "drift-threshold-not-crossed-rejected",
+      "file": "crates/hephaestus-control/src/drift.rs",
+      "invariant": "A drift record is refused unless the cited kind's measured shift actually crosses its fixed, documented threshold.",
+      "find": "    if !crossed {",
+      "replace": "    if crossed {"
+    },
+    {
+      "id": "canary-correctness-regression-detected",
+      "file": "crates/hephaestus-control/src/canary.rs",
+      "invariant": "A candidate-vs-parent correctness drop at or beyond the documented threshold counts as a regression.",
+      "find": "        || deltas.correctness_bps <= -CORRECTNESS_REGRESSION_BPS",
+      "replace": "        || (false && deltas.correctness_bps <= -CORRECTNESS_REGRESSION_BPS)"
+    },
+    {
+      "id": "canary-advance-refused-while-frozen",
+      "file": "crates/hephaestus-control/src/canary.rs",
+      "invariant": "A staged canary advance that would move to a healthy next stage is refused while frozen.",
+      "find": "    }\n\n    if frozen_after(history) {\n        return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n    }\n\n    let champion_promotion = if target_stage == CanaryStage::Completed {",
+      "replace": "    }\n\n    if false && frozen_after(history) {\n        return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n    }\n\n    let champion_promotion = if target_stage == CanaryStage::Completed {"
+    },
+    {
+      "id": "canary-completion-joins-champion-promotion",
+      "file": "crates/hephaestus-control/src/canary.rs",
+      "invariant": "A canary reaching 100% joins real Champion promotion evidence through the existing, unchanged promotion policy; it never completes silently without it.",
+      "find": "    let champion_promotion = if target_stage == CanaryStage::Completed {",
+      "replace": "    let champion_promotion = if target_stage == CanaryStage::Stage50 {"
+    },
+    {
+      "id": "canary-verify-excludes-companion-champion-event",
+      "file": "crates/hephaestus-control/src/canary.rs",
+      "invariant": "Replay verification of a completing or rolling-back canary event must recompute its expected payload from the history as it stood before its companion Champion transition was appended, not after.",
+      "find": "                derivation_bound = derivation_bound.min(position);",
+      "replace": "                derivation_bound = derivation_bound.max(position);"
     }
   ]
 }
