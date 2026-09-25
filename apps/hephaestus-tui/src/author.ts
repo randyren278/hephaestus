@@ -23,8 +23,20 @@ export function expandPath(input: string): string {
 	return trimmed;
 }
 
+/**
+ * A starter Markdown Genome source: valid YAML frontmatter matching the
+ * compiler's Genome schema (root Genome, minimal authority) plus a body
+ * that is the strict `hephaestus-reference-v1` fenced instruction the
+ * deterministic reference runtime consumes (the `identity` operation, a
+ * safe default an operator can change to `ascii_uppercase` or extend once
+ * richer runtimes exist). The body must be exactly that fenced block —
+ * the reference runtime's parser rejects any surrounding prose — so this
+ * template adds no extra commentary. The daemon's compiler remains the
+ * source of truth; this only needs to pass compilation, not be a finished
+ * agent.
+ */
 export function markdownAgentTemplate(name: string): string {
-	return `# ${name}\n\n<!-- Hephaestus Markdown Genome source. Edit the prompt below, then save and exit to continue. -->\n\n## Prompt\n\nYou are ${name}. Describe the agent's task-solving approach here.\n`;
+	return `---\nschema_version: 1\nname: ${slugify(name)}\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n\`\`\`hephaestus-reference-v1\n{"schema_version":1,"operation":"identity"}\n\`\`\`\n`;
 }
 
 /**

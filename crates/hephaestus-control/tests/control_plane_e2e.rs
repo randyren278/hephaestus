@@ -6361,6 +6361,21 @@ fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
         "--world",
         &world_id,
     ]));
+    let source_candidate_path = scratch.join("source-candidate.md");
+    fs::write(
+        &source_candidate_path,
+        fs::read_to_string(quickstart.join("candidate.md"))
+            .unwrap()
+            .replace("__PARENT_ID__", &parent_id),
+    )
+    .unwrap();
+    let candidate_id = first_word(&text(&[
+        "genome",
+        "register",
+        source_candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
     assert!(cli(&data_dir, &["unfreeze"]).status.success());
 
     // Populate a real run.
@@ -6378,7 +6393,7 @@ fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
         "evaluate",
         "evidence-source",
         &parent_id,
-        &parent_id,
+        &candidate_id,
     ]);
     let ResponseData::Selection { .. } = data(&["arena", "select", "evidence-source"]) else {
         panic!("selection expected");

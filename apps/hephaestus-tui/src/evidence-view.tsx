@@ -5,7 +5,8 @@ import {shortId} from './lineage-view.js';
 import {safeText, type DenialEntry, type EvaluationListEntry, type RunListEntry} from './protocol.js';
 
 function Header({worldId}: {worldId: string | null}) {
-	return <Text bold color={worldId ? 'cyan' : 'gray'}>── {safeText(formatWorldLabel(worldId))} ──</Text>;
+	const label = worldId ? shortId(worldId) : formatWorldLabel(worldId);
+	return <Text bold wrap="truncate" color={worldId ? 'cyan' : 'gray'}>── {safeText(label)} ──</Text>;
 }
 
 const RUN_STATE_COLOR: Record<string, string> = {

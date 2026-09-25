@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {defaultAgentPath, editorCommand, ensureAgentSource, expandPath, slugify} from '../src/author.js';
+import {defaultAgentPath, editorCommand, ensureAgentSource, expandPath, markdownAgentTemplate, slugify} from '../src/author.js';
 
 test('slugify lowercases, collapses separators, and trims edges', () => {
 	assert.equal(slugify('Coding World v2!'), 'coding-world-v2');
@@ -43,7 +43,8 @@ test('ensureAgentSource creates the workspace directory and a starter template o
 		const resolved = ensureAgentSource(path, 'My World');
 		assert.equal(resolved, path);
 		const first = await readFile(path, 'utf8');
-		assert.match(first, /My World/);
+		assert.match(first, /name: my-world/);
+		assert.match(first, /```hephaestus-reference-v1\n\{"schema_version":1,"operation":"identity"\}\n```\n$/);
 		// A second call must not clobber operator edits.
 		const {writeFile} = await import('node:fs/promises');
 		await writeFile(path, 'edited content\n');
@@ -53,6 +54,13 @@ test('ensureAgentSource creates the workspace directory and a starter template o
 	} finally {
 		await rm(workspace, {recursive: true, force: true});
 	}
+});
+
+test('markdownAgentTemplate body is exactly the strict fenced reference instruction the deterministic runtime consumes (no surrounding prose)', () => {
+	const source = markdownAgentTemplate('My World');
+	const closing = source.indexOf('\n---\n');
+	const body = source.slice(closing + '\n---\n'.length);
+	assert.equal(body, '```hephaestus-reference-v1\n{"schema_version":1,"operation":"identity"}\n```\n');
 });
 
 test('ensureAgentSource refuses a relative path', () => {

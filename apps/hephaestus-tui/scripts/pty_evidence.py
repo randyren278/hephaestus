@@ -85,6 +85,7 @@ def main() -> int:
         return text[idx:] if idx != -1 else text
 
     short_genome = genome_id.split(":")[-1][:12]
+    short_world = world_id.split(":")[-1][:12]
 
     try:
         if not until("Evidence & Costs", LAUNCH_TIMEOUT_SECONDS):
@@ -102,7 +103,7 @@ def main() -> int:
         stage = "runs"
         start = mark()
         press(b"\r")
-        if not until("RUNS", 5, start) or not until(world_id, 5, start):
+        if not until("RUNS", 5, start) or not until(short_world, 5, start):
             raise RuntimeError("TUI Runs screen did not show the World header")
         if not until(short_genome, 5, start):
             raise RuntimeError("TUI Runs screen did not show the real registered Genome")
@@ -116,7 +117,7 @@ def main() -> int:
         press(b"\x1b[B")
         start = mark()
         press(b"\r")
-        if not until("EVIDENCE RECEIPTS", 5, start) or not until(world_id, 5, start):
+        if not until("EVIDENCE RECEIPTS", 5, start) or not until(short_world, 5, start):
             raise RuntimeError("TUI Evidence screen did not show the World header")
         evidence_frame = latest_frame("EVIDENCE RECEIPTS")
         if "bps" not in evidence_frame:

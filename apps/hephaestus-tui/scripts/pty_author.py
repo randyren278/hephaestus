@@ -107,12 +107,18 @@ def main() -> int:
         if not until("AUTHOR MARKDOWN AGENT / " + world_name, 5, start):
             raise RuntimeError("TUI did not open the Markdown source path prompt")
         stage = "accept-path-and-edit"
+        # Ink's own raw-mode setup already differs from the pristine
+        # pre-launch termios captured in `terminal_before`, so the
+        # regression to catch here is whether `openEditor()` restores
+        # Ink's raw-mode settings, not the pristine terminal; snapshot
+        # them immediately before handing the terminal to `$EDITOR`.
+        ink_raw_mode = termios.tcgetattr(slave)
         start = mark()
         press(b"\r")
         if not until("REGISTER / " + world_name, 10, start):
             raise RuntimeError("TUI did not return from the editor hand-off to the register screen")
-        if termios.tcgetattr(slave) != terminal_before:
-            raise RuntimeError("TUI did not restore terminal settings after the $EDITOR hand-off")
+        if termios.tcgetattr(slave) != ink_raw_mode:
+            raise RuntimeError("TUI did not restore its raw-mode terminal settings after the $EDITOR hand-off")
         stage = "register"
         start = mark()
         press(b"\r")
