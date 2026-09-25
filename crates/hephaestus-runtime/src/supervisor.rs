@@ -162,6 +162,39 @@ impl SupervisedRuntime {
     ///
     /// Rejects `Provider::Deterministic` (use [`Self::deterministic`]) and an
     /// empty executable path.
+    pub fn provider(
+        isolation: IsolationPolicy,
+        provider: Provider,
+        executable: impl Into<PathBuf>,
+        extra_env: Vec<(String, String)>,
+    ) -> Result<Self, RuntimeError> {
+        if provider == Provider::Deterministic {
+            return Err(RuntimeError::InvalidSpec(
+                "use SupervisedRuntime::deterministic for the reference provider",
+            ));
+        }
+        let executable = executable.into();
+        if executable.as_os_str().is_empty() {
+            return Err(RuntimeError::InvalidSpec("provider executable is empty"));
+        }
+        Ok(Self {
+            isolation,
+            provider,
+            executable,
+            arguments: Vec::new(),
+            guardian_executable: None,
+            extra_env,
+            runs: BTreeMap::new(),
+        })
+    }
+
+    /// Creates a Codex or Claude Code adapter whose OS guardian kills the
+    /// provider process group whenever this daemon closes its control pipe.
+    ///
+    /// # Errors
+    ///
+    /// Applies the same validation as [`Self::provider`], plus rejects an
+    /// empty guardian executable path.
     pub fn provider_guarded(
         isolation: IsolationPolicy,
         provider: Provider,
@@ -169,26 +202,11 @@ impl SupervisedRuntime {
         guardian_executable: impl Into<PathBuf>,
         extra_env: Vec<(String, String)>,
     ) -> Result<Self, RuntimeError> {
-        if provider == Provider::Deterministic {
-            return Err(RuntimeError::InvalidSpec(
-                "use SupervisedRuntime::deterministic_guarded for the reference provider",
-            ));
-        }
-        let executable = executable.into();
-        if executable.as_os_str().is_empty() {
-            return Err(RuntimeError::InvalidSpec("provider executable is empty"));
-        }
+        let mut runtime = Self::provider(isolation, provider, executable, extra_env)?;
         let guardian = guardian_executable.into();
         ProviderInvocation::deterministic(&guardian, [], [])?;
-        Ok(Self {
-            isolation,
-            provider,
-            executable,
-            arguments: Vec::new(),
-            guardian_executable: Some(guardian),
-            extra_env,
-            runs: BTreeMap::new(),
-        })
+        runtime.guardian_executable = Some(guardian);
+        Ok(runtime)
     }
 
     fn launch(
