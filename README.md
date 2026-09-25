@@ -324,6 +324,7 @@ scopes it to one crate while iterating.
 - [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): compiler contracts and source schemas
 - [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md)
 - [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
+- [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md)
 - [Roadmap](ROADMAP.md) · [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
 
 ## License
