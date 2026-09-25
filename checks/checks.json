@@ -2218,6 +2218,69 @@
       "invariant": "A quarantined or former Champion cannot be promoted again.",
       "find": "            .quarantined_genome_ids\n            .contains(&assessment.child_genome_id)",
       "replace": "            .quarantined_genome_ids\n            .is_empty()"
+    },
+    {
+      "id": "control-evidence-list-limit-validated",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Evidence list requests outside 1..=200 are refused.",
+      "find": "        && (*limit == 0 || *limit > MAX_LIST_LIMIT)",
+      "replace": "        && *limit == 0"
+    },
+    {
+      "id": "control-evidence-runs-newest-first",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Run listings are ordered newest first before truncation.",
+      "find": "        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {",
+      "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {"
+    },
+    {
+      "id": "control-evidence-denials-newest-first",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Denial listings are ordered newest first before truncation.",
+      "find": "        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {",
+      "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {"
+    },
+    {
+      "id": "control-evidence-evaluations-newest-first",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Evaluation listings are ordered newest first before truncation.",
+      "find": "        evaluation_ids.sort_by_key(|entry| std::cmp::Reverse(entry.0));",
+      "replace": "        evaluation_ids.sort_by_key(|entry| entry.0);"
+    },
+    {
+      "id": "selection-latency-tolerance-uses-min-not-max",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "The latency noise floor is the larger of the proportional and fixed terms, not the smaller.",
+      "find": "    (parent_latency_millis / 10).max(task_count.saturating_mul(50))",
+      "replace": "    (parent_latency_millis / 10).min(task_count.saturating_mul(50))"
+    },
+    {
+      "id": "selection-v2-dominance-ignores-latency-tolerance",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "The tolerant dominance rule must actually apply the latency noise floor, not compare raw latency.",
+      "find": "    let within_tolerance = candidate[3] <= parent[3].saturating_add(latency_tolerance_millis);",
+      "replace": "    let within_tolerance = candidate[3] <= parent[3];"
+    },
+    {
+      "id": "selection-v2-dominance-boundary-excludes-exact-tolerance",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "A candidate exactly at the latency tolerance boundary still dominates.",
+      "find": "    let within_tolerance = candidate[3] <= parent[3].saturating_add(latency_tolerance_millis);",
+      "replace": "    let within_tolerance = candidate[3] < parent[3].saturating_add(latency_tolerance_millis);"
+    },
+    {
+      "id": "selection-new-selections-use-retired-v1-algorithm",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Newly recorded selections use the current tolerant algorithm, not the retired strict one.",
+      "find": "const CURRENT_ALGORITHM: &str = ALGORITHM_V2;",
+      "replace": "const CURRENT_ALGORITHM: &str = ALGORITHM_V1;"
+    },
+    {
+      "id": "selection-recompute-ignores-stored-receipt-algorithm",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "Recompute dispatches on the already-recorded receipt's algorithm, so a stored v1 receipt still verifies.",
+      "find": "        Some(event) => existing_receipt_algorithm(&stores, event)?,",
+      "replace": "        Some(_) => CURRENT_ALGORITHM.to_owned(),"
     }
   ]
 }

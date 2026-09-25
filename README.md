@@ -111,11 +111,24 @@ and that decision is itself a ledgered event.
   daemon refuses to launch candidate processes rather than running them
   unsandboxed. Registration, replay, and inspection work everywhere.
 - **The Ink TUI is a local operator console.** macOS packages bundle its
-  JavaScript and pinned Node runtime; source checkouts use Node/npm. The TUI
-  provides local status and controls, while full Arena and lineage views remain
-  roadmap work. See [the setup guide](apps/hephaestus-tui/README.md) and
-  [macOS package instructions](docs/MACOS_INSTALL.md). There is no web console,
-  Gene Bank, drift detection, or autonomous loop yet.
+  JavaScript and pinned Node runtime; source checkouts use Node/npm. Besides
+  local status, freeze/kill controls, and Arena progress by known evaluation
+  ID, it now has a Lineage and Champions screen: a World list, a Genome
+  ancestry tree marking Champion/standby/quarantined rows, a Genome detail
+  panel with a prompt diff against the parent, and an operator-confirmed
+  Champion rollback. It still has no runs, evidence receipt, cost, or denial
+  screens, and no packaged-install authoring flow (author/validate/register a
+  Markdown agent from the TUI); those remain roadmap item 9 work. See
+  [the setup guide](apps/hephaestus-tui/README.md) and
+  [macOS package instructions](docs/MACOS_INSTALL.md).
+- **The web console is a local, read-only browser view.** It proxies a fixed
+  allowlist of read-only daemon commands (`status`, `world_list`,
+  `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
+  `job_status`) over an owner-only Unix socket, the same way the TUI does; it
+  can never mutate canonical state. See
+  [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md). There is no
+  MCP gateway, no remote workers, Gene Bank, drift detection, or autonomous
+  loop yet.
 
 ---
 
@@ -239,6 +252,9 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
 | `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
 | `hephaestus replay` | Verify history and compare it with live state |
+| `hephaestus runs --limit <n>` | Recent direct runs and jobs, newest first, bounded (default 20, max 200) |
+| `hephaestus evaluations --limit <n>` | Recent Arena evaluations with selection, invariant, and Forge evidence references, newest first |
+| `hephaestus denials --limit <n>` | Recent refused operator requests and recorded runtime denials, newest first |
 | `hephaestus daemon stop` | Audited graceful stop |
 
 Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
@@ -248,7 +264,7 @@ Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **309 deliberate source mutations**, each one
+runs the suite, then applies **318 deliberate source mutations**, each one
 disabling a specific documented invariant (from "an oversized request is
 accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
@@ -281,7 +297,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 309
+python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 318
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 

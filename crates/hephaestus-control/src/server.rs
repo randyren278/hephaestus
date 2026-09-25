@@ -52,12 +52,14 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 
 use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
-    API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
-    EvaluationEventRecord, EvaluationRecord, ForgeAnalysisBinding, ForgeAnalysisRecord,
-    ForgeAssessmentEventRecord, ForgeAssessmentOutcome, ForgeAssessmentPayload,
-    ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord,
-    GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData,
-    RunCompletionReason, SelectionEventRecord, SelectionRecord, WorldRecord,
+    API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, ChampionTransitionPayload, Command,
+    ControlError, DenialEntry, DenialKind, EvaluationEventRecord, EvaluationForgeSummary,
+    EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
+    ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
+    ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
+    ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
+    JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason, RunListEntry,
+    SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -807,6 +809,9 @@ impl ControlPlane {
             | Command::ChampionRollback { .. }) => self.champion_transition_command(command),
             Command::ChampionShow { world_id } => self.champion_show(&world_id),
             Command::Replay => self.replay_response(),
+            Command::RunList { limit } => self.run_list(limit),
+            Command::EvaluationList { limit } => self.evaluation_list(limit),
+            Command::DenialList { limit } => self.denial_list(limit),
             Command::DaemonStop => self.request_daemon_stop(),
         }
     }
@@ -949,6 +954,271 @@ impl ControlPlane {
             champion_projection(&history, world_id).map_err(|_| ExecuteError::Internal)?;
         Ok(ResponseData::Champion {
             champion: Box::new(champion),
+        })
+    }
+
+    /// Recent direct runs and jobs, newest first, derived from `state.jobs` and verified
+    /// `run.result_recorded` history. Bounded and read-only; never storage-taking.
+    fn run_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+        let limit = limit.min(MAX_LIST_LIMIT) as usize;
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+
+        let mut jobs: BTreeMap<String, (u64, JobRecord)> = BTreeMap::new();
+        let mut results: BTreeMap<String, (u64, RunResultReceipt)> = BTreeMap::new();
+        for event in &history {
+            match event.event_type.as_str() {
+                "job.admitted" | "job.running" | "job.cancellation_requested" | "job.terminal" => {
+                    if let Ok(record) = serde_json::from_slice::<JobRecord>(&event.payload) {
+                        jobs.insert(record.job_id.clone(), (event.sequence, record));
+                    }
+                }
+                "run.result_recorded" => {
+                    if let Ok(receipt) =
+                        RunResultReceipt::parse_from_event(event, &self.run_result_verifier)
+                    {
+                        results.insert(receipt.run_id.clone(), (event.sequence, receipt));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut entries: Vec<(u64, RunListEntry)> = Vec::new();
+        let mut consumed_run_ids: BTreeSet<String> = BTreeSet::new();
+        for (job_id, (job_sequence, job)) in &jobs {
+            consumed_run_ids.insert(job.run_id.clone());
+            let result = results.get(&job.run_id);
+            let sequence =
+                result.map_or(*job_sequence, |(sequence, _)| *sequence.max(job_sequence));
+            entries.push((
+                sequence,
+                RunListEntry {
+                    run_id: job.run_id.clone(),
+                    job_id: Some(job_id.clone()),
+                    genome_id: job.genome_id.clone(),
+                    world_id: Some(job.world_id.clone()),
+                    state: job.state,
+                    completion_reason: result.map(|(_, receipt)| receipt.completion_reason),
+                    latency_millis: result.map(|(_, receipt)| receipt.latency_millis),
+                    actual_cost_microusd: result.map(|(_, receipt)| receipt.actual_cost_microusd),
+                },
+            ));
+        }
+        for (run_id, (sequence, receipt)) in &results {
+            if consumed_run_ids.contains(run_id) {
+                continue;
+            }
+            let state = match receipt.completion_reason {
+                RunCompletionReason::Success => JobState::Succeeded,
+                RunCompletionReason::OperatorInterrupt => JobState::Interrupted,
+                _ => JobState::Failed,
+            };
+            entries.push((
+                *sequence,
+                RunListEntry {
+                    run_id: run_id.clone(),
+                    job_id: None,
+                    genome_id: receipt.genome_id.clone(),
+                    world_id: Some(receipt.world_id.clone()),
+                    state,
+                    completion_reason: Some(receipt.completion_reason),
+                    latency_millis: Some(receipt.latency_millis),
+                    actual_cost_microusd: Some(receipt.actual_cost_microusd),
+                },
+            ));
+        }
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        entries.truncate(limit);
+        Ok(ResponseData::RunList {
+            runs: entries.into_iter().map(|(_, entry)| entry).collect(),
+        })
+    }
+
+    /// Recent Arena evaluations, newest first, with visible aggregates and evidence
+    /// references. Never exposes sealed task identities, inputs, or raw outputs.
+    fn evaluation_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+        let limit = limit.min(MAX_LIST_LIMIT) as usize;
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+
+        let mut evaluation_ids: Vec<(u64, String)> = self
+            .state
+            .evaluation_events
+            .iter()
+            .map(|(evaluation_id, sequence)| (*sequence, evaluation_id.clone()))
+            .collect();
+        evaluation_ids.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        evaluation_ids.truncate(limit);
+
+        let mut entries = Vec::with_capacity(evaluation_ids.len());
+        for (_, evaluation_id) in evaluation_ids {
+            let operator = load_operator_evaluation(self.open_arena_stores()?, &evaluation_id)
+                .map_err(|_| ExecuteError::Internal)?;
+            let evaluation = evaluation_record_from_operator(&operator);
+            drop(operator.into_stores());
+
+            let selection = self.evaluation_selection_summary(&history, &evaluation_id)?;
+            let invariants = self.evaluation_invariant_summary(&history, &evaluation_id)?;
+            let forge_assessment = forge_assessment_summary(&history, &evaluation_id);
+            let champion_transition_ids = champion_transition_ids_for(&history, &evaluation_id);
+
+            entries.push(EvaluationListEntry {
+                evaluation,
+                selection,
+                invariants,
+                forge_assessment,
+                champion_transition_ids,
+            });
+        }
+        Ok(ResponseData::EvaluationList {
+            evaluations: entries,
+        })
+    }
+
+    fn evaluation_selection_summary(
+        &self,
+        history: &[StoredEvent],
+        evaluation_id: &str,
+    ) -> Result<Option<EvaluationSelectionSummary>, ExecuteError> {
+        for event in history
+            .iter()
+            .filter(|event| event.event_type == "selection.recorded")
+        {
+            // History was verified before this read; a failure here is internal.
+            let (event_evaluation_id, world_id) =
+                selection_event_references(event).map_err(|_| ExecuteError::Internal)?;
+            if event_evaluation_id != evaluation_id {
+                continue;
+            }
+            let world = self
+                .state
+                .registered
+                .world(&world_id)
+                .ok_or(ExecuteError::Internal)?;
+            let verified =
+                verify_selection_event(self.open_arena_stores()?, event, world.compiled())
+                    .map_err(|_| ExecuteError::Internal)?;
+            let receipt = verified.receipt().clone();
+            drop(verified.into_stores());
+            return Ok(Some(EvaluationSelectionSummary {
+                metrics_eligible: receipt.metrics_eligible(),
+                estimate_bps: receipt.estimate_bps(),
+                lower_bps: receipt.lower_bps(),
+                upper_bps: receipt.upper_bps(),
+                parent_cost_microusd: receipt.parent_cost_microusd(),
+                candidate_cost_microusd: receipt.candidate_cost_microusd(),
+                parent_latency_millis: receipt.parent_latency_millis(),
+                candidate_latency_millis: receipt.candidate_latency_millis(),
+                invariant_gate_verified: receipt.invariant_gate_verified(),
+                promotion_eligible: receipt.promotion_eligible(),
+            }));
+        }
+        Ok(None)
+    }
+
+    fn evaluation_invariant_summary(
+        &self,
+        history: &[StoredEvent],
+        evaluation_id: &str,
+    ) -> Result<Option<EvaluationInvariantSummary>, ExecuteError> {
+        for event in history
+            .iter()
+            .filter(|event| event.event_type == "invariants.recorded")
+        {
+            // History was verified before this read; a failure here is internal.
+            let (event_evaluation_id, world_id) =
+                invariant_event_references(event).map_err(|_| ExecuteError::Internal)?;
+            if event_evaluation_id != evaluation_id {
+                continue;
+            }
+            let world = self
+                .state
+                .registered
+                .world(&world_id)
+                .ok_or(ExecuteError::Internal)?;
+            let verified = verify_reference_output_invariant_event(
+                self.open_arena_stores()?,
+                event,
+                world.compiled(),
+            )
+            .map_err(|_| ExecuteError::Internal)?;
+            let receipt = verified.receipt().clone();
+            drop(verified.into_stores());
+            return Ok(Some(EvaluationInvariantSummary {
+                total_checks: receipt.total_checks,
+                total_candidate_violations: receipt.total_candidate_violations,
+                total_paired_regressions: receipt.total_paired_regressions,
+                maximum_regressions: receipt.maximum_regressions,
+                regressions_within_budget: receipt.regressions_within_budget,
+                candidate_contract_satisfied: receipt.candidate_contract_satisfied,
+            }));
+        }
+        Ok(None)
+    }
+
+    /// Recent refused operator requests and recorded runtime authority denials, newest
+    /// first. Only denials that are actually ledgered are listed:
+    /// `control.request_rejected` audit events (empty `request_id`), and
+    /// `TraceKind::CapabilityDenied` runtime traces. Other `ExecuteError::Rejected`
+    /// outcomes are returned to the caller but are not separately ledgered as denials.
+    fn denial_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+        let limit = limit.min(MAX_LIST_LIMIT) as usize;
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+
+        let mut entries: Vec<(u64, DenialEntry)> = Vec::new();
+        for event in &history {
+            if event.event_type == "control.request_rejected" {
+                if let Ok(recorded) = serde_json::from_slice::<RecordedCommand>(&event.payload) {
+                    let command = event_type(&recorded.command)
+                        .strip_prefix("control.")
+                        .unwrap_or("unknown")
+                        .to_owned();
+                    entries.push((
+                        event.sequence,
+                        DenialEntry {
+                            kind: DenialKind::RequestRejected,
+                            timestamp_millis: event.timestamp_millis,
+                            request_id: Some(recorded.request_id),
+                            command: Some(command),
+                            run_id: None,
+                            genome_id: None,
+                            world_id: None,
+                        },
+                    ));
+                }
+            } else if event.event_type == "trace.recorded"
+                && let Ok(receipt) = serde_json::from_slice::<TraceReceipt>(&event.payload)
+                && matches!(receipt.kind, TraceKind::CapabilityDenied)
+            {
+                entries.push((
+                    event.sequence,
+                    DenialEntry {
+                        kind: DenialKind::RuntimeCapabilityDenied,
+                        timestamp_millis: event.timestamp_millis,
+                        request_id: None,
+                        command: None,
+                        run_id: Some(receipt.provenance.run_id().to_owned()),
+                        genome_id: Some(receipt.provenance.genome_id().to_owned()),
+                        world_id: Some(receipt.provenance.world_id().to_owned()),
+                    },
+                ));
+            }
+        }
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        entries.truncate(limit);
+        Ok(ResponseData::DenialList {
+            denials: entries.into_iter().map(|(_, entry)| entry).collect(),
         })
     }
 
@@ -3439,6 +3709,38 @@ fn forge_analysis_record(analysis: &ClusterAnalysis, event: &ClusterEvent) -> Fo
     }
 }
 
+fn forge_assessment_summary(
+    history: &[StoredEvent],
+    evaluation_id: &str,
+) -> Option<EvaluationForgeSummary> {
+    history
+        .iter()
+        .filter(|event| event.event_type == "forge.assessed")
+        .filter_map(|event| decode_forge_assessment(event).ok())
+        .find(|payload| payload.evaluation_id == evaluation_id)
+        .map(|payload| EvaluationForgeSummary {
+            assessment_id: payload.assessment_id,
+            outcome: payload.outcome,
+        })
+}
+
+fn champion_transition_ids_for(history: &[StoredEvent], evaluation_id: &str) -> Vec<String> {
+    history
+        .iter()
+        .filter(|event| event.event_type == CHAMPION_EVENT_TYPE)
+        .filter_map(|event| {
+            serde_json::from_slice::<ChampionTransitionPayload>(&event.payload).ok()
+        })
+        .filter(|payload| {
+            payload
+                .promotion
+                .as_ref()
+                .is_some_and(|promotion| promotion.evaluation_id == evaluation_id)
+        })
+        .map(|payload| payload.transition_id)
+        .collect()
+}
+
 fn evaluation_record_from_operator(
     operator: &hephaestus_arena::OperatorEvaluation,
 ) -> EvaluationRecord {
@@ -4513,6 +4815,13 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         if evaluation_id.trim().is_empty() {
             return Err(ExecuteError::Invalid("evaluation_id is required"));
         }
+    }
+    if let Command::RunList { limit }
+    | Command::EvaluationList { limit }
+    | Command::DenialList { limit } = command
+        && (*limit == 0 || *limit > MAX_LIST_LIMIT)
+    {
+        return Err(ExecuteError::Invalid("limit must be between 1 and 200"));
     }
     require_champion_fields(command)
 }
@@ -6007,6 +6316,9 @@ fn event_type(command: &Command) -> &'static str {
         Command::ChampionRollback { .. } => "control.champion_rollback",
         Command::ChampionShow { .. } => "control.champion_show",
         Command::Replay => "control.replay",
+        Command::RunList { .. } => "control.run_list",
+        Command::EvaluationList { .. } => "control.evaluation_list",
+        Command::DenialList { .. } => "control.denial_list",
         Command::DaemonStop => "control.daemon_stop",
     }
 }

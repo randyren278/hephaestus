@@ -3426,6 +3426,60 @@ fn selection_history_rejects_unregistered_world_reference() {
     ));
 }
 
+fn invariant_event_payload(
+    evaluation_id: &str,
+    world_id: &str,
+    receipt_artifact_id: &str,
+) -> Vec<u8> {
+    format!(
+        r#"{{"schema_version":1,"evaluation_id":"{evaluation_id}","world_id":"{world_id}","receipt_artifact_id":"{receipt_artifact_id}"}}"#
+    )
+    .into_bytes()
+}
+
+fn invariant_checked_event(evaluation_id: &str, payload: Vec<u8>) -> StoredEvent {
+    StoredEvent {
+        sequence: 1,
+        event_id: format!("arena:invariants:{evaluation_id}:checked"),
+        aggregate_id: format!("arena:invariants:{evaluation_id}"),
+        event_type: "invariants.recorded".to_owned(),
+        actor: "arena-plane".to_owned(),
+        timestamp_millis: 1,
+        payload,
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    }
+}
+
+#[test]
+fn invariant_history_rejects_unregistered_world_and_unknown_evaluation() {
+    let directory = tempdir().expect("daemon directory");
+    let plane = open_projection_test_plane(&directory);
+    let unregistered_world =
+        "hephaestus:world:3333333333333333333333333333333333333333333333333333333333333333";
+    let receipt_artifact_id = "4444444444444444444444444444444444444444444444444444444444444444";
+    let event = invariant_checked_event(
+        "forged-invariants",
+        invariant_event_payload("forged-invariants", unregistered_world, receipt_artifact_id),
+    );
+    assert!(matches!(
+        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "invariant World is not registered"
+    ));
+
+    let mut plane = plane;
+    let token = plane.token_hex.clone();
+    let (world, _genome, _task) = register_dispatch_objects(&mut plane, &token, &directory);
+    let event = invariant_checked_event(
+        "no-such-evaluation",
+        invariant_event_payload("no-such-evaluation", &world.world_id, receipt_artifact_id),
+    );
+    assert!(matches!(
+        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "canonical invariant receipt is invalid"
+    ));
+}
+
 #[test]
 fn signed_success_result_without_completed_run_rejects_job_terminal() {
     let directory = tempdir().expect("daemon directory");
@@ -6671,6 +6725,117 @@ fn terminal_job_kill_is_idempotent_and_selection_errors_map_to_safe_api_states()
         map_selection_error(&ArenaError::UnsupportedEvaluator),
         ExecuteError::Internal
     ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnknownEvaluation("missing".to_owned())),
+        ExecuteError::NotFound
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnknownInvariantCheck("missing".to_owned())),
+        ExecuteError::NotFound
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::MissingWorldArtifact("arena.invariant_manifest")),
+        ExecuteError::Rejected(message)
+            if message == "registered World has no reference-output invariant profile"
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::InvariantConflict("evaluation-001".to_owned())),
+        ExecuteError::Rejected(message) if message == "evaluation-001"
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnsupportedEvaluator),
+        ExecuteError::Internal
+    ));
+}
+
+#[test]
+fn arena_selection_and_invariant_commands_validate_and_map_real_errors() {
+    let directory = tempdir().expect("Arena selection fixture");
+    let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    assert!(matches!(
+        plane.select_arena_evaluation(""),
+        Err(ExecuteError::Invalid("evaluation_id is required"))
+    ));
+    assert!(matches!(
+        plane.check_arena_invariants(""),
+        Err(ExecuteError::Invalid("evaluation_id is required"))
+    ));
+    assert!(matches!(
+        plane.select_arena_evaluation("missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.check_arena_invariants("missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+    // require_command_fields already rejects a blank selection_event_id before
+    // dispatch reaches this method; only a direct call exercises its own guard.
+    assert!(matches!(
+        plane.assess_genome("assessment", "proposal", ""),
+        Err(ExecuteError::Invalid("selection_event_id is required"))
+    ));
+
+    for (request_id, command) in [
+        (
+            "arena-select-blank",
+            Command::ArenaSelect {
+                evaluation_id: String::new(),
+            },
+        ),
+        (
+            "arena-invariants-blank",
+            Command::ArenaInvariants {
+                evaluation_id: String::new(),
+            },
+        ),
+    ] {
+        let response = dispatch_call(&mut plane, &token, request_id, command);
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "evaluation_id is required"
+        ));
+    }
+
+    // This fixture's registered World has no invariant manifest, so a
+    // completed evaluation is a real, otherwise-valid target that still
+    // cannot be checked.
+    complete_arena_test_job(
+        &mut plane,
+        "no-invariant-profile",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    assert!(matches!(
+        plane.check_arena_invariants("no-invariant-profile"),
+        Err(ExecuteError::Rejected(message))
+            if message == "registered World has no reference-output invariant profile"
+    ));
+
+    let invariant_directory = tempdir().expect("Arena invariant dispatch fixture");
+    let (mut invariant_plane, invariant_parent, invariant_candidate) =
+        real_worker_arena_fixture_with_invariants(&invariant_directory, Some(CLEAN_INVARIANTS));
+    let invariant_token = invariant_plane.token_hex.clone();
+    complete_arena_test_job(
+        &mut invariant_plane,
+        "dispatched-invariants",
+        &invariant_parent.genome_id,
+        &invariant_candidate.genome_id,
+    );
+    let response = dispatch_call(
+        &mut invariant_plane,
+        &invariant_token,
+        "arena-invariants-dispatch",
+        Command::ArenaInvariants {
+            evaluation_id: "dispatched-invariants".to_owned(),
+        },
+    );
+    assert!(matches!(
+        response.data,
+        Some(ResponseData::ArenaInvariants { .. })
+    ));
 }
 
 fn send_test_api_request(
@@ -9446,4 +9611,402 @@ fn cluster_propose_from_analysis_binds_hash_and_derives_hypothesis() {
             Some(error) if error.code == ApiErrorCode::InvalidRequest
         ));
     }
+}
+
+// --- Evidence API: RunList, EvaluationList, DenialList (roadmap item 9 prerequisite) ---
+
+#[test]
+fn evidence_run_list_limit_is_bounded() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    for (limit, expect_error) in [(0u32, true), (201, true), (1, false), (200, false)] {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            &format!("run-list-{limit}"),
+            Command::RunList { limit },
+        );
+        assert_eq!(
+            response.error.map(|error| error.code),
+            expect_error.then_some(ApiErrorCode::InvalidRequest),
+            "limit={limit}"
+        );
+    }
+}
+
+#[test]
+fn evidence_run_list_is_newest_first_and_merges_jobs_with_verified_results() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let reference_response = dispatch_call(
+        &mut plane,
+        &token,
+        "reference-run",
+        Command::RunReference {
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    let Some(ResponseData::Run {
+        run_id: reference_run_id,
+        ..
+    }) = reference_response.data
+    else {
+        panic!(
+            "reference run should succeed: {:?}",
+            reference_response.error
+        );
+    };
+
+    exercise_dispatch_job(&mut plane, &genome.genome_id);
+
+    let Some(ResponseData::RunList { runs }) = dispatch_call(
+        &mut plane,
+        &token,
+        "run-list",
+        Command::RunList { limit: 10 },
+    )
+    .data
+    else {
+        panic!("run list should succeed");
+    };
+    assert_eq!(runs.len(), 2, "one job and one reference run");
+    assert_eq!(
+        runs[0].job_id.as_deref(),
+        Some("dispatch-run"),
+        "the async job committed last must be newest-first"
+    );
+    assert_eq!(runs[0].state, JobState::Succeeded);
+    assert_eq!(
+        runs[0].completion_reason,
+        Some(RunCompletionReason::Success)
+    );
+    assert!(runs[0].latency_millis.is_some());
+    assert!(runs[0].actual_cost_microusd.is_some());
+    assert_eq!(runs[1].run_id, reference_run_id);
+    assert_eq!(runs[1].job_id, None, "a synchronous run has no job_id");
+    assert_eq!(
+        runs[1].completion_reason,
+        Some(RunCompletionReason::Success)
+    );
+
+    let bounded = dispatch_call(
+        &mut plane,
+        &token,
+        "run-list-bounded",
+        Command::RunList { limit: 1 },
+    );
+    let Some(ResponseData::RunList { runs: bounded_runs }) = bounded.data else {
+        panic!("bounded run list should succeed");
+    };
+    assert_eq!(bounded_runs.len(), 1);
+    assert_eq!(bounded_runs[0].job_id.as_deref(), Some("dispatch-run"));
+
+    // Consistency with replay: a fresh verified replay does not change what is listed.
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+    let Some(ResponseData::RunList { runs: replayed }) = dispatch_call(
+        &mut plane,
+        &token,
+        "run-list-again",
+        Command::RunList { limit: 10 },
+    )
+    .data
+    else {
+        panic!("second run list should succeed");
+    };
+    assert_eq!(runs, replayed);
+}
+
+#[test]
+fn evidence_run_list_is_available_while_a_job_is_active() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    assert!(
+        plane
+            .submit_job("busy-run", &genome.genome_id)
+            .is_ok_and(|data| matches!(data, ResponseData::Job { .. }))
+    );
+    assert!(plane.active_job.is_some(), "job admission stays active");
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "run-list-busy",
+            Command::RunList { limit: 10 }
+        )
+        .error
+        .is_none(),
+        "read-only evidence lists must stay available while a job is active"
+    );
+}
+
+#[test]
+fn evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides_sealed_data() {
+    let directory = tempdir().expect("Arena evidence fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture_with_invariants(
+        &directory,
+        Some(UPPERCASE_V_FORBIDDEN_INVARIANTS),
+    );
+    let token = plane.token_hex.clone();
+    complete_arena_test_job(
+        &mut plane,
+        "evidence-evaluation-1",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    plane
+        .select_arena_evaluation("evidence-evaluation-1")
+        .expect("select evaluation");
+    plane
+        .check_arena_invariants("evidence-evaluation-1")
+        .expect("check invariants");
+    // A later evaluation with no selection or invariant evidence yet.
+    complete_arena_test_job(
+        &mut plane,
+        "evidence-evaluation-2",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "evaluation-list",
+        Command::EvaluationList { limit: 10 },
+    );
+    let Some(ResponseData::EvaluationList { evaluations }) = response.data.clone() else {
+        panic!("evaluation list should succeed");
+    };
+    assert_eq!(evaluations.len(), 2);
+    let pending = &evaluations[0];
+    assert_eq!(pending.evaluation.evaluation_id, "evidence-evaluation-2");
+    assert!(
+        pending.selection.is_none() && pending.invariants.is_none(),
+        "evidence recorded for another evaluation must not be attributed to this one"
+    );
+    let entry = &evaluations[1];
+    assert_eq!(entry.evaluation.evaluation_id, "evidence-evaluation-1");
+    assert!(
+        entry.selection.is_some(),
+        "a recorded selection must be summarized"
+    );
+    assert!(
+        entry.invariants.is_some(),
+        "recorded invariant evidence must be summarized"
+    );
+    assert!(entry.forge_assessment.is_none());
+    assert!(entry.champion_transition_ids.is_empty());
+
+    let encoded = serde_json::to_string(&response).expect("response serializes");
+    for forbidden in ["sealed", "expected_output", "task_input", "raw_output"] {
+        assert!(
+            !encoded.contains(forbidden),
+            "evaluation list must never expose {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn evidence_evaluation_list_references_forge_assessment_and_orders_newest_first() {
+    let directory = tempdir().expect("Forge evidence fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "evidence-forge",
+        &parent.genome_id,
+        &candidate.genome_id,
+        false,
+    );
+
+    let Some(ResponseData::EvaluationList { evaluations }) = dispatch_call(
+        &mut plane,
+        &token,
+        "evaluation-list-forge",
+        Command::EvaluationList { limit: 10 },
+    )
+    .data
+    else {
+        panic!("evaluation list should succeed");
+    };
+    assert_eq!(evaluations.len(), 2, "source and child evaluations");
+    assert_eq!(
+        evaluations[0].evaluation.evaluation_id, assessed.evaluation,
+        "the child evaluation is newest and must sort first"
+    );
+    let forge = evaluations[0]
+        .forge_assessment
+        .as_ref()
+        .expect("child evaluation carries its Forge assessment reference");
+    assert_eq!(forge.assessment_id, "evidence-forge-assessment");
+    assert_eq!(
+        evaluations[1].evaluation.evaluation_id, "evidence-forge-source",
+        "the source evaluation is oldest and must sort last"
+    );
+    assert!(evaluations[1].forge_assessment.is_none());
+
+    let Some(ResponseData::EvaluationList {
+        evaluations: bounded,
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "evaluation-list-forge-bounded",
+        Command::EvaluationList { limit: 1 },
+    )
+    .data
+    else {
+        panic!("bounded evaluation list should succeed");
+    };
+    assert_eq!(
+        bounded.len(),
+        1,
+        "the limit must bound the returned entries"
+    );
+    assert_eq!(bounded[0].evaluation.evaluation_id, assessed.evaluation);
+}
+
+#[test]
+fn evidence_evaluation_list_limit_is_bounded() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    for (limit, expect_error) in [(0u32, true), (201, true), (1, false)] {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            &format!("evaluation-list-{limit}"),
+            Command::EvaluationList { limit },
+        );
+        assert_eq!(
+            response.error.map(|error| error.code),
+            expect_error.then_some(ApiErrorCode::InvalidRequest),
+            "limit={limit}"
+        );
+    }
+}
+
+#[test]
+fn evidence_denial_list_limit_is_bounded() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    for (limit, expect_error) in [(0u32, true), (201, true), (1, false)] {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            &format!("denial-list-{limit}"),
+            Command::DenialList { limit },
+        );
+        assert_eq!(
+            response.error.map(|error| error.code),
+            expect_error.then_some(ApiErrorCode::InvalidRequest),
+            "limit={limit}"
+        );
+    }
+}
+
+#[test]
+fn evidence_denial_list_records_request_rejected_and_runtime_capability_denials_newest_first() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+
+    let rejected = plane.handle(ApiRequest {
+        version: API_VERSION,
+        request_id: String::new(),
+        token: token.clone(),
+        command: Command::Status,
+    });
+    assert_eq!(
+        rejected.error.expect("empty request_id is refused").code,
+        ApiErrorCode::InvalidRequest
+    );
+
+    let denied_genome_id = format!("hephaestus:genome:{}", "a".repeat(64));
+    let denied_world_id = format!("hephaestus:world:{}", "b".repeat(64));
+    {
+        let storage = plane.storage.as_mut().expect("canonical storage");
+        let receipt = TraceReceipt {
+            schema_version: 1,
+            event_id: "trace:denial-run:capability_denied".to_owned(),
+            provenance: Provenance::new(
+                "denial-run",
+                denied_genome_id.clone(),
+                denied_world_id.clone(),
+            )
+            .expect("valid provenance"),
+            kind: TraceKind::CapabilityDenied,
+            artifact_id: "c".repeat(64),
+            redacted_fields: 0,
+        };
+        storage
+            .ledger
+            .append(EventInput::new(
+                receipt.event_id.clone(),
+                "run:denial-run".to_owned(),
+                "trace.recorded",
+                "experience-plane",
+                timestamp_millis().expect("clock reads"),
+                serde_json::to_vec(&receipt).expect("encode trace receipt"),
+            ))
+            .expect("append runtime denial trace");
+    }
+
+    let Some(ResponseData::DenialList { denials }) = dispatch_call(
+        &mut plane,
+        &token,
+        "denial-list",
+        Command::DenialList { limit: 10 },
+    )
+    .data
+    else {
+        panic!("denial list should succeed");
+    };
+    assert_eq!(denials.len(), 2);
+    assert_eq!(denials[0].kind, DenialKind::RuntimeCapabilityDenied);
+    assert_eq!(denials[0].run_id.as_deref(), Some("denial-run"));
+    assert_eq!(
+        denials[0].genome_id.as_deref(),
+        Some(denied_genome_id.as_str())
+    );
+    assert_eq!(
+        denials[0].world_id.as_deref(),
+        Some(denied_world_id.as_str())
+    );
+    assert_eq!(denials[1].kind, DenialKind::RequestRejected);
+    assert_eq!(denials[1].request_id.as_deref(), Some(""));
+    assert_eq!(denials[1].command.as_deref(), Some("status"));
+
+    let bounded = dispatch_call(
+        &mut plane,
+        &token,
+        "denial-list-bounded",
+        Command::DenialList { limit: 1 },
+    );
+    let Some(ResponseData::DenialList {
+        denials: bounded_denials,
+    }) = bounded.data
+    else {
+        panic!("bounded denial list should succeed");
+    };
+    assert_eq!(bounded_denials.len(), 1);
+    assert_eq!(bounded_denials[0].kind, DenialKind::RuntimeCapabilityDenied);
 }

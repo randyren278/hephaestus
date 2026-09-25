@@ -53,6 +53,8 @@ This roadmap implements the complete master-plan sequence without presenting lat
 **Hook**: Protected paired evaluation makes improvement falsifiable and cost-aware.
 **Invariants**: Candidates cannot inspect evaluator source, expected output, or sealed scores; incompatible Worlds never share a progress line; claims without receipts cannot support promotion.
 
+**Latency-tolerance note**: The Pareto comparison's latency dimension originally required the candidate's raw measured wall-clock latency to be no worse than the parent's, which made selection noise-driven on trivial reference tasks where latency is a few milliseconds of scheduling jitter. It now tolerates latency within `max(10% of parent latency, 50ms * paired task count)` before counting it as a regression (algorithm identity `histogram-bootstrap-pareto-tolerant-v2`), while a receipt recorded under the retired strict comparison (`histogram-bootstrap-v1`) still verifies under its own rule on replay.
+
 ### 8. Forge, selection, lineage, promotion, and rollback
 **Why**: This is the minimum complete evolutionary loop: observable failure becomes one causal mutation and an evidence-backed descendant.
 **Done when**: Failure clusters produce explicit hypotheses and minimal mutations; descendants form an ancestry DAG; selection uses paired evidence and regression floors; deterministic policy promotes a winner or rejects all; rollback reconstructs the previous Champion after injected live regression.
@@ -109,6 +111,7 @@ This roadmap implements the complete master-plan sequence without presenting lat
 **Risk**: Network exposure, multi-writer state, and distributed failure substantially expand the threat model.
 **Hook**: Local-first domain boundaries scale to distributed execution without replacing the trustworthy core.
 **Invariants**: Browsers and agents never access canonical storage directly; remote identities are scoped and expiring; duplicate delivery is idempotent; tool schemas and calls are versioned.
+**Slice done**: `apps/hephaestus-web` is a local, read-only web console. It proxies a fixed allowlist of read-only daemon commands (`status`, `world_list`, `genome_list`, `genome_show`, `genome_prompt`, `champion_show`, `job_status`) over the same owner-only Unix socket protocol the TUI uses, renders Worlds, Genome lineage with Champion/standby/quarantined roles, a Genome prompt diff against its parent, and Champion transition history, and adds a per-launch session token, `Host`/`Origin` checks against DNS rebinding and CSRF, and a strict no-CDN CSP. It never forwards a mutating command. There is no MCP gateway and no authenticated remote worker execution yet; costs, drift, and full evidence/experiment views are also still open. See [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md).
 
 ### 15. Public Gauntlet, production hardening, and self-dogfooding
 **Why**: A public system needs adversarial proof, reproducible releases, and evidence that Hephaestus can safely work on itself.

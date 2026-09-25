@@ -9,7 +9,20 @@ use crate::{ArenaError, EvaluationStores, SelectionEvidence, load_operator_evalu
 const EVENT_TYPE: &str = "selection.recorded";
 const EVENT_ACTOR: &str = "arena-plane";
 const RECEIPT_SCHEMA_VERSION: u16 = 1;
-const ALGORITHM: &str = "histogram-bootstrap-v1";
+/// Original dominance rule: candidate latency must be no worse than the
+/// parent's, at all, on raw measured wall-clock milliseconds. Retained only
+/// so ledgers written before the tolerant rule below still recompute
+/// byte-identical receipts; new selections never use it.
+const ALGORITHM_V1: &str = "histogram-bootstrap-v1";
+/// Current dominance rule: candidate latency only counts as a regression
+/// once it exceeds the parent's by more than a fixed noise floor
+/// (`max(10% of parent latency, 50ms * paired task count)`), because raw
+/// wall-clock milliseconds on small reference tasks are dominated by
+/// scheduling jitter rather than a real performance difference. See
+/// `latency_tolerance_millis` and `pareto_dominates_v2`.
+const ALGORITHM_V2: &str = "histogram-bootstrap-pareto-tolerant-v2";
+/// Algorithm identity used for every newly recorded selection.
+const CURRENT_ALGORITHM: &str = ALGORITHM_V2;
 const RESAMPLES: usize = 10_000;
 const MAX_BOOTSTRAP_DRAWS: usize = 20_000_000;
 
@@ -373,7 +386,6 @@ fn select(
     }
     let policy = world.evaluation_policy();
     ensure_supported_confidence(policy.confidence_bps())?;
-    let receipt = analyze(&evidence, world)?;
     let mut stores = operator.into_stores();
     let history = stores.events.replay_verified()?;
     let selection_event_id = format!("arena:selection:{evaluation_id}:selected");
@@ -388,6 +400,17 @@ fn select(
             .find(|event| event.event_id == selection_event_id)
             .map(|event| event.sequence),
     )?;
+    // Recompute with whichever algorithm the existing receipt was produced
+    // under, so a stored v1 receipt still verifies byte-for-byte; a brand
+    // new selection always uses `CURRENT_ALGORITHM`.
+    let algorithm = match history
+        .iter()
+        .find(|event| event.event_id == selection_event_id)
+    {
+        Some(event) => existing_receipt_algorithm(&stores, event)?,
+        None => CURRENT_ALGORITHM.to_owned(),
+    };
+    let receipt = analyze(&evidence, world, &algorithm)?;
     if let Some(event) = history
         .iter()
         .find(|event| event.event_id == selection_event_id)
@@ -455,6 +478,21 @@ fn rehydrate_selection(
     })
 }
 
+/// Peeks the algorithm identity of an already-recorded selection receipt so
+/// recompute can dispatch to the matching dominance rule. This is an
+/// untrusted read: `rehydrate_selection` still recomputes and compares the
+/// full canonical receipt bytes before trusting anything read here.
+fn existing_receipt_algorithm(
+    stores: &EvaluationStores,
+    event: &StoredEvent,
+) -> Result<String, ArenaError> {
+    let payload: SelectionEventPayload = serde_json::from_slice(&event.payload)?;
+    let receipt_id = ArtifactId::parse(payload.receipt_artifact_id)?;
+    let bytes = stores.artifacts.get(&receipt_id)?;
+    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;
+    Ok(receipt.algorithm)
+}
+
 fn event_metadata(event: &StoredEvent, receipt_artifact_id: &str) -> SelectionEvent {
     SelectionEvent {
         sequence: event.sequence,
@@ -470,6 +508,7 @@ fn event_metadata(event: &StoredEvent, receipt_artifact_id: &str) -> SelectionEv
 fn analyze(
     evidence: &SelectionEvidence,
     world: &CompiledWorld,
+    algorithm: &str,
 ) -> Result<SelectionReceipt, ArenaError> {
     let policy = world.evaluation_policy();
     let histogram = evidence.correctness_outcomes();
@@ -502,20 +541,32 @@ fn analyze(
     let parent_reliability_bps = ratio_bps(parent.reliable_trials(), parent.total_trials())?;
     let candidate_reliability_bps =
         ratio_bps(candidate.reliable_trials(), candidate.total_trials())?;
-    let dominates = pareto_dominates(
-        [
-            u64::from(parent_correctness_bps),
-            u64::from(parent_reliability_bps),
-            parent.total_cost_microusd(),
-            parent.total_latency_millis(),
-        ],
-        [
-            u64::from(candidate_correctness_bps),
-            u64::from(candidate_reliability_bps),
-            candidate.total_cost_microusd(),
-            candidate.total_latency_millis(),
-        ],
-    );
+    let parent_metrics = [
+        u64::from(parent_correctness_bps),
+        u64::from(parent_reliability_bps),
+        parent.total_cost_microusd(),
+        parent.total_latency_millis(),
+    ];
+    let candidate_metrics = [
+        u64::from(candidate_correctness_bps),
+        u64::from(candidate_reliability_bps),
+        candidate.total_cost_microusd(),
+        candidate.total_latency_millis(),
+    ];
+    let dominates = match algorithm {
+        ALGORITHM_V1 => pareto_dominates_v1(parent_metrics, candidate_metrics),
+        ALGORITHM_V2 => pareto_dominates_v2(
+            parent_metrics,
+            candidate_metrics,
+            latency_tolerance_millis(
+                parent.total_latency_millis(),
+                u64::from(histogram.regressions())
+                    + u64::from(histogram.unchanged())
+                    + u64::from(histogram.improvements()),
+            ),
+        ),
+        _ => return Err(ArenaError::InvalidStoredReceipt("selection algorithm")),
+    };
     let metrics_eligible = metrics_eligible(
         interval.lower,
         policy.minimum_delta_bps(),
@@ -525,7 +576,7 @@ fn analyze(
     );
     Ok(SelectionReceipt {
         schema_version: RECEIPT_SCHEMA_VERSION,
-        algorithm: ALGORITHM.to_owned(),
+        algorithm: algorithm.to_owned(),
         resamples: u32::try_from(RESAMPLES)
             .map_err(|_| ArenaError::MetricOverflow("bootstrap resamples"))?,
         seed: evidence.seed(),
@@ -657,7 +708,11 @@ fn metrics_eligible(
         && candidate_cost_microusd <= world_cost_ceiling_microusd
 }
 
-fn pareto_dominates(parent: [u64; 4], candidate: [u64; 4]) -> bool {
+/// `ALGORITHM_V1` dominance rule: the candidate must be no worse than the
+/// parent on every raw measured dimension, including wall-clock latency, and
+/// strictly better on at least one. Preserved only for recomputing receipts
+/// recorded before `ALGORITHM_V2`.
+fn pareto_dominates_v1(parent: [u64; 4], candidate: [u64; 4]) -> bool {
     let no_worse = candidate[0] >= parent[0]
         && candidate[1] >= parent[1]
         && candidate[2] <= parent[2]
@@ -667,6 +722,42 @@ fn pareto_dominates(parent: [u64; 4], candidate: [u64; 4]) -> bool {
         || candidate[2] < parent[2]
         || candidate[3] < parent[3];
     no_worse && better
+}
+
+/// The fixed noise floor a candidate's total latency may exceed the
+/// parent's by before it counts as a real regression: whichever is larger of
+/// 10% of the parent's total latency, or 50ms per paired task. Small
+/// reference-task latencies are a few milliseconds and dominated by
+/// scheduling jitter, so a fixed absolute floor (`50ms * tasks`) matters as
+/// much as the proportional one for cheap, fast Worlds.
+fn latency_tolerance_millis(parent_latency_millis: u64, task_count: u64) -> u64 {
+    (parent_latency_millis / 10).max(task_count.saturating_mul(50))
+}
+
+/// `ALGORITHM_V2` dominance rule: identical to `ALGORITHM_V1` on
+/// correctness, reliability, and cost, but latency only counts as a
+/// regression once it exceeds the parent's by more than
+/// `latency_tolerance_millis`. This stops a strictly-better candidate from
+/// being randomly rejected because it happened to run a millisecond or two
+/// slower on a trivial task.
+///
+/// Implemented by delegating to `pareto_dominates_v1` on an "effective"
+/// candidate latency: a candidate within tolerance is treated as tied with
+/// the parent (neither a regression nor a claimed improvement), and a
+/// candidate past the tolerance is compared exactly as `ALGORITHM_V1` would.
+fn pareto_dominates_v2(
+    parent: [u64; 4],
+    candidate: [u64; 4],
+    latency_tolerance_millis: u64,
+) -> bool {
+    let within_tolerance = candidate[3] <= parent[3].saturating_add(latency_tolerance_millis);
+    let effective_latency = if within_tolerance {
+        candidate[3].min(parent[3])
+    } else {
+        candidate[3]
+    };
+    let effective_candidate = [candidate[0], candidate[1], candidate[2], effective_latency];
+    pareto_dominates_v1(parent, effective_candidate)
 }
 
 fn ensure_supported_confidence(confidence_bps: u16) -> Result<(), ArenaError> {
@@ -692,8 +783,8 @@ fn validate_bootstrap_work(task_count: usize) -> Result<(), ArenaError> {
 mod tests {
     use super::{
         SplitMix64, bootstrap, ensure_minimum_task_count, ensure_supported_confidence,
-        metrics_eligible, pareto_dominates, ratio_bps, validate_bootstrap_work,
-        validate_event_snapshot, validate_selection_chronology,
+        latency_tolerance_millis, metrics_eligible, pareto_dominates_v1, pareto_dominates_v2,
+        ratio_bps, validate_bootstrap_work, validate_event_snapshot, validate_selection_chronology,
     };
     use crate::ArenaError;
     use hephaestus_ledger::StoredEvent;
@@ -817,15 +908,42 @@ mod tests {
     }
 
     #[test]
-    fn pareto_gate_rejects_regression_in_each_independent_metric() {
+    fn pareto_v1_gate_rejects_regression_in_each_independent_metric() {
         let parent = [100, 100, 100, 100];
-        assert!(pareto_dominates(parent, [101, 100, 100, 100]));
-        assert!(!pareto_dominates(parent, [99, 101, 99, 99]));
-        assert!(!pareto_dominates(parent, [101, 99, 99, 99]));
-        assert!(!pareto_dominates(parent, [101, 101, 101, 99]));
-        assert!(!pareto_dominates(parent, [101, 101, 99, 101]));
-        assert!(pareto_dominates(parent, [101, 101, 99, 99]));
-        assert!(!pareto_dominates(parent, parent));
+        assert!(pareto_dominates_v1(parent, [101, 100, 100, 100]));
+        assert!(!pareto_dominates_v1(parent, [99, 101, 99, 99]));
+        assert!(!pareto_dominates_v1(parent, [101, 99, 99, 99]));
+        assert!(!pareto_dominates_v1(parent, [101, 101, 101, 99]));
+        assert!(!pareto_dominates_v1(parent, [101, 101, 99, 101]));
+        assert!(pareto_dominates_v1(parent, [101, 101, 99, 99]));
+        assert!(!pareto_dominates_v1(parent, parent));
+    }
+
+    #[test]
+    fn latency_tolerance_uses_the_larger_of_the_proportional_or_fixed_floor() {
+        // 10% of 1000ms (100ms) beats the fixed 50ms * 2 tasks (100ms) — tie goes either way, both 100.
+        assert_eq!(latency_tolerance_millis(1_000, 2), 100);
+        // Cheap, fast World: 10% of 10ms (1ms) loses to the fixed floor, 50ms * 4 tasks = 200ms.
+        assert_eq!(latency_tolerance_millis(10, 4), 200);
+        // Large World: 10% of 100_000ms (10_000ms) dominates the fixed floor.
+        assert_eq!(latency_tolerance_millis(100_000, 3), 10_000);
+    }
+
+    #[test]
+    fn pareto_v2_gate_tolerates_latency_noise_but_still_rejects_a_real_regression() {
+        let parent = [100, 100, 100, 100];
+        // Tolerance is max(10, 50*1) = 50. A 1ms slower candidate that is
+        // strictly better on correctness is still eligible: this is the bug fix.
+        assert!(pareto_dominates_v2(parent, [101, 100, 100, 101], 50));
+        // Exactly at the tolerance boundary still passes.
+        assert!(pareto_dominates_v2(parent, [101, 100, 100, 150], 50));
+        // One millisecond past the tolerance is a real regression and fails closed.
+        assert!(!pareto_dominates_v2(parent, [101, 100, 100, 151], 50));
+        // Correctness, reliability, and cost regressions are untouched by the tolerance.
+        assert!(!pareto_dominates_v2(parent, [99, 101, 99, 99], 50));
+        assert!(!pareto_dominates_v2(parent, [101, 99, 99, 99], 50));
+        assert!(!pareto_dominates_v2(parent, [101, 101, 101, 99], 50));
+        assert!(!pareto_dominates_v2(parent, parent, 50));
     }
 
     #[test]

@@ -1,0 +1,21 @@
+{
+  "name": "@hephaestus/web-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "hephaestus-web": "dist/main.mjs" },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "build": "node scripts/build.mjs",
+    "test": "tsx --test test/*.test.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "esbuild": "0.28.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0"
+  }
+}

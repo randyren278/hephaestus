@@ -773,6 +773,299 @@ fn reference_output_invariants_record_operator_aggregates_and_replay() {
     assert!(load_reference_output_invariants(stores, "evaluation-001", &world).is_err());
 }
 
+fn append_history_except(
+    stores: &mut EvaluationStores,
+    history: &[StoredEvent],
+    skip_event_id: &str,
+) {
+    for event in history
+        .iter()
+        .filter(|event| event.event_id != skip_event_id)
+    {
+        stores
+            .events
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                &event.payload,
+            ))
+            .unwrap();
+    }
+}
+
+/// Rebuilds `history` in a new hash-valid ledger with the invariant event's
+/// payload rewritten, so only content verification can reject it.
+fn forged_invariant_ledger(
+    directory: &TempDir,
+    name: &str,
+    history: &[StoredEvent],
+    original: &StoredEvent,
+    payload: String,
+) -> EvaluationStores {
+    let mut stores = EvaluationStores::open(
+        directory.path().join(format!("{name}.sqlite3")),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    append_history_except(&mut stores, history, &original.event_id);
+    stores
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            payload,
+        ))
+        .unwrap();
+    stores
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reference_output_invariants_reject_cross_world_and_hash_valid_forgeries() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let mut wrong_source: serde_json::Value =
+        serde_json::from_slice(world.canonical_json()).unwrap();
+    wrong_source["name"] = serde_json::json!("different-invariant-world");
+    let wrong_world = compile_world(
+        &wrong_source.to_string(),
+        SourceFormat::Json,
+        &fixture.stores.artifacts,
+    )
+    .unwrap();
+    let stores = evaluate(fixture).unwrap().into_stores();
+    assert!(matches!(
+        check_reference_output_invariants(
+            stores,
+            "evaluation-001",
+            &wrong_world,
+            1_788_000_123_500
+        ),
+        Err(ArenaError::WorldArtifactMismatch(
+            "arena.invariant_manifest"
+        ))
+    ));
+
+    let open = || {
+        EvaluationStores::open(
+            directory.path().join("events.sqlite3"),
+            directory.path().join("blobs"),
+        )
+        .unwrap()
+    };
+    let check =
+        check_reference_output_invariants(open(), "evaluation-001", &world, 1_788_000_123_500)
+            .unwrap();
+    let receipt_artifact = check.event().receipt_artifact_id.clone();
+    let receipt = check.receipt().clone();
+    let history = check.into_stores().events.replay_verified().unwrap();
+    let original = history
+        .iter()
+        .find(|event| event.event_id == "arena:invariants:evaluation-001:checked")
+        .unwrap()
+        .clone();
+    assert!(matches!(
+        verify_reference_output_invariant_event(open(), &original, &wrong_world),
+        Err(ArenaError::WorldArtifactMismatch(
+            "arena.invariant_manifest"
+        ))
+    ));
+
+    // A hash-valid receipt artifact with different aggregates is a conflict.
+    let mut forged_receipt = receipt.clone();
+    forged_receipt.total_checks += 1;
+    let forged_bytes = serde_json::to_vec(&forged_receipt).unwrap();
+    let forged_artifact = open().artifacts.put(&forged_bytes).unwrap();
+    let forged_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&receipt_artifact, forged_artifact.as_str());
+    let stores = forged_invariant_ledger(
+        &directory,
+        "forged-receipt",
+        &history,
+        &original,
+        forged_payload,
+    );
+    assert!(matches!(
+        load_reference_output_invariants(stores, "evaluation-001", &world),
+        Err(ArenaError::InvariantConflict(evaluation)) if evaluation == "evaluation-001"
+    ));
+
+    // An envelope naming another World cannot rebind the recorded evaluation.
+    let foreign_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(world.id(), wrong_world.id());
+    let stores = forged_invariant_ledger(
+        &directory,
+        "foreign-world",
+        &history,
+        &original,
+        foreign_payload,
+    );
+    assert!(matches!(
+        load_reference_output_invariants(stores, "evaluation-001", &world),
+        Err(ArenaError::InvariantConflict(evaluation)) if evaluation == "evaluation-001"
+    ));
+
+    // An invariant event recorded before its source evaluation is a conflict.
+    let evaluation_index = history
+        .iter()
+        .position(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap();
+    let mut reordered = EvaluationStores::open(
+        directory.path().join("reordered.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let mut order: Vec<&StoredEvent> = history[..evaluation_index].iter().collect();
+    order.push(&original);
+    order.extend(
+        history[evaluation_index..]
+            .iter()
+            .filter(|event| event.event_id != original.event_id),
+    );
+    for event in order {
+        reordered
+            .events
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                &event.payload,
+            ))
+            .unwrap();
+    }
+    assert!(load_reference_output_invariants(reordered, "evaluation-001", &world).is_err());
+}
+
+/// Rebuilds `history` in a new hash-valid ledger with `original`'s payload
+/// rewritten, so only deeper content verification (not the hash chain) can
+/// reject the forgery. Generic over which event is being replaced.
+fn forged_event_ledger(
+    directory: &TempDir,
+    name: &str,
+    history: &[StoredEvent],
+    original: &StoredEvent,
+    payload: String,
+) -> EvaluationStores {
+    let mut stores = EvaluationStores::open(
+        directory.path().join(format!("{name}.sqlite3")),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    append_history_except(&mut stores, history, &original.event_id);
+    stores
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            payload,
+        ))
+        .unwrap();
+    stores
+}
+
+#[test]
+fn reference_output_invariants_reject_out_of_manifest_tasks_and_relabeled_signed_outputs() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let evaluation = evaluate(fixture).unwrap();
+    let parent_submission_bytes = evaluation.operator_parent_submission().unwrap();
+    let parent_submission_id = ArtifactId::for_bytes(&parent_submission_bytes)
+        .as_str()
+        .to_owned();
+    let submission_text = String::from_utf8(parent_submission_bytes.clone()).unwrap();
+    let stores = evaluation.into_stores();
+    let history = stores.events.replay_verified().unwrap();
+    let evaluation_event = history
+        .iter()
+        .find(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap()
+        .clone();
+    let original_payload = String::from_utf8(evaluation_event.payload.clone()).unwrap();
+    // The evaluation event's payload names the parent submission artifact twice
+    // (a business identity and a CAS pointer, kept equal by construction), so a
+    // single unqualified replace retargets both consistently.
+    assert_eq!(original_payload.matches(&parent_submission_id).count(), 2);
+
+    // A submission whose trial keys diverge from the World's manifest task set,
+    // with every referenced signed-run binding otherwise untouched, is rejected
+    // even though it is byte-canonical and every artifact it names exists.
+    let renamed_task_text = submission_text.replace("\"task-visible-b\":", "\"task-visible-x\":");
+    assert_ne!(renamed_task_text, submission_text);
+    let renamed_task_id = stores.artifacts.put(renamed_task_text.as_bytes()).unwrap();
+    let renamed_task_payload =
+        original_payload.replace(&parent_submission_id, renamed_task_id.as_str());
+    let renamed_task_stores = forged_event_ledger(
+        &directory,
+        "renamed-task",
+        &history,
+        &evaluation_event,
+        renamed_task_payload,
+    );
+    assert!(matches!(
+        check_reference_output_invariants(
+            renamed_task_stores,
+            "evaluation-001",
+            &world,
+            1_788_000_123_600,
+        ),
+        Err(ArenaError::InvalidStoredReceipt(
+            "invariant submission evidence"
+        ))
+    ));
+
+    // A submission that relabels one task's signed stdout onto another task's
+    // trial: every artifact it names still exists and resolves, but no longer
+    // matches what that task's own signed run actually produced.
+    let submission_value: serde_json::Value =
+        serde_json::from_slice(&parent_submission_bytes).unwrap();
+    let stdout_a = submission_value["trials"]["task-visible-a"]["stdout_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let stdout_b = submission_value["trials"]["task-visible-b"]["stdout_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(stdout_a, stdout_b);
+    let relabeled_text = submission_text.replacen(&stdout_b, &stdout_a, 1);
+    assert_ne!(relabeled_text, submission_text);
+    let relabeled_id = stores.artifacts.put(relabeled_text.as_bytes()).unwrap();
+    let relabeled_payload = original_payload.replace(&parent_submission_id, relabeled_id.as_str());
+    let relabeled_stores = forged_event_ledger(
+        &directory,
+        "relabeled-output",
+        &history,
+        &evaluation_event,
+        relabeled_payload,
+    );
+    assert!(matches!(
+        check_reference_output_invariants(
+            relabeled_stores,
+            "evaluation-001",
+            &world,
+            1_788_000_123_601,
+        ),
+        Err(ArenaError::InvalidStoredReceipt(
+            "invariant signed run binding"
+        ))
+    ));
+}
+
 #[test]
 fn reference_output_invariant_manifest_is_required_canonical_bounded_and_ordered() {
     let invalid_manifests: &[&[u8]] = &[
@@ -1387,6 +1680,222 @@ fn selection_receipt_recomputes_and_retries_identically_after_restart() {
             .count(),
         1
     );
+}
+
+#[test]
+fn marginally_slower_but_better_child_is_eligible_under_the_tolerant_dominance_rule() {
+    // Regression test for the real product defect: a candidate that is
+    // strictly better on correctness must not be randomly rejected because
+    // it ran a few milliseconds slower on trivial reference tasks. The
+    // tolerance is `max(10% of parent latency, 50ms * paired task count)`;
+    // here parent total latency is 40ms (10ms * 4 tasks), so the tolerance
+    // is `max(4, 200) = 200ms`, and the candidate is only 20ms slower.
+    let directory = TempDir::new().unwrap();
+    let mut fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let expected_outputs = [
+        ("task-visible-a", VISIBLE_SECRET),
+        ("task-visible-b", "B"),
+        ("task-sealed-a", SEALED_SECRET),
+        ("task-sealed-b", "Z"),
+    ];
+    let mut parent_pairs = Vec::new();
+    let mut candidate_pairs = Vec::new();
+    for (task, expected) in expected_outputs {
+        let parent_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("marginal-parent-{task}"),
+            &fixture.parent_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            b"deliberately incorrect parent",
+            10,
+            0,
+        );
+        let candidate_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("marginal-candidate-{task}"),
+            &fixture.candidate_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            expected.as_bytes(),
+            15,
+            0,
+        );
+        parent_pairs.push((task.to_owned(), parent_event));
+        candidate_pairs.push((task.to_owned(), candidate_event));
+    }
+    fixture.parent = TrialPlan::new(parent_pairs).unwrap();
+    fixture.candidate = TrialPlan::new(candidate_pairs).unwrap();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    let receipt = selected.receipt();
+    assert_eq!(
+        receipt.algorithm(),
+        "histogram-bootstrap-pareto-tolerant-v2"
+    );
+    assert_eq!(receipt.parent_latency_millis(), 40);
+    assert_eq!(receipt.candidate_latency_millis(), 60);
+    assert!(receipt.candidate_correctness_bps() > receipt.parent_correctness_bps());
+    assert!(receipt.candidate_pareto_dominates());
+    assert!(receipt.metrics_eligible());
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn stored_v1_selection_receipt_still_verifies_under_the_strict_dominance_rule() {
+    // The same marginally-slower-but-better child as above, but this test
+    // proves the replay/verification path: an already-recorded receipt
+    // computed under the retired strict `histogram-bootstrap-v1` algorithm
+    // (candidate latency must be no worse than the parent's, at all) must
+    // still recompute byte-identically on replay, even though a fresh
+    // selection would use the new tolerant algorithm and reach the opposite
+    // eligibility verdict for the same measured evidence.
+    let directory = TempDir::new().unwrap();
+    let mut fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let expected_outputs = [
+        ("task-visible-a", VISIBLE_SECRET),
+        ("task-visible-b", "B"),
+        ("task-sealed-a", SEALED_SECRET),
+        ("task-sealed-b", "Z"),
+    ];
+    let mut parent_pairs = Vec::new();
+    let mut candidate_pairs = Vec::new();
+    for (task, expected) in expected_outputs {
+        let parent_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("v1replay-parent-{task}"),
+            &fixture.parent_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            b"deliberately incorrect parent",
+            10,
+            0,
+        );
+        let candidate_event = append_run_with_observations(
+            &mut fixture.stores,
+            &fixture.signer,
+            &fixture.repository,
+            &format!("v1replay-candidate-{task}"),
+            &fixture.candidate_genome_id,
+            world.id(),
+            &fixture.revision,
+            task,
+            task_input(task),
+            42,
+            "environment-v1",
+            Budget::new(Duration::from_secs(10), 1_048_576, 100).unwrap(),
+            RunCompletionReason::Success,
+            expected.as_bytes(),
+            15,
+            0,
+        );
+        parent_pairs.push((task.to_owned(), parent_event));
+        candidate_pairs.push((task.to_owned(), candidate_event));
+    }
+    fixture.parent = TrialPlan::new(parent_pairs).unwrap();
+    fixture.candidate = TrialPlan::new(candidate_pairs).unwrap();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    // Sanity check: the real (current-algorithm) receipt says eligible,
+    // exactly like the test above.
+    assert!(selected.receipt().metrics_eligible());
+    let history = selected.into_stores().events.replay_verified().unwrap();
+    let original = history
+        .iter()
+        .find(|event| event.event_type == "selection.recorded")
+        .unwrap()
+        .clone();
+    let original_payload: serde_json::Value = serde_json::from_slice(&original.payload).unwrap();
+    let original_artifact = original_payload["receipt_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let original_artifact_id = ArtifactId::parse(original_artifact.clone()).unwrap();
+    let artifact_root = directory.path().join("blobs");
+    let original_bytes = fs::read(
+        EvaluationStores::open(directory.path().join("events.sqlite3"), &artifact_root)
+            .unwrap()
+            .artifacts
+            .path_for(&original_artifact_id),
+    )
+    .unwrap();
+
+    // Rewrite the receipt to exactly what v1's strict latency comparison
+    // would have produced for this same measured evidence: latency-worse
+    // means the candidate does not dominate, so it is not eligible.
+    let mut v1_receipt: serde_json::Value = serde_json::from_slice(&original_bytes).unwrap();
+    v1_receipt["algorithm"] = serde_json::json!("histogram-bootstrap-v1");
+    v1_receipt["candidate_pareto_dominates"] = serde_json::json!(false);
+    v1_receipt["metrics_eligible"] = serde_json::json!(false);
+    let v1_receipt: SelectionReceipt = serde_json::from_value(v1_receipt).unwrap();
+    let v1_bytes = serde_json::to_vec(&v1_receipt).unwrap();
+    assert_ne!(v1_bytes, original_bytes);
+
+    let mut artifacts =
+        EvaluationStores::open(directory.path().join("v1.sqlite3"), &artifact_root).unwrap();
+    let v1_artifact = artifacts.artifacts.put(&v1_bytes).unwrap();
+    let v1_artifact = v1_artifact.as_str().to_owned();
+    append_non_selection_history(&mut artifacts, &history);
+    let v1_event_payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&original_artifact, &v1_artifact);
+    assert!(v1_event_payload.contains(&v1_artifact));
+    artifacts
+        .events
+        .append(EventInput::new(
+            original.event_id.clone(),
+            original.aggregate_id.clone(),
+            original.event_type.clone(),
+            original.actor.clone(),
+            original.timestamp_millis,
+            v1_event_payload,
+        ))
+        .unwrap();
+
+    let verified = load_selection(artifacts, "evaluation-001", &world)
+        .expect("a receipt recorded under the retired v1 algorithm still verifies");
+    assert_eq!(verified.receipt().algorithm(), "histogram-bootstrap-v1");
+    assert!(!verified.receipt().candidate_pareto_dominates());
+    assert!(!verified.receipt().metrics_eligible());
+    assert_eq!(serde_json::to_vec(verified.receipt()).unwrap(), v1_bytes);
 }
 
 #[test]
