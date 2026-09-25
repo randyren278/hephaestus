@@ -10847,6 +10847,200 @@ fn evolve_start_completes_three_generations_with_one_promotion_and_replays() {
     );
 }
 
+/// Proves `hephaestus evolve coding`'s exact prerequisite sequence (the CLI
+/// convenience runs these same commands against a live daemon over its
+/// socket; this drives the identical Commands in-process against the real
+/// bundled `examples/gauntlet/coding` fixture files on disk, per SPEED MODE
+/// guidance to skip a daemon-process E2E). It registers the bundled World
+/// and its two reference Genomes exactly as the CLI does, starts a
+/// 3-generation run, and drains it to completion.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn evolve_coding_bundled_world_completes_three_generations_from_the_example_fixture() {
+    let examples_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/gauntlet/coding");
+    assert!(
+        examples_dir.is_dir(),
+        "bundled examples/gauntlet/coding fixture is missing: {examples_dir:?}"
+    );
+
+    let directory = tempdir().expect("daemon directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Gauntlet coding fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator_path = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator_path).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator_path,
+        &worker,
+    )
+    .expect("open coding fixture");
+    let token = plane.token_hex.clone();
+    assert!(
+        dispatch_call(&mut plane, &token, "coding-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let artifact_id_of = |response: ApiResponse| match response.data {
+        Some(ResponseData::Artifact { artifact_id, .. }) => artifact_id,
+        other => panic!("expected an Artifact response, got {other:?}"),
+    };
+    let visible_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "coding-visible-manifest",
+        Command::ManifestPut {
+            path: examples_dir
+                .join("tasks/visible.json")
+                .display()
+                .to_string(),
+        },
+    ));
+    let sealed_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "coding-sealed-manifest",
+        Command::ManifestPut {
+            path: examples_dir.join("tasks/sealed.json").display().to_string(),
+        },
+    ));
+    let evaluator_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "coding-evaluator",
+        Command::ArtifactPut {
+            path: evaluator_path.display().to_string(),
+        },
+    ));
+    let Some(ResponseData::Verifier {
+        artifact_id: verifier_id,
+        ..
+    }) = dispatch_call(&mut plane, &token, "coding-verifier", Command::VerifierShow).data
+    else {
+        panic!("verifier show should succeed");
+    };
+    let invariants_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "coding-invariants",
+        Command::ArtifactPut {
+            path: examples_dir.join("invariants.json").display().to_string(),
+        },
+    ));
+
+    let world_template =
+        fs::read_to_string(examples_dir.join("world.template.json")).expect("read world template");
+    let world_json = world_template
+        .replace("__VISIBLE_MANIFEST__", &visible_id)
+        .replace("__SEALED_MANIFEST__", &sealed_id)
+        .replace("__EVALUATOR__", &evaluator_id)
+        .replace("__VERIFIER__", &verifier_id)
+        .replace("__INVARIANTS__", &invariants_id);
+    let world_path = directory.path().join("gauntlet-coding-world.json");
+    fs::write(&world_path, world_json).expect("write coding World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "coding-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("World registration should succeed");
+    };
+
+    let Some(ResponseData::Genome { genome: parent }) = dispatch_call(
+        &mut plane,
+        &token,
+        "coding-parent",
+        Command::GenomeRegister {
+            path: examples_dir.join("parent.md").display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("parent Genome registration should succeed");
+    };
+    let candidate_template =
+        fs::read_to_string(examples_dir.join("candidate.md")).expect("read candidate Genome");
+    let candidate_path = directory.path().join("gauntlet-coding-candidate.md");
+    fs::write(
+        &candidate_path,
+        candidate_template.replace("__PARENT_ID__", &parent.genome_id),
+    )
+    .expect("write coding candidate Genome");
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "coding-candidate",
+            Command::GenomeRegister {
+                path: candidate_path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .error
+        .is_none()
+    );
+
+    let run_id = "gauntlet-coding";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "coding-evolve-start",
+        evolve_start_command(run_id, &world.world_id, &parent.genome_id, 3, 6),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start failed: {:?}",
+        start.error
+    );
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.state, EvolutionRunState::Finished);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::GenerationsExhausted)
+    );
+    assert_eq!(
+        run.generations.len(),
+        3,
+        "evolve coding must complete at least three unattended generations"
+    );
+    assert_eq!(run.trials_consumed, 6);
+}
+
 #[test]
 fn evolve_respects_freeze_and_resumes_only_after_explicit_unfreeze() {
     let directory = tempdir().expect("daemon directory");

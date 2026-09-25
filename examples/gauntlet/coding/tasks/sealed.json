@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-coding-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "coding-sealed-function",
+      "input": "def subtract(a, b): return a - b",
+      "expected_output": "DEF SUBTRACT(A, B): RETURN A - B"
+    }
+  ]
+}

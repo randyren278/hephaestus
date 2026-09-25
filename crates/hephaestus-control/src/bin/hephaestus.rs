@@ -3,16 +3,18 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command as ProcessCommand, ExitCode},
+    thread,
+    time::{Duration, Instant},
 };
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, CanaryRecord, CanaryTransitionRecord,
     ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind, DriftRecord,
-    EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, ForgeAnalysisRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GeneRecord,
-    GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord, JobState,
-    MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
+    EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, EvolutionRunState,
+    ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
+    GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord,
+    JobState, MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
     MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
     data_dir_from_environment,
 };
@@ -523,6 +525,23 @@ enum EvolveCommand {
         /// Stable run identity returned by `start`.
         run_id: String,
     },
+    /// Convenience: registers the bundled Gauntlet "coding" World and its
+    /// two reference Genomes against the running daemon (idempotently, if
+    /// not already registered), then starts and drives a 3-generation
+    /// unattended run to completion.
+    ///
+    /// Prerequisites this registers for you: `examples/gauntlet/coding`'s
+    /// World/Genome/task fixtures, published against the connected daemon's
+    /// own evaluator binary (found next to this executable) and runtime
+    /// verifier key. The daemon must already be running and reachable at
+    /// `--data-dir` (see `hephaestusd`), and must be unfrozen (this command
+    /// unfreezes it if needed).
+    Coding {
+        /// Hard ceiling on the number of paired Arena evaluations (trials)
+        /// the run may submit; 3 generations consume exactly 6.
+        #[arg(long)]
+        budget: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -638,6 +657,12 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let CliCommand::Evolve {
+        command: EvolveCommand::Coding { budget },
+    } = &arguments.command
+    {
+        return run_evolve_coding(&data_dir, *budget, arguments.json);
+    }
     let evaluation_id = match &arguments.command {
         CliCommand::Arena {
             command: ArenaCommand::Evaluate { evaluation_id, .. },
@@ -937,6 +962,309 @@ fn run_git<const N: usize>(repository: &Path, arguments: [&str; N]) -> Result<()
     }
 }
 
+/// Locates the bundled `examples/gauntlet/coding` fixture: a packaged share
+/// directory if this is an installed build, otherwise the source checkout
+/// next to this crate. Mirrors [`fixture_source_dir`]'s resolution exactly.
+fn gauntlet_coding_fixture_dir() -> Result<PathBuf, String> {
+    if let Some(share) = packaged_share_dir(&current_executable()) {
+        let fixtures = share.join("fixtures/gauntlet-coding");
+        if fixtures.is_dir() {
+            return Ok(fixtures);
+        }
+        return Err("installed gauntlet coding fixture is unavailable".to_owned());
+    }
+    let source_checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("examples/gauntlet/coding");
+    source_checkout
+        .is_dir()
+        .then_some(source_checkout)
+        .ok_or_else(|| {
+            "gauntlet coding fixture is unavailable (run from a source checkout, or install \
+         the bundled fixtures)"
+                .to_owned()
+        })
+}
+
+/// One request/response round trip for `evolve coding`'s registration
+/// sequence: prints a clear message and returns `None` on any transport or
+/// application-level failure so the caller can bail with `ExitCode::FAILURE`.
+fn coding_step(client: &Client, label: &str, command: Command) -> Option<ResponseData> {
+    match client.request(command) {
+        Ok(response) => {
+            if let Some(error) = response.error {
+                eprintln!("hephaestus: {label} failed: {}", error.message);
+                None
+            } else if let Some(data) = response.data {
+                Some(data)
+            } else {
+                eprintln!("hephaestus: {label} returned no data");
+                None
+            }
+        }
+        Err(error) => {
+            eprintln!("hephaestus: {label} failed: {error}");
+            None
+        }
+    }
+}
+
+/// `hephaestus evolve coding --budget <n>`: registers the bundled Gauntlet
+/// "coding" World and its parent/candidate reference Genomes against the
+/// connected daemon (idempotently, if not already registered), starts a
+/// 3-generation unattended evolve run, and polls it to completion.
+///
+/// This exercises the exact same durable evolve engine as `evolve start`;
+/// the only thing it adds is the World/Genome bootstrap an operator would
+/// otherwise run by hand (see `examples/gauntlet/coding` and
+/// `docs/EVOLUTION.md`). Every Genome here still uses the deterministic
+/// reference operations (`identity`/`ascii_uppercase`): Forge's mutation
+/// operator only knows how to flip between those two, so this proves the
+/// unattended multi-generation *mechanism* against a Gauntlet-flavored
+/// World, not that the optimizer can solve a real coding task.
+#[allow(clippy::too_many_lines)]
+fn run_evolve_coding(data_dir: &Path, budget: u64, json: bool) -> ExitCode {
+    const GENERATIONS: u32 = 3;
+    const MINIMUM_BUDGET: u64 = 6; // 3 generations x 2 trials each.
+    if budget < MINIMUM_BUDGET {
+        eprintln!(
+            "hephaestus: evolve coding needs --budget of at least {MINIMUM_BUDGET} \
+             ({GENERATIONS} generations x 2 trials)"
+        );
+        return ExitCode::FAILURE;
+    }
+    let data_dir = match fs::canonicalize(data_dir) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!(
+                "hephaestus: could not resolve data directory {}: {error} (start `hephaestusd` \
+                 first)",
+                data_dir.display()
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let examples_dir = match gauntlet_coding_fixture_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!("hephaestus: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let evaluator_path = current_executable().with_file_name(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if !evaluator_path.is_file() {
+        eprintln!(
+            "hephaestus: missing {} next to this executable; run `cargo build --workspace \
+             --bins` first",
+            evaluator_path.display()
+        );
+        return ExitCode::FAILURE;
+    }
+    let work_dir = data_dir.join("work");
+    if let Err(error) = fs::create_dir_all(&work_dir) {
+        eprintln!(
+            "hephaestus: could not create {}: {error}",
+            work_dir.display()
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let client = Client::new(data_dir.clone());
+    if coding_step(&client, "status", Command::Status).is_none() {
+        eprintln!(
+            "hephaestus: could not reach a daemon at {} (start `hephaestusd` first)",
+            data_dir.display()
+        );
+        return ExitCode::FAILURE;
+    }
+    if coding_step(&client, "unfreeze", Command::Unfreeze).is_none() {
+        return ExitCode::FAILURE;
+    }
+
+    let artifact_id = |data: Option<ResponseData>| match data {
+        Some(ResponseData::Artifact { artifact_id, .. }) => Some(artifact_id),
+        _ => None,
+    };
+    let Some(visible_id) = artifact_id(coding_step(
+        &client,
+        "arena manifest (visible)",
+        Command::ManifestPut {
+            path: examples_dir
+                .join("tasks/visible.json")
+                .display()
+                .to_string(),
+        },
+    )) else {
+        return ExitCode::FAILURE;
+    };
+    let Some(sealed_id) = artifact_id(coding_step(
+        &client,
+        "arena manifest (sealed)",
+        Command::ManifestPut {
+            path: examples_dir.join("tasks/sealed.json").display().to_string(),
+        },
+    )) else {
+        return ExitCode::FAILURE;
+    };
+    let Some(evaluator_id) = artifact_id(coding_step(
+        &client,
+        "artifact put (evaluator)",
+        Command::ArtifactPut {
+            path: evaluator_path.display().to_string(),
+        },
+    )) else {
+        return ExitCode::FAILURE;
+    };
+    let Some(ResponseData::Verifier {
+        artifact_id: verifier_id,
+        ..
+    }) = coding_step(&client, "verifier", Command::VerifierShow)
+    else {
+        return ExitCode::FAILURE;
+    };
+    let Some(invariants_id) = artifact_id(coding_step(
+        &client,
+        "artifact put (invariants)",
+        Command::ArtifactPut {
+            path: examples_dir.join("invariants.json").display().to_string(),
+        },
+    )) else {
+        return ExitCode::FAILURE;
+    };
+
+    let world_template = match fs::read_to_string(examples_dir.join("world.template.json")) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("hephaestus: could not read world.template.json: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let world_json = world_template
+        .replace("__VISIBLE_MANIFEST__", &visible_id)
+        .replace("__SEALED_MANIFEST__", &sealed_id)
+        .replace("__EVALUATOR__", &evaluator_id)
+        .replace("__VERIFIER__", &verifier_id)
+        .replace("__INVARIANTS__", &invariants_id);
+    let world_path = work_dir.join("gauntlet-coding-world.json");
+    if let Err(error) = fs::write(&world_path, world_json) {
+        eprintln!(
+            "hephaestus: could not write {}: {error}",
+            world_path.display()
+        );
+        return ExitCode::FAILURE;
+    }
+    let Some(ResponseData::World { world }) = coding_step(
+        &client,
+        "world register",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    ) else {
+        return ExitCode::FAILURE;
+    };
+
+    let Some(ResponseData::Genome { genome: parent }) = coding_step(
+        &client,
+        "genome register (parent)",
+        Command::GenomeRegister {
+            path: examples_dir.join("parent.md").display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    ) else {
+        return ExitCode::FAILURE;
+    };
+    let candidate_template = match fs::read_to_string(examples_dir.join("candidate.md")) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("hephaestus: could not read candidate.md: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let candidate_path = work_dir.join("gauntlet-coding-candidate.md");
+    if let Err(error) = fs::write(
+        &candidate_path,
+        candidate_template.replace("__PARENT_ID__", &parent.genome_id),
+    ) {
+        eprintln!(
+            "hephaestus: could not write {}: {error}",
+            candidate_path.display()
+        );
+        return ExitCode::FAILURE;
+    }
+    if coding_step(
+        &client,
+        "genome register (candidate)",
+        Command::GenomeRegister {
+            path: candidate_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .is_none()
+    {
+        return ExitCode::FAILURE;
+    }
+
+    let run_id = "gauntlet-coding";
+    if coding_step(
+        &client,
+        "evolve start",
+        Command::EvolveStart {
+            run_id: run_id.to_owned(),
+            world_id: world.world_id.clone(),
+            from_genome_id: parent.genome_id.clone(),
+            generations: GENERATIONS,
+            budget,
+        },
+    )
+    .is_none()
+    {
+        return ExitCode::FAILURE;
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let final_response = loop {
+        match client.request(Command::EvolveStatus {
+            run_id: run_id.to_owned(),
+        }) {
+            Ok(response) => {
+                if response.error.is_some() {
+                    break response;
+                }
+                if let Some(ResponseData::Evolution { run }) = &response.data
+                    && run.state == EvolutionRunState::Finished
+                {
+                    break response;
+                }
+            }
+            Err(error) => {
+                eprintln!("hephaestus: evolve status failed: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
+        if Instant::now() >= deadline {
+            eprintln!("hephaestus: evolve coding run did not finish within 180s");
+            return ExitCode::FAILURE;
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&final_response).expect("API response serialization cannot fail")
+        );
+    } else {
+        print_human(&final_response);
+    }
+    if final_response.error.is_some() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 fn arena_final_response(response: ApiResponse, job: ArenaJobProgress) -> ApiResponse {
     let data = if let Some(evaluation) = job.evaluation.clone() {
         ResponseData::Evaluation { evaluation }
@@ -1048,7 +1376,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Drift { command } => drift_command_from_cli(command),
         CliCommand::Canary { command } => canary_command_from_cli(command),
         CliCommand::Gene { command } => gene_command_from_cli(command),
-        CliCommand::Evolve { command } => evolve_command_from_cli(command),
+        CliCommand::Evolve { command } => evolve_command_from_cli(command)?,
         CliCommand::Meta { command } => meta_command_from_cli(command)?,
         CliCommand::Replay => Command::Replay,
         CliCommand::Runs { limit } => Command::RunList { limit },
@@ -1194,8 +1522,8 @@ fn gene_command_from_cli(command: GeneCommand) -> Command {
     }
 }
 
-fn evolve_command_from_cli(command: EvolveCommand) -> Command {
-    match command {
+fn evolve_command_from_cli(command: EvolveCommand) -> Result<Command, &'static str> {
+    Ok(match command {
         EvolveCommand::Start {
             run_id,
             world,
@@ -1211,7 +1539,8 @@ fn evolve_command_from_cli(command: EvolveCommand) -> Command {
         },
         EvolveCommand::Status { run_id } => Command::EvolveStatus { run_id },
         EvolveCommand::Cancel { run_id } => Command::EvolveCancel { run_id },
-    }
+        EvolveCommand::Coding { .. } => return Err("evolve coding is a local convenience command"),
+    })
 }
 
 fn meta_command_from_cli(command: MetaCommand) -> Result<Command, &'static str> {
@@ -2021,7 +2350,7 @@ mod tests {
 
     use super::{
         Arguments, command_from_cli, copy_fixture_into_new_destination, evaluation_human,
-        fixture_source_dir, packaged_tui_paths,
+        fixture_source_dir, gauntlet_coding_fixture_dir, packaged_tui_paths,
     };
     use hephaestus_control::{
         Command, DriftKind, EvaluationEventRecord, EvaluationRecord, MetaLineageSpec,
@@ -2269,6 +2598,32 @@ mod tests {
                 run_id: "run-1".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn evolve_coding_is_a_local_convenience_command_with_its_own_fixture() {
+        let command =
+            Arguments::try_parse_from(["hephaestus", "evolve", "coding", "--budget", "6"])
+                .expect("CLI parses")
+                .command;
+        assert!(matches!(
+            command_from_cli(command),
+            Err("evolve coding is a local convenience command")
+        ));
+        let fixture = gauntlet_coding_fixture_dir().expect("bundled fixture resolves");
+        for name in [
+            "world.template.json",
+            "parent.md",
+            "candidate.md",
+            "invariants.json",
+            "tasks/visible.json",
+            "tasks/sealed.json",
+        ] {
+            assert!(
+                fixture.join(name).is_file(),
+                "gauntlet coding fixture is missing {name}"
+            );
+        }
     }
 
     #[test]
