@@ -207,6 +207,60 @@ pub enum Command {
         /// Registered World identity.
         world_id: String,
     },
+    /// Record one drift observation derived from verified evidence. Drift
+    /// never directly replaces a Champion.
+    DriftRecord {
+        /// Stable caller-selected idempotency key.
+        drift_id: String,
+        /// Registered World the drift was observed under.
+        world_id: String,
+        /// Kind of shift the evidence must cite.
+        kind: DriftKind,
+        /// Evaluation identity supplying the cited `SelectionReceipt`.
+        evidence_evaluation_id: String,
+    },
+    /// Inspect one recorded drift observation.
+    DriftShow {
+        /// Stable drift idempotency key.
+        drift_id: String,
+    },
+    /// Start (or idempotently re-admit) a staged canary rollout bound to a
+    /// candidate Genome and a passing Forge assessment. The prior Champion
+    /// stays Champion until the canary completes.
+    CanaryStart {
+        /// Stable caller-selected idempotency key for the canary.
+        canary_id: String,
+        /// Registered World the canary runs under.
+        world_id: String,
+        /// Candidate Genome this canary rolls out.
+        candidate_genome_id: String,
+        /// Durable Forge assessment whose parent is the current Champion and
+        /// whose child is the candidate; the shadow evaluation of this canary.
+        assessment_id: String,
+    },
+    /// Advance one canary on staged health evidence. A regression in the
+    /// evidence automatically aborts the canary instead of advancing it.
+    /// Refused while frozen unless the evidence shows a regression.
+    CanaryAdvance {
+        /// Stable canary idempotency key.
+        canary_id: String,
+        /// Evaluation identity supplying this stage's `SelectionReceipt`.
+        evidence_evaluation_id: String,
+    },
+    /// Check one completed canary's Champion against the previous Champion.
+    /// A regression automatically triggers a Champion rollback through the
+    /// existing rollback transition. Allowed while frozen.
+    CanaryLiveCheck {
+        /// Stable canary idempotency key.
+        canary_id: String,
+        /// Evaluation identity supplying the live `SelectionReceipt`.
+        evidence_evaluation_id: String,
+    },
+    /// Inspect one canary's projection and transition history.
+    CanaryShow {
+        /// Stable canary idempotency key.
+        canary_id: String,
+    },
     /// Start (or idempotently re-admit) an unattended, budget-bounded,
     /// multi-generation evolution run owned by the daemon's reconciliation loop.
     EvolveStart {
@@ -436,6 +490,21 @@ pub enum ResponseData {
     Champion {
         /// Current Champion, archived predecessors, and transition history.
         champion: Box<ChampionRecord>,
+    },
+    /// One durable drift record derived from verified evidence.
+    Drift {
+        /// Drift payload and canonical event metadata.
+        drift: Box<DriftRecord>,
+    },
+    /// One durable, policy-checked canary transition.
+    CanaryTransition {
+        /// Transition payload and canonical event metadata.
+        transition: Box<CanaryTransitionRecord>,
+    },
+    /// Canary projection reconstructed from verified history.
+    Canary {
+        /// Current stage and transition history.
+        canary: Box<CanaryRecord>,
     },
     /// Durable, replay-verified progress of one evolution run.
     Evolution {
@@ -1011,6 +1080,209 @@ pub struct ChampionRecord {
     pub quarantined_genome_ids: Vec<String>,
     /// Every transition of this World in ledger order.
     pub transitions: Vec<ChampionTransitionRecord>,
+}
+
+/// Kind of environmental shift a drift record cites.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DriftKind {
+    /// Aggregate terminal latency shifted beyond the documented threshold.
+    Latency,
+    /// Aggregate provider cost shifted beyond the documented threshold.
+    Cost,
+    /// Paired correctness fitness shifted beyond the documented threshold.
+    Correctness,
+    /// Reliable-trial proportion shifted beyond the documented threshold,
+    /// the signal used to detect workload-induced drift.
+    Workload,
+}
+
+/// Canonical payload of one `drift.recorded` event. Drift never directly
+/// replaces a Champion; it only cites verified evidence that a fixed,
+/// documented threshold was crossed.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftRecordPayload {
+    /// Drift payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub drift_id: String,
+    /// World the drift was observed under.
+    pub world_id: String,
+    /// Kind of shift this record cites.
+    pub kind: DriftKind,
+    /// Evaluation identity supplying the cited `SelectionReceipt`.
+    pub evidence_evaluation_id: String,
+    /// Exact verified selection event identity.
+    pub selection_event_id: String,
+    /// Hash of the exact verified selection event.
+    pub selection_event_hash: String,
+    /// The World's Champion at the time of this record; the evidence's parent
+    /// (baseline) side.
+    pub baseline_genome_id: String,
+    /// The evidence's candidate side, whose metrics are compared to the baseline.
+    pub shifted_genome_id: String,
+    /// Fixed, documented threshold in basis points this record crossed.
+    pub threshold_bps: u32,
+    /// Signed measured shift in basis points for the cited kind; a magnitude
+    /// at or beyond `threshold_bps` in the regressive direction is required.
+    pub observed_delta_bps: i64,
+}
+
+/// Canonical event metadata accompanying a drift record.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Per-World drift aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Operator-visible drift record and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftRecord {
+    /// Canonical drift payload.
+    pub payload: DriftRecordPayload,
+    /// Canonical event metadata.
+    pub event: DriftEventRecord,
+}
+
+/// Staged rollout progress of one canary.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanaryStage {
+    /// Bound to a candidate and assessment; not yet receiving traffic.
+    Pending,
+    /// Advanced on healthy evidence to 5%.
+    Stage5,
+    /// Advanced on healthy evidence to 25%.
+    Stage25,
+    /// Advanced on healthy evidence to 50%.
+    Stage50,
+    /// Reached 100% and promoted the candidate through the Champion path.
+    Completed,
+    /// Automatically aborted after regression evidence at a staged health gate.
+    Aborted,
+}
+
+/// Kind of one canary transition event.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanaryTransitionKind {
+    /// Canary bound to a candidate and a passing Forge assessment.
+    Started,
+    /// Staged health evidence admitted advancement to the next stage.
+    Advanced,
+    /// Staged health evidence showed a regression; the canary aborted automatically.
+    Aborted,
+    /// Live evidence after completion showed the Champion regressed against
+    /// the previous Champion; this automatically triggered a Champion rollback.
+    LiveRegressionDetected,
+}
+
+/// Measured staged or live-check evidence joined into one canary transition.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanaryEvidence {
+    /// Evaluation identity supplying the cited `SelectionReceipt`.
+    pub evidence_evaluation_id: String,
+    /// Exact verified selection event identity.
+    pub selection_event_id: String,
+    /// Hash of the exact verified selection event.
+    pub selection_event_hash: String,
+    /// Signed latency shift in basis points (candidate vs. parent; positive is worse).
+    pub latency_delta_bps: i64,
+    /// Signed cost shift in basis points (candidate vs. parent; positive is worse).
+    pub cost_delta_bps: i64,
+    /// Signed correctness shift in basis points (candidate vs. parent; negative is worse).
+    pub correctness_delta_bps: i64,
+    /// Signed reliability shift in basis points (candidate vs. parent; negative is worse).
+    pub reliability_delta_bps: i64,
+    /// Whether any measured dimension crossed its fixed, documented regression threshold.
+    pub regressed: bool,
+}
+
+/// Canonical payload of one canary transition event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanaryTransitionPayload {
+    /// Transition payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key for the canary.
+    pub canary_id: String,
+    /// World the canary runs under.
+    pub world_id: String,
+    /// Transition kind.
+    pub kind: CanaryTransitionKind,
+    /// Stage after this transition.
+    pub stage: CanaryStage,
+    /// Candidate Genome this canary is rolling out.
+    pub candidate_genome_id: String,
+    /// The Champion immediately before this canary started.
+    pub previous_champion_genome_id: String,
+    /// Durable Forge assessment bound at `Started`, reused unchanged for the
+    /// Champion promotion evidence at completion.
+    pub assessment_id: String,
+    /// Staged or live-check evidence; present for `Advanced`, `Aborted`, and
+    /// `LiveRegressionDetected`.
+    pub evidence: Option<CanaryEvidence>,
+    /// Champion promotion evidence, present exactly when `stage` becomes `Completed`.
+    pub champion_promotion: Option<ChampionPromotionEvidence>,
+    /// Exact Champion rollback transition event this triggered, present exactly
+    /// for `LiveRegressionDetected`.
+    pub champion_rollback_event_id: Option<String>,
+    /// Hash of the exact Champion rollback transition event.
+    pub champion_rollback_event_hash: Option<String>,
+    /// Deterministic reason, present exactly for `Aborted` and `LiveRegressionDetected`.
+    pub reason: Option<String>,
+}
+
+/// Canonical event metadata accompanying a canary transition.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanaryEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Per-canary aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Operator-visible canary transition and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanaryTransitionRecord {
+    /// Canonical transition payload.
+    pub payload: CanaryTransitionPayload,
+    /// Canonical event metadata.
+    pub event: CanaryEventRecord,
+}
+
+/// Canary projection reconstructed from verified history.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanaryRecord {
+    /// Stable caller-selected idempotency key for the canary.
+    pub canary_id: String,
+    /// World the canary runs under.
+    pub world_id: String,
+    /// Candidate Genome this canary is rolling out.
+    pub candidate_genome_id: String,
+    /// The Champion immediately before this canary started.
+    pub previous_champion_genome_id: String,
+    /// Current stage.
+    pub stage: CanaryStage,
+    /// Every transition of this canary in ledger order.
+    pub transitions: Vec<CanaryTransitionRecord>,
 }
 
 /// Operator-visible aggregate invariant receipt and its canonical event.
