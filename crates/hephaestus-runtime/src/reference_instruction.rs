@@ -85,15 +85,72 @@ impl ReferenceInstruction {
         frame.extend_from_slice(input);
         Ok(frame)
     }
+
+    /// Test-only: appends a trailing delay trailer that
+    /// [`execute_reference_worker_request`] sleeps on before executing the
+    /// frame. This exists solely so a test can make a designated Genome's
+    /// reference worker measurably, genuinely slower without any race or
+    /// flakiness. It does not exist in a build without the `test-support`
+    /// feature: no caller compiled without that feature can construct this
+    /// trailer, and a release worker binary parsing such bytes as ordinary
+    /// task input would simply fail the frame-length check below.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an oversized `input`, exactly like [`Self::frame`].
+    #[cfg(feature = "test-support")]
+    pub fn frame_with_test_delay(
+        self,
+        input: &[u8],
+        delay_millis: u64,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        let mut frame = self.frame(input)?;
+        frame.extend_from_slice(TEST_DELAY_TRAILER_MAGIC);
+        frame.extend_from_slice(&delay_millis.to_be_bytes());
+        Ok(frame)
+    }
 }
+
+/// Test-only marker for the trailing delay trailer read by
+/// [`execute_reference_worker_request`]. Never produced or interpreted
+/// outside the `test-support` feature.
+#[cfg(feature = "test-support")]
+const TEST_DELAY_TRAILER_MAGIC: &[u8; 8] = b"TDLYMS01";
+#[cfg(feature = "test-support")]
+const TEST_DELAY_TRAILER_LEN: usize = 16;
+/// Upper bound on an injected test delay so a malformed value cannot hang a
+/// test run indefinitely.
+#[cfg(feature = "test-support")]
+const TEST_DELAY_MAX_MILLIS: u64 = 30_000;
 
 /// Executes a validated reference worker frame. The worker has no filesystem or network behavior.
 ///
 /// # Errors
 ///
 /// Rejects truncated, oversized, trailing, or unknown-version frames.
+///
+/// # Panics
+///
+/// Never panics: the trailer-length check above guards the one slice
+/// conversion that would otherwise be fallible.
 pub fn execute_reference_worker_request(frame: &[u8]) -> Result<Vec<u8>, RuntimeError> {
     const HEADER: usize = 13;
+    #[cfg(feature = "test-support")]
+    let frame = {
+        let has_test_delay = frame.len() >= TEST_DELAY_TRAILER_LEN
+            && frame[frame.len() - TEST_DELAY_TRAILER_LEN..frame.len() - 8]
+                == *TEST_DELAY_TRAILER_MAGIC;
+        if has_test_delay {
+            let millis_bytes: [u8; 8] = frame[frame.len() - 8..]
+                .try_into()
+                .expect("trailer length checked above");
+            let millis = u64::from_be_bytes(millis_bytes).min(TEST_DELAY_MAX_MILLIS);
+            std::thread::sleep(std::time::Duration::from_millis(millis));
+            &frame[..frame.len() - TEST_DELAY_TRAILER_LEN]
+        } else {
+            frame
+        }
+    };
     if frame.len() < HEADER || &frame[..8] != FRAME_MAGIC {
         return Err(RuntimeError::InvalidSpec(
             "reference worker frame is invalid",
@@ -194,5 +251,35 @@ mod tests {
                 .frame(&vec![0; 1_048_577])
                 .is_err()
         );
+    }
+
+    /// Proves the test-only delay trailer actually delays execution by a
+    /// real, measurable amount, and that ordinary frames without it are
+    /// unaffected.
+    #[test]
+    #[cfg(feature = "test-support")]
+    fn test_delay_trailer_sleeps_before_executing_the_underlying_frame() {
+        let input = b"delay me";
+        let frame = ReferenceInstruction::Identity
+            .frame_with_test_delay(input, 200)
+            .expect("delayed frame");
+        let started = std::time::Instant::now();
+        assert_eq!(
+            execute_reference_worker_request(&frame).expect("worker"),
+            input
+        );
+        assert!(
+            started.elapsed() >= std::time::Duration::from_millis(180),
+            "the delay trailer should have made the worker genuinely sleep"
+        );
+
+        // No trailer means no delay and identical behavior to `frame`.
+        let plain = ReferenceInstruction::Identity.frame(input).expect("frame");
+        let started = std::time::Instant::now();
+        assert_eq!(
+            execute_reference_worker_request(&plain).expect("worker"),
+            input
+        );
+        assert!(started.elapsed() < std::time::Duration::from_millis(180));
     }
 }

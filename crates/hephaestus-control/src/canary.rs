@@ -689,12 +689,24 @@ pub(super) fn verify_canary_history(
         // same admitted request. Recomputing this canary event's payload
         // must see the history exactly as it stood when the request was
         // first admitted, so that companion event (and anything after it,
-        // which cannot legitimately exist yet) is excluded here.
+        // which cannot legitimately exist yet) is excluded here. Only the
+        // companion matching *this* transition's own kind is relevant: a
+        // live regression check's companion is its rollback, never an
+        // earlier completion's promotion (both share one `canary_id`, so
+        // checking both indiscriminately would find the promotion — which
+        // always precedes any later live-check — and wrongly truncate the
+        // history all the way back to before completion).
         let mut derivation_bound = index;
-        for companion_transition_id in [
-            canary_id_promotion_transition_id(&payload.canary_id),
-            canary_id_rollback_transition_id(&payload.canary_id),
-        ] {
+        let companion_transition_id = match payload.kind {
+            CanaryTransitionKind::Advanced if payload.stage == CanaryStage::Completed => {
+                Some(canary_id_promotion_transition_id(&payload.canary_id))
+            }
+            CanaryTransitionKind::LiveRegressionDetected => {
+                Some(canary_id_rollback_transition_id(&payload.canary_id))
+            }
+            _ => None,
+        };
+        if let Some(companion_transition_id) = companion_transition_id {
             let companion_event_id = champion_event_id(&companion_transition_id);
             if let Some(position) = history[..index]
                 .iter()

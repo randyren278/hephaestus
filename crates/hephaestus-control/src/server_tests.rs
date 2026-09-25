@@ -11452,6 +11452,177 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     );
 }
 
+/// Completes a canary to 100% (the real Champion path promotes it), then
+/// genuinely slows the now-live Champion's reference worker via the
+/// test-only `HEPHAESTUS_TEST_REFERENCE_DELAY_MS` injection (see
+/// `hephaestus_runtime::supervisor::test_reference_delay_millis_for_genome`
+/// and `ReferenceInstruction::frame_with_test_delay`), runs a fresh paired
+/// evaluation of the previous Champion against the now-slow live Champion
+/// through the real worker binary, and confirms `canary live-check` reads
+/// that real latency regression and automatically rolls the Champion back:
+/// the previous Champion is restored, the regressed one is quarantined, one
+/// `LiveRegressionDetected` transition is recorded, and replay verifies.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion() {
+    let directory = tempdir().expect("canary live-check fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "livecheck-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = assessed.world.clone();
+    plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("record child invariant evidence");
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: initial_candidate.genome_id.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    canary_transition(
+        &mut plane,
+        &token,
+        "start",
+        Command::CanaryStart {
+            canary_id: "canary".to_owned(),
+            world_id: world_id.clone(),
+            candidate_genome_id: assessed.child.clone(),
+            assessment_id: "livecheck-improve-assessment".to_owned(),
+        },
+    )
+    .expect("start canary");
+
+    for (index, stage_label) in ["5", "25", "50", "100"].into_iter().enumerate() {
+        let evidence = canary_healthy_evidence_evaluation(
+            &mut plane,
+            &format!("canary-evidence-{index}"),
+            &initial_candidate.genome_id,
+            &assessed.child,
+        );
+        canary_transition(
+            &mut plane,
+            &token,
+            &format!("advance-{stage_label}"),
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: evidence,
+            },
+        )
+        .unwrap_or_else(|error| panic!("advance to {stage_label}%: {error:?}"));
+    }
+
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(assessed.child.as_str()),
+        "the canary should have promoted its candidate to Champion"
+    );
+
+    // Genuinely slow the now-live Champion's reference worker so a fresh
+    // paired evaluation measures a real latency regression rather than
+    // fabricating one. This targets a content-addressed Genome id that
+    // cannot collide with any other test's Genome, so it is harmless even
+    // if another test happens to run concurrently in this process.
+    hephaestus_runtime::set_test_reference_delay(assessed.child.clone(), 750);
+    let live_evidence = "canary-live-regression-eval";
+    complete_arena_test_job(
+        &mut plane,
+        live_evidence,
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    hephaestus_runtime::clear_test_reference_delay();
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(live_evidence)
+        .expect("select live regression evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    assert!(
+        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
+        "the injected delay should make the live Champion measurably slower: parent={} candidate={}",
+        selection.receipt.parent_latency_millis(),
+        selection.receipt.candidate_latency_millis(),
+    );
+    let deltas = super::canary::regression_deltas(&selection.receipt);
+    assert!(
+        super::canary::is_regression(&deltas),
+        "the injected delay should read as a genuine regression: {deltas:?}"
+    );
+
+    let rollback = canary_transition(
+        &mut plane,
+        &token,
+        "live-check",
+        Command::CanaryLiveCheck {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: live_evidence.to_owned(),
+        },
+    )
+    .expect("live-check should detect the regression and roll back");
+    assert_eq!(
+        rollback.payload.kind,
+        CanaryTransitionKind::LiveRegressionDetected
+    );
+    assert!(
+        rollback
+            .payload
+            .evidence
+            .as_ref()
+            .expect("rollback evidence")
+            .regressed
+    );
+    assert!(rollback.payload.champion_rollback_event_id.is_some());
+
+    let champion_after = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion_after.champion_genome_id.as_deref(),
+        Some(initial_candidate.genome_id.as_str()),
+        "rollback should restore the previous Champion"
+    );
+    assert_eq!(
+        champion_after.quarantined_genome_ids,
+        vec![assessed.child.clone()],
+        "the regressed live Champion should be quarantined"
+    );
+
+    let canary = canary_show(&mut plane, &token, "canary");
+    assert_eq!(
+        canary
+            .transitions
+            .iter()
+            .filter(|transition| transition.payload.kind
+                == CanaryTransitionKind::LiveRegressionDetected)
+            .count(),
+        1,
+        "exactly one live regression transition should be recorded"
+    );
+
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+    let history = canary_history(&plane);
+    verify_canary_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("canonical canary history including the live rollback verifies");
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_injected_regression_during_staged_advance_automatically_aborts_and_replays() {
