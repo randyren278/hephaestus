@@ -279,41 +279,6 @@ struct AsyncReferenceLaunch {
     cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
-struct AsyncProviderLaunch {
-    data_dir: PathBuf,
-    guardian: PathBuf,
-    protected_paths: Vec<PathBuf>,
-    provider: Provider,
-    executable: PathBuf,
-    extra_env: Vec<(String, String)>,
-    cancel: Arc<std::sync::atomic::AtomicBool>,
-    redaction: RedactionPolicy,
-}
-
-/// One `submit`-admitted job's execution plan, resolved once at admission
-/// time from the Genome's `model.provider` so the background thread never
-/// has to re-derive it.
-enum JobLaunch {
-    Reference {
-        spec: RunSpec,
-        worker: Arc<PinnedReferenceWorker>,
-    },
-    Provider {
-        spec: RunSpec,
-        provider: Provider,
-        executable: PathBuf,
-        extra_env: Vec<(String, String)>,
-    },
-}
-
-impl JobLaunch {
-    const fn spec(&self) -> &RunSpec {
-        match self {
-            Self::Reference { spec, .. } | Self::Provider { spec, .. } => spec,
-        }
-    }
-}
-
 struct PinnedReferenceWorker {
     directory: TempDir,
     executable: PathBuf,
@@ -663,6 +628,23 @@ impl ControlPlane {
             arena_message_receiver: None,
             arena_message_sender: None,
         })
+    }
+
+    /// Test-only override of the provider adapter binaries and environment
+    /// allowlist. Bypasses process environment variables entirely, so
+    /// parallel tests never race on shared global state.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn with_provider_executables_for_testing(
+        mut self,
+        codex_executable: impl Into<PathBuf>,
+        claude_executable: impl Into<PathBuf>,
+        provider_env_allowlist: Vec<String>,
+    ) -> Self {
+        self.codex_executable = codex_executable.into();
+        self.claude_executable = claude_executable.into();
+        self.provider_env_allowlist = provider_env_allowlist;
+        self
     }
 
     /// Serves authenticated one-request connections until the process is stopped.
@@ -1826,30 +1808,23 @@ impl ControlPlane {
             return Err(ExecuteError::Busy);
         }
         let genome = self.runnable_genome(genome_id)?;
+        // `submit`'s canonical job-record projection (`validate_job_record`)
+        // hard-codes the reference-worker contract: a digest-pinned
+        // `environment_id`, the fixed inventory `task_id`, and a zero-cost
+        // budget. A Codex/Claude adapter fits none of those, and writing a
+        // job event the projection cannot validate would corrupt canonical
+        // history (`ControlPlane::open` replays and validates all of it), so
+        // this fails closed before any event is appended. `run` already
+        // supports provider Genomes end to end; see docs/RUNTIMES.md for
+        // what a `submit` extension needs.
+        if self.selected_run_provider(genome_id)?.is_some() {
+            return Err(ExecuteError::Rejected(
+                "async submit does not yet support provider Genomes; use run instead".to_owned(),
+            ));
+        }
         let run_id = job_run_id(job_id);
-        let selected_provider = self.selected_run_provider(genome_id)?;
-        let launch = match selected_provider {
-            Some(provider) => {
-                let spec = self.async_provider_spec(&run_id, &genome, provider)?;
-                let executable = match provider {
-                    Provider::Codex => self.codex_executable.clone(),
-                    Provider::Claude => self.claude_executable.clone(),
-                    Provider::Deterministic => return Err(ExecuteError::Internal),
-                };
-                JobLaunch::Provider {
-                    spec,
-                    provider,
-                    executable,
-                    extra_env: resolve_provider_extra_env(&self.provider_env_allowlist),
-                }
-            }
-            None => {
-                let worker = Arc::new(self.pin_reference_worker()?);
-                let spec = self.async_reference_spec(&run_id, &genome, &worker)?;
-                JobLaunch::Reference { spec, worker }
-            }
-        };
-        let spec = launch.spec().clone();
+        let worker = Arc::new(self.pin_reference_worker()?);
+        let spec = self.async_reference_spec(&run_id, &genome, &worker)?;
         let budget = spec.budget();
         let admitted = JobRecord {
             job_id: job_id.to_owned(),
@@ -1881,12 +1856,12 @@ impl ControlPlane {
         let (evidence_sink, evidence_receiver) = hephaestus_experience::bounded_evidence_channel(1);
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_copy = Arc::clone(&worker);
         let spec_copy = spec.clone();
         let genome_copy = genome.clone();
         let data_dir = self.data_dir.clone();
         let guardian = self.guardian_executable.clone();
         let protected = self.protected_runtime_paths();
-        let redaction = RedactionPolicy::new([self.token_hex.clone()]);
         let initial_sequence = self.state.event_count;
         let thread_cancel = Arc::clone(&cancel);
         let thread_job_id = job_id.to_owned();
@@ -1898,40 +1873,18 @@ impl ControlPlane {
             &blake3::hash(job_id.as_bytes()).to_hex()[..8]
         );
         let task = move || {
-            let output = match launch {
-                JobLaunch::Reference { worker, .. } => execute_async_reference(
-                    AsyncReferenceLaunch {
-                        data_dir,
-                        guardian,
-                        protected_paths: protected,
-                        worker,
-                        cancel: thread_cancel,
-                    },
-                    &spec_copy,
-                    evidence_sink,
-                    initial_sequence,
-                ),
-                JobLaunch::Provider {
-                    provider,
-                    executable,
-                    extra_env,
-                    ..
-                } => execute_async_provider(
-                    AsyncProviderLaunch {
-                        data_dir,
-                        guardian,
-                        protected_paths: protected,
-                        provider,
-                        executable,
-                        extra_env,
-                        cancel: thread_cancel,
-                        redaction,
-                    },
-                    &spec_copy,
-                    evidence_sink,
-                    initial_sequence,
-                ),
-            };
+            let output = execute_async_reference(
+                AsyncReferenceLaunch {
+                    data_dir,
+                    guardian,
+                    protected_paths: protected,
+                    worker: worker_copy,
+                    cancel: thread_cancel,
+                },
+                &spec_copy,
+                evidence_sink,
+                initial_sequence,
+            );
             #[cfg(test)]
             if drop_result_after_execution {
                 return;
@@ -2005,40 +1958,6 @@ impl ControlPlane {
         .map_err(|_| ExecuteError::Invalid("run specification is invalid"))?;
         spec.with_reference_instruction(instruction)
             .map_err(|_| ExecuteError::Invalid("reference task input is oversized"))
-    }
-
-    /// Builds the fixed async smoke-test task for a Codex or Claude adapter.
-    /// It is the same task text `async_reference_spec` uses, run with the
-    /// Genome's own compiled authority rather than the reference protocol's
-    /// fixed, minimal capability set.
-    fn async_provider_spec(
-        &self,
-        run_id: &str,
-        genome: &GenomeRecord,
-        provider: Provider,
-    ) -> Result<RunSpec, ExecuteError> {
-        let task_id = "repository-inventory-v1";
-        let prompt = "Inventory the isolated repository without modifying it or using the network.";
-        let budget = validated_evaluation_budget(10_000, 1_048_576, 0)?;
-        let capabilities = self.compiled_genome(&genome.genome_id)?.authority();
-        let experiment = ExperimentContext::new(
-            task_id,
-            prompt.as_bytes(),
-            0,
-            provider_execution_environment(provider),
-        )
-        .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
-        RunSpec::new_for_experiment(
-            run_id,
-            &genome.genome_id,
-            &genome.world_id,
-            &self.source_repository,
-            prompt,
-            capabilities,
-            budget,
-            experiment,
-        )
-        .map_err(|_| ExecuteError::Invalid("run specification is invalid"))
     }
 
     fn job_status(&self, job_id: &str) -> Result<ResponseData, ExecuteError> {
@@ -2862,6 +2781,13 @@ impl ControlPlane {
         genome: &GenomeRecord,
     ) -> Result<ResponseData, ExecuteError> {
         let prompt = "Inventory the isolated repository without modifying it or using the network.";
+        // Deterministic runs never report cost, so a zero ceiling is exact for
+        // them; a provider genome is bounded by its own World's approved Law
+        // instead of an arbitrary fixed figure.
+        let maximum_cost_microusd = match self.selected_run_provider(&genome.genome_id)? {
+            Some(_) => self.registered_world_cost_ceiling(&genome.world_id)?,
+            None => 0,
+        };
         self.run_with_context(
             run_id,
             genome,
@@ -2870,7 +2796,7 @@ impl ControlPlane {
             0,
             10_000,
             1_048_576,
-            0,
+            maximum_cost_microusd,
         )
     }
 
@@ -5751,91 +5677,6 @@ fn execute_async_reference(
     result
 }
 
-/// Background-thread counterpart of [`execute_provider_runtime`] for `submit`
-/// jobs: same NDJSON-to-run-result mapping and redaction, driven from a
-/// cancellable polling loop instead of a synchronous one.
-fn execute_async_provider(
-    launch: AsyncProviderLaunch,
-    spec: &RunSpec,
-    evidence: hephaestus_experience::ChannelEvidenceSink,
-    initial_sequence: u64,
-) -> Result<ReferenceExecution, String> {
-    let AsyncProviderLaunch {
-        data_dir,
-        guardian,
-        protected_paths,
-        provider,
-        executable,
-        extra_env,
-        cancel,
-        redaction,
-    } = launch;
-    let manager = SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30))
-        .map_err(|_| "sandbox could not be opened".to_owned())?;
-    let (sandbox, token) = manager
-        .create(spec)
-        .map_err(|_| "sandbox could not be created".to_owned())?;
-    let sandbox = SandboxCleanupGuard::new(sandbox);
-    let runtime = SupervisedRuntime::provider_guarded(
-        candidate_isolation(protected_paths),
-        provider,
-        executable,
-        &guardian,
-        extra_env,
-    )
-    .map_err(|_| "guarded provider could not be configured".to_owned())?;
-    let mut runtime = RecordedRuntime::with_sink(runtime, evidence, initial_sequence);
-    let result = (|| {
-        runtime
-            .start(
-                spec,
-                sandbox.sandbox().map_err(|_| "sandbox unavailable")?,
-                &token,
-            )
-            .map_err(|_| "guarded provider did not start".to_owned())?;
-        loop {
-            if cancel.load(Ordering::Acquire) {
-                runtime
-                    .interrupt(spec.run_id())
-                    .map_err(|_| "guarded provider did not confirm cancellation".to_owned())?;
-            }
-            let snapshot = runtime
-                .snapshot(spec.run_id())
-                .map_err(|_| "guarded provider status failed".to_owned())?;
-            if snapshot.status != RunStatus::Running {
-                let completion_reason = snapshot
-                    .completion_reason
-                    .ok_or_else(|| "terminal provider omitted completion reason".to_owned())?;
-                let raw_stdout = fs::read(&snapshot.stdout_path)
-                    .map_err(|_| "provider output could not be read".to_owned())?;
-                let raw_stderr = fs::read(&snapshot.stderr_path)
-                    .map_err(|_| "provider diagnostics could not be read".to_owned())?;
-                let latency_millis = u64::try_from(snapshot.elapsed.as_millis())
-                    .map_err(|_| "provider latency is invalid".to_owned())?;
-                let final_answer = extract_final_answer(provider, &raw_stdout);
-                let actual_cost_microusd = extract_actual_cost_microusd(provider, &raw_stdout);
-                return Ok(ReferenceExecution {
-                    completion_reason: map_run_completion_reason(completion_reason),
-                    latency_millis,
-                    stdout: redact_bytes(&redaction, &final_answer),
-                    stderr: redact_bytes(&redaction, &raw_stderr),
-                    trace_artifact_ids: runtime.trace_artifact_ids().to_vec(),
-                    actual_cost_microusd,
-                });
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
-    })();
-    if result.is_err() {
-        let _ignored = runtime.interrupt(spec.run_id());
-    }
-    drop(runtime);
-    sandbox
-        .cleanup()
-        .map_err(|_| "sandbox cleanup failed".to_owned())?;
-    result
-}
-
 fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
     let AsyncArenaTrialLaunch {
         data_dir,
@@ -6058,12 +5899,13 @@ fn execute_provider_runtime(
             .evidence()
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
+        let trace_ids = trace_artifacts_for_run(&history, run_id)?;
         Ok(ReferenceExecution {
             completion_reason,
             latency_millis,
             stdout,
             stderr,
-            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,
+            trace_artifact_ids: trace_ids,
             actual_cost_microusd,
         })
     })();
