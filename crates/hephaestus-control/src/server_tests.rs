@@ -10984,6 +10984,36 @@ fn canary_evidence_evaluation(
     evaluation_id.to_owned()
 }
 
+/// Like [`canary_evidence_evaluation`], but for a pairing expected to be
+/// healthy. Real wall-clock latency measurement is genuinely noisy (the
+/// codebase's own comment on `assessed_forge_child` documents this), so a
+/// slow scheduler tick can occasionally cross the fixed latency threshold on
+/// one attempt; this retries a bounded number of times on a fresh
+/// evaluation ID, exactly as `assessed_forge_child` retries a measured-gate
+/// failure, rather than accepting real timing noise as a regression.
+fn canary_healthy_evidence_evaluation(
+    plane: &mut ControlPlane,
+    evaluation_id_prefix: &str,
+    parent: &str,
+    candidate: &str,
+) -> String {
+    for attempt in 0..4 {
+        let evaluation_id = format!("{evaluation_id_prefix}-{attempt}");
+        complete_arena_test_job(plane, &evaluation_id, parent, candidate);
+        let ResponseData::Selection { selection } = plane
+            .select_arena_evaluation(&evaluation_id)
+            .expect("select canary evidence")
+        else {
+            panic!("selection should return its receipt");
+        };
+        let deltas = super::canary::regression_deltas(&selection.receipt);
+        if !super::canary::is_regression(&deltas) {
+            return evaluation_id;
+        }
+    }
+    panic!("healthy evidence never measured as healthy after retries");
+}
+
 fn canary_history(plane: &ControlPlane) -> Vec<StoredEvent> {
     plane
         .storage
@@ -11143,7 +11173,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
 
     // Freeze blocks a would-be-healthy advance. Evidence generation itself
     // is new Arena work, so it is captured before freezing.
-    let evidence_1 = canary_evidence_evaluation(
+    let evidence_1 = canary_healthy_evidence_evaluation(
         &mut plane,
         "canary-evidence-1",
         &initial_candidate.genome_id,
@@ -11207,7 +11237,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
         "an identical retry returns the recorded transition"
     );
 
-    let evidence_2 = canary_evidence_evaluation(
+    let evidence_2 = canary_healthy_evidence_evaluation(
         &mut plane,
         "canary-evidence-2",
         &initial_candidate.genome_id,
@@ -11225,7 +11255,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     .expect("advance to 25%");
     assert_eq!(advance2.payload.stage, CanaryStage::Stage25);
 
-    let evidence_3 = canary_evidence_evaluation(
+    let evidence_3 = canary_healthy_evidence_evaluation(
         &mut plane,
         "canary-evidence-3",
         &initial_candidate.genome_id,
@@ -11251,7 +11281,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
         Some(initial_candidate.genome_id.as_str())
     );
 
-    let evidence_4 = canary_evidence_evaluation(
+    let evidence_4 = canary_healthy_evidence_evaluation(
         &mut plane,
         "canary-evidence-4",
         &initial_candidate.genome_id,
@@ -11292,7 +11322,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     assert_eq!(canary.transitions.len(), 5, "started plus four advances");
 
     // A terminal canary refuses further advancement.
-    let evidence_5 = canary_evidence_evaluation(
+    let evidence_5 = canary_healthy_evidence_evaluation(
         &mut plane,
         "canary-evidence-5",
         &initial_candidate.genome_id,

@@ -11,6 +11,12 @@ export type Command =
 	| {command: 'genome_prompt'; genome_id: string}
 	| {command: 'champion_show'; world_id: string}
 	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string}
+	| {command: 'drift_record'; drift_id: string; world_id: string; kind: DriftKind; evidence_evaluation_id: string}
+	| {command: 'drift_show'; drift_id: string}
+	| {command: 'canary_start'; canary_id: string; world_id: string; candidate_genome_id: string; assessment_id: string}
+	| {command: 'canary_advance'; canary_id: string; evidence_evaluation_id: string}
+	| {command: 'canary_live_check'; canary_id: string; evidence_evaluation_id: string}
+	| {command: 'canary_show'; canary_id: string}
 	| {command: 'evolve_start'; run_id: string; world_id: string; from_genome_id: string; generations: number; budget: number}
 	| {command: 'evolve_status'; run_id: string}
 	| {command: 'evolve_cancel'; run_id: string};
@@ -39,6 +45,28 @@ export type ChampionTransition = {
 export type Champion = {
 	world_id: string; champion_genome_id: string | null; standby_genome_ids: string[];
 	quarantined_genome_ids: string[]; transitions: ChampionTransition[];
+};
+export type DriftKind = 'latency' | 'cost' | 'correctness' | 'workload';
+export type Drift = {
+	drift_id: string; world_id: string; kind: DriftKind; evidence_evaluation_id: string;
+	selection_event_id: string; baseline_genome_id: string; shifted_genome_id: string;
+	threshold_bps: number; observed_delta_bps: number; event_id: string; sequence: number;
+};
+export type CanaryStage = 'pending' | 'stage5' | 'stage25' | 'stage50' | 'completed' | 'aborted';
+export type CanaryTransitionKind = 'started' | 'advanced' | 'aborted' | 'live_regression_detected';
+export type CanaryEvidence = {
+	evidence_evaluation_id: string; selection_event_id: string;
+	latency_delta_bps: number; cost_delta_bps: number; correctness_delta_bps: number; reliability_delta_bps: number;
+	regressed: boolean;
+};
+export type CanaryTransition = {
+	canary_id: string; world_id: string; kind: CanaryTransitionKind; stage: CanaryStage;
+	candidate_genome_id: string; previous_champion_genome_id: string; assessment_id: string;
+	evidence: CanaryEvidence | null; reason: string | null; event_id: string; sequence: number;
+};
+export type Canary = {
+	canary_id: string; world_id: string; candidate_genome_id: string; previous_champion_genome_id: string;
+	stage: CanaryStage; transitions: CanaryTransition[];
 };
 export const MAX_LIST_ITEMS = 10_000;
 export type RunListEntry = {
@@ -95,6 +123,9 @@ export type ResponseData =
 	| {type: 'genome_prompt'; genome_id: string; prompt: string}
 	| {type: 'champion'; champion: Champion}
 	| {type: 'champion_transition'; transition: ChampionTransition}
+	| {type: 'drift'; drift: Drift}
+	| {type: 'canary_transition'; transition: CanaryTransition}
+	| {type: 'canary'; canary: Canary}
 	| {type: 'evolution'; run: EvolutionRun}
 	| {type: 'run_list'; runs: RunListEntry[]}
 	| {type: 'evaluation_list'; evaluations: EvaluationListEntry[]}
@@ -192,6 +223,83 @@ function parseChampion(value: unknown): Champion | undefined {
 		world_id: value['world_id'], champion_genome_id: value['champion_genome_id'],
 		standby_genome_ids: [...value['standby_genome_ids']], quarantined_genome_ids: [...value['quarantined_genome_ids']],
 		transitions: transitions as ChampionTransition[],
+	};
+}
+
+const DRIFT_KINDS: DriftKind[] = ['latency', 'cost', 'correctness', 'workload'];
+const CANARY_STAGES: CanaryStage[] = ['pending', 'stage5', 'stage25', 'stage50', 'completed', 'aborted'];
+const CANARY_TRANSITION_KINDS: CanaryTransitionKind[] = ['started', 'advanced', 'aborted', 'live_regression_detected'];
+
+function safeSignedInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function parseDrift(value: unknown): Drift | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const payload = value['payload'];
+	const event = value['event'];
+	if (!identifier(payload['drift_id']) || !identifier(payload['world_id'])
+		|| typeof payload['kind'] !== 'string' || !DRIFT_KINDS.includes(payload['kind'] as DriftKind)
+		|| !identifier(payload['evidence_evaluation_id']) || !identifier(payload['selection_event_id'])
+		|| !identifier(payload['baseline_genome_id']) || !identifier(payload['shifted_genome_id'])
+		|| !boundedCount(payload['threshold_bps']) || !safeSignedInteger(payload['observed_delta_bps'])
+		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		drift_id: payload['drift_id'], world_id: payload['world_id'], kind: payload['kind'] as DriftKind,
+		evidence_evaluation_id: payload['evidence_evaluation_id'], selection_event_id: payload['selection_event_id'],
+		baseline_genome_id: payload['baseline_genome_id'], shifted_genome_id: payload['shifted_genome_id'],
+		threshold_bps: payload['threshold_bps'], observed_delta_bps: payload['observed_delta_bps'],
+		event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
+function parseCanaryEvidence(value: unknown): CanaryEvidence | null | undefined {
+	if (value === null) return null;
+	if (!record(value)) return undefined;
+	if (!identifier(value['evidence_evaluation_id']) || !identifier(value['selection_event_id'])
+		|| !safeSignedInteger(value['latency_delta_bps']) || !safeSignedInteger(value['cost_delta_bps'])
+		|| !safeSignedInteger(value['correctness_delta_bps']) || !safeSignedInteger(value['reliability_delta_bps'])
+		|| typeof value['regressed'] !== 'boolean') return undefined;
+	return {
+		evidence_evaluation_id: value['evidence_evaluation_id'], selection_event_id: value['selection_event_id'],
+		latency_delta_bps: value['latency_delta_bps'], cost_delta_bps: value['cost_delta_bps'],
+		correctness_delta_bps: value['correctness_delta_bps'], reliability_delta_bps: value['reliability_delta_bps'],
+		regressed: value['regressed'],
+	};
+}
+
+function parseCanaryTransition(value: unknown): CanaryTransition | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const payload = value['payload'];
+	const event = value['event'];
+	const reason = payload['reason'];
+	const evidence = parseCanaryEvidence(payload['evidence']);
+	if (!identifier(payload['canary_id']) || !identifier(payload['world_id'])
+		|| typeof payload['kind'] !== 'string' || !CANARY_TRANSITION_KINDS.includes(payload['kind'] as CanaryTransitionKind)
+		|| typeof payload['stage'] !== 'string' || !CANARY_STAGES.includes(payload['stage'] as CanaryStage)
+		|| !identifier(payload['candidate_genome_id']) || !identifier(payload['previous_champion_genome_id'])
+		|| !identifier(payload['assessment_id']) || evidence === undefined
+		|| !(reason === null || boundedString(reason, 512))
+		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		canary_id: payload['canary_id'], world_id: payload['world_id'], kind: payload['kind'] as CanaryTransitionKind,
+		stage: payload['stage'] as CanaryStage, candidate_genome_id: payload['candidate_genome_id'],
+		previous_champion_genome_id: payload['previous_champion_genome_id'], assessment_id: payload['assessment_id'],
+		evidence, reason: reason as string | null, event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
+function parseCanary(value: unknown): Canary | undefined {
+	if (!record(value) || !identifier(value['canary_id']) || !identifier(value['world_id'])
+		|| !identifier(value['candidate_genome_id']) || !identifier(value['previous_champion_genome_id'])
+		|| typeof value['stage'] !== 'string' || !CANARY_STAGES.includes(value['stage'] as CanaryStage)
+		|| !Array.isArray(value['transitions']) || value['transitions'].length > MAX_LIST_ITEMS) return undefined;
+	const transitions = value['transitions'].map(parseCanaryTransition);
+	if (transitions.some(transition => transition === undefined)) return undefined;
+	return {
+		canary_id: value['canary_id'], world_id: value['world_id'], candidate_genome_id: value['candidate_genome_id'],
+		previous_champion_genome_id: value['previous_champion_genome_id'], stage: value['stage'] as CanaryStage,
+		transitions: transitions as CanaryTransition[],
 	};
 }
 
@@ -435,6 +543,21 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			const transition = parseTransition(data['transition']);
 			if (!transition) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'champion_transition', transition}};
+		}
+		case 'drift': {
+			const drift = parseDrift(data['drift']);
+			if (!drift) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'drift', drift}};
+		}
+		case 'canary_transition': {
+			const transition = parseCanaryTransition(data['transition']);
+			if (!transition) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'canary_transition', transition}};
+		}
+		case 'canary': {
+			const canary = parseCanary(data['canary']);
+			if (!canary) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'canary', canary}};
 		}
 		case 'evolution': {
 			const run = parseEvolutionRun(data['run']);

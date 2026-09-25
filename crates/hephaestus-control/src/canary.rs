@@ -781,3 +781,20 @@ pub(super) fn canary_event_input(
         payload_bytes,
     ))
 }
+
+#[cfg(test)]
+mod unit_tests {
+    use crate::protocol::CanaryStage;
+
+    #[test]
+    fn stage_json_tags_are_lowercase_with_no_digit_separator() {
+        assert_eq!(
+            serde_json::to_string(&CanaryStage::Stage5).unwrap(),
+            "\"stage5\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CanaryStage::Stage25).unwrap(),
+            "\"stage25\""
+        );
+    }
+}
