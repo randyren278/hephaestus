@@ -93,3 +93,18 @@ fn redact_prefixed_tokens(value: &str) -> String {
     }
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_text_matches_known_secrets_and_prefixed_tokens() {
+        let policy = RedactionPolicy::new(["operator-secret".to_owned()]);
+        let redacted = policy.redact_text("token=sk-verysecrettoken1234 and operator-secret");
+        assert!(!redacted.contains("sk-verysecrettoken1234"));
+        assert!(!redacted.contains("operator-secret"));
+        assert!(redacted.contains("[REDACTED]"));
+        assert_eq!(policy.redact_text("nothing sensitive here"), "nothing sensitive here");
+    }
+}
