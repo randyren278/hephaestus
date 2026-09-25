@@ -358,12 +358,14 @@ impl RegisteredObjects {
         self.register_genome_record(event, record, artifacts)
     }
 
-    fn register_forge_child(
-        &mut self,
+    /// Decodes a canonical child-registering envelope (`forge.proposed` or
+    /// `gene.transfer_applied`) and returns its parsed JSON body and decoded
+    /// child `GenomeRecord`. Both callers additionally verify their own
+    /// distinct aggregate identity from the returned body.
+    fn decode_canonical_child_envelope(
         event: &StoredEvent,
-        artifacts: &ArtifactStore,
-    ) -> Result<(), RegistrationError> {
-        let kind = RegistrationKind::Genome;
+        kind: RegistrationKind,
+    ) -> Result<(serde_json::Value, GenomeRecord), RegistrationError> {
         let payload =
             serde_json::from_slice::<serde_json::Value>(&event.payload).map_err(|_| {
                 RegistrationError::InvalidPayload {
@@ -396,6 +398,16 @@ impl RegisteredObjects {
                 kind,
             }
         })?;
+        Ok((payload, record))
+    }
+
+    fn register_forge_child(
+        &mut self,
+        event: &StoredEvent,
+        artifacts: &ArtifactStore,
+    ) -> Result<(), RegistrationError> {
+        let kind = RegistrationKind::Genome;
+        let (payload, record) = Self::decode_canonical_child_envelope(event, kind)?;
         let proposal_id = payload
             .get("proposal_id")
             .and_then(serde_json::Value::as_str)
@@ -421,38 +433,7 @@ impl RegisteredObjects {
         artifacts: &ArtifactStore,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::Genome;
-        let payload =
-            serde_json::from_slice::<serde_json::Value>(&event.payload).map_err(|_| {
-                RegistrationError::InvalidPayload {
-                    event_id: event.event_id.clone(),
-                    kind,
-                }
-            })?;
-        let canonical =
-            serde_json::to_vec(&payload).map_err(|_| RegistrationError::InvalidPayload {
-                event_id: event.event_id.clone(),
-                kind,
-            })?;
-        if canonical != event.payload {
-            return Err(RegistrationError::NonCanonicalPayload {
-                event_id: event.event_id.clone(),
-                kind,
-            });
-        }
-        let child =
-            payload
-                .get("child")
-                .cloned()
-                .ok_or_else(|| RegistrationError::InvalidPayload {
-                    event_id: event.event_id.clone(),
-                    kind,
-                })?;
-        let record = serde_json::from_value::<GenomeRecord>(child).map_err(|_| {
-            RegistrationError::InvalidPayload {
-                event_id: event.event_id.clone(),
-                kind,
-            }
-        })?;
+        let (payload, record) = Self::decode_canonical_child_envelope(event, kind)?;
         let trial_id = payload
             .get("trial_id")
             .and_then(serde_json::Value::as_str)
