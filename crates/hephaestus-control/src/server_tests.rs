@@ -11340,7 +11340,11 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
         Some(ResponseData::CanaryList { canaries }) => canaries,
         other => panic!("unexpected canary list response: {other:?}"),
     };
-    assert_eq!(listed, vec![canary.clone()], "the one canary is listed newest first");
+    assert_eq!(
+        listed,
+        vec![canary.clone()],
+        "the one canary is listed newest first"
+    );
 
     // A terminal canary refuses further advancement.
     let evidence_5 = canary_healthy_evidence_evaluation(
@@ -11953,7 +11957,11 @@ fn drift_record_derives_from_verified_evidence_and_replays() {
         Some(ResponseData::DriftList { drifts }) => drifts,
         other => panic!("unexpected drift list response: {other:?}"),
     };
-    assert_eq!(listed, vec![recorded.clone()], "the one recorded drift is listed newest first");
+    assert_eq!(
+        listed,
+        vec![recorded.clone()],
+        "the one recorded drift is listed newest first"
+    );
     let Some(capped) = dispatch_call(
         &mut plane,
         &token,

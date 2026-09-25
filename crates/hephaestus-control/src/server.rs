@@ -1335,8 +1335,7 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        let drifts =
-            drift::drift_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
+        let drifts = drift::drift_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
         Ok(ResponseData::DriftList { drifts })
     }
 
@@ -1516,8 +1515,7 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        let canaries =
-            canary::canary_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
+        let canaries = canary::canary_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
         Ok(ResponseData::CanaryList { canaries })
     }
 
