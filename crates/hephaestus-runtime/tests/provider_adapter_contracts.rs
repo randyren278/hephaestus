@@ -331,7 +331,10 @@ fn wait_for_terminal(
     runtime: &mut SupervisedRuntime,
     run_id: &str,
 ) -> hephaestus_runtime::RunSnapshot {
-    for _ in 0..400 {
+    // Generous deadline: the fake provider finishes quickly, but a loaded
+    // machine can delay process scheduling well past two seconds.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while std::time::Instant::now() < deadline {
         let snapshot = runtime.snapshot(run_id).expect("snapshot run");
         if snapshot.status != RunStatus::Running {
             return snapshot;
