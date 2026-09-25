@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-sealed-holdout-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "sealed-lowercase-input",
+      "input": "incident retrospective pending",
+      "expected_output": "INCIDENT RETROSPECTIVE PENDING"
+    },
+    {
+      "task_id": "sealed-already-formatted",
+      "input": "Release Candidate 4",
+      "expected_output": "Release Candidate 4"
+    }
+  ]
+}
