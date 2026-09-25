@@ -137,3 +137,64 @@ test('parseResponse rejects a canary projection with a tampered transition list'
 	const text = canaryResponseText({}, {transitions: [{payload: {}, event: {}}]});
 	assert.throws(() => parseResponse(text, 'request'), /daemon response variant is invalid/);
 });
+
+test('drift_list and canary_list commands carry the exact fields the daemon requires', () => {
+	const driftList: Command = {command: 'drift_list', limit: 50};
+	const canaryList: Command = {command: 'canary_list', limit: 50};
+	assert.deepEqual(JSON.parse(JSON.stringify(driftList)), {command: 'drift_list', limit: 50});
+	assert.deepEqual(JSON.parse(JSON.stringify(canaryList)), {command: 'canary_list', limit: 50});
+});
+
+function driftRecord(): unknown {
+	const payload = {
+		schema_version: 1, drift_id: 'drift-1', world_id: 'world-1', kind: 'correctness',
+		evidence_evaluation_id: 'evaluation-1', selection_event_id: 'arena:selection:evaluation-1:selected',
+		selection_event_hash: 'a'.repeat(64), baseline_genome_id: 'champion-genome', shifted_genome_id: 'candidate-genome',
+		threshold_bps: 500, observed_delta_bps: -10000,
+	};
+	const event = {sequence: 4, event_id: 'drift:drift-1:recorded', aggregate_id: 'drift:world-1', event_hash: 'b'.repeat(64)};
+	return {payload, event};
+}
+
+function canaryRecord(): unknown {
+	const transitionPayload = {
+		schema_version: 1, canary_id: 'canary-1', world_id: 'world-1', kind: 'started', stage: 'pending',
+		candidate_genome_id: 'candidate-genome', previous_champion_genome_id: 'champion-genome',
+		assessment_id: 'assessment-1', evidence: null, champion_promotion: null,
+		champion_rollback_event_id: null, champion_rollback_event_hash: null, reason: null,
+	};
+	const transitionEvent = {sequence: 3, event_id: 'canary:canary-1:started', aggregate_id: 'canary:canary-1', event_hash: 'e'.repeat(64)};
+	return {
+		canary_id: 'canary-1', world_id: 'world-1', candidate_genome_id: 'candidate-genome',
+		previous_champion_genome_id: 'champion-genome', stage: 'pending',
+		transitions: [{payload: transitionPayload, event: transitionEvent}],
+	};
+}
+
+test('parseResponse accepts a bounded, newest-first drift list', () => {
+	const text = `{"version":1,"request_id":"request","data":{"type":"drift_list","drifts":[${JSON.stringify(driftRecord())}]}}`;
+	const response = parseResponse(text, 'request');
+	assert.equal(response.data?.type, 'drift_list');
+	if (response.data?.type !== 'drift_list') return;
+	assert.equal(response.data.drifts.length, 1);
+	assert.equal(response.data.drifts[0]?.drift_id, 'drift-1');
+});
+
+test('parseResponse rejects a drift list containing an invalid entry', () => {
+	const text = '{"version":1,"request_id":"request","data":{"type":"drift_list","drifts":[{}]}}';
+	assert.throws(() => parseResponse(text, 'request'), /daemon response variant is invalid/);
+});
+
+test('parseResponse accepts a bounded, newest-first canary list', () => {
+	const text = `{"version":1,"request_id":"request","data":{"type":"canary_list","canaries":[${JSON.stringify(canaryRecord())}]}}`;
+	const response = parseResponse(text, 'request');
+	assert.equal(response.data?.type, 'canary_list');
+	if (response.data?.type !== 'canary_list') return;
+	assert.equal(response.data.canaries.length, 1);
+	assert.equal(response.data.canaries[0]?.canary_id, 'canary-1');
+});
+
+test('parseResponse rejects a canary list containing an invalid entry', () => {
+	const text = '{"version":1,"request_id":"request","data":{"type":"canary_list","canaries":[{}]}}';
+	assert.throws(() => parseResponse(text, 'request'), /daemon response variant is invalid/);
+});

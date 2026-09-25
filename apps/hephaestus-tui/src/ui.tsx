@@ -8,19 +8,26 @@ import {CostsPanel, DenialsPanel, EvidencePanel, RunsPanel} from './evidence-vie
 import {lineageRows, roleOf} from './lineage.js';
 import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js';
 import {GeneDetailPanel, GeneListPanel} from './gene-view.js';
-import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type DenialEntry, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type ResponseData, type RunListEntry, type World} from './protocol.js';
+import {CanaryDetailPanel, CanaryListPanel, DriftDetailPanel, DriftListPanel} from './drift-canary-view.js';
+import {MetaEvaluationDetailPanel, MetaEvaluationListPanel, MetaStrategyDetailPanel, MetaStrategyListPanel} from './meta-view.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Canary, type Champion, type Command, type DenialEntry, type Drift, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type MetaEvaluation, type MetaStrategy, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Author Markdown agent'] as const;
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent'] as const;
 const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
+const OPERATE_MENU = ['Drift records', 'Canaries', 'Evolver strategies', 'Meta-evaluations'] as const;
 type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
 	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback'
 	| 'evidence-menu' | 'runs' | 'evidence' | 'costs' | 'denials'
 	| 'genes' | 'gene-detail'
+	| 'operate-menu' | 'drifts' | 'drift-detail' | 'canaries' | 'canary-detail'
+	| 'meta-strategies' | 'meta-strategy-detail' | 'meta-evaluations' | 'meta-evaluation-detail'
 	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent';
 const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
 const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
 const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
 const GENE_VIEWS: View[] = ['genes', 'gene-detail'];
+const OPERATE_LIST_VIEWS: View[] = ['drifts', 'canaries', 'meta-strategies', 'meta-evaluations'];
+const OPERATE_VIEWS: View[] = ['operate-menu', ...OPERATE_LIST_VIEWS, 'drift-detail', 'canary-detail', 'meta-strategy-detail', 'meta-evaluation-detail'];
 const AUTHOR_VIEWS: View[] = ['author-world', 'author-path', 'author-register', 'author-test-parent'];
 const LIST_LIMIT = 200;
 type TuiClient = Pick<ControlClient, 'request'>;
@@ -117,6 +124,15 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [genes, setGenes] = useState<GeneSummary[]>([]);
 	const [geneIndex, setGeneIndex] = useState(0);
 	const [geneDetail, setGeneDetail] = useState<GeneAggregate>();
+	const [operateMenuIndex, setOperateMenuIndex] = useState(0);
+	const [drifts, setDrifts] = useState<Drift[]>([]);
+	const [driftIndex, setDriftIndex] = useState(0);
+	const [canaries, setCanaries] = useState<Canary[]>([]);
+	const [canaryIndex, setCanaryIndex] = useState(0);
+	const [metaStrategies, setMetaStrategies] = useState<MetaStrategy[]>([]);
+	const [metaStrategyIndex, setMetaStrategyIndex] = useState(0);
+	const [metaEvaluations, setMetaEvaluations] = useState<MetaEvaluation[]>([]);
+	const [metaEvaluationIndex, setMetaEvaluationIndex] = useState(0);
 	const [authorPath, setAuthorPath] = useState('');
 	const [authorGenome, setAuthorGenome] = useState<Genome>();
 	const [authorNotice, setAuthorNotice] = useState('');
@@ -334,6 +350,42 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Gene detail unavailable');
 		}
 	}, [client, lifetime]);
+	const loadDrifts = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'drift_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'drift_list') { setDrifts(response.data.drifts); setNotice(`${response.data.drifts.length} drift records`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Drift records unavailable');
+		}
+	}, [client, lifetime]);
+	const loadCanaries = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'canary_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'canary_list') { setCanaries(response.data.canaries); setNotice(`${response.data.canaries.length} canaries`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Canaries unavailable');
+		}
+	}, [client, lifetime]);
+	const loadMetaStrategies = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'meta_strategy_list'}, lifetime.signal);
+			if (response.data?.type === 'meta_strategies') { setMetaStrategies(response.data.strategies); setNotice(`${response.data.strategies.length} Evolver strategies`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Strategies unavailable');
+		}
+	}, [client, lifetime]);
+	const loadMetaEvaluations = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'meta_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'meta_evaluation_list') { setMetaEvaluations(response.data.receipts); setNotice(`${response.data.receipts.length} meta-evaluations`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Meta-evaluations unavailable');
+		}
+	}, [client, lifetime]);
 
 	/** Hands the real terminal to `$EDITOR`/`$VISUAL` and restores Ink's raw-mode input afterward. */
 	const openEditor = async (path: string): Promise<void> => {
@@ -525,6 +577,81 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			if (input.toLowerCase() === 'r' && genes[geneIndex]) void loadGeneDetail(genes[geneIndex]!.gene.gene_id);
 			return;
 		}
+		if (view === 'operate-menu') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.upArrow || input === 'k') setOperateMenuIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setOperateMenuIndex(value => Math.min(OPERATE_MENU.length - 1, value + 1));
+			if (key.return) {
+				switch (operateMenuIndex) {
+					case 0: setDriftIndex(0); setView('drifts'); void loadDrifts(); break;
+					case 1: setCanaryIndex(0); setView('canaries'); void loadCanaries(); break;
+					case 2: setMetaStrategyIndex(0); setView('meta-strategies'); void loadMetaStrategies(); break;
+					case 3: setMetaEvaluationIndex(0); setView('meta-evaluations'); void loadMetaEvaluations(); break;
+				}
+			}
+			return;
+		}
+		if (view === 'drifts') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('operate-menu'); return; }
+			if (key.upArrow || input === 'k') setDriftIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setDriftIndex(value => Math.min(Math.max(0, drifts.length - 1), value + 1));
+			if (input.toLowerCase() === 'r') void loadDrifts();
+			if (key.return && drifts[driftIndex]) setView('drift-detail');
+			return;
+		}
+		if (view === 'drift-detail') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('drifts'); return; }
+			if (input.toLowerCase() === 'r') void loadDrifts();
+			return;
+		}
+		if (view === 'canaries') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('operate-menu'); return; }
+			if (key.upArrow || input === 'k') setCanaryIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setCanaryIndex(value => Math.min(Math.max(0, canaries.length - 1), value + 1));
+			if (input.toLowerCase() === 'r') void loadCanaries();
+			if (key.return && canaries[canaryIndex]) setView('canary-detail');
+			return;
+		}
+		if (view === 'canary-detail') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('canaries'); return; }
+			if (input.toLowerCase() === 'r') void loadCanaries();
+			return;
+		}
+		if (view === 'meta-strategies') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('operate-menu'); return; }
+			if (key.upArrow || input === 'k') setMetaStrategyIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setMetaStrategyIndex(value => Math.min(Math.max(0, metaStrategies.length - 1), value + 1));
+			if (input.toLowerCase() === 'r') void loadMetaStrategies();
+			if (key.return && metaStrategies[metaStrategyIndex]) setView('meta-strategy-detail');
+			return;
+		}
+		if (view === 'meta-strategy-detail') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('meta-strategies'); return; }
+			if (input.toLowerCase() === 'r') void loadMetaStrategies();
+			return;
+		}
+		if (view === 'meta-evaluations') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('operate-menu'); return; }
+			if (key.upArrow || input === 'k') setMetaEvaluationIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setMetaEvaluationIndex(value => Math.min(Math.max(0, metaEvaluations.length - 1), value + 1));
+			if (input.toLowerCase() === 'r') void loadMetaEvaluations();
+			if (key.return && metaEvaluations[metaEvaluationIndex]) setView('meta-evaluation-detail');
+			return;
+		}
+		if (view === 'meta-evaluation-detail') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('meta-evaluations'); return; }
+			if (input.toLowerCase() === 'r') void loadMetaEvaluations();
+			return;
+		}
 		if (view === 'author-world') {
 			if (input.toLowerCase() === 'q') { quit(); return; }
 			if (key.escape) { setView('home'); return; }
@@ -651,7 +778,8 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 6: arenaCurrentId.current = ''; setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
 				case 8: setEvidenceMenuIndex(0); setView('evidence-menu'); break;
 				case 9: setGeneIndex(0); setGeneDetail(undefined); setView('genes'); void loadGenes(); break;
-				case 10: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
+				case 10: setOperateMenuIndex(0); setView('operate-menu'); break;
+				case 11: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
 			}
 		}
 	});
@@ -660,6 +788,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const lineageMode = LINEAGE_VIEWS.includes(view);
 	const evidenceMode = EVIDENCE_VIEWS.includes(view);
 	const geneMode = GENE_VIEWS.includes(view);
+	const operateMode = OPERATE_VIEWS.includes(view);
 	const authorMode = AUTHOR_VIEWS.includes(view);
 	const authorCandidates = lineageRowsView.filter(row => row.genome_id !== authorGenome?.genome_id);
 	// Reserved for everything outside the lineage panel (header, banner, hint
@@ -703,6 +832,20 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'genes' && <GeneListPanel genes={genes} selected={geneIndex} height={panelHeight - 2} />}
 			{view === 'gene-detail' && <GeneDetailPanel aggregate={geneDetail} height={panelHeight - 6} />}
 		</Box>}
+		{operateMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
+			{view === 'operate-menu' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+				<Text bold color="yellow">DRIFT, CANARY &amp; META-EVAL</Text>
+				{OPERATE_MENU.map((label, index) => <Text key={label} color={operateMenuIndex === index ? 'yellow' : 'white'}>{operateMenuIndex === index ? '› ' : '  '}{label}</Text>)}
+			</Box>}
+			{view === 'drifts' && <DriftListPanel drifts={drifts} selected={driftIndex} height={panelHeight - 2} />}
+			{view === 'drift-detail' && <DriftDetailPanel drift={drifts[driftIndex]} height={panelHeight - 2} />}
+			{view === 'canaries' && <CanaryListPanel canaries={canaries} selected={canaryIndex} height={panelHeight - 2} />}
+			{view === 'canary-detail' && <CanaryDetailPanel canary={canaries[canaryIndex]} height={panelHeight - 2} />}
+			{view === 'meta-strategies' && <MetaStrategyListPanel strategies={metaStrategies} selected={metaStrategyIndex} height={panelHeight - 2} />}
+			{view === 'meta-strategy-detail' && <MetaStrategyDetailPanel strategy={metaStrategies[metaStrategyIndex]} height={panelHeight - 2} />}
+			{view === 'meta-evaluations' && <MetaEvaluationListPanel receipts={metaEvaluations} selected={metaEvaluationIndex} height={panelHeight - 2} />}
+			{view === 'meta-evaluation-detail' && <MetaEvaluationDetailPanel receipt={metaEvaluations[metaEvaluationIndex]} height={panelHeight - 2} />}
+		</Box>}
 		{authorMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
 			{view === 'author-world' && <WorldList worlds={worlds} selected={worldIndex} height={worldListHeight} />}
 			{view === 'author-path' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
@@ -718,7 +861,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			</Box>}
 			{view === 'author-test-parent' && world && <LineagePanel world={world} rows={authorCandidates} champion={champion} selected={authorParentIndex} height={lineagePanelHeight} />}
 		</Box>}
-		{!lineageMode && !evidenceMode && !geneMode && !authorMode && <Box marginTop={compact ? 0 : 1}>
+		{!lineageMode && !evidenceMode && !geneMode && !operateMode && !authorMode && <Box marginTop={0}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
 				<Text color="gray">OPERATOR ACTIONS</Text>
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
@@ -748,6 +891,9 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{EVIDENCE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · R refresh · Esc back</Text>}
 			{view === 'genes' && <Text color="gray">Read-only · Enter inspect Gene · R refresh · Esc back</Text>}
 			{view === 'gene-detail' && <Text color="gray">Read-only · R refresh · Esc back</Text>}
+			{view === 'operate-menu' && <Text color="gray">Enter open · Esc back</Text>}
+			{OPERATE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · Enter inspect · R refresh · Esc back</Text>}
+			{(view === 'drift-detail' || view === 'canary-detail' || view === 'meta-strategy-detail' || view === 'meta-evaluation-detail') && <Text color="gray">Read-only · R refresh · Esc back</Text>}
 			{view === 'author-world' && <Text color="gray">Enter choose World · Esc back</Text>}
 			{view === 'author-path' && <Text>Path: {authorPath}<Text color="gray">  (Enter open $EDITOR · Esc back)</Text></Text>}
 			{view === 'author-register' && <Text color="gray">{authorGenome ? 'T test against a parent · Esc finish' : 'Enter register · Esc cancel'}</Text>}
@@ -757,6 +903,6 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		<Box borderStyle="single" borderColor="gray" paddingX={1}>
 			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || geneMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
+		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || geneMode || operateMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }

@@ -14,10 +14,12 @@ export type Command =
 	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string}
 	| {command: 'drift_record'; drift_id: string; world_id: string; kind: DriftKind; evidence_evaluation_id: string}
 	| {command: 'drift_show'; drift_id: string}
+	| {command: 'drift_list'; limit: number}
 	| {command: 'canary_start'; canary_id: string; world_id: string; candidate_genome_id: string; assessment_id: string}
 	| {command: 'canary_advance'; canary_id: string; evidence_evaluation_id: string}
 	| {command: 'canary_live_check'; canary_id: string; evidence_evaluation_id: string}
 	| {command: 'canary_show'; canary_id: string}
+	| {command: 'canary_list'; limit: number}
 	| {command: 'gene_extract'; gene_id: string; promotion_transition_id: string}
 	| {command: 'gene_transfer'; trial_id: string; gene_id: string; to_genome_id: string}
 	| {command: 'gene_record'; trial_id: string; evaluation_id: string}
@@ -195,8 +197,10 @@ export type ResponseData =
 	| {type: 'champion'; champion: Champion}
 	| {type: 'champion_transition'; transition: ChampionTransition}
 	| {type: 'drift'; drift: Drift}
+	| {type: 'drift_list'; drifts: Drift[]}
 	| {type: 'canary_transition'; transition: CanaryTransition}
 	| {type: 'canary'; canary: Canary}
+	| {type: 'canary_list'; canaries: Canary[]}
 	| {type: 'gene'; gene: Gene}
 	| {type: 'genes'; genes: GeneSummary[]}
 	| {type: 'gene_transfer'; trial: GeneTransfer}
@@ -819,6 +823,12 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			if (!drift) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'drift', drift}};
 		}
+		case 'drift_list': {
+			if (!Array.isArray(data['drifts']) || data['drifts'].length > MAX_LIST_ENTRIES) break;
+			const drifts = data['drifts'].map(parseDrift);
+			if (drifts.some(drift => drift === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'drift_list', drifts: drifts as Drift[]}};
+		}
 		case 'canary_transition': {
 			const transition = parseCanaryTransition(data['transition']);
 			if (!transition) break;
@@ -828,6 +838,12 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			const canary = parseCanary(data['canary']);
 			if (!canary) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'canary', canary}};
+		}
+		case 'canary_list': {
+			if (!Array.isArray(data['canaries']) || data['canaries'].length > MAX_LIST_ENTRIES) break;
+			const canaries = data['canaries'].map(parseCanary);
+			if (canaries.some(canary => canary === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'canary_list', canaries: canaries as Canary[]}};
 		}
 		case 'gene': {
 			const gene = parseGene(data['gene']);
