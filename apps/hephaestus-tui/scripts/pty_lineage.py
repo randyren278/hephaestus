@@ -20,6 +20,8 @@ import termios
 import time
 
 ANSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
+# A cold `tsx` start on a fresh CI runner can take well over ten seconds.
+LAUNCH_TIMEOUT_SECONDS = 45
 SELECTED = "› "
 
 
@@ -109,7 +111,7 @@ def main() -> int:
         return lines[-1] if lines else ""
 
     try:
-        if not until("Lineage and Champions", 10):
+        if not until("Lineage and Champions", LAUNCH_TIMEOUT_SECONDS):
             raise RuntimeError("TUI did not render the lineage action")
         stage = "select-lineage"
         for _ in range(7):

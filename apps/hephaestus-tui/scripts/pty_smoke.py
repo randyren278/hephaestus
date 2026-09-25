@@ -14,6 +14,9 @@ import sys
 import termios
 import time
 
+# A cold `tsx` start on a fresh CI runner can take well over ten seconds.
+LAUNCH_TIMEOUT_SECONDS = 45
+
 
 def main() -> int:
     app_dir, data_dir, job_id = sys.argv[1:4]
@@ -75,7 +78,7 @@ def main() -> int:
         return process.poll() is not None
 
     try:
-        if not until(b"Cancel job by ID", 8):
+        if not until(b"Cancel job by ID", LAUNCH_TIMEOUT_SECONDS):
             raise RuntimeError("TUI did not render the cancel action")
         if launcher and not until(b"Active runs  1", 3):
             raise RuntimeError("TUI launcher did not read status from the selected relative data directory")
@@ -122,7 +125,7 @@ def main() -> int:
         )
         offline_output = bytearray()
         try:
-            deadline = time.monotonic() + 6
+            deadline = time.monotonic() + LAUNCH_TIMEOUT_SECONDS
             while time.monotonic() < deadline and b"STALE" not in re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", offline_output):
                 ready, _, _ = select.select([offline_master], [], [], 0.1)
                 if ready:
@@ -175,7 +178,7 @@ def main() -> int:
             return needle in re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", bytes(kill_output))
 
         try:
-            if not kill_until(b"Kill all active work", 8):
+            if not kill_until(b"Kill all active work", LAUNCH_TIMEOUT_SECONDS):
                 raise RuntimeError("fresh kill-all PTY did not render the action list")
             for _ in range(3):
                 os.write(kill_master, b"\x1b[B")
