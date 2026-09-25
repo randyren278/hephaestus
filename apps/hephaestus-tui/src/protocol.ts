@@ -22,6 +22,12 @@ export type Command =
 	| {command: 'evolve_start'; run_id: string; world_id: string; from_genome_id: string; generations: number; budget: number}
 	| {command: 'evolve_status'; run_id: string}
 	| {command: 'evolve_cancel'; run_id: string}
+	| {command: 'meta_strategy_register'; path: string}
+	| {command: 'meta_strategy_show'; strategy_id: string}
+	| {command: 'meta_strategy_list'}
+	| {command: 'meta_evaluate'; meta_run_id: string; strategy_a_id: string; strategy_b_id: string; lineages: MetaLineageSpec[]; confidence_bps: number; bootstrap_seed: number}
+	| {command: 'meta_show'; meta_run_id: string}
+	| {command: 'meta_list'; limit: number}
 	| {command: 'run_list'; limit: number}
 	| {command: 'evaluation_list'; limit: number}
 	| {command: 'denial_list'; limit: number};
@@ -121,6 +127,28 @@ export type EvolutionRun = {
 	state: EvolutionRunState; cancel_requested: boolean; finish_reason: EvolutionFinishReason | null;
 	generations: EvolutionGeneration[]; started_event_id: string;
 };
+export type MutationPrioritization = 'fifo' | 'cost_weighted';
+export type GeneSelectionPolicy = 'none' | 'highest_transfer_effect';
+export type EvolverStrategyConfig = {
+	schema_version: number; name: string; mutation_prioritization: MutationPrioritization;
+	generation_count: number; experiment_allocation: number; candidate_count: number;
+	gene_selection: GeneSelectionPolicy;
+};
+export type MetaStrategy = {strategy_id: string; config: EvolverStrategyConfig; event_id: string; sequence: number};
+export type MetaLineageSpec = {world_id: string; from_genome_id: string};
+export type MetaLineageOutcome = {
+	world_id: string; from_genome_id: string; strategy_a_run_id: string; strategy_b_run_id: string;
+	strategy_a_champion_genome_id: string; strategy_b_champion_genome_id: string;
+	strategy_a_promotions: number; strategy_b_promotions: number;
+	strategy_a_trials_consumed: number; strategy_b_trials_consumed: number;
+};
+export type MetaBootstrapInterval = {estimate_x10000: number; lower_x10000: number; upper_x10000: number};
+export type MetaEvaluation = {
+	meta_run_id: string; strategy_a_id: string; strategy_b_id: string; confidence_bps: number;
+	bootstrap_seed: number; bootstrap_resamples: number; algorithm: string;
+	lineages: MetaLineageOutcome[]; quality_delta: MetaBootstrapInterval; cost_delta: MetaBootstrapInterval;
+	event_id: string; sequence: number;
+};
 export type DenialEntry = {
 	kind: 'request_rejected' | 'runtime_capability_denied'; timestamp_millis: number;
 	request_id: string | null; command: string | null;
@@ -143,6 +171,10 @@ export type ResponseData =
 	| {type: 'gene_species'; species: GeneSpecies}
 	| {type: 'gene_aggregate'; aggregate: GeneAggregate}
 	| {type: 'evolution'; run: EvolutionRun}
+	| {type: 'meta_strategy'; strategy: MetaStrategy}
+	| {type: 'meta_strategies'; strategies: MetaStrategy[]}
+	| {type: 'meta_evaluation'; receipt: MetaEvaluation}
+	| {type: 'meta_evaluation_list'; receipts: MetaEvaluation[]}
 	| {type: 'run_list'; runs: RunListEntry[]}
 	| {type: 'evaluation_list'; evaluations: EvaluationListEntry[]}
 	| {type: 'denial_list'; denials: DenialEntry[]};
@@ -428,6 +460,78 @@ function parseEvolutionRun(value: unknown): EvolutionRun | undefined {
 	};
 }
 
+const MUTATION_PRIORITIZATIONS: MutationPrioritization[] = ['fifo', 'cost_weighted'];
+const GENE_SELECTION_POLICIES: GeneSelectionPolicy[] = ['none', 'highest_transfer_effect'];
+const MAX_META_LINEAGES = 1_000;
+
+function parseEvolverStrategyConfig(value: unknown): EvolverStrategyConfig | undefined {
+	if (!record(value) || !safeInteger(value['schema_version']) || !boundedString(value['name'], 256)
+		|| typeof value['mutation_prioritization'] !== 'string'
+		|| !MUTATION_PRIORITIZATIONS.includes(value['mutation_prioritization'] as MutationPrioritization)
+		|| !boundedCount(value['generation_count']) || !boundedCount(value['experiment_allocation'])
+		|| !boundedCount(value['candidate_count']) || typeof value['gene_selection'] !== 'string'
+		|| !GENE_SELECTION_POLICIES.includes(value['gene_selection'] as GeneSelectionPolicy)) return undefined;
+	return {
+		schema_version: value['schema_version'], name: value['name'],
+		mutation_prioritization: value['mutation_prioritization'] as MutationPrioritization,
+		generation_count: value['generation_count'], experiment_allocation: value['experiment_allocation'],
+		candidate_count: value['candidate_count'], gene_selection: value['gene_selection'] as GeneSelectionPolicy,
+	};
+}
+
+function parseMetaStrategy(value: unknown): MetaStrategy | undefined {
+	if (!record(value) || !identifier(value['strategy_id']) || !record(value['event'])) return undefined;
+	const config = parseEvolverStrategyConfig(value['config']);
+	const event = value['event'];
+	if (!config || !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {strategy_id: value['strategy_id'], config, event_id: event['event_id'], sequence: event['sequence']};
+}
+
+function parseMetaLineageOutcome(value: unknown): MetaLineageOutcome | undefined {
+	if (!record(value) || !identifier(value['world_id']) || !identifier(value['from_genome_id'])
+		|| !identifier(value['strategy_a_run_id']) || !identifier(value['strategy_b_run_id'])
+		|| !identifier(value['strategy_a_champion_genome_id']) || !identifier(value['strategy_b_champion_genome_id'])
+		|| !boundedCount(value['strategy_a_promotions']) || !boundedCount(value['strategy_b_promotions'])
+		|| !boundedCount(value['strategy_a_trials_consumed']) || !boundedCount(value['strategy_b_trials_consumed'])) return undefined;
+	return {
+		world_id: value['world_id'], from_genome_id: value['from_genome_id'],
+		strategy_a_run_id: value['strategy_a_run_id'], strategy_b_run_id: value['strategy_b_run_id'],
+		strategy_a_champion_genome_id: value['strategy_a_champion_genome_id'],
+		strategy_b_champion_genome_id: value['strategy_b_champion_genome_id'],
+		strategy_a_promotions: value['strategy_a_promotions'], strategy_b_promotions: value['strategy_b_promotions'],
+		strategy_a_trials_consumed: value['strategy_a_trials_consumed'], strategy_b_trials_consumed: value['strategy_b_trials_consumed'],
+	};
+}
+
+function parseMetaBootstrapInterval(value: unknown): MetaBootstrapInterval | undefined {
+	if (!record(value) || !Number.isSafeInteger(value['estimate_x10000']) || !Number.isSafeInteger(value['lower_x10000'])
+		|| !Number.isSafeInteger(value['upper_x10000'])) return undefined;
+	return {
+		estimate_x10000: value['estimate_x10000'] as number, lower_x10000: value['lower_x10000'] as number,
+		upper_x10000: value['upper_x10000'] as number,
+	};
+}
+
+function parseMetaEvaluation(value: unknown): MetaEvaluation | undefined {
+	if (!record(value) || !identifier(value['meta_run_id']) || !identifier(value['strategy_a_id'])
+		|| !identifier(value['strategy_b_id']) || !boundedCount(value['confidence_bps'])
+		|| !nonnegativeInteger(value['bootstrap_seed']) || !boundedCount(value['bootstrap_resamples'])
+		|| !boundedString(value['algorithm'], 128) || !record(value['event'])
+		|| !Array.isArray(value['lineages']) || value['lineages'].length > MAX_META_LINEAGES) return undefined;
+	const lineages = value['lineages'].map(parseMetaLineageOutcome);
+	if (lineages.some(lineage => lineage === undefined)) return undefined;
+	const qualityDelta = parseMetaBootstrapInterval(value['quality_delta']);
+	const costDelta = parseMetaBootstrapInterval(value['cost_delta']);
+	const event = value['event'];
+	if (!qualityDelta || !costDelta || !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		meta_run_id: value['meta_run_id'], strategy_a_id: value['strategy_a_id'], strategy_b_id: value['strategy_b_id'],
+		confidence_bps: value['confidence_bps'], bootstrap_seed: value['bootstrap_seed'], bootstrap_resamples: value['bootstrap_resamples'],
+		algorithm: value['algorithm'], lineages: lineages as MetaLineageOutcome[], quality_delta: qualityDelta, cost_delta: costDelta,
+		event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
 const RUN_STATES: JobState[] = ['admitted', 'running', 'cancellation_requested', 'succeeded', 'failed', 'interrupted'];
 const COMPLETION_REASONS = ['success', 'provider_failure', 'operator_interrupt', 'wall_budget_exceeded', 'output_budget_exceeded', 'io_failure'];
 const FORGE_OUTCOMES = ['metrics_passed', 'metrics_rejected'];
@@ -630,6 +734,28 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			const run = parseEvolutionRun(data['run']);
 			if (!run) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'evolution', run}};
+		}
+		case 'meta_strategy': {
+			const strategy = parseMetaStrategy(data['strategy']);
+			if (!strategy) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'meta_strategy', strategy}};
+		}
+		case 'meta_strategies': {
+			if (!Array.isArray(data['strategies']) || data['strategies'].length > MAX_LIST_ITEMS) break;
+			const strategies = data['strategies'].map(parseMetaStrategy);
+			if (strategies.some(strategy => strategy === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'meta_strategies', strategies: strategies as MetaStrategy[]}};
+		}
+		case 'meta_evaluation': {
+			const receipt = parseMetaEvaluation(data['receipt']);
+			if (!receipt) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'meta_evaluation', receipt}};
+		}
+		case 'meta_evaluation_list': {
+			if (!Array.isArray(data['receipts']) || data['receipts'].length > MAX_LIST_ENTRIES) break;
+			const receipts = data['receipts'].map(parseMetaEvaluation);
+			if (receipts.some(receipt => receipt === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'meta_evaluation_list', receipts: receipts as MetaEvaluation[]}};
 		}
 		case 'run_list': {
 			const runs = data['runs'];

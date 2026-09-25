@@ -273,6 +273,54 @@ pub enum Command {
         /// Stable run identity returned by `EvolveStart`.
         run_id: String,
     },
+    /// Register an Evolver strategy Genome: a versioned, content-addressed
+    /// bundle of the knobs that steer the evolve engine's own admission
+    /// policy (generation ceiling, paired-trial budget, and forward-looking
+    /// prioritization fields). Registration never touches Laws, evaluators,
+    /// receipts, or budgets; it only records the content and derives its
+    /// identity, exactly like `GenomeRegister`.
+    MetaStrategyRegister {
+        /// Local path to a JSON [`EvolverStrategyConfig`] document.
+        path: String,
+    },
+    /// Inspect one registered Evolver strategy Genome.
+    MetaStrategyShow {
+        /// Content-derived strategy identity.
+        strategy_id: String,
+    },
+    /// List every registered Evolver strategy Genome, oldest first.
+    MetaStrategyList,
+    /// Run a paired meta-evaluation of two Evolver strategies over held-out
+    /// base lineages, driving the existing evolve engine once per strategy
+    /// per lineage, then record a replay-verified meta-receipt with a
+    /// bootstrap confidence interval over the per-lineage paired deltas.
+    MetaEvaluate {
+        /// Stable caller-selected idempotency key for this meta-evaluation.
+        meta_run_id: String,
+        /// Registered Evolver strategy Genome, the "A" side of the comparison.
+        strategy_a_id: String,
+        /// Registered Evolver strategy Genome, the "B" side of the comparison.
+        strategy_b_id: String,
+        /// Held-out base lineages, each a registered World with its
+        /// generation-zero Genome; every lineage's World must already carry
+        /// a second registered Genome to serve as the evolve engine's fixed
+        /// baseline, exactly like `EvolveStart`.
+        lineages: Vec<MetaLineageSpec>,
+        /// Bootstrap confidence, in basis points (for example `9_500` for 95%).
+        confidence_bps: u16,
+        /// Deterministic bootstrap resampling seed.
+        bootstrap_seed: u64,
+    },
+    /// Inspect one meta-evaluation's durable, replay-verified receipt.
+    MetaShow {
+        /// Stable meta-evaluation identity returned by `MetaEvaluate`.
+        meta_run_id: String,
+    },
+    /// List recent meta-evaluation receipts, newest first, bounded by `limit`.
+    MetaList {
+        /// Maximum number of entries returned; capped at 200.
+        limit: u32,
+    },
     /// Verify and replay canonical history into a fresh projection.
     Replay,
     /// List recent direct runs and jobs, newest first, bounded by `limit`.
@@ -509,6 +557,26 @@ pub enum ResponseData {
     Evolution {
         /// Run configuration, completed generations, and terminal state.
         run: Box<EvolutionRunRecord>,
+    },
+    /// One registered Evolver strategy Genome.
+    MetaStrategy {
+        /// Canonical strategy content and event metadata.
+        strategy: Box<MetaStrategyRecord>,
+    },
+    /// Every registered Evolver strategy Genome, oldest first.
+    MetaStrategies {
+        /// Canonical strategy records.
+        strategies: Vec<MetaStrategyRecord>,
+    },
+    /// Durable, replay-verified receipt of one meta-evaluation.
+    MetaEvaluation {
+        /// Per-lineage outcomes and bootstrapped quality/cost deltas.
+        receipt: Box<MetaReceiptRecord>,
+    },
+    /// Recent meta-evaluation receipts, newest first and bounded.
+    MetaEvaluationList {
+        /// Entries in newest-first order.
+        receipts: Vec<MetaReceiptRecord>,
     },
     /// Result of a fresh verified replay.
     Replay {
@@ -1582,6 +1650,196 @@ pub struct EvolutionRunRecord {
     pub started_event: EvolutionEventRecord,
     /// Canonical event metadata for `evolution.finished`, once finished.
     pub finished_event: Option<EvolutionEventRecord>,
+}
+
+// ---------------------------------------------------------------------------
+// Recursive evolution of the Evolver (roadmap item 13).
+//
+// An Evolver strategy is a versioned, content-addressed bundle of the knobs
+// that steer the evolve engine's own admission policy. It cannot name or
+// alter a Law, an evaluator, a receipt, or a World's budget ceiling, because
+// no such field exists on `EvolverStrategyConfig`: the invariant is enforced
+// by construction, not by a runtime check. A meta-evaluation runs the
+// existing, unmodified evolve engine once per strategy over each of a set of
+// held-out base lineages (a registered World plus its generation-zero
+// Genome) and records one replay-verified receipt comparing the Champion
+// quality reached and the paired-trial cost spent, with a bootstrap
+// confidence interval over the per-lineage deltas.
+// ---------------------------------------------------------------------------
+
+/// Deterministic priority order Forge considers candidate mutations in.
+/// Only the reference-operation-flip mutation exists today, so every
+/// variant currently produces identical Forge behavior; the field is
+/// recorded now so a richer Forge can read it later without a schema change.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationPrioritization {
+    /// Consider the oldest unresolved failure cluster first.
+    Fifo,
+    /// Consider the highest-cost failure cluster first.
+    CostWeighted,
+}
+
+/// Gene Bank selection policy for seeding candidate mutations. Not yet wired
+/// into Forge; recorded for forward compatibility.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneSelectionPolicy {
+    /// Do not consult the Gene Bank.
+    None,
+    /// Prefer the Gene with the highest recorded transfer effect.
+    HighestTransferEffect,
+}
+
+/// Versioned, content-addressed configuration of one Evolver strategy.
+/// Registering a strategy never grants it any authority beyond these
+/// fields.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolverStrategyConfig {
+    /// Strategy payload schema.
+    pub schema_version: u16,
+    /// Operator-authored label; part of the content identity but not
+    /// otherwise interpreted.
+    pub name: String,
+    /// Order Forge considers candidate failure clusters in. See
+    /// [`MutationPrioritization`].
+    pub mutation_prioritization: MutationPrioritization,
+    /// Passed straight through as `EvolveStart.generations` for every
+    /// lineage this strategy evaluates.
+    pub generation_count: u32,
+    /// Passed straight through as `EvolveStart.budget` for every lineage
+    /// this strategy evaluates.
+    pub experiment_allocation: u64,
+    /// Candidate mutations considered per generation. Forge proposes exactly
+    /// one mutation today, so values above `1` are recorded but not yet
+    /// actionable.
+    pub candidate_count: u32,
+    /// Gene Bank selection policy. See [`GeneSelectionPolicy`].
+    pub gene_selection: GeneSelectionPolicy,
+}
+
+/// Canonical payload of the one `meta_strategy.registered` event for a
+/// strategy.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaStrategyRegisteredPayload {
+    /// Registration payload schema.
+    pub schema_version: u16,
+    /// Content-derived strategy identity.
+    pub strategy_id: String,
+    /// Exact registered configuration.
+    pub config: EvolverStrategyConfig,
+}
+
+/// Durable, replay-verified projection of one registered Evolver strategy.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaStrategyRecord {
+    /// Content-derived strategy identity.
+    pub strategy_id: String,
+    /// Exact registered configuration.
+    pub config: EvolverStrategyConfig,
+    /// Canonical event metadata for `meta_strategy.registered`.
+    pub event: EvolutionEventRecord,
+}
+
+/// One held-out lineage: a registered World plus the Genome installed as
+/// generation zero's Champion for it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaLineageSpec {
+    /// Registered World this held-out lineage evolves within.
+    pub world_id: String,
+    /// Genome installed as generation zero's Champion for this lineage.
+    pub from_genome_id: String,
+}
+
+/// One held-out lineage's paired outcome: the same starting Genome and
+/// World evaluated once by each strategy, using the existing evolve engine
+/// unmodified. `promotions` is a coarse Champion-quality proxy (generations
+/// where the strategy's run actually promoted a child); with only the
+/// reference-operation-flip mutation available, this is the most Forge can
+/// currently distinguish.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaLineageOutcome {
+    /// Registered World this lineage evolves within.
+    pub world_id: String,
+    /// Genome installed as generation zero's Champion for this lineage.
+    pub from_genome_id: String,
+    /// Underlying evolve run identity strategy A completed for this lineage.
+    pub strategy_a_run_id: String,
+    /// Underlying evolve run identity strategy B completed for this lineage.
+    pub strategy_b_run_id: String,
+    /// Champion reached at the end of strategy A's run.
+    pub strategy_a_champion_genome_id: String,
+    /// Champion reached at the end of strategy B's run.
+    pub strategy_b_champion_genome_id: String,
+    /// Generations promoted during strategy A's run.
+    pub strategy_a_promotions: u32,
+    /// Generations promoted during strategy B's run.
+    pub strategy_b_promotions: u32,
+    /// Paired Arena evaluations (trials) strategy A's run consumed.
+    pub strategy_a_trials_consumed: u64,
+    /// Paired Arena evaluations (trials) strategy B's run consumed.
+    pub strategy_b_trials_consumed: u64,
+}
+
+/// Bootstrap confidence interval over a paired per-lineage delta, scaled by
+/// `10_000` for one fixed-point fractional digit of precision (the same
+/// scaling convention as the Arena selection receipt's basis points, but
+/// over a raw count rather than a ratio).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaBootstrapInterval {
+    /// Sample mean of the paired deltas, times `10_000`.
+    pub estimate_x10000: i64,
+    /// Lower confidence bound, times `10_000`.
+    pub lower_x10000: i64,
+    /// Upper confidence bound, times `10_000`.
+    pub upper_x10000: i64,
+}
+
+/// Canonical payload of the one `meta_evolution.evaluated` event for a
+/// meta-evaluation run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaEvaluationPayload {
+    /// Evaluation payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key for this meta-evaluation.
+    pub meta_run_id: String,
+    /// Registered Evolver strategy Genome, the "A" side of the comparison.
+    pub strategy_a_id: String,
+    /// Registered Evolver strategy Genome, the "B" side of the comparison.
+    pub strategy_b_id: String,
+    /// Bootstrap confidence, in basis points.
+    pub confidence_bps: u16,
+    /// Deterministic bootstrap resampling seed.
+    pub bootstrap_seed: u64,
+    /// Number of bootstrap resamples.
+    pub bootstrap_resamples: u32,
+    /// Versioned deterministic bootstrap algorithm identity.
+    pub algorithm: String,
+    /// Every held-out lineage's paired outcome, in request order.
+    pub lineages: Vec<MetaLineageOutcome>,
+    /// Champion-quality delta (strategy B minus strategy A), bootstrapped
+    /// over lineages.
+    pub quality_delta: MetaBootstrapInterval,
+    /// Experiment-cost delta in paired trials (strategy B minus strategy A),
+    /// bootstrapped over lineages.
+    pub cost_delta: MetaBootstrapInterval,
+}
+
+/// Durable, replay-verified projection of one meta-evaluation receipt.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaReceiptRecord {
+    /// Exact recorded evaluation payload.
+    pub payload: MetaEvaluationPayload,
+    /// Canonical event metadata for `meta_evolution.evaluated`.
+    pub event: EvolutionEventRecord,
 }
 
 #[cfg(test)]

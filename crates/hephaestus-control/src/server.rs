@@ -57,11 +57,12 @@ use crate::{
     EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
     EvolutionCancelPayload, EvolutionFinishReason, EvolutionFinishedPayload,
     EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
-    ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
-    ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
-    ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason, RunListEntry,
-    SelectionEventRecord, SelectionRecord, WorldRecord,
+    EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
+    ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
+    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GenomeRecord,
+    InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT,
+    MetaEvaluationPayload, MetaLineageOutcome, MetaStrategyRegisteredPayload, ResponseData,
+    RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -87,6 +88,12 @@ const MAX_QUEUED_REQUESTS: usize = 16;
 // enough headroom under `validate_job_id`'s 128-byte limit for any generation
 // index up to `u32::MAX`.
 const MAX_EVOLUTION_RUN_ID_BYTES: usize = 100;
+// Meta-evaluation run IDs derive two per-lineage evolve run IDs each
+// (`meta-{id}-a-{index}` / `meta-{id}-b-{index}`), which themselves derive
+// per-generation identifiers under `MAX_EVOLUTION_RUN_ID_BYTES`. Leaving 40
+// bytes for the caller-selected `meta_run_id` keeps every derived evolve
+// run_id comfortably inside that ceiling.
+const MAX_META_RUN_ID_BYTES: usize = 40;
 
 /// Resolves `HEPHAESTUS_HOME`, then the conventional per-user data directory.
 ///
@@ -547,6 +554,7 @@ impl ControlPlane {
         verify_champion_history(&data_dir, &history, &registered)?;
         verify_gene_bank_history(&data_dir, &history, &registered)?;
         verify_evolution_history(&history, &registered)?;
+        verify_meta_evolution_history(&history)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -841,6 +849,12 @@ impl ControlPlane {
             command @ Command::EvolveStart { .. } => self.evolve_start(command),
             Command::EvolveStatus { run_id } => self.evolve_status(&run_id),
             Command::EvolveCancel { run_id } => self.evolve_cancel(&run_id),
+            Command::MetaStrategyRegister { path } => self.meta_strategy_register(&path),
+            Command::MetaStrategyShow { strategy_id } => self.meta_strategy_show(&strategy_id),
+            Command::MetaStrategyList => self.meta_strategy_list_response(),
+            command @ Command::MetaEvaluate { .. } => self.meta_evaluate(command),
+            Command::MetaShow { meta_run_id } => self.meta_show(&meta_run_id),
+            Command::MetaList { limit } => self.meta_list(limit),
             Command::Replay => self.replay_response(),
             Command::RunList { limit } => self.run_list(limit),
             Command::EvaluationList { limit } => self.evaluation_list(limit),
@@ -1461,6 +1475,354 @@ impl ControlPlane {
         self.evolve_status(run_id)
     }
 
+    /// Registers (or idempotently re-resolves) one Evolver strategy Genome.
+    /// The strategy's identity is derived entirely from its canonical
+    /// content, exactly like a compiled Genome; registration appends one
+    /// `meta_strategy.registered` event and nothing else.
+    fn meta_strategy_register(&mut self, path: &str) -> Result<ResponseData, ExecuteError> {
+        let source = read_source_text(path, MAX_SOURCE_FILE_BYTES)?;
+        let config: EvolverStrategyConfig = serde_json::from_str(&source).map_err(|error| {
+            ExecuteError::Rejected(format!("strategy source rejected: {error}"))
+        })?;
+        if config.schema_version != 1 {
+            return Err(ExecuteError::Rejected(
+                "strategy schema_version must be 1".to_owned(),
+            ));
+        }
+        if config.generation_count == 0 {
+            return Err(ExecuteError::Rejected(
+                "strategy generation_count must be positive".to_owned(),
+            ));
+        }
+        if config.experiment_allocation < TRIALS_PER_GENERATION {
+            return Err(ExecuteError::Rejected(
+                "strategy experiment_allocation must allow at least one generation".to_owned(),
+            ));
+        }
+        if config.candidate_count == 0 {
+            return Err(ExecuteError::Rejected(
+                "strategy candidate_count must be positive".to_owned(),
+            ));
+        }
+        let strategy_id = meta_strategy_id(&config).map_err(|_| ExecuteError::Internal)?;
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) =
+            meta_strategy_projection(&history, &strategy_id).map_err(|_| ExecuteError::Internal)?
+        {
+            return Ok(ResponseData::MetaStrategy {
+                strategy: Box::new(existing),
+            });
+        }
+        let payload = MetaStrategyRegisteredPayload {
+            schema_version: 1,
+            strategy_id: strategy_id.clone(),
+            config,
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                meta_strategy_event_id(&strategy_id),
+                meta_strategy_aggregate_id(&strategy_id),
+                META_STRATEGY_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        self.meta_strategy_show(&strategy_id)
+    }
+
+    /// Read-only lookup of one registered Evolver strategy Genome.
+    fn meta_strategy_show(&self, strategy_id: &str) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let strategy = meta_strategy_projection(&history, strategy_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(ResponseData::MetaStrategy {
+            strategy: Box::new(strategy),
+        })
+    }
+
+    /// Every registered Evolver strategy Genome, oldest first.
+    fn meta_strategy_list_response(&self) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let strategies = meta_strategy_list(&history).map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::MetaStrategies { strategies })
+    }
+
+    /// Drives one lineage's evolve run to completion using exactly the
+    /// existing evolve engine (`evolve_start` plus the same reconciliation
+    /// step `service_async_messages` calls every tick), never a bespoke
+    /// meta-only code path. Blocks the calling connection until the run
+    /// finishes or a generous deadline elapses.
+    fn drive_evolve_run(
+        &mut self,
+        run_id: &str,
+        world_id: &str,
+        from_genome_id: &str,
+        generations: u32,
+        budget: u64,
+    ) -> Result<EvolutionRunRecord, ExecuteError> {
+        self.evolve_start(Command::EvolveStart {
+            run_id: run_id.to_owned(),
+            world_id: world_id.to_owned(),
+            from_genome_id: from_genome_id.to_owned(),
+            generations,
+            budget,
+        })?;
+        let deadline = Instant::now() + Duration::from_secs(600);
+        loop {
+            let history = self
+                .storage
+                .as_ref()
+                .ok_or(ExecuteError::Internal)?
+                .ledger
+                .replay_verified()
+                .map_err(|_| ExecuteError::Internal)?;
+            let run = evolution_projection(&history, run_id)
+                .map_err(|_| ExecuteError::Internal)?
+                .ok_or(ExecuteError::Internal)?;
+            if run.state == EvolutionRunState::Finished {
+                return Ok(run);
+            }
+            if Instant::now() >= deadline {
+                return Err(ExecuteError::Rejected(format!(
+                    "meta-evaluation lineage run {run_id} did not finish before its deadline"
+                )));
+            }
+            self.service_async_messages()
+                .map_err(|_| ExecuteError::Internal)?;
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Cooperatively rolls a World's Champion back to `target_genome_id`,
+    /// one promotion at a time, so a second strategy's run starts from
+    /// exactly the same lineage state as the first. Used only between and
+    /// after a meta-evaluation's own paired runs; it never touches a
+    /// Champion an operator did not already hand this lineage to `evolve`.
+    fn rollback_champion_to(
+        &mut self,
+        transition_id_prefix: &str,
+        world_id: &str,
+        target_genome_id: &str,
+        max_attempts: u32,
+    ) -> Result<(), ExecuteError> {
+        for attempt in 0..=max_attempts {
+            let history = self
+                .storage
+                .as_ref()
+                .ok_or(ExecuteError::Internal)?
+                .ledger
+                .replay_verified()
+                .map_err(|_| ExecuteError::Internal)?;
+            let champion_id = champion_projection(&history, world_id)
+                .map_err(|_| ExecuteError::Internal)?
+                .champion_genome_id;
+            if champion_id.as_deref() == Some(target_genome_id) {
+                return Ok(());
+            }
+            self.transition_champion(
+                &format!("{transition_id_prefix}-rollback-{attempt}"),
+                &ChampionRequest::Rollback {
+                    world_id: world_id.to_owned(),
+                    reason: "meta-evaluation restoring the held-out lineage's starting Champion"
+                        .to_owned(),
+                },
+            )?;
+        }
+        Err(ExecuteError::Internal)
+    }
+
+    /// Runs a paired meta-evaluation of two Evolver strategies over the
+    /// requested held-out base lineages, driving the existing evolve engine
+    /// unmodified and recording one replay-verified receipt. Idempotent on
+    /// `meta_run_id`.
+    #[allow(clippy::too_many_lines, clippy::similar_names)]
+    fn meta_evaluate(&mut self, command: Command) -> Result<ResponseData, ExecuteError> {
+        let Command::MetaEvaluate {
+            meta_run_id,
+            strategy_a_id,
+            strategy_b_id,
+            lineages,
+            confidence_bps,
+            bootstrap_seed,
+        } = command
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) = meta_evaluation_projection(&history, &meta_run_id)
+            .map_err(|_| ExecuteError::Internal)?
+        {
+            return Ok(ResponseData::MetaEvaluation {
+                receipt: Box::new(existing),
+            });
+        }
+        let strategy_a = meta_strategy_projection(&history, &strategy_a_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        let strategy_b = meta_strategy_projection(&history, &strategy_b_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+
+        let mut outcomes = Vec::with_capacity(lineages.len());
+        for (index, lineage) in lineages.iter().enumerate() {
+            let run_a_id = format!("meta-{meta_run_id}-a-{index}");
+            let run_b_id = format!("meta-{meta_run_id}-b-{index}");
+            let run_a = self.drive_evolve_run(
+                &run_a_id,
+                &lineage.world_id,
+                &lineage.from_genome_id,
+                strategy_a.config.generation_count,
+                strategy_a.config.experiment_allocation,
+            )?;
+            self.rollback_champion_to(
+                &run_a_id,
+                &lineage.world_id,
+                &lineage.from_genome_id,
+                strategy_a.config.generation_count,
+            )?;
+            let run_b = self.drive_evolve_run(
+                &run_b_id,
+                &lineage.world_id,
+                &lineage.from_genome_id,
+                strategy_b.config.generation_count,
+                strategy_b.config.experiment_allocation,
+            )?;
+            self.rollback_champion_to(
+                &run_b_id,
+                &lineage.world_id,
+                &lineage.from_genome_id,
+                strategy_b.config.generation_count,
+            )?;
+
+            outcomes.push(MetaLineageOutcome {
+                world_id: lineage.world_id.clone(),
+                from_genome_id: lineage.from_genome_id.clone(),
+                strategy_a_run_id: run_a_id,
+                strategy_b_run_id: run_b_id,
+                strategy_a_champion_genome_id: champion_after(&run_a),
+                strategy_b_champion_genome_id: champion_after(&run_b),
+                strategy_a_promotions: promotions_of(&run_a),
+                strategy_b_promotions: promotions_of(&run_b),
+                strategy_a_trials_consumed: run_a.trials_consumed,
+                strategy_b_trials_consumed: run_b.trials_consumed,
+            });
+        }
+
+        let quality_deltas: Vec<i64> = outcomes
+            .iter()
+            .map(|outcome| {
+                i64::from(outcome.strategy_b_promotions) - i64::from(outcome.strategy_a_promotions)
+            })
+            .collect();
+        let cost_deltas: Vec<i64> = outcomes
+            .iter()
+            .map(|outcome| {
+                let a = i64::try_from(outcome.strategy_a_trials_consumed).unwrap_or(i64::MAX);
+                let b = i64::try_from(outcome.strategy_b_trials_consumed).unwrap_or(i64::MAX);
+                b - a
+            })
+            .collect();
+        let quality_delta = paired_bootstrap(&quality_deltas, bootstrap_seed, confidence_bps)
+            .map_err(|_| ExecuteError::Internal)?;
+        let cost_delta = paired_bootstrap(&cost_deltas, bootstrap_seed, confidence_bps)
+            .map_err(|_| ExecuteError::Internal)?;
+
+        let payload = MetaEvaluationPayload {
+            schema_version: 1,
+            meta_run_id: meta_run_id.clone(),
+            strategy_a_id,
+            strategy_b_id,
+            confidence_bps,
+            bootstrap_seed,
+            bootstrap_resamples: u32::try_from(RESAMPLES).map_err(|_| ExecuteError::Internal)?,
+            algorithm: BOOTSTRAP_ALGORITHM.to_owned(),
+            lineages: outcomes,
+            quality_delta,
+            cost_delta,
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                meta_evaluation_event_id(&meta_run_id),
+                meta_evaluation_aggregate_id(&meta_run_id),
+                META_EVALUATION_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        self.meta_show(&meta_run_id)
+    }
+
+    /// Read-only, replay-verified lookup of one meta-evaluation receipt.
+    fn meta_show(&self, meta_run_id: &str) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let receipt = meta_evaluation_projection(&history, meta_run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(ResponseData::MetaEvaluation {
+            receipt: Box::new(receipt),
+        })
+    }
+
+    /// Recent meta-evaluation receipts, newest first, bounded by `limit`.
+    fn meta_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let receipts = meta_evaluation_list(&history, limit).map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::MetaEvaluationList { receipts })
+    }
+
     /// Called every `service_async_messages` tick. Advances the one active
     /// evolution run, if any, by exactly one bounded internal step: admitting
     /// or draining a generation's Arena evaluation, or completing a
@@ -2008,6 +2370,8 @@ impl ControlPlane {
                 | Command::ArtifactPut { .. }
                 | Command::Replay
                 | Command::EvolveStart { .. }
+                | Command::MetaStrategyRegister { .. }
+                | Command::MetaEvaluate { .. }
         );
         if (self.active_job.is_some() || self.active_arena_job.is_some()) && storage_taking {
             Err(ExecuteError::Busy)
@@ -4404,6 +4768,7 @@ impl ControlPlane {
         verify_gene_bank_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
+        verify_meta_evolution_history(&history).map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
             registered,
@@ -5647,7 +6012,8 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     }
     if let Command::RunList { limit }
     | Command::EvaluationList { limit }
-    | Command::DenialList { limit } = command
+    | Command::DenialList { limit }
+    | Command::MetaList { limit } = command
         && (*limit == 0 || *limit > MAX_LIST_LIMIT)
     {
         return Err(ExecuteError::Invalid("limit must be between 1 and 200"));
@@ -5684,6 +6050,71 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         && validate_job_id(run_id).is_err()
     {
         return Err(ExecuteError::Invalid("run_id is invalid"));
+    }
+    if let Command::MetaStrategyRegister { path } = command
+        && path.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("path is required"));
+    }
+    if let Command::MetaStrategyShow { strategy_id } = command
+        && strategy_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("strategy_id is required"));
+    }
+    if let Command::MetaEvaluate {
+        meta_run_id,
+        strategy_a_id,
+        strategy_b_id,
+        lineages,
+        confidence_bps,
+        bootstrap_seed: _,
+    } = command
+    {
+        validate_job_id(meta_run_id)
+            .map_err(|_| ExecuteError::Invalid("meta_run_id is invalid"))?;
+        if meta_run_id.len() > MAX_META_RUN_ID_BYTES {
+            return Err(ExecuteError::Invalid(
+                "meta_run_id must leave room for its derived run identifiers",
+            ));
+        }
+        if strategy_a_id.trim().is_empty() || strategy_b_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid(
+                "strategy_a_id and strategy_b_id are required",
+            ));
+        }
+        if strategy_a_id == strategy_b_id {
+            return Err(ExecuteError::Invalid(
+                "strategy_a_id and strategy_b_id must differ",
+            ));
+        }
+        if lineages.len() < 2 {
+            return Err(ExecuteError::Invalid(
+                "at least two held-out lineages are required for a bootstrap comparison",
+            ));
+        }
+        let mut worlds = std::collections::BTreeSet::new();
+        for lineage in lineages {
+            if lineage.world_id.trim().is_empty() || lineage.from_genome_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid(
+                    "lineage world_id and from_genome_id are required",
+                ));
+            }
+            if !worlds.insert(lineage.world_id.clone()) {
+                return Err(ExecuteError::Invalid(
+                    "held-out lineages must use distinct Worlds",
+                ));
+            }
+        }
+        if *confidence_bps == 0 || *confidence_bps >= 10_000 {
+            return Err(ExecuteError::Invalid(
+                "confidence_bps must be between 1 and 9999",
+            ));
+        }
+    }
+    if let Command::MetaShow { meta_run_id } = command
+        && validate_job_id(meta_run_id).is_err()
+    {
+        return Err(ExecuteError::Invalid("meta_run_id is invalid"));
     }
     require_champion_fields(command)?;
     require_gene_fields(command)
@@ -7239,6 +7670,12 @@ fn event_type(command: &Command) -> &'static str {
         Command::EvolveStart { .. } => "control.evolve_start",
         Command::EvolveStatus { .. } => "control.evolve_status",
         Command::EvolveCancel { .. } => "control.evolve_cancel",
+        Command::MetaStrategyRegister { .. } => "control.meta_strategy_register",
+        Command::MetaStrategyShow { .. } => "control.meta_strategy_show",
+        Command::MetaStrategyList => "control.meta_strategy_list",
+        Command::MetaEvaluate { .. } => "control.meta_evaluate",
+        Command::MetaShow { .. } => "control.meta_show",
+        Command::MetaList { .. } => "control.meta_list",
         Command::Replay => "control.replay",
         Command::RunList { .. } => "control.run_list",
         Command::EvaluationList { .. } => "control.evaluation_list",
@@ -7567,4 +8004,15 @@ use evolve::{
     EVOLUTION_STARTED_TYPE, TRIALS_PER_GENERATION, active_evolution_run_id, evolution_aggregate_id,
     evolution_cancel_event_id, evolution_finished_event_id, evolution_generation_event_id,
     evolution_projection, evolution_started_event_id, verify_evolution_history,
+};
+
+#[path = "meta_evolve.rs"]
+mod meta_evolve;
+
+use meta_evolve::{
+    BOOTSTRAP_ALGORITHM, META_EVALUATION_EVENT_TYPE, META_STRATEGY_EVENT_TYPE, RESAMPLES,
+    champion_after, meta_evaluation_aggregate_id, meta_evaluation_event_id, meta_evaluation_list,
+    meta_evaluation_projection, meta_strategy_aggregate_id, meta_strategy_event_id,
+    meta_strategy_id, meta_strategy_list, meta_strategy_projection, paired_bootstrap,
+    promotions_of, verify_meta_evolution_history,
 };

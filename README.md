@@ -254,6 +254,10 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus arena invariants <id>` | Record aggregate reference-output invariant evidence; never promotes |
 | `hephaestus evolve start <id> --world <w> --from <g> --generations <n> --budget <b>` | Unattended, budget-bounded evolution through the ordinary Forge and Champion policy ([docs/EVOLUTION.md](docs/EVOLUTION.md)) |
 | `hephaestus evolve status <id>` / `cancel <id>` | Inspect or cooperatively stop an evolution run |
+| `hephaestus meta strategy register <file>` | Register a versioned, content-addressed Evolver strategy Genome ([docs/META_EVOLUTION.md](docs/META_EVOLUTION.md)) |
+| `hephaestus meta strategy show <id>` / `list` | Inspect one or every registered Evolver strategy |
+| `hephaestus meta evaluate <id> --strategy-a <g> --strategy-b <g> --lineage-world <w> --lineage-genome <g> ... --lineages <n>` | Run a paired meta-evaluation of two Evolver strategies over held-out base lineages using the existing evolve engine; records a replay-verified receipt with a bootstrap confidence interval |
+| `hephaestus meta show <id>` / `list` | Inspect one meta-evaluation receipt, or list recent receipts |
 | `hephaestus forge analyze <id> --evaluation <evaluation>` | Record deterministic failure clusters with hypotheses and suggested minimal mutations; never promotes |
 | `hephaestus champion seed <id> --world <world> --genome <genome> --reason <text>` | Bootstrap a World's first Champion by operator authority |
 | `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |

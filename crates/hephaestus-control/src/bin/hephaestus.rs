@@ -11,7 +11,9 @@ use hephaestus_control::{
     Command, DenialEntry, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord,
     ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
     GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord,
-    JobState, ResponseData, RunListEntry, SelectionRecord, WorldRecord, data_dir_from_environment,
+    JobState, MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
+    MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
+    data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -105,6 +107,12 @@ enum CliCommand {
     Evolve {
         #[command(subcommand)]
         command: EvolveCommand,
+    },
+    /// Register Evolver strategy Genomes and run meta-evaluations of them
+    /// over held-out base lineages (recursive evolution of the Evolver).
+    Meta {
+        #[command(subcommand)]
+        command: MetaCommand,
     },
     /// Cluster failure evidence and suggest hypotheses and mutations.
     Forge {
@@ -385,6 +393,78 @@ enum EvolveCommand {
         /// Stable run identity returned by `start`.
         run_id: String,
     },
+}
+
+#[derive(Subcommand)]
+enum MetaCommand {
+    /// Register, inspect, and list Evolver strategy Genomes.
+    Strategy {
+        #[command(subcommand)]
+        command: MetaStrategyCommand,
+    },
+    /// Run a paired meta-evaluation of two Evolver strategies over held-out
+    /// base lineages, driving the existing evolve engine unmodified.
+    ///
+    /// Each lineage is one already-registered World together with the
+    /// Genome installed as its generation-zero Champion (exactly what
+    /// `evolve start --from` takes); the World must already carry a second
+    /// registered Genome to serve as the evolve engine's fixed baseline.
+    /// Supply one `--lineage-world`/`--lineage-genome` pair per lineage, in
+    /// matching order.
+    Evaluate {
+        /// Stable idempotency key for this meta-evaluation.
+        meta_run_id: String,
+        /// Registered Evolver strategy Genome, the "A" side of the comparison.
+        #[arg(long = "strategy-a")]
+        strategy_a: String,
+        /// Registered Evolver strategy Genome, the "B" side of the comparison.
+        #[arg(long = "strategy-b")]
+        strategy_b: String,
+        /// Held-out lineage World identities, one per lineage.
+        #[arg(long = "lineage-world", required = true)]
+        lineage_world: Vec<String>,
+        /// Held-out lineage generation-zero Genome identities, matched by
+        /// position to `--lineage-world`.
+        #[arg(long = "lineage-genome", required = true)]
+        lineage_genome: Vec<String>,
+        /// Declared held-out lineage count; must equal the number of
+        /// `--lineage-world`/`--lineage-genome` pairs supplied.
+        #[arg(long)]
+        lineages: usize,
+        /// Bootstrap confidence, in basis points (for example `9_500` for 95%).
+        #[arg(long, default_value_t = 9_500)]
+        confidence_bps: u16,
+        /// Deterministic bootstrap resampling seed.
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+    },
+    /// Show one meta-evaluation's durable, replay-verified receipt.
+    Show {
+        /// Stable meta-evaluation identity returned by `evaluate`.
+        meta_run_id: String,
+    },
+    /// List recent meta-evaluation receipts, newest first.
+    List {
+        /// Maximum entries to return (1-200).
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum MetaStrategyCommand {
+    /// Register (or idempotently re-resolve) an Evolver strategy Genome.
+    Register {
+        /// JSON `EvolverStrategyConfig` source file.
+        path: PathBuf,
+    },
+    /// Show one registered Evolver strategy Genome.
+    Show {
+        /// Content-derived strategy identity.
+        strategy_id: String,
+    },
+    /// List every registered Evolver strategy Genome.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -836,6 +916,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Champion { command } => champion_command_from_cli(command),
         CliCommand::Gene { command } => gene_command_from_cli(command),
         CliCommand::Evolve { command } => evolve_command_from_cli(command),
+        CliCommand::Meta { command } => meta_command_from_cli(command)?,
         CliCommand::Replay => Command::Replay,
         CliCommand::Runs { limit } => Command::RunList { limit },
         CliCommand::Evaluations { limit } => Command::EvaluationList { limit },
@@ -931,6 +1012,57 @@ fn evolve_command_from_cli(command: EvolveCommand) -> Command {
         EvolveCommand::Status { run_id } => Command::EvolveStatus { run_id },
         EvolveCommand::Cancel { run_id } => Command::EvolveCancel { run_id },
     }
+}
+
+fn meta_command_from_cli(command: MetaCommand) -> Result<Command, &'static str> {
+    Ok(match command {
+        MetaCommand::Strategy { command } => match command {
+            MetaStrategyCommand::Register { path } => Command::MetaStrategyRegister {
+                path: absolute_path(path)?,
+            },
+            MetaStrategyCommand::Show { strategy_id } => Command::MetaStrategyShow { strategy_id },
+            MetaStrategyCommand::List => Command::MetaStrategyList,
+        },
+        MetaCommand::Evaluate {
+            meta_run_id,
+            strategy_a,
+            strategy_b,
+            lineage_world,
+            lineage_genome,
+            lineages,
+            confidence_bps,
+            seed,
+        } => {
+            if lineage_world.len() != lineage_genome.len() {
+                return Err(
+                    "--lineage-world and --lineage-genome must be supplied the same number of times",
+                );
+            }
+            if lineage_world.len() != lineages {
+                return Err(
+                    "--lineages must equal the number of --lineage-world/--lineage-genome pairs supplied",
+                );
+            }
+            let lineages = lineage_world
+                .into_iter()
+                .zip(lineage_genome)
+                .map(|(world_id, from_genome_id)| MetaLineageSpec {
+                    world_id,
+                    from_genome_id,
+                })
+                .collect();
+            Command::MetaEvaluate {
+                meta_run_id,
+                strategy_a_id: strategy_a,
+                strategy_b_id: strategy_b,
+                lineages,
+                confidence_bps,
+                bootstrap_seed: seed,
+            }
+        }
+        MetaCommand::Show { meta_run_id } => Command::MetaShow { meta_run_id },
+        MetaCommand::List { limit } => Command::MetaList { limit },
+    })
 }
 
 fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static str> {
@@ -1107,6 +1239,22 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Evolution { run }), None) => {
             println!("{}", evolution_human(run));
         }
+        (Some(ResponseData::MetaStrategy { strategy }), None) => {
+            println!("{}", meta_strategy_human(strategy));
+        }
+        (Some(ResponseData::MetaStrategies { strategies }), None) => {
+            for strategy in strategies {
+                println!("{}", meta_strategy_human(strategy));
+            }
+        }
+        (Some(ResponseData::MetaEvaluation { receipt }), None) => {
+            println!("{}", meta_receipt_human(receipt));
+        }
+        (Some(ResponseData::MetaEvaluationList { receipts }), None) => {
+            for receipt in receipts {
+                println!("{}", meta_receipt_human(receipt));
+            }
+        }
         (
             Some(ResponseData::Replay {
                 event_count,
@@ -1258,6 +1406,66 @@ fn evolution_human(run: &EvolutionRunRecord) -> String {
             generation.payload.assessment_id,
         )
     }));
+    lines.join("\n")
+}
+
+fn meta_strategy_human(strategy: &MetaStrategyRecord) -> String {
+    format!(
+        "strategy={} name={} mutation_prioritization={:?} generations={} experiment_allocation={} candidate_count={} gene_selection={:?}",
+        strategy.strategy_id,
+        strategy.config.name,
+        strategy.config.mutation_prioritization,
+        strategy.config.generation_count,
+        strategy.config.experiment_allocation,
+        strategy.config.candidate_count,
+        strategy.config.gene_selection,
+    )
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn meta_interval_human(label: &str, interval: &MetaBootstrapInterval) -> String {
+    format!(
+        "{label}: estimate={:.4} interval=[{:.4}, {:.4}]",
+        interval.estimate_x10000 as f64 / 10_000.0,
+        interval.lower_x10000 as f64 / 10_000.0,
+        interval.upper_x10000 as f64 / 10_000.0,
+    )
+}
+
+fn meta_lineage_human(outcome: &MetaLineageOutcome) -> String {
+    format!(
+        "  lineage world={} from={} a[run={} champion={} promotions={} trials={}] b[run={} champion={} promotions={} trials={}]",
+        outcome.world_id,
+        outcome.from_genome_id,
+        outcome.strategy_a_run_id,
+        outcome.strategy_a_champion_genome_id,
+        outcome.strategy_a_promotions,
+        outcome.strategy_a_trials_consumed,
+        outcome.strategy_b_run_id,
+        outcome.strategy_b_champion_genome_id,
+        outcome.strategy_b_promotions,
+        outcome.strategy_b_trials_consumed,
+    )
+}
+
+fn meta_receipt_human(receipt: &MetaReceiptRecord) -> String {
+    let mut lines = vec![format!(
+        "meta_run={} strategy_a={} strategy_b={} confidence_bps={} algorithm={}",
+        receipt.payload.meta_run_id,
+        receipt.payload.strategy_a_id,
+        receipt.payload.strategy_b_id,
+        receipt.payload.confidence_bps,
+        receipt.payload.algorithm,
+    )];
+    lines.push(meta_interval_human(
+        "quality_delta (b-a promotions)",
+        &receipt.payload.quality_delta,
+    ));
+    lines.push(meta_interval_human(
+        "cost_delta (b-a trials)",
+        &receipt.payload.cost_delta,
+    ));
+    lines.extend(receipt.payload.lineages.iter().map(meta_lineage_human));
     lines.join("\n")
 }
 
@@ -1518,7 +1726,7 @@ mod tests {
         Arguments, command_from_cli, copy_fixture_into_new_destination, evaluation_human,
         fixture_source_dir, packaged_tui_paths,
     };
-    use hephaestus_control::{Command, EvaluationEventRecord, EvaluationRecord};
+    use hephaestus_control::{Command, EvaluationEventRecord, EvaluationRecord, MetaLineageSpec};
 
     #[test]
     fn genome_assess_maps_stable_ids_to_the_authenticated_command() {
@@ -1658,6 +1866,99 @@ mod tests {
                 run_id: "run-1".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn meta_commands_map_flags_to_authenticated_commands() {
+        let parse = |arguments: &[&str]| {
+            command_from_cli(
+                Arguments::try_parse_from(arguments)
+                    .expect("CLI parses")
+                    .command,
+            )
+            .expect("command maps")
+        };
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "meta",
+                "evaluate",
+                "meta-run-1",
+                "--strategy-a",
+                "strategy-a",
+                "--strategy-b",
+                "strategy-b",
+                "--lineage-world",
+                "world-1",
+                "--lineage-genome",
+                "genome-1",
+                "--lineage-world",
+                "world-2",
+                "--lineage-genome",
+                "genome-2",
+                "--lineages",
+                "2",
+                "--confidence-bps",
+                "9000",
+                "--seed",
+                "7",
+            ]),
+            Command::MetaEvaluate {
+                meta_run_id: "meta-run-1".to_owned(),
+                strategy_a_id: "strategy-a".to_owned(),
+                strategy_b_id: "strategy-b".to_owned(),
+                lineages: vec![
+                    MetaLineageSpec {
+                        world_id: "world-1".to_owned(),
+                        from_genome_id: "genome-1".to_owned(),
+                    },
+                    MetaLineageSpec {
+                        world_id: "world-2".to_owned(),
+                        from_genome_id: "genome-2".to_owned(),
+                    },
+                ],
+                confidence_bps: 9_000,
+                bootstrap_seed: 7,
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "meta", "show", "meta-run-1"]),
+            Command::MetaShow {
+                meta_run_id: "meta-run-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "meta", "strategy", "list"]),
+            Command::MetaStrategyList
+        );
+        assert_eq!(
+            parse(&["hephaestus", "meta", "strategy", "show", "strategy-a"]),
+            Command::MetaStrategyShow {
+                strategy_id: "strategy-a".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn meta_evaluate_rejects_a_lineage_count_mismatch() {
+        let arguments = Arguments::try_parse_from([
+            "hephaestus",
+            "meta",
+            "evaluate",
+            "meta-run-1",
+            "--strategy-a",
+            "strategy-a",
+            "--strategy-b",
+            "strategy-b",
+            "--lineage-world",
+            "world-1",
+            "--lineage-genome",
+            "genome-1",
+            "--lineages",
+            "2",
+        ])
+        .expect("CLI parses");
+        assert!(command_from_cli(arguments.command).is_err());
     }
 
     #[test]
