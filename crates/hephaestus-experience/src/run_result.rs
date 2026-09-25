@@ -80,7 +80,9 @@ pub struct RunResultReceipt {
     pub completion_reason: RunCompletionReason,
     /// Runtime-owned terminal latency.
     pub latency_millis: u64,
-    /// Exact deterministic provider cost in micro-US dollars.
+    /// Exact provider-reported cost in micro-US dollars. Zero for the
+    /// deterministic reference worker and for a provider stream that reports
+    /// none; bounded above by this receipt's own approved budget.
     pub actual_cost_microusd: u64,
     /// CAS address of bounded standard output.
     pub stdout_artifact_id: String,
@@ -333,9 +335,9 @@ impl RunResultReceipt {
         validate_artifact_id(&self.input_commitment)?;
         validate_bounded_id(&self.environment_id, "run result environment_id is invalid")?;
         self.budget.validate()?;
-        if self.actual_cost_microusd != 0 {
+        if self.actual_cost_microusd > self.budget.maximum_cost_microusd {
             return Err(ExperienceError::InvalidInput(
-                "deterministic run result cost must be zero",
+                "run result cost exceeds its own approved budget",
             ));
         }
         if self.latency_millis > MAX_RUN_LATENCY_MILLIS {

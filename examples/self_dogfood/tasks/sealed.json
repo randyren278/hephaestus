@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "self-dogfood-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "note-heading-sealed",
+      "input": "# note",
+      "expected_output": "# NOTE"
+    }
+  ]
+}

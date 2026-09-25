@@ -38,14 +38,15 @@ use hephaestus_experience::{
     TraceKind, TraceReceipt,
 };
 use hephaestus_genome::{
-    CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat, compile_genome,
-    compile_markdown_genome, compile_world,
+    CompiledGenome, CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat,
+    compile_genome, compile_markdown_genome, compile_world,
 };
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
 use hephaestus_runtime::{
     Budget, CapabilityToken, CompletionReason, DeterministicRuntime, ExperimentContext,
-    IsolationPolicy, ReferenceInstruction, RunSpec, RunStatus, RuntimeAdapter, Sandbox,
-    SandboxManager, SupervisedRuntime, WorkerLimits,
+    IsolationPolicy, Provider, ReferenceInstruction, RunSpec, RunStatus, RuntimeAdapter, Sandbox,
+    SandboxManager, SupervisedRuntime, WorkerLimits, extract_actual_cost_microusd,
+    extract_final_answer,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::{Builder as TempDirBuilder, TempDir};
@@ -118,6 +119,17 @@ pub struct ControlPlane {
     reference_worker_executable: PathBuf,
     reference_worker_digest: String,
     guardian_executable: PathBuf,
+    /// Operator-configured Codex CLI binary. A daemon flag or environment
+    /// variable, never a hardcoded path, so offline tests can point it at a
+    /// fake and a live operator can point it at their own install.
+    codex_executable: PathBuf,
+    /// Operator-configured Claude Code CLI binary. Same configuration story
+    /// as `codex_executable`.
+    claude_executable: PathBuf,
+    /// Names of environment variables explicitly copied into a provider
+    /// child process on top of its fixed `PATH`/`HOME`/`TMPDIR`. Empty by
+    /// default: nothing is inherited unless an operator names it here.
+    provider_env_allowlist: Vec<String>,
     token_hex: String,
     operator_token: OperatorToken,
     run_result_signer: RunResultSigner,
@@ -532,6 +544,11 @@ impl ControlPlane {
         let reference_worker_executable = reference_worker_executable.into();
         let reference_worker_digest = executable_digest(&reference_worker_executable)?;
         let guardian_executable = default_process_guardian_executable()?;
+        let codex_executable =
+            provider_executable_from_environment("HEPHAESTUS_CODEX_EXECUTABLE", "codex");
+        let claude_executable =
+            provider_executable_from_environment("HEPHAESTUS_CLAUDE_EXECUTABLE", "claude");
+        let provider_env_allowlist = provider_env_allowlist_from_environment();
         prepare_private_directory(&data_dir)?;
         let lock = take_writer_lock(&data_dir.join("daemon.lock"))?;
         let (token_hex, token_bytes) = load_or_create_token(&data_dir.join("operator.token"))?;
@@ -598,6 +615,9 @@ impl ControlPlane {
             reference_worker_executable,
             reference_worker_digest,
             guardian_executable,
+            codex_executable,
+            claude_executable,
+            provider_env_allowlist,
             token_hex,
             operator_token,
             run_result_signer,
@@ -617,6 +637,23 @@ impl ControlPlane {
             arena_message_receiver: None,
             arena_message_sender: None,
         })
+    }
+
+    /// Test-only override of the provider adapter binaries and environment
+    /// allowlist. Bypasses process environment variables entirely, so
+    /// parallel tests never race on shared global state.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn with_provider_executables_for_testing(
+        mut self,
+        codex_executable: impl Into<PathBuf>,
+        claude_executable: impl Into<PathBuf>,
+        provider_env_allowlist: Vec<String>,
+    ) -> Self {
+        self.codex_executable = codex_executable.into();
+        self.claude_executable = claude_executable.into();
+        self.provider_env_allowlist = provider_env_allowlist;
+        self
     }
 
     /// Serves authenticated one-request connections until the process is stopped.
@@ -2444,8 +2481,22 @@ impl ControlPlane {
             return Err(ExecuteError::Busy);
         }
         let genome = self.runnable_genome(genome_id)?;
-        let worker = Arc::new(self.pin_reference_worker()?);
+        // `submit`'s canonical job-record projection (`validate_job_record`)
+        // hard-codes the reference-worker contract: a digest-pinned
+        // `environment_id`, the fixed inventory `task_id`, and a zero-cost
+        // budget. A Codex/Claude adapter fits none of those, and writing a
+        // job event the projection cannot validate would corrupt canonical
+        // history (`ControlPlane::open` replays and validates all of it), so
+        // this fails closed before any event is appended. `run` already
+        // supports provider Genomes end to end; see docs/RUNTIMES.md for
+        // what a `submit` extension needs.
+        if self.selected_run_provider(genome_id)?.is_some() {
+            return Err(ExecuteError::Rejected(
+                "async submit does not yet support provider Genomes; use run instead".to_owned(),
+            ));
+        }
         let run_id = job_run_id(job_id);
+        let worker = Arc::new(self.pin_reference_worker()?);
         let spec = self.async_reference_spec(&run_id, &genome, &worker)?;
         let budget = spec.budget();
         let admitted = JobRecord {
@@ -3365,6 +3416,27 @@ impl ControlPlane {
         result
     }
 
+    fn compiled_genome(&self, genome_id: &str) -> Result<CompiledGenome, ExecuteError> {
+        self.state
+            .registered
+            .genome(genome_id)
+            .map(|genome| genome.compiled().clone())
+            .ok_or(ExecuteError::NotFound)
+    }
+
+    /// Resolves which provider adapter a Genome's `model.provider` selects.
+    /// `None` keeps the existing reference-worker path (covers `deterministic`
+    /// and any other value, so unrecognized text fails closed to the safe,
+    /// already-verified default rather than to an unconfigured adapter).
+    fn selected_run_provider(&self, genome_id: &str) -> Result<Option<Provider>, ExecuteError> {
+        let compiled = self.compiled_genome(genome_id)?;
+        Ok(match compiled.model_provider() {
+            "codex" => Some(Provider::Codex),
+            "claude" => Some(Provider::Claude),
+            _ => None,
+        })
+    }
+
     fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {
         if self.state.freeze.is_frozen() {
             return Err(ExecuteError::Invalid("evolution is frozen"));
@@ -3384,6 +3456,13 @@ impl ControlPlane {
         genome: &GenomeRecord,
     ) -> Result<ResponseData, ExecuteError> {
         let prompt = "Inventory the isolated repository without modifying it or using the network.";
+        // Deterministic runs never report cost, so a zero ceiling is exact for
+        // them; a provider genome is bounded by its own World's approved Law
+        // instead of an arbitrary fixed figure.
+        let maximum_cost_microusd = match self.selected_run_provider(&genome.genome_id)? {
+            Some(_) => self.registered_world_cost_ceiling(&genome.world_id)?,
+            None => 0,
+        };
         self.run_with_context(
             run_id,
             genome,
@@ -3392,7 +3471,7 @@ impl ControlPlane {
             0,
             10_000,
             1_048_576,
-            0,
+            maximum_cost_microusd,
         )
     }
 
@@ -4196,6 +4275,7 @@ impl ControlPlane {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)]
     fn run_with_context(
         &mut self,
         run_id: &str,
@@ -4209,16 +4289,31 @@ impl ControlPlane {
     ) -> Result<ResponseData, ExecuteError> {
         let budget =
             validated_evaluation_budget(wall_millis, maximum_output_bytes, maximum_cost_microusd)?;
-        let instruction = self.reference_instruction(&genome.genome_id)?;
+        let selected_provider = self.selected_run_provider(&genome.genome_id)?;
+        let instruction = if selected_provider.is_none() {
+            self.reference_instruction(&genome.genome_id)?
+        } else {
+            None
+        };
         let worker = instruction
             .is_some()
             .then(|| self.pin_reference_worker())
             .transpose()?;
-        let environment_id = worker
-            .as_ref()
-            .map_or_else(reference_environment_id, |worker| {
-                Self::reference_execution_environment(worker)
-            });
+        let environment_id = if let Some(provider) = selected_provider {
+            provider_execution_environment(provider)
+        } else {
+            worker
+                .as_ref()
+                .map_or_else(reference_environment_id, |worker| {
+                    Self::reference_execution_environment(worker)
+                })
+        };
+        let capabilities = match selected_provider {
+            // A real provider runs with the Genome's own compiled authority
+            // ceiling; the reference-worker smoke test deliberately ignores it.
+            Some(_) => self.compiled_genome(&genome.genome_id)?.authority(),
+            None => CapabilitySet::new(false, false),
+        };
         let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), seed, environment_id)
             .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
         let mut spec = RunSpec::new_for_experiment(
@@ -4227,7 +4322,7 @@ impl ControlPlane {
             &genome.world_id,
             &self.source_repository,
             prompt,
-            CapabilitySet::new(false, false),
+            capabilities,
             budget,
             experiment,
         )
@@ -4252,6 +4347,29 @@ impl ControlPlane {
         } else {
             None
         };
+        let provider_runtime = match selected_provider {
+            Some(provider) => {
+                let executable = match provider {
+                    Provider::Codex => self.codex_executable.clone(),
+                    Provider::Claude => self.claude_executable.clone(),
+                    Provider::Deterministic => {
+                        return Err(ExecuteError::Internal);
+                    }
+                };
+                let extra_env = resolve_provider_extra_env(&self.provider_env_allowlist);
+                Some(
+                    SupervisedRuntime::provider_guarded(
+                        candidate_isolation(self.protected_runtime_paths()),
+                        provider,
+                        executable,
+                        &self.guardian_executable,
+                        extra_env,
+                    )
+                    .map_err(|_| ExecuteError::Internal)?,
+                )
+            }
+            None => None,
+        };
         let manager =
             SandboxManager::open(self.data_dir.join("sandboxes"), Duration::from_secs(30))
                 .map_err(|_| ExecuteError::Internal)?;
@@ -4261,13 +4379,24 @@ impl ControlPlane {
             let limits =
                 RetentionLimits::new(10_000, 65_536).map_err(|_| ExecuteError::Internal)?;
             let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
+            let redaction = RedactionPolicy::new([self.token_hex.clone()]);
             let recorder = EvidenceRecorder::from_stores(
                 storage.ledger,
                 storage.artifacts,
-                RedactionPolicy::new([self.token_hex.clone()]),
+                redaction.clone(),
                 limits,
             );
-            let (execution, recorder) = if let Some(runtime) = supervised_runtime {
+            let (execution, recorder) = if let Some(runtime) = provider_runtime {
+                execute_provider_runtime(
+                    runtime,
+                    recorder,
+                    &spec,
+                    sandbox.sandbox()?,
+                    &token,
+                    run_id,
+                    &redaction,
+                )
+            } else if let Some(runtime) = supervised_runtime {
                 execute_candidate_runtime(
                     runtime,
                     recorder,
@@ -6255,6 +6384,9 @@ struct ReferenceExecution {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     trace_artifact_ids: Vec<String>,
+    /// Exact cost the provider reported, in micro-US-dollars. Always zero for
+    /// the reference worker and for a provider stream that reports none.
+    actual_cost_microusd: u64,
 }
 
 fn execute_async_reference(
@@ -6320,6 +6452,7 @@ fn execute_async_reference(
                     stdout,
                     stderr,
                     trace_artifact_ids: runtime.trace_artifact_ids().to_vec(),
+                    actual_cost_microusd: 0,
                 });
             }
             thread::sleep(Duration::from_millis(5));
@@ -6451,6 +6584,7 @@ fn execute_reference_runtime(
             stdout,
             stderr,
             trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,
+            actual_cost_microusd: 0,
         })
     })();
     let (_, recorder) = runtime.into_parts();
@@ -6503,10 +6637,89 @@ fn execute_candidate_runtime(
             stdout,
             stderr,
             trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,
+            actual_cost_microusd: 0,
         })
     })();
     let (_, recorder) = runtime.into_parts();
     (execution, recorder)
+}
+
+/// Runs a Codex or Claude Code adapter to completion and maps its NDJSON
+/// stream onto a signed run result: the extracted final answer becomes
+/// stdout, the reported cost (when any) becomes `actual_cost_microusd`, and
+/// both stdout and stderr are redacted before they ever reach the artifact
+/// store. Structured observations (tool calls, denials, cost) are recorded
+/// as evidence traces by `RecordedRuntime` via `drain_observations`, through
+/// the same redaction and evidence pipeline the reference worker uses.
+fn execute_provider_runtime(
+    runtime: SupervisedRuntime,
+    recorder: EvidenceRecorder,
+    spec: &RunSpec,
+    sandbox: &Sandbox,
+    token: &CapabilityToken,
+    run_id: &str,
+    redaction: &RedactionPolicy,
+) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {
+    let provider = runtime.provider();
+    let mut runtime = match RecordedRuntime::new_recoverable(runtime, recorder) {
+        Ok(runtime) => runtime,
+        Err(recovery) => {
+            let (_, _, recorder) = *recovery;
+            return (Err(ExecuteError::Internal), recorder);
+        }
+    };
+    let execution = (|| {
+        runtime
+            .start(spec, sandbox, token)
+            .map_err(|_| ExecuteError::Internal)?;
+        let snapshot = loop {
+            let snapshot = runtime
+                .snapshot(run_id)
+                .map_err(|_| ExecuteError::Internal)?;
+            if snapshot.status != RunStatus::Running {
+                break snapshot;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let completion_reason = snapshot
+            .completion_reason
+            .ok_or(ExecuteError::Internal)
+            .map(run_completion_reason)?;
+        let latency_millis =
+            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;
+        let raw_stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;
+        let raw_stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;
+        let final_answer = extract_final_answer(provider, &raw_stdout);
+        let actual_cost_microusd = extract_actual_cost_microusd(provider, &raw_stdout);
+        let stdout = redact_bytes(redaction, &final_answer);
+        let stderr = redact_bytes(redaction, &raw_stderr);
+        let history = runtime
+            .evidence()
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let trace_ids = trace_artifacts_for_run(&history, run_id)?;
+        Ok(ReferenceExecution {
+            completion_reason,
+            latency_millis,
+            stdout,
+            stderr,
+            trace_artifact_ids: trace_ids,
+            actual_cost_microusd,
+        })
+    })();
+    let (_, recorder) = runtime.into_parts();
+    (execution, recorder)
+}
+
+/// Redacts textual provider output through the existing secret-redaction
+/// path. Bytes that are not valid UTF-8 are passed through unchanged: the
+/// redaction rules match literal tokens and known-secret strings, which are
+/// only ever meaningful in text.
+fn redact_bytes(policy: &RedactionPolicy, bytes: &[u8]) -> Vec<u8> {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => policy.redact_text(text).into_bytes(),
+        Err(_) => bytes.to_vec(),
+    }
 }
 
 #[cfg(feature = "test-support")]
@@ -6602,6 +6815,41 @@ fn default_reference_worker_executable() -> Result<PathBuf, ControlError> {
     Ok(sibling)
 }
 
+/// Resolves an operator-configured provider CLI path from `variable`, falling
+/// back to `default_name` for `PATH`-relative lookup by the isolated child's
+/// own restored `PATH` (never this process's full environment).
+fn provider_executable_from_environment(variable: &str, default_name: &str) -> PathBuf {
+    env::var_os(variable).map_or_else(|| PathBuf::from(default_name), PathBuf::from)
+}
+
+/// Reads the operator-named allowlist of environment variables a provider
+/// child may see, from `HEPHAESTUS_PROVIDER_ENV_ALLOWLIST` (comma-separated
+/// names). Empty when unset, so nothing beyond `PATH`/`HOME`/`TMPDIR` reaches
+/// a provider child unless an operator explicitly names it.
+fn provider_env_allowlist_from_environment() -> Vec<String> {
+    env::var("HEPHAESTUS_PROVIDER_ENV_ALLOWLIST")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Copies only the named, currently-set variables from this process's own
+/// environment. A name that is not set is silently skipped rather than
+/// passed through as empty.
+fn resolve_provider_extra_env(allowlist: &[String]) -> Vec<(String, String)> {
+    allowlist
+        .iter()
+        .filter_map(|name| env::var(name).ok().map(|value| (name.clone(), value)))
+        .collect()
+}
+
 fn default_process_guardian_executable() -> Result<PathBuf, ControlError> {
     let current = env::current_exe()?;
     let directory = current
@@ -6661,7 +6909,7 @@ fn persist_reference_output(
         source_revision: source_revision.to_owned(),
         completion_reason: output.completion_reason,
         latency_millis: output.latency_millis,
-        actual_cost_microusd: 0,
+        actual_cost_microusd: output.actual_cost_microusd,
         stdout_artifact_id,
         stderr_artifact_id,
         trace_artifact_ids: output.trace_artifact_ids,
@@ -7682,6 +7930,21 @@ fn event_type(command: &Command) -> &'static str {
         Command::DenialList { .. } => "control.denial_list",
         Command::DaemonStop => "control.daemon_stop",
     }
+}
+
+fn provider_execution_environment(provider: Provider) -> String {
+    let name = match provider {
+        Provider::Codex => "codex-cli",
+        Provider::Claude => "claude-cli",
+        Provider::Deterministic => "deterministic",
+    };
+    format!(
+        "{name}-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git",
+        env!("CARGO_PKG_VERSION"),
+        RUN_RESULT_SCHEMA_VERSION,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
 }
 
 fn reference_environment_id() -> String {
