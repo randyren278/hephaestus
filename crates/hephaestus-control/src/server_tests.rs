@@ -11127,3 +11127,99 @@ fn provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_tra
         "synchronous claude run must be in signed history with its reported cost"
     );
 }
+
+#[test]
+fn provider_run_redacts_secret_looking_text_before_it_reaches_the_artifact_store() {
+    let directory = tempdir().expect("fixture directory");
+    let (repository, _source_revision) = committed_reference_fixture(directory.path());
+    let data_dir = directory.path().join("data");
+    let current_executable = env::current_exe().expect("test executable");
+    let fake_claude = directory.path().join("fake-claude-secret");
+    fs::write(
+        &fake_claude,
+        "#!/bin/sh\n\
+cat >/dev/null\n\
+echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"token=sk-verysecrettoken1234 and operator-secret\",\"total_cost_usd\":0}'\n",
+    )
+    .expect("write fake claude binary");
+    fs::set_permissions(&fake_claude, fs::Permissions::from_mode(0o700))
+        .expect("mark fake claude executable");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &current_executable,
+    )
+    .expect("open control plane for redaction test")
+    .with_provider_executables_for_testing(
+        "/nonexistent/codex-should-not-be-invoked",
+        &fake_claude,
+        Vec::new(),
+    );
+    let token = plane.token_hex.clone();
+    let (world, _genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+    let genome_path = directory.path().join("claude-secret-agent.json");
+    fs::write(
+        &genome_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "name": "claude-secret-agent",
+            "parents": [],
+            "model": {"provider": "claude", "family": "sonnet"},
+            "authority": {"workspace_write": false, "network": false},
+            "artifacts": {}
+        }))
+        .expect("encode claude Genome"),
+    )
+    .expect("write claude Genome source");
+    let Some(ResponseData::Genome { genome }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-claude-secret-genome",
+        Command::GenomeRegister {
+            path: genome_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("claude Genome registration should succeed");
+    };
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "claude-secret-run",
+        Command::RunReference {
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    assert!(response.error.is_none(), "run failed: {:?}", response.error);
+    let ResponseData::Run {
+        stdout_artifact_id,
+        completion_reason,
+        ..
+    } = response.data.expect("run response")
+    else {
+        panic!("unexpected response shape");
+    };
+    assert_eq!(completion_reason, RunCompletionReason::Success);
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open CAS");
+    let stdout = artifacts
+        .get(&ArtifactId::parse(stdout_artifact_id).expect("stdout artifact ID"))
+        .expect("load redacted final answer from CAS");
+    let final_answer = String::from_utf8(stdout).expect("final answer is UTF-8");
+    assert!(
+        !final_answer.contains("sk-verysecrettoken1234"),
+        "the sk- prefixed token must never reach the artifact store: {final_answer}"
+    );
+    assert!(
+        final_answer.contains("[REDACTED]"),
+        "redaction must replace the secret rather than silently drop the whole message: {final_answer}"
+    );
+}
