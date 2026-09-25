@@ -113,12 +113,17 @@ and that decision is itself a ledgered event.
 - **The Ink TUI is a local operator console.** macOS packages bundle its
   JavaScript and pinned Node runtime; source checkouts use Node/npm. Besides
   local status, freeze/kill controls, and Arena progress by known evaluation
-  ID, it now has a Lineage and Champions screen: a World list, a Genome
-  ancestry tree marking Champion/standby/quarantined rows, a Genome detail
-  panel with a prompt diff against the parent, and an operator-confirmed
-  Champion rollback. It still has no runs, evidence receipt, cost, or denial
-  screens, and no packaged-install authoring flow (author/validate/register a
-  Markdown agent from the TUI); those remain roadmap item 9 work. See
+  ID, it has a Lineage and Champions screen (World list, Genome ancestry tree
+  marking Champion/standby/quarantined rows, a prompt diff against the
+  parent, and operator-confirmed Champion rollback), an Evidence & Costs
+  submenu with read-only Runs, Evidence receipts, Costs, and Denials screens
+  built from the existing `run_list`/`evaluation_list`/`denial_list`
+  projections and grouped by World, and a Markdown agent authoring flow: pick
+  a World, edit a Markdown Genome source via `$EDITOR` hand-off (or its
+  starter template), register it through `genome_register`, and run a paired
+  Test via `evaluate_pair` with live progress. Still missing: a
+  packaged-install acceptance run of that authoring flow from a clean,
+  non-source-checkout install, and a recorded demo video. See
   [the setup guide](apps/hephaestus-tui/README.md) and
   [macOS package instructions](docs/MACOS_INSTALL.md).
 - **The web console is a local, read-only browser view.** It proxies a fixed

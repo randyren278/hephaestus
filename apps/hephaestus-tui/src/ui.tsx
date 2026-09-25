@@ -1,14 +1,25 @@
+import {spawn} from 'node:child_process';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, useWindowSize} from 'ink';
+import {defaultAgentPath, editorCommand, ensureAgentSource} from './author.js';
 import {ControlClient} from './client.js';
+import {aggregateCosts, type CostEntry} from './evidence.js';
+import {CostsPanel, DenialsPanel, EvidencePanel, RunsPanel} from './evidence-view.js';
 import {lineageRows, roleOf} from './lineage.js';
 import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js';
-import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type Genome, type ResponseData, type World} from './protocol.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type DenialEntry, type EvaluationListEntry, type Genome, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions'] as const;
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Author Markdown agent'] as const;
+const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
 type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
-	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback';
+	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback'
+	| 'evidence-menu' | 'runs' | 'evidence' | 'costs' | 'denials'
+	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent';
 const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
+const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
+const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
+const AUTHOR_VIEWS: View[] = ['author-world', 'author-path', 'author-register', 'author-test-parent'];
+const LIST_LIMIT = 200;
 type TuiClient = Pick<ControlClient, 'request'>;
 type Props = {client?: TuiClient; pollMs?: number};
 
@@ -43,6 +54,7 @@ function messageFor(response: ApiResponse): string {
 	if (response.data?.type === 'acknowledged') return `Acknowledged · evolution ${response.data.frozen ? 'frozen' : 'unfrozen'}`;
 	if (response.data?.type === 'job') return `${safeText(response.data.job.job_id)} · ${safeText(response.data.job.state)} · ${response.data.progress.trace_events} trace events`;
 	if (response.data?.type === 'arena_job') return `${safeText(response.data.job.evaluation_id)} · ${safeText(response.data.job.phase)} · ${response.data.job.completed_trials}/${response.data.job.total_trials} trials`;
+	if (response.data?.type === 'genome') return `Registered ${safeText(response.data.genome.name)} · ${safeText(response.data.genome.genome_id)}`;
 	return 'No response data';
 }
 
@@ -91,6 +103,18 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [detailId, setDetailId] = useState('');
 	const [prompts, setPrompts] = useState<Record<string, string | null>>({});
 	const [reason, setReason] = useState('');
+	const [runs, setRuns] = useState<RunListEntry[]>([]);
+	const [runIndex, setRunIndex] = useState(0);
+	const [evaluations, setEvaluations] = useState<EvaluationListEntry[]>([]);
+	const [evaluationIndex, setEvaluationIndex] = useState(0);
+	const [denials, setDenials] = useState<DenialEntry[]>([]);
+	const [denialIndex, setDenialIndex] = useState(0);
+	const [costIndex, setCostIndex] = useState(0);
+	const [evidenceMenuIndex, setEvidenceMenuIndex] = useState(0);
+	const [authorPath, setAuthorPath] = useState('');
+	const [authorGenome, setAuthorGenome] = useState<Genome>();
+	const [authorNotice, setAuthorNotice] = useState('');
+	const [authorParentIndex, setAuthorParentIndex] = useState(0);
 	const [status, setStatus] = useState<ApiResponse>();
 	const [stale, setStale] = useState(false);
 	const [notice, setNotice] = useState('Connecting to the local control plane…');
@@ -242,6 +266,104 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		const parent = genome.parent_ids.find(id => genomes.some(candidate => candidate.genome_id === id));
 		for (const id of [genomeId, ...(parent ? [parent] : [])]) if (!(id in prompts)) void loadPrompt(id);
 	};
+	const loadRuns = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'run_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'run_list') { setRuns(response.data.runs); setNotice(`${response.data.runs.length} runs`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Runs unavailable');
+		}
+	}, [client, lifetime]);
+	const loadEvaluations = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'evaluation_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'evaluation_list') { setEvaluations(response.data.evaluations); setNotice(`${response.data.evaluations.length} evaluations`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Evidence unavailable');
+		}
+	}, [client, lifetime]);
+	const loadDenials = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'denial_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'denial_list') { setDenials(response.data.denials); setNotice(`${response.data.denials.length} denials`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Denials unavailable');
+		}
+	}, [client, lifetime]);
+	const loadCosts = useCallback(async () => {
+		try {
+			const [runResponse, evaluationResponse] = [
+				await client.request({command: 'run_list', limit: LIST_LIMIT}, lifetime.signal),
+				await client.request({command: 'evaluation_list', limit: LIST_LIMIT}, lifetime.signal),
+			];
+			const nextRuns = runResponse.data?.type === 'run_list' ? runResponse.data.runs : [];
+			const nextEvaluations = evaluationResponse.data?.type === 'evaluation_list' ? evaluationResponse.data.evaluations : [];
+			setRuns(nextRuns);
+			setEvaluations(nextEvaluations);
+			setNotice(`${aggregateCosts(nextRuns, nextEvaluations).length} costed Genomes`);
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Costs unavailable');
+		}
+	}, [client, lifetime]);
+	const costs: CostEntry[] = aggregateCosts(runs, evaluations);
+
+	/** Hands the real terminal to `$EDITOR`/`$VISUAL` and restores Ink's raw-mode input afterward. */
+	const openEditor = async (path: string): Promise<void> => {
+		const wasRaw = Boolean(process.stdin.isTTY && process.stdin.isRaw);
+		if (process.stdin.isTTY) process.stdin.setRawMode(false);
+		process.stdin.pause();
+		await new Promise<void>(resolve => {
+			const child = spawn(editorCommand(), [path], {stdio: 'inherit'});
+			child.on('exit', () => resolve());
+			child.on('error', () => resolve());
+		});
+		process.stdin.resume();
+		if (process.stdin.isTTY && wasRaw) process.stdin.setRawMode(true);
+	};
+	const registerAgent = async (path: string, worldId: string) => {
+		if (busy) return;
+		setBusy(true);
+		setAuthorNotice('Registering with the daemon…');
+		try {
+			const response = await client.request({command: 'genome_register', path, world_id: worldId}, lifetime.signal);
+			if (response.data?.type === 'genome') {
+				setAuthorGenome(response.data.genome);
+				setAuthorNotice(`Registered ${safeText(response.data.genome.name)} · ${safeText(response.data.genome.genome_id)}. Press T to test, Esc to finish.`);
+			} else {
+				setAuthorGenome(undefined);
+				setAuthorNotice(response.error ? `Rejected: ${safeText(response.error.message)}` : messageFor(response));
+			}
+		} catch (error) {
+			if (!lifetime.signal.aborted) setAuthorNotice(error instanceof Error ? safeText(error.message) : 'Registration failed');
+		} finally {
+			if (!lifetime.signal.aborted) setBusy(false);
+		}
+	};
+	const testAgent = async (parentGenomeId: string) => {
+		if (!authorGenome || busy) return;
+		setBusy(true);
+		const evaluationId = `tui-test-${Date.now()}`;
+		setNotice(`Starting paired Arena evaluation of ${shortId(parentGenomeId)} vs ${shortId(authorGenome.genome_id)}…`);
+		try {
+			const response = await client.request({command: 'evaluate_pair', evaluation_id: evaluationId, parent_genome_id: parentGenomeId, candidate_genome_id: authorGenome.genome_id}, lifetime.signal);
+			if (response.error) { setNotice(messageFor(response)); return; }
+			arenaCurrentId.current = evaluationId;
+			setArenaJobId(evaluationId);
+			setArenaJob(undefined);
+			setArenaStale(false);
+			setArenaNotice('Evaluating candidate against parent…');
+			setView('arena-progress');
+			void refreshArena(evaluationId);
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Test evaluation failed');
+		} finally {
+			if (!lifetime.signal.aborted) setBusy(false);
+		}
+	};
+
 	const rollback = async () => {
 		if (!world || busy) return;
 		setBusy(true);
@@ -333,6 +455,98 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			}
 			return;
 		}
+		if (view === 'evidence-menu') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.upArrow || input === 'k') setEvidenceMenuIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setEvidenceMenuIndex(value => Math.min(EVIDENCE_MENU.length - 1, value + 1));
+			if (key.return) {
+				switch (evidenceMenuIndex) {
+					case 0: setRunIndex(0); setView('runs'); void loadRuns(); break;
+					case 1: setEvaluationIndex(0); setView('evidence'); void loadEvaluations(); break;
+					case 2: setCostIndex(0); setView('costs'); void loadCosts(); break;
+					case 3: setDenialIndex(0); setView('denials'); void loadDenials(); break;
+				}
+			}
+			return;
+		}
+		if (view === 'runs' || view === 'evidence' || view === 'costs' || view === 'denials') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('evidence-menu'); return; }
+			const length = view === 'runs' ? runs.length : view === 'evidence' ? evaluations.length : view === 'costs' ? costs.length : denials.length;
+			const setIndex = view === 'runs' ? setRunIndex : view === 'evidence' ? setEvaluationIndex : view === 'costs' ? setCostIndex : setDenialIndex;
+			if (key.upArrow || input === 'k') setIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setIndex(value => Math.min(Math.max(0, length - 1), value + 1));
+			if (input.toLowerCase() === 'r') {
+				if (view === 'runs') void loadRuns();
+				else if (view === 'evidence') void loadEvaluations();
+				else if (view === 'costs') void loadCosts();
+				else void loadDenials();
+			}
+			return;
+		}
+		if (view === 'author-world') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.upArrow || input === 'k') setWorldIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setWorldIndex(value => Math.min(Math.max(0, worlds.length - 1), value + 1));
+			if (key.return && world) {
+				setAuthorPath(defaultAgentPath(world.name));
+				setAuthorGenome(undefined);
+				setAuthorNotice('');
+				setView('author-path');
+			}
+			return;
+		}
+		if (view === 'author-path') {
+			if (key.escape) { setView('author-world'); return; }
+			if (key.return || input.includes('\r') || input.includes('\n')) {
+				const typed = input.replace(/[\r\n]/g, '').replace(/[\u0000-\u001f\u007f]/g, '');
+				const path = (authorPath + typed).trim();
+				if (path && world) {
+					setAuthorPath(path);
+					(async () => {
+						try {
+							const resolved = ensureAgentSource(path, world.name);
+							setAuthorPath(resolved);
+							await openEditor(resolved);
+							setAuthorNotice(`Editor closed for ${safeText(resolved)}. Press Enter to register with the daemon.`);
+							setView('author-register');
+						} catch (error) {
+							setAuthorNotice(error instanceof Error ? safeText(error.message) : 'Could not open the Markdown agent source');
+						}
+					})();
+				}
+				return;
+			}
+			if (key.backspace || key.delete) setAuthorPath(value => value.slice(0, -1));
+			else if (!key.ctrl && !key.meta) {
+				const typed = input.replace(/[\u0000-\u001f\u007f]/g, '');
+				if (typed) setAuthorPath(value => (value + typed).slice(0, 4096));
+			}
+			return;
+		}
+		if (view === 'author-register') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.return && world && !authorGenome) { void registerAgent(authorPath, world.world_id); return; }
+			if (input.toLowerCase() === 't' && authorGenome && world) {
+				setAuthorParentIndex(0);
+				setView('author-test-parent');
+				void loadLineage(world.world_id);
+				return;
+			}
+			return;
+		}
+		if (view === 'author-test-parent') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('author-register'); return; }
+			const candidates = lineageRowsView.filter(row => row.genome_id !== authorGenome?.genome_id);
+			if (key.upArrow || input === 'k') setAuthorParentIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setAuthorParentIndex(value => Math.min(Math.max(0, candidates.length - 1), value + 1));
+			if (key.return && candidates[authorParentIndex]) void testAgent(candidates[authorParentIndex]!.genome_id);
+			return;
+		}
 		if (view === 'lineage') {
 			if (input.toLowerCase() === 'q') { quit(); return; }
 			if (key.escape) { setView('worlds'); return; }
@@ -395,12 +609,17 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 5: setJobPromptAction('cancel'); setView('job-id'); setJobId(''); break;
 				case 7: setView('worlds'); void loadWorlds(); break;
 				case 6: arenaCurrentId.current = ''; setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
+				case 8: setEvidenceMenuIndex(0); setView('evidence-menu'); break;
+				case 9: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
 			}
 		}
 	});
 
 	const compact = columns < 72 || rows < 20;
 	const lineageMode = LINEAGE_VIEWS.includes(view);
+	const evidenceMode = EVIDENCE_VIEWS.includes(view);
+	const authorMode = AUTHOR_VIEWS.includes(view);
+	const authorCandidates = lineageRowsView.filter(row => row.genome_id !== authorGenome?.genome_id);
 	// Reserved for everything outside the lineage panel (header, banner, hint
 	// bar, notice bar, help line); see the layout budget below.
 	const panelHeight = Math.max(3, rows - (compact ? 10 : 16));
@@ -428,7 +647,32 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'genome' && detail && <GenomeDetail genome={detail} parent={detailParent} role={roleOf(detail.genome_id, champion)}
 				prompt={prompts[detail.genome_id]} parentPrompt={detailParent ? prompts[detailParent.genome_id] : ''} height={genomeDetailHeight} />}
 		</Box>}
-		{!lineageMode && <Box marginTop={compact ? 0 : 1}>
+		{evidenceMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
+			{view === 'evidence-menu' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+				<Text bold color="yellow">EVIDENCE &amp; COSTS</Text>
+				{EVIDENCE_MENU.map((label, index) => <Text key={label} color={evidenceMenuIndex === index ? 'yellow' : 'white'}>{evidenceMenuIndex === index ? '› ' : '  '}{label}</Text>)}
+			</Box>}
+			{view === 'runs' && <RunsPanel runs={runs} selected={runIndex} height={panelHeight - 2} />}
+			{view === 'evidence' && <EvidencePanel evaluations={evaluations} selected={evaluationIndex} height={panelHeight - 2} />}
+			{view === 'costs' && <CostsPanel costs={costs} selected={costIndex} height={panelHeight - 2} />}
+			{view === 'denials' && <DenialsPanel denials={denials} selected={denialIndex} height={panelHeight - 2} />}
+		</Box>}
+		{authorMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
+			{view === 'author-world' && <WorldList worlds={worlds} selected={worldIndex} height={worldListHeight} />}
+			{view === 'author-path' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+				<Text bold color="yellow">AUTHOR MARKDOWN AGENT / {world ? safeText(world.name) : ''}</Text>
+				<Text color="gray">Markdown Genome source path (created with a starter template if missing):</Text>
+				<Text wrap="truncate">{authorPath}</Text>
+			</Box>}
+			{view === 'author-register' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+				<Text bold color="yellow">REGISTER / {world ? safeText(world.name) : ''}</Text>
+				<Text wrap="truncate">Path   {safeText(authorPath)}</Text>
+				<Text wrap="truncate">Genome {authorGenome ? `${safeText(authorGenome.name)} ${shortId(authorGenome.genome_id)}` : 'not registered yet'}</Text>
+				<Text color="gray">{safeText(authorNotice)}</Text>
+			</Box>}
+			{view === 'author-test-parent' && world && <LineagePanel world={world} rows={authorCandidates} champion={champion} selected={authorParentIndex} height={lineagePanelHeight} />}
+		</Box>}
+		{!lineageMode && !evidenceMode && !authorMode && <Box marginTop={compact ? 0 : 1}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
 				<Text color="gray">OPERATOR ACTIONS</Text>
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
@@ -454,11 +698,17 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'genome' && <Text color="gray">Prompt diff against the first registered parent · Esc back</Text>}
 			{view === 'rollback-reason' && <Text>Rollback reason: {reason}<Text color="gray">  (Enter confirm · Esc cancel)</Text></Text>}
 			{view === 'confirm-rollback' && <Text color="red">Restore the previous Champion and quarantine {shortId(champion?.champion_genome_id ?? '')}? Press Y to request, N/Esc to back out.</Text>}
+			{view === 'evidence-menu' && <Text color="gray">Enter open · Esc back</Text>}
+			{EVIDENCE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · R refresh · Esc back</Text>}
+			{view === 'author-world' && <Text color="gray">Enter choose World · Esc back</Text>}
+			{view === 'author-path' && <Text>Path: {authorPath}<Text color="gray">  (Enter open $EDITOR · Esc back)</Text></Text>}
+			{view === 'author-register' && <Text color="gray">{authorGenome ? 'T test against a parent · Esc finish' : 'Enter register · Esc cancel'}</Text>}
+			{view === 'author-test-parent' && <Text color="gray">Enter test against selected parent/Champion · Esc back</Text>}
 		</Box>}
 		<Box flexGrow={1} />
 		<Box borderStyle="single" borderColor="gray" paddingX={1}>
 			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' ? 'Esc back · R refresh' : lineageMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
+		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }
