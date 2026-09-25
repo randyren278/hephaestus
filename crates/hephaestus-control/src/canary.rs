@@ -43,6 +43,7 @@ pub(super) const RELIABILITY_REGRESSION_BPS: i64 = 500;
 /// verified `SelectionReceipt`. Positive latency/cost deltas and negative
 /// correctness/reliability deltas are regressive.
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::struct_field_names)]
 pub(super) struct RegressionDeltas {
     pub(super) latency_bps: i64,
     pub(super) cost_bps: i64,

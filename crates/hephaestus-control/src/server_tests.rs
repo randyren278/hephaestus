@@ -11532,7 +11532,7 @@ fn canary_injected_regression_during_staged_advance_automatically_aborts_and_rep
     let evidence = aborted.payload.evidence.clone().expect("abort evidence");
     assert!(evidence.regressed);
     assert!(
-        evidence.correctness_delta_bps <= -i64::from(super::canary::CORRECTNESS_REGRESSION_BPS),
+        evidence.correctness_delta_bps <= -super::canary::CORRECTNESS_REGRESSION_BPS,
         "the regression must cross the documented correctness threshold"
     );
     assert!(aborted.payload.reason.is_some());

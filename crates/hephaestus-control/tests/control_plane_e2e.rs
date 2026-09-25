@@ -6305,9 +6305,10 @@ fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary(
         let output = cli(&data_dir, arguments);
         let parsed: ApiResponse =
             serde_json::from_slice(&output.stdout).expect("decode CLI response");
-        if parsed.error.is_none() {
-            panic!("CLI command {arguments:?} unexpectedly succeeded: {parsed:?}");
-        }
+        assert!(
+            parsed.error.is_some(),
+            "CLI command {arguments:?} unexpectedly succeeded: {parsed:?}"
+        );
         parsed.error.expect("checked above")
     };
 
