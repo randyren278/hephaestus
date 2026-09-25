@@ -3670,6 +3670,7 @@ fn map_cluster_error(error: ArenaError) -> ExecuteError {
             ExecuteError::NotFound
         }
         ArenaError::ClusterConflict(message) => ExecuteError::Rejected(message),
+        ArenaError::InvalidId { .. } => ExecuteError::Invalid("analysis_id is invalid"),
         _ => ExecuteError::Internal,
     }
 }

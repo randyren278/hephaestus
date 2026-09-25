@@ -270,6 +270,25 @@ fn forge_assessment_records_verified_child_selection_and_replays() {
         busy.error.expect("active Arena blocks assessment").code,
         ApiErrorCode::Busy
     );
+    // The handlers keep their own guard behind the dispatcher's.
+    assert!(matches!(
+        plane.assess_genome(
+            "assessment-while-active",
+            "assessment-proposal",
+            "selection:pending"
+        ),
+        Err(ExecuteError::Busy)
+    ));
+    assert!(matches!(
+        plane.transition_champion(
+            "rollback-while-active",
+            &ChampionRequest::Rollback {
+                world_id: "world".to_owned(),
+                reason: "Active job.".to_owned(),
+            }
+        ),
+        Err(ExecuteError::Busy)
+    ));
     drain_active_arena_test_job(&mut plane, "assessment-child-evaluation");
     let ResponseData::Selection {
         selection: child_selection,
@@ -9482,6 +9501,18 @@ fn cluster_analyze_records_deterministic_clusters_and_idempotent_replay() {
         Some(SuggestedMutation::ReferenceOperationFlip)
     );
 
+    // The identity candidate also answers the sealed task wrong; it is counted
+    // without exposing any sealed content or suggesting a mutation.
+    let sealed = analysis
+        .analysis
+        .clusters
+        .iter()
+        .find(|cluster| cluster.signature == "sealed_incorrect_output")
+        .expect("sealed correctness failures are counted");
+    assert_eq!((sealed.visible_count, sealed.sealed_count), (0, 1));
+    assert_eq!(sealed.suggested_mutation, None);
+    assert_eq!(analysis.analysis.total_sealed_failed_trials, 1);
+
     // Sealed task content never appears in the operator-visible analysis.
     let analysis_json = serde_json::to_string(&analysis.analysis).expect("encode analysis");
     assert!(!analysis_json.contains("SEALED"));
@@ -9639,6 +9670,81 @@ fn cluster_propose_from_analysis_binds_hash_and_derives_hypothesis() {
             Some(error) if error.code == ApiErrorCode::InvalidRequest
         ));
     }
+
+    // A cluster without a supported mutation cannot become a proposal.
+    let unsupported_index = analysis
+        .analysis
+        .clusters
+        .iter()
+        .position(|cluster| cluster.suggested_mutation.is_none())
+        .expect("the sealed correctness cluster has no supported mutation");
+    let unsupported = dispatch_call(
+        &mut plane,
+        &token,
+        "cluster-proposal-unsupported",
+        Command::GenomePropose {
+            proposal_id: "cluster-proposal-unsupported".to_owned(),
+            selection_event_id: selection.event.event_id.clone(),
+            parent_genome_id: candidate.genome_id.clone(),
+            hypothesis: None,
+            analysis_id: Some("cluster-proposal-analysis".to_owned()),
+            cluster_index: Some(u32::try_from(unsupported_index).expect("small index")),
+        },
+    );
+    assert!(matches!(
+        unsupported.error,
+        Some(error) if error.code == ApiErrorCode::InvalidRequest
+            && error.message == "the selected cluster has no supported mutation"
+    ));
+
+    // An analysis of a different evaluation cannot be bound to this selection.
+    complete_arena_test_job(
+        &mut plane,
+        "cluster-proposal-other",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    cluster_analyze(
+        &mut plane,
+        &token,
+        "cluster-other-analysis",
+        "cluster-proposal-other",
+    );
+    let mismatched = dispatch_call(
+        &mut plane,
+        &token,
+        "cluster-proposal-mismatch",
+        Command::GenomePropose {
+            proposal_id: "cluster-proposal-mismatch".to_owned(),
+            selection_event_id: selection.event.event_id.clone(),
+            parent_genome_id: candidate.genome_id.clone(),
+            hypothesis: None,
+            analysis_id: Some("cluster-other-analysis".to_owned()),
+            cluster_index: Some(cluster_index),
+        },
+    );
+    assert!(matches!(
+        mismatched.error,
+        Some(error) if error.code == ApiErrorCode::InvalidRequest
+            && error.message == "the bound analysis must have clustered the exact same selected candidate"
+    ));
+    // An analysis ID stays bound to the evaluation it first clustered.
+    let reused = dispatch_call(
+        &mut plane,
+        &token,
+        "cluster-analysis-reuse",
+        Command::ForgeAnalyze {
+            analysis_id: "cluster-proposal-analysis".to_owned(),
+            evaluation_id: "cluster-proposal-other".to_owned(),
+        },
+    );
+    assert!(
+        matches!(
+            reused.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest
+        ),
+        "reusing an analysis ID for another evaluation must be refused"
+    );
 }
 
 // --- Evidence API: RunList, EvaluationList, DenialList (roadmap item 9 prerequisite) ---
@@ -10037,4 +10143,174 @@ fn evidence_denial_list_records_request_rejected_and_runtime_capability_denials_
     };
     assert_eq!(bounded_denials.len(), 1);
     assert_eq!(bounded_denials[0].kind, DenialKind::RuntimeCapabilityDenied);
+}
+
+fn history_with_payload_replaced(
+    history: &[StoredEvent],
+    event_id: &str,
+    from: &str,
+    to: &str,
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == event_id)
+        .expect("tampered event exists");
+    let payload = String::from_utf8(event.payload.clone()).expect("UTF-8 payload");
+    assert!(payload.contains(from), "payload must contain {from}");
+    event.payload = payload.replace(from, to).into_bytes();
+    tampered
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn cluster_and_invariant_histories_reject_tampered_events() {
+    let directory = tempdir().expect("tamper fixture");
+    let (mut plane, parent, candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+    complete_arena_test_job(
+        &mut plane,
+        "tamper-evaluation",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let ResponseData::ArenaInvariants { invariants } = plane
+        .check_arena_invariants("tamper-evaluation")
+        .expect("record invariant evidence")
+    else {
+        panic!("invariant check should return its receipt");
+    };
+    let analysis = cluster_analyze(&mut plane, &token, "tamper-analysis", "tamper-evaluation");
+
+    assert!(matches!(
+        plane.analyze_forge_clusters(" ", "tamper-evaluation"),
+        Err(ExecuteError::Invalid(
+            "analysis_id and evaluation_id are required"
+        ))
+    ));
+    assert!(matches!(
+        plane.analyze_forge_clusters("unknown-analysis", "missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.analyze_forge_clusters("bad analysis id", "tamper-evaluation"),
+        Err(ExecuteError::Invalid("analysis_id is invalid"))
+    ));
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical ledger")
+        .ledger
+        .replay_verified()
+        .expect("verified history");
+    let registered = &plane.state.registered;
+    verify_cluster_history(&plane.data_dir, &history, registered).expect("canonical clusters");
+    verify_invariant_history(&plane.data_dir, &history, registered).expect("canonical invariants");
+
+    let world_id = analysis.analysis.world_id.clone();
+    let foreign_world = format!("hephaestus:world:{}", "0".repeat(64));
+    let cluster_event = analysis.event.event_id.clone();
+    let invariant_event = invariants.event.event_id.clone();
+    let cluster_artifact = analysis.event.analysis_artifact_id.clone();
+    let invariant_artifact = invariants.event.receipt_artifact_id.clone();
+    assert_ne!(cluster_artifact, invariant_artifact);
+
+    for tampered in [
+        history_with_payload_replaced(&history, &cluster_event, &world_id, &foreign_world),
+        history_with_payload_replaced(
+            &history,
+            &cluster_event,
+            &cluster_artifact,
+            &invariant_artifact,
+        ),
+        history_with_payload_replaced(
+            &history,
+            &cluster_event,
+            "\"schema_version\":1",
+            "\"schema_version\":2",
+        ),
+    ] {
+        assert!(
+            verify_cluster_history(&plane.data_dir, &tampered, registered).is_err(),
+            "a tampered forge.clustered event must fail replay"
+        );
+    }
+    for tampered in [
+        history_with_payload_replaced(&history, &invariant_event, &world_id, &foreign_world),
+        history_with_payload_replaced(
+            &history,
+            &invariant_event,
+            &invariant_artifact,
+            &cluster_artifact,
+        ),
+        history_with_payload_replaced(
+            &history,
+            &invariant_event,
+            "\"schema_version\":1",
+            "\"schema_version\":2",
+        ),
+    ] {
+        assert!(
+            verify_invariant_history(&plane.data_dir, &tampered, registered).is_err(),
+            "a tampered invariants.recorded event must fail replay"
+        );
+    }
+}
+
+#[test]
+fn evidence_run_list_marks_a_budget_exceeded_direct_run_failed() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    let Some(ResponseData::Run {
+        run_id,
+        completion_reason,
+        ..
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "tiny-output-run",
+        Command::RunEvaluation {
+            genome_id: genome.genome_id.clone(),
+            task_id: "tiny-output".to_owned(),
+            input: "inventory".to_owned(),
+            seed: 1,
+            wall_millis: 10_000,
+            maximum_output_bytes: 1,
+            maximum_cost_microusd: 0,
+        },
+    )
+    .data
+    else {
+        panic!("budget-limited evaluation run should record a signed result");
+    };
+    assert_eq!(completion_reason, RunCompletionReason::OutputBudgetExceeded);
+    let Some(ResponseData::RunList { runs }) = dispatch_call(
+        &mut plane,
+        &token,
+        "run-list",
+        Command::RunList { limit: 10 },
+    )
+    .data
+    else {
+        panic!("run list should succeed");
+    };
+    let entry = runs
+        .iter()
+        .find(|entry| entry.run_id == run_id)
+        .expect("the direct run is listed");
+    assert_eq!(entry.job_id, None);
+    assert_eq!(entry.state, JobState::Failed);
+    assert_eq!(
+        entry.completion_reason,
+        Some(RunCompletionReason::OutputBudgetExceeded)
+    );
 }

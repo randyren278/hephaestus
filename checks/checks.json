@@ -2287,8 +2287,8 @@
       "id": "cluster-sealed-data-excluded",
       "file": "crates/hephaestus-arena/src/clusters.rs",
       "invariant": "A sealed task's actual output and expected output are never shape-analyzed; sealed failures contribute only an aggregate completion-reason count.",
-      "find": "        } else if sealed_ids.contains(task_id) {\n            sealed_reasons.push(trial.completion_reason);",
-      "replace": "        } else if sealed_ids.contains(task_id) {\n            visible_trials.push(VisibleTrial {\n                completion_reason: trial.completion_reason,\n                expected_output: String::new(),\n                actual_output: trial.stdout.clone(),\n            });"
+      "find": "        } else if let Some(expected) = sealed_expected.get(task_id) {\n            sealed_trials.push(SealedTrial {\n                completion_reason: trial.completion_reason,\n                output_matches: trial.stdout == expected.as_bytes(),\n            });",
+      "replace": "        } else if let Some(expected) = sealed_expected.get(task_id) {\n            visible_trials.push(VisibleTrial {\n                completion_reason: trial.completion_reason,\n                expected_output: expected.clone(),\n                actual_output: trial.stdout.clone(),\n            });"
     },
     {
       "id": "cluster-deterministic-signature-assignment",

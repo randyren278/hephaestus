@@ -163,17 +163,24 @@ pub struct VisibleTrial {
     pub actual_output: Vec<u8>,
 }
 
+/// One sealed trial reduced to what clustering may see: its completion
+/// reason and whether its output matched, never the content itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SealedTrial {
+    /// The candidate's authenticated terminal outcome.
+    pub completion_reason: RunCompletionReason,
+    /// Whether the authenticated output equalled the sealed expected output.
+    pub output_matches: bool,
+}
+
 /// Groups a candidate's failed trials into deterministic clusters.
 ///
 /// `visible` carries per-trial content for visible tasks only. `sealed`
-/// carries only completion reasons for sealed tasks; sealed inputs, expected
-/// outputs, and outputs are structurally absent from this signature and
-/// cannot leak through it.
+/// carries only a completion reason and a match flag per sealed task; sealed
+/// inputs, expected outputs, and outputs are structurally absent from this
+/// signature and cannot leak through it.
 #[must_use]
-pub fn cluster_trials(
-    visible: &[VisibleTrial],
-    sealed: &[RunCompletionReason],
-) -> Vec<FailureCluster> {
+pub fn cluster_trials(visible: &[VisibleTrial], sealed: &[SealedTrial]) -> Vec<FailureCluster> {
     let mut clusters: BTreeMap<&'static str, (u32, u32)> = BTreeMap::new();
     let mut bump = |key: &'static str, is_sealed: bool| {
         let entry = clusters.entry(key).or_insert((0, 0));
@@ -193,11 +200,10 @@ pub fn cluster_trials(
             ),
         }
     }
-    for reason in sealed {
-        if let Some(key) = completion_signature(*reason) {
+    for trial in sealed {
+        if let Some(key) = sealed_failure_signature(*trial) {
             bump(key, true);
         }
-        // A sealed `Success` trial is not a failure and contributes nothing.
     }
 
     clusters
@@ -216,6 +222,13 @@ pub fn cluster_trials(
             }
         })
         .collect()
+}
+
+/// A sealed trial fails on a non-success outcome or on a successful run whose
+/// output did not match; only a correct successful run contributes nothing.
+fn sealed_failure_signature(trial: SealedTrial) -> Option<&'static str> {
+    completion_signature(trial.completion_reason)
+        .or((!trial.output_matches).then_some("sealed_incorrect_output"))
 }
 
 /// Returns the completion-reason cluster key for a non-success outcome, or
@@ -303,6 +316,13 @@ fn describe(
                 "The candidate exceeded its output-byte budget on {total_count} task(s) \
                  ({visible_count} visible, {sealed_count} sealed); no supported mutation \
                  changes the runtime budget."
+            ),
+            None,
+        ),
+        "sealed_incorrect_output" => (
+            format!(
+                "The candidate completed {sealed_count} sealed task(s) with incorrect output; \
+                 sealed content is not inspected, so no supported mutation is suggested."
             ),
             None,
         ),
@@ -495,7 +515,7 @@ fn compute_analysis(
 
     let mut task_inputs = BTreeMap::new();
     let mut visible_expected = BTreeMap::new();
-    let mut sealed_ids = std::collections::BTreeSet::new();
+    let mut sealed_expected = BTreeMap::new();
     for task in &visible.tasks {
         task_inputs.insert(task.task_id.clone(), task.input.clone());
         visible_expected.insert(task.task_id.clone(), task.expected_output.clone());
@@ -507,7 +527,7 @@ fn compute_analysis(
         {
             return Err(ArenaError::InvalidStoredReceipt("cluster task set"));
         }
-        sealed_ids.insert(task.task_id.clone());
+        sealed_expected.insert(task.task_id.clone(), task.expected_output.clone());
     }
 
     let candidate = verified_submission_outputs(
@@ -520,7 +540,7 @@ fn compute_analysis(
     )?;
 
     let mut visible_trials = Vec::new();
-    let mut sealed_reasons = Vec::new();
+    let mut sealed_trials = Vec::new();
     for (task_id, trial) in &candidate {
         if let Some(expected) = visible_expected.get(task_id) {
             visible_trials.push(VisibleTrial {
@@ -528,8 +548,11 @@ fn compute_analysis(
                 expected_output: expected.clone(),
                 actual_output: trial.stdout.clone(),
             });
-        } else if sealed_ids.contains(task_id) {
-            sealed_reasons.push(trial.completion_reason);
+        } else if let Some(expected) = sealed_expected.get(task_id) {
+            sealed_trials.push(SealedTrial {
+                completion_reason: trial.completion_reason,
+                output_matches: trial.stdout == expected.as_bytes(),
+            });
         } else {
             return Err(ArenaError::InvalidStoredReceipt("cluster task binding"));
         }
@@ -542,13 +565,13 @@ fn compute_analysis(
             || std::str::from_utf8(&trial.actual_output) != Ok(trial.expected_output.as_str())
     });
 
-    let clusters = cluster_trials(&visible_trials, &sealed_reasons);
+    let clusters = cluster_trials(&visible_trials, &sealed_trials);
     let total_visible_failed_trials =
         u32::try_from(visible_trials.len()).map_err(|_| ArenaError::TooManyTasks)?;
     let total_sealed_failed_trials = u32::try_from(
-        sealed_reasons
+        sealed_trials
             .iter()
-            .filter(|reason| completion_signature(**reason).is_some())
+            .filter(|trial| sealed_failure_signature(**trial).is_some())
             .count(),
     )
     .map_err(|_| ArenaError::TooManyTasks)?;
@@ -757,16 +780,29 @@ mod tests {
     #[test]
     fn sealed_trials_contribute_only_aggregate_counts() {
         let visible_trials = vec![visible(RunCompletionReason::ProviderFailure, "hello", "")];
+        let sealed_trial = |completion_reason, output_matches| SealedTrial {
+            completion_reason,
+            output_matches,
+        };
         let sealed = vec![
-            RunCompletionReason::ProviderFailure,
-            RunCompletionReason::Success,
+            sealed_trial(RunCompletionReason::ProviderFailure, false),
+            sealed_trial(RunCompletionReason::Success, true),
+            sealed_trial(RunCompletionReason::Success, false),
         ];
         let clusters = cluster_trials(&visible_trials, &sealed);
-        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters.len(), 2);
         assert_eq!(clusters[0].signature, "completion_provider_failure");
         assert_eq!(clusters[0].visible_count, 1);
         assert_eq!(clusters[0].sealed_count, 1);
         assert_eq!(clusters[0].total_count, 2);
+        // A correct sealed run is not a failure; an incorrect one counts,
+        // with no content and no suggested mutation.
+        assert_eq!(clusters[1].signature, "sealed_incorrect_output");
+        assert_eq!(
+            (clusters[1].visible_count, clusters[1].sealed_count),
+            (0, 1)
+        );
+        assert_eq!(clusters[1].suggested_mutation, None);
     }
 
     #[test]
