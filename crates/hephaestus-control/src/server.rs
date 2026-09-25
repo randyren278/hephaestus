@@ -55,6 +55,8 @@ use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, ChampionTransitionPayload, Command,
     ControlError, DenialEntry, DenialKind, EvaluationEventRecord, EvaluationForgeSummary,
     EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
+    EvolutionCancelPayload, EvolutionFinishReason, EvolutionFinishedPayload,
+    EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
     ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
     ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
     ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
@@ -80,6 +82,11 @@ const MAX_SOURCE_FILE_BYTES: u64 = 1_048_576;
 const MAX_ARTIFACT_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_SOCKET_HANDLERS: usize = 16;
 const MAX_QUEUED_REQUESTS: usize = 16;
+// Every per-generation Arena evaluation, proposal, assessment, and promotion
+// identity is derived from the run_id with a short suffix; this cap leaves
+// enough headroom under `validate_job_id`'s 128-byte limit for any generation
+// index up to `u32::MAX`.
+const MAX_EVOLUTION_RUN_ID_BYTES: usize = 100;
 
 /// Resolves `HEPHAESTUS_HOME`, then the conventional per-user data directory.
 ///
@@ -538,6 +545,7 @@ impl ControlPlane {
         verify_invariant_history(&data_dir, &history, &registered)?;
         verify_cluster_history(&data_dir, &history, &registered)?;
         verify_champion_history(&data_dir, &history, &registered)?;
+        verify_evolution_history(&history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -709,6 +717,7 @@ impl ControlPlane {
     ) -> Result<ResponseData, ExecuteError> {
         require_command_fields(&command)?;
         self.require_no_active_job_for_sync_work(&command)?;
+        self.require_no_active_evolution_for_external_command(&command)?;
         self.append_audit(request_id, &command, event_type(&command))
             .map_err(|_| ExecuteError::Internal)?;
 
@@ -808,6 +817,9 @@ impl ControlPlane {
             | Command::ChampionPromote { .. }
             | Command::ChampionRollback { .. }) => self.champion_transition_command(command),
             Command::ChampionShow { world_id } => self.champion_show(&world_id),
+            command @ Command::EvolveStart { .. } => self.evolve_start(command),
+            Command::EvolveStatus { run_id } => self.evolve_status(&run_id),
+            Command::EvolveCancel { run_id } => self.evolve_cancel(&run_id),
             Command::Replay => self.replay_response(),
             Command::RunList { limit } => self.run_list(limit),
             Command::EvaluationList { limit } => self.evaluation_list(limit),
@@ -955,6 +967,444 @@ impl ControlPlane {
         Ok(ResponseData::Champion {
             champion: Box::new(champion),
         })
+    }
+
+    /// Admits (or idempotently re-admits) one autonomous evolution run. All
+    /// subsequent progress is made by `advance_evolution`, called every tick
+    /// of the daemon's own reconciliation loop, never synchronously here.
+    #[allow(clippy::too_many_lines)]
+    fn evolve_start(&mut self, command: Command) -> Result<ResponseData, ExecuteError> {
+        let Command::EvolveStart {
+            run_id,
+            world_id,
+            from_genome_id,
+            generations,
+            budget,
+        } = command
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if active_evolution_run_id(&history)
+            .map_err(|_| ExecuteError::Internal)?
+            .is_some_and(|active| active != run_id)
+        {
+            return Err(ExecuteError::Busy);
+        }
+        if let Some(existing) =
+            evolution_projection(&history, &run_id).map_err(|_| ExecuteError::Internal)?
+        {
+            if existing.world_id != world_id
+                || existing.from_genome_id != from_genome_id
+                || existing.max_generations != generations
+                || existing.max_paired_trials != budget
+            {
+                return Err(ExecuteError::Rejected(
+                    "run_id is already bound to a different evolution configuration".to_owned(),
+                ));
+            }
+            return Ok(ResponseData::Evolution {
+                run: Box::new(existing),
+            });
+        }
+
+        self.state
+            .registered
+            .world(&world_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let from_genome_world_id = self
+            .state
+            .registered
+            .genome(&from_genome_id)
+            .ok_or(ExecuteError::NotFound)?
+            .record()
+            .world_id
+            .clone();
+        if from_genome_world_id != world_id {
+            return Err(ExecuteError::Rejected(
+                "from_genome_id is not compiled under the requested World".to_owned(),
+            ));
+        }
+        let baseline_genome_id = self
+            .state
+            .registered
+            .genomes()
+            .filter(|genome| {
+                genome.record().world_id == world_id && genome.record().genome_id != from_genome_id
+            })
+            .map(|genome| genome.record().genome_id.clone())
+            .min()
+            .ok_or_else(|| {
+                ExecuteError::Rejected(
+                    "World needs at least one other registered Genome to serve as the evolve \
+                     engine's comparison baseline"
+                        .to_owned(),
+                )
+            })?;
+
+        let champion_genome_id = champion_projection(&history, &world_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .champion_genome_id;
+        match champion_genome_id {
+            None => {
+                self.transition_champion(
+                    &format!("evolve-{run_id}-seed"),
+                    &ChampionRequest::Seed {
+                        world_id: world_id.clone(),
+                        genome_id: from_genome_id.clone(),
+                        reason: format!("evolve run {run_id} generation-zero genesis seed"),
+                    },
+                )?;
+            }
+            Some(current) if current == from_genome_id => {}
+            Some(_) => {
+                return Err(ExecuteError::Rejected(
+                    "World Champion does not match from_genome_id".to_owned(),
+                ));
+            }
+        }
+
+        let payload = EvolutionStartedPayload {
+            schema_version: 1,
+            run_id: run_id.clone(),
+            world_id,
+            from_genome_id,
+            baseline_genome_id,
+            max_generations: generations,
+            max_paired_trials: budget,
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                evolution_started_event_id(&run_id),
+                evolution_aggregate_id(&run_id),
+                EVOLUTION_STARTED_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        self.evolve_status(&run_id)
+    }
+
+    /// Read-only, replay-verified progress of one evolution run.
+    fn evolve_status(&self, run_id: &str) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let run = evolution_projection(&history, run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(ResponseData::Evolution { run: Box::new(run) })
+    }
+
+    /// Requests cooperative cancellation of one active evolution run. An
+    /// in-flight Arena job belonging to it is cancelled the same way
+    /// `kill --all` cancels any other active job; the run itself finishes on
+    /// a later reconciliation tick once that job reaches a terminal state.
+    fn evolve_cancel(&mut self, run_id: &str) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let run = evolution_projection(&history, run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        if run.state == EvolutionRunState::Finished || run.cancel_requested {
+            return Ok(ResponseData::Evolution { run: Box::new(run) });
+        }
+        self.request_active_job_cancellation()?;
+        let payload = EvolutionCancelPayload {
+            schema_version: 1,
+            run_id: run_id.to_owned(),
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                evolution_cancel_event_id(run_id),
+                evolution_aggregate_id(run_id),
+                EVOLUTION_CANCEL_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        self.evolve_status(run_id)
+    }
+
+    /// Called every `service_async_messages` tick. Advances the one active
+    /// evolution run, if any, by exactly one bounded internal step: admitting
+    /// or draining a generation's Arena evaluation, or completing a
+    /// generation once both evaluations have succeeded. Never blocks: an
+    /// in-flight Arena evaluation is left for later ticks to drain.
+    fn advance_evolution(&mut self) {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return;
+        }
+        let Some(storage) = self.storage.as_ref() else {
+            return;
+        };
+        let Ok(history) = storage.ledger.replay_verified() else {
+            return;
+        };
+        let Ok(Some(run_id)) = active_evolution_run_id(&history) else {
+            return;
+        };
+        if self.state.freeze.is_frozen() {
+            return;
+        }
+        let Ok(Some(run)) = evolution_projection(&history, &run_id) else {
+            return;
+        };
+        if run.state == EvolutionRunState::Finished {
+            return;
+        }
+        if run.cancel_requested {
+            let _ = self.finish_evolution_run(&run_id, EvolutionFinishReason::Cancelled);
+            return;
+        }
+        let Ok(generation_index) = u32::try_from(run.generations.len()) else {
+            return;
+        };
+        if generation_index >= run.max_generations {
+            let _ = self.finish_evolution_run(&run_id, EvolutionFinishReason::GenerationsExhausted);
+            return;
+        }
+        if run.trials_consumed.saturating_add(TRIALS_PER_GENERATION) > run.max_paired_trials {
+            let _ = self.finish_evolution_run(&run_id, EvolutionFinishReason::BudgetExhausted);
+            return;
+        }
+        match self.advance_evolution_generation(&run, generation_index) {
+            Ok(()) | Err(ExecuteError::Busy) => {}
+            Err(_) => {
+                let _ = self.finish_evolution_run(&run_id, EvolutionFinishReason::Interrupted);
+            }
+        }
+    }
+
+    /// Drives one generation forward through the same primitives an operator
+    /// uses directly: evaluate the Champion as the mutated candidate, select,
+    /// propose one child, evaluate the child against the Champion, select,
+    /// check invariants, assess, and promote when the deterministic policy
+    /// admits it. Every sub-step is idempotent, so re-entering this function
+    /// on a later tick (or after a daemon restart) safely resumes exactly
+    /// where a prior call left off.
+    #[allow(clippy::too_many_lines)]
+    fn advance_evolution_generation(
+        &mut self,
+        run: &EvolutionRunRecord,
+        generation_index: u32,
+    ) -> Result<(), ExecuteError> {
+        let run_id = run.run_id.clone();
+        let champion_before = run.generations.last().map_or_else(
+            || run.from_genome_id.clone(),
+            |generation| generation.payload.champion_after.clone(),
+        );
+
+        let diagnostic_id = evolution_diagnostic_evaluation_id(&run_id, generation_index);
+        match self
+            .state
+            .arena_jobs
+            .get(&diagnostic_id)
+            .and_then(|job| job.terminal)
+        {
+            None => {
+                self.submit_arena_job(&diagnostic_id, &run.baseline_genome_id, &champion_before)?;
+                return Ok(());
+            }
+            Some(JobTerminal::Succeeded) => {}
+            Some(_) => {
+                return Err(ExecuteError::Rejected(
+                    "diagnostic evaluation did not succeed".to_owned(),
+                ));
+            }
+        }
+        let ResponseData::Selection { selection } = self.select_arena_evaluation(&diagnostic_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        let selection_event_id = selection.event.event_id.clone();
+
+        let proposal_id = evolution_proposal_id(&run_id, generation_index);
+        let hypothesis = format!(
+            "Evolve run {run_id} generation {generation_index}: flip the reference operation of \
+             Champion {champion_before} to explore the paired instruction space."
+        );
+        let ResponseData::ForgeProposal { proposal } = self.propose_genome_from_source(
+            &proposal_id,
+            &selection_event_id,
+            &champion_before,
+            ForgeHypothesisSource::Operator(hypothesis),
+        )?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        let child_genome_id = proposal.payload.child.genome_id.clone();
+
+        let child_evaluation_id = evolution_child_evaluation_id(&run_id, generation_index);
+        match self
+            .state
+            .arena_jobs
+            .get(&child_evaluation_id)
+            .and_then(|job| job.terminal)
+        {
+            None => {
+                self.submit_arena_job(&child_evaluation_id, &champion_before, &child_genome_id)?;
+                return Ok(());
+            }
+            Some(JobTerminal::Succeeded) => {}
+            Some(_) => {
+                return Err(ExecuteError::Rejected(
+                    "child evaluation did not succeed".to_owned(),
+                ));
+            }
+        }
+        let ResponseData::Selection {
+            selection: child_selection,
+        } = self.select_arena_evaluation(&child_evaluation_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        let child_selection_event_id = child_selection.event.event_id.clone();
+        self.check_arena_invariants(&child_evaluation_id)?;
+
+        let assessment_id = evolution_assessment_id(&run_id, generation_index);
+        let ResponseData::ForgeAssessment { assessment } =
+            self.assess_genome(&assessment_id, &proposal_id, &child_selection_event_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+
+        let mut promoted = false;
+        let mut champion_after = champion_before.clone();
+        if assessment.payload.outcome == ForgeAssessmentOutcome::MetricsPassed {
+            let transition_id = evolution_promotion_transition_id(&run_id, generation_index);
+            if self
+                .transition_champion(
+                    &transition_id,
+                    &ChampionRequest::Promote {
+                        assessment_id: assessment_id.clone(),
+                    },
+                )
+                .is_ok()
+            {
+                promoted = true;
+                champion_after.clone_from(&child_genome_id);
+            }
+        }
+
+        self.record_evolution_generation(&EvolutionGenerationPayload {
+            schema_version: 1,
+            run_id,
+            generation_index,
+            champion_before,
+            diagnostic_evaluation_id: diagnostic_id,
+            proposal_id,
+            child_genome_id,
+            child_evaluation_id,
+            assessment_id,
+            promoted,
+            champion_after,
+        })
+    }
+
+    fn record_evolution_generation(
+        &mut self,
+        payload: &EvolutionGenerationPayload,
+    ) -> Result<(), ExecuteError> {
+        let event_id = evolution_generation_event_id(&payload.run_id, payload.generation_index);
+        let aggregate_id = evolution_aggregate_id(&payload.run_id);
+        let payload_value = serde_json::to_value(payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                event_id,
+                aggregate_id,
+                EVOLUTION_GENERATION_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()
+    }
+
+    fn finish_evolution_run(
+        &mut self,
+        run_id: &str,
+        reason: EvolutionFinishReason,
+    ) -> Result<(), ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let run = evolution_projection(&history, run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::Internal)?;
+        if run.state == EvolutionRunState::Finished {
+            return Ok(());
+        }
+        let generations_completed =
+            u32::try_from(run.generations.len()).map_err(|_| ExecuteError::Internal)?;
+        let payload = EvolutionFinishedPayload {
+            schema_version: 1,
+            run_id: run_id.to_owned(),
+            generations_completed,
+            trials_consumed: run.trials_consumed,
+            reason,
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                evolution_finished_event_id(run_id),
+                evolution_aggregate_id(run_id),
+                EVOLUTION_FINISHED_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()
     }
 
     /// Recent direct runs and jobs, newest first, derived from `state.jobs` and verified
@@ -1252,8 +1702,47 @@ impl ControlPlane {
                 | Command::ManifestPut { .. }
                 | Command::ArtifactPut { .. }
                 | Command::Replay
+                | Command::EvolveStart { .. }
         );
         if (self.active_job.is_some() || self.active_arena_job.is_some()) && storage_taking {
+            Err(ExecuteError::Busy)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// While one evolution run is actively advancing, refuses the same
+    /// storage-taking commands an operator could otherwise use to race the
+    /// reconciliation loop's own internal calls into these primitives (for
+    /// example promoting a different child mid-run). The reconciliation loop
+    /// itself calls the underlying methods directly and never through
+    /// `execute`, so this gate never blocks the run's own progress.
+    fn require_no_active_evolution_for_external_command(
+        &self,
+        command: &Command,
+    ) -> Result<(), ExecuteError> {
+        let blocked = matches!(
+            command,
+            Command::EvaluatePair { .. }
+                | Command::ArenaSelect { .. }
+                | Command::ArenaInvariants { .. }
+                | Command::GenomePropose { .. }
+                | Command::GenomeAssess { .. }
+                | Command::ForgeAnalyze { .. }
+                | Command::ChampionSeed { .. }
+                | Command::ChampionPromote { .. }
+                | Command::ChampionRollback { .. }
+        );
+        if !blocked {
+            return Ok(());
+        }
+        let Some(storage) = self.storage.as_ref() else {
+            return Ok(());
+        };
+        let Ok(history) = storage.ledger.replay_verified() else {
+            return Ok(());
+        };
+        if active_evolution_run_id(&history).ok().flatten().is_some() {
             Err(ExecuteError::Busy)
         } else {
             Ok(())
@@ -1662,6 +2151,7 @@ impl ControlPlane {
             }
         }
         self.service_arena_message()?;
+        self.advance_evolution();
         Ok(())
     }
 
@@ -3600,6 +4090,7 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
             registered,
@@ -4282,6 +4773,30 @@ fn forge_aggregate_id(proposal_id: &str) -> String {
     format!("forge:{proposal_id}")
 }
 
+// Every identifier one evolution generation derives is `evolve-{run_id}-g{n}-<tag>`,
+// which satisfies `validate_job_id` (alphanumeric, `-`, `_`, `.` only) exactly
+// like any other caller-selected idempotency key, so each of these can be
+// submitted through the ordinary Arena, Forge, and Champion command paths.
+fn evolution_diagnostic_evaluation_id(run_id: &str, generation_index: u32) -> String {
+    format!("evolve-{run_id}-g{generation_index}-d")
+}
+
+fn evolution_child_evaluation_id(run_id: &str, generation_index: u32) -> String {
+    format!("evolve-{run_id}-g{generation_index}-c")
+}
+
+fn evolution_proposal_id(run_id: &str, generation_index: u32) -> String {
+    format!("evolve-{run_id}-g{generation_index}-p")
+}
+
+fn evolution_assessment_id(run_id: &str, generation_index: u32) -> String {
+    format!("evolve-{run_id}-g{generation_index}-a")
+}
+
+fn evolution_promotion_transition_id(run_id: &str, generation_index: u32) -> String {
+    format!("evolve-{run_id}-g{generation_index}-x")
+}
+
 fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
     if hypothesis.trim().is_empty()
         || hypothesis.len() > 512
@@ -4822,6 +5337,39 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         && (*limit == 0 || *limit > MAX_LIST_LIMIT)
     {
         return Err(ExecuteError::Invalid("limit must be between 1 and 200"));
+    }
+    if let Command::EvolveStart {
+        run_id,
+        world_id,
+        from_genome_id,
+        generations,
+        budget,
+    } = command
+    {
+        validate_job_id(run_id).map_err(|_| ExecuteError::Invalid("run_id is invalid"))?;
+        if run_id.len() > MAX_EVOLUTION_RUN_ID_BYTES {
+            return Err(ExecuteError::Invalid(
+                "run_id must leave room for the run's derived identifiers",
+            ));
+        }
+        if world_id.trim().is_empty() || from_genome_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid(
+                "world_id and from_genome_id are required",
+            ));
+        }
+        if *generations == 0 {
+            return Err(ExecuteError::Invalid("generations must be positive"));
+        }
+        if *budget < TRIALS_PER_GENERATION {
+            return Err(ExecuteError::Invalid(
+                "budget must allow at least one generation",
+            ));
+        }
+    }
+    if let Command::EvolveStatus { run_id } | Command::EvolveCancel { run_id } = command
+        && validate_job_id(run_id).is_err()
+    {
+        return Err(ExecuteError::Invalid("run_id is invalid"));
     }
     require_champion_fields(command)
 }
@@ -6315,6 +6863,9 @@ fn event_type(command: &Command) -> &'static str {
         Command::ChampionPromote { .. } => "control.champion_promote",
         Command::ChampionRollback { .. } => "control.champion_rollback",
         Command::ChampionShow { .. } => "control.champion_show",
+        Command::EvolveStart { .. } => "control.evolve_start",
+        Command::EvolveStatus { .. } => "control.evolve_status",
+        Command::EvolveCancel { .. } => "control.evolve_cancel",
         Command::Replay => "control.replay",
         Command::RunList { .. } => "control.run_list",
         Command::EvaluationList { .. } => "control.evaluation_list",
@@ -6617,4 +7168,14 @@ use champion::{
     CHAMPION_EVENT_TYPE, ChampionRequest, champion_aggregate_id, champion_event_id,
     champion_projection, champion_transition_payload, champion_transition_record,
     existing_champion_transition, validate_reason, verify_champion_history,
+};
+
+#[path = "evolve.rs"]
+mod evolve;
+
+use evolve::{
+    EVOLUTION_CANCEL_TYPE, EVOLUTION_FINISHED_TYPE, EVOLUTION_GENERATION_TYPE,
+    EVOLUTION_STARTED_TYPE, TRIALS_PER_GENERATION, active_evolution_run_id, evolution_aggregate_id,
+    evolution_cancel_event_id, evolution_finished_event_id, evolution_generation_event_id,
+    evolution_projection, evolution_started_event_id, verify_evolution_history,
 };

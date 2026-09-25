@@ -10038,3 +10038,391 @@ fn evidence_denial_list_records_request_rejected_and_runtime_capability_denials_
     assert_eq!(bounded_denials.len(), 1);
     assert_eq!(bounded_denials[0].kind, DenialKind::RuntimeCapabilityDenied);
 }
+
+// ---------------------------------------------------------------------------
+// Autonomous evolution (roadmap item 10). `real_worker_arena_fixture` already
+// registers a World plus two Genomes ("arena-parent" and its child
+// "arena-candidate", both the identity operation): `evolve_start_command`
+// seeds the parent as generation zero's Champion and the daemon picks the
+// other Genome as the fixed diagnostic baseline.
+// ---------------------------------------------------------------------------
+
+fn evolve_start_command(
+    run_id: &str,
+    world_id: &str,
+    from_genome_id: &str,
+    generations: u32,
+    budget: u64,
+) -> Command {
+    Command::EvolveStart {
+        run_id: run_id.to_owned(),
+        world_id: world_id.to_owned(),
+        from_genome_id: from_genome_id.to_owned(),
+        generations,
+        budget,
+    }
+}
+
+/// Polls the reconciliation loop the same way `drain_active_arena_test_job`
+/// polls one Arena job, until the named run reaches a terminal state.
+fn evolve_drain_active_run(plane: &mut ControlPlane, run_id: &str) -> EvolutionRunRecord {
+    // Each generation drives two full paired Arena evaluations through the
+    // real supervised worker/evaluator subprocesses; a three-generation run
+    // needs meaningfully more wall-clock time than one Arena job alone.
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        plane
+            .service_async_messages()
+            .expect("advance the evolution reconciliation loop");
+        let history = plane
+            .storage
+            .as_ref()
+            .expect("open canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("replay verified history");
+        if let Some(run) = evolution_projection(&history, run_id).expect("evolution projection")
+            && run.state == EvolutionRunState::Finished
+        {
+            return run;
+        }
+        assert!(Instant::now() < deadline, "evolution run did not finish");
+        thread::sleep(Duration::from_millis(2));
+    }
+}
+
+fn evolve_run_projection(plane: &ControlPlane, run_id: &str) -> EvolutionRunRecord {
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("open canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay verified history");
+    evolution_projection(&history, run_id)
+        .expect("evolution projection")
+        .expect("evolution run exists")
+}
+
+fn evolve_reopen_real_worker_fixture(directory: &TempDir) -> Result<ControlPlane, ControlError> {
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    let evaluator = directory.path().join("fixture-evaluator");
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+}
+
+#[test]
+fn evolve_start_completes_three_generations_with_one_promotion_and_replays() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent, _candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+    let from_genome_id = parent.genome_id.clone();
+    let run_id = "evolve-three-generations";
+
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-start",
+        evolve_start_command(run_id, &world_id, &from_genome_id, 3, 6),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start failed: {:?}",
+        start.error
+    );
+    let Some(ResponseData::Evolution { run }) = start.data else {
+        panic!("evolve start should return the admitted run");
+    };
+    assert_eq!(run.state, EvolutionRunState::Running);
+    assert_eq!(run.max_generations, 3);
+    assert_eq!(run.max_paired_trials, 6);
+    assert_eq!(run.from_genome_id, from_genome_id);
+    assert_ne!(run.baseline_genome_id, from_genome_id);
+
+    // Re-admitting the exact same request is idempotent.
+    let repeat = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-start-repeat",
+        evolve_start_command(run_id, &world_id, &from_genome_id, 3, 6),
+    );
+    assert!(repeat.error.is_none());
+
+    // While one run is active, an operator cannot race its own internal
+    // Arena/Forge/Champion calls through the ordinary command surface.
+    let busy = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-busy-probe",
+        Command::ChampionSeed {
+            transition_id: "should-not-seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: from_genome_id.clone(),
+            reason: "operator race attempt".to_owned(),
+        },
+    );
+    assert_eq!(busy.error.expect("busy response").code, ApiErrorCode::Busy);
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.state, EvolutionRunState::Finished);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::GenerationsExhausted)
+    );
+    assert_eq!(run.generations.len(), 3);
+    assert_eq!(run.trials_consumed, 6);
+    assert!(
+        run.generations[0].payload.promoted,
+        "the first generation's mutation genuinely improves on the identity Champion"
+    );
+    assert!(
+        !run.generations[1].payload.promoted,
+        "flipping the same operation back is never an improvement"
+    );
+    assert!(!run.generations[2].payload.promoted);
+    assert_eq!(
+        run.generations[1].payload.champion_before,
+        run.generations[0].payload.champion_after
+    );
+    assert_eq!(
+        run.generations[2].payload.champion_before,
+        run.generations[1].payload.champion_after
+    );
+
+    let Some(ResponseData::Champion { champion }) = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-champion-show",
+        Command::ChampionShow {
+            world_id: world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("champion show should succeed");
+    };
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(run.generations[0].payload.child_genome_id.as_str())
+    );
+
+    // Once active work has drained, the run no longer blocks ordinary commands.
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "evolve-after-finish-status",
+            Command::Status,
+        )
+        .error
+        .is_none()
+    );
+
+    let replay = dispatch_call(&mut plane, &token, "evolve-replay", Command::Replay);
+    assert!(replay.error.is_none(), "replay failed: {:?}", replay.error);
+}
+
+#[test]
+fn evolve_respects_freeze_and_resumes_only_after_explicit_unfreeze() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent, _candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+    let from_genome_id = parent.genome_id.clone();
+    let run_id = "evolve-freeze";
+
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-start",
+        evolve_start_command(run_id, &world_id, &from_genome_id, 2, 4),
+    );
+    assert!(start.error.is_none());
+
+    assert!(
+        dispatch_call(&mut plane, &token, "evolve-freeze", Command::Freeze)
+            .error
+            .is_none()
+    );
+    for _ in 0..25 {
+        plane
+            .service_async_messages()
+            .expect("tick the reconciliation loop while frozen");
+    }
+    let frozen_run = evolve_run_projection(&plane, run_id);
+    assert_eq!(
+        frozen_run.generations.len(),
+        0,
+        "a frozen daemon never advances an evolution run"
+    );
+    assert_eq!(frozen_run.state, EvolutionRunState::Running);
+
+    assert!(
+        dispatch_call(&mut plane, &token, "evolve-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.state, EvolutionRunState::Finished);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::GenerationsExhausted)
+    );
+    assert_eq!(run.generations.len(), 2);
+}
+
+#[test]
+fn evolve_cancel_stops_the_run_before_any_generation_is_admitted() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent, _candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+    let from_genome_id = parent.genome_id.clone();
+    let run_id = "evolve-cancel";
+
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-start",
+        evolve_start_command(run_id, &world_id, &from_genome_id, 5, 10),
+    );
+    assert!(start.error.is_none());
+
+    let cancel = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-cancel",
+        Command::EvolveCancel {
+            run_id: run_id.to_owned(),
+        },
+    );
+    assert!(cancel.error.is_none());
+    let Some(ResponseData::Evolution { run }) = cancel.data else {
+        panic!("evolve cancel should return the run");
+    };
+    assert!(run.cancel_requested);
+
+    // Cancelling an already-cancelled run is a harmless idempotent no-op.
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "evolve-cancel-repeat",
+            Command::EvolveCancel {
+                run_id: run_id.to_owned(),
+            },
+        )
+        .error
+        .is_none()
+    );
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.state, EvolutionRunState::Finished);
+    assert_eq!(run.finish_reason, Some(EvolutionFinishReason::Cancelled));
+    assert_eq!(run.generations.len(), 0);
+}
+
+#[test]
+fn evolve_budget_exhaustion_stops_a_run_before_its_generation_limit() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent, _candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+    let from_genome_id = parent.genome_id.clone();
+    let run_id = "evolve-budget";
+
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-start",
+        evolve_start_command(run_id, &world_id, &from_genome_id, 5, TRIALS_PER_GENERATION),
+    );
+    assert!(start.error.is_none());
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.state, EvolutionRunState::Finished);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::BudgetExhausted)
+    );
+    assert_eq!(run.generations.len(), 1);
+    assert_eq!(run.trials_consumed, TRIALS_PER_GENERATION);
+}
+
+#[test]
+fn evolve_history_rejects_a_generation_forged_without_matching_evidence() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent, candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+    let from_genome_id = parent.genome_id.clone();
+    let run_id = "evolve-forged";
+
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-start",
+        evolve_start_command(run_id, &world_id, &from_genome_id, 3, 6),
+    );
+    assert!(start.error.is_none());
+
+    // No proposal, child evaluation, or assessment for this generation was
+    // ever recorded; this event claims a promotion the ledger cannot support.
+    let forged = EvolutionGenerationPayload {
+        schema_version: 1,
+        run_id: run_id.to_owned(),
+        generation_index: 0,
+        champion_before: from_genome_id.clone(),
+        diagnostic_evaluation_id: "forged-diagnostic".to_owned(),
+        proposal_id: "forged-proposal".to_owned(),
+        child_genome_id: candidate.genome_id.clone(),
+        child_evaluation_id: "forged-child".to_owned(),
+        assessment_id: "forged-assessment".to_owned(),
+        promoted: true,
+        champion_after: candidate.genome_id.clone(),
+    };
+    let payload_value = serde_json::to_value(&forged).expect("encode forged payload");
+    let payload_bytes = serde_json::to_vec(&payload_value).expect("serialize forged payload");
+    plane
+        .storage
+        .as_mut()
+        .expect("open canonical storage")
+        .ledger
+        .append(EventInput::new(
+            evolution_generation_event_id(run_id, 0),
+            evolution_aggregate_id(run_id),
+            EVOLUTION_GENERATION_TYPE,
+            OPERATOR_ACTOR,
+            timestamp_millis().expect("clock reads"),
+            payload_bytes,
+        ))
+        .expect("append forged evolution generation event");
+    drop(plane);
+
+    let reopened = evolve_reopen_real_worker_fixture(&directory);
+    assert!(
+        reopened.is_err(),
+        "a daemon must never trust a promotion claim without matching Forge and Champion evidence"
+    );
+}
