@@ -15,8 +15,8 @@ use hephaestus_arena::{
 };
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError, ControlPlane,
-    DenialKind, ForgeAssessmentOutcome, GenomeRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, ResponseData, RunCompletionReason, WorldRecord,
+    DenialKind, ForgeAssessmentOutcome, GeneTransferOutcome, GenomeRecord, JobProgress, JobRecord,
+    JobState, JobTerminal, ResponseData, RunCompletionReason, WorldRecord,
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client};
@@ -6267,5 +6267,296 @@ fn evidence_cli_lists_runs_and_denials_newest_first_and_bounded() {
         "run listing must be stable across a verified replay"
     );
 
+    daemon.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"Gene Bank fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let scratch = directory.path().join("scratch");
+    fs::create_dir_all(&scratch).expect("create scratch directory");
+
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+    let data = |arguments: &[&str]| {
+        let output = cli(&data_dir, arguments);
+        let parsed = response(&output);
+        assert!(
+            parsed.error.is_none(),
+            "CLI command {arguments:?} failed: {:?}",
+            parsed.error
+        );
+        parsed.data.expect("CLI response data")
+    };
+
+    // Three visible tasks give the origin promotion enough measured paired
+    // trials to clear the Gene Bank's minimum-evidence threshold; the sealed
+    // task agrees so it never dilutes the domain's correctness signal.
+    let visible_path = scratch.join("visible.json");
+    fs::write(
+        &visible_path,
+        br#"{"schema_version":1,"manifest_id":"gene-bank-visible","visibility":"visible","tasks":[
+            {"task_id":"t0","input":"alpha","expected_output":"ALPHA"},
+            {"task_id":"t1","input":"beta","expected_output":"BETA"},
+            {"task_id":"t2","input":"gamma","expected_output":"GAMMA"}
+        ]}"#,
+    )
+    .unwrap();
+    let sealed_path = scratch.join("sealed.json");
+    fs::write(
+        &sealed_path,
+        br#"{"schema_version":1,"manifest_id":"gene-bank-sealed","visibility":"sealed","tasks":[
+            {"task_id":"s0","input":"delta","expected_output":"DELTA"}
+        ]}"#,
+    )
+    .unwrap();
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        visible_path.to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&["arena", "manifest", sealed_path.to_str().unwrap()]));
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier = first_word(&text(&["verifier"]));
+    let invariant_path = scratch.join("invariants.json");
+    fs::write(
+        &invariant_path,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[0]}"#,
+    )
+    .unwrap();
+    let invariants = first_word(&text(&[
+        "artifact",
+        "put",
+        invariant_path.to_str().unwrap(),
+    ]));
+    let world_path = scratch.join("world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"gene-bank-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{visible}","arena.sealed_manifest":"{sealed}","arena.evaluator":"{evaluator}","arena.runtime_verifier":"{verifier}","arena.invariant_manifest":"{invariants}"}}}}"#
+        ),
+    )
+    .unwrap();
+    let world_id = first_word(&text(&["world", "register", world_path.to_str().unwrap()]));
+
+    let genome_source = |name: &str, parents: &str| {
+        let path = scratch.join(format!("{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+            ),
+        )
+        .unwrap();
+        path
+    };
+    let parent_path = genome_source("origin-parent", "[]");
+    let parent_id = first_word(&text(&[
+        "genome",
+        "register",
+        parent_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    let candidate_path = genome_source("origin-candidate", &format!("[\"{parent_id}\"]"));
+    let candidate_id = first_word(&text(&[
+        "genome",
+        "register",
+        candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    data(&[
+        "arena",
+        "evaluate",
+        "gene-source",
+        &parent_id,
+        &candidate_id,
+    ]);
+    let ResponseData::Selection { selection: source } = data(&["arena", "select", "gene-source"])
+    else {
+        panic!("source selection expected");
+    };
+    let ResponseData::ForgeProposal { proposal } = data(&[
+        "genome",
+        "propose",
+        "gene-proposal",
+        "--selection-event",
+        &source.event.event_id,
+        "--parent",
+        &candidate_id,
+        "--hypothesis",
+        "Uppercase output satisfies the Gene Bank tasks.",
+    ]) else {
+        panic!("Forge proposal expected");
+    };
+    let child = proposal.payload.child.clone();
+    let mut attempt = 0;
+    let (child_evaluation, child_selection) = loop {
+        let evaluation = format!("gene-child-{attempt}");
+        data(&[
+            "arena",
+            "evaluate",
+            &evaluation,
+            &candidate_id,
+            &child.genome_id,
+        ]);
+        let ResponseData::Selection { selection } = data(&["arena", "select", &evaluation]) else {
+            panic!("child selection expected");
+        };
+        if selection.receipt.metrics_eligible() {
+            break (evaluation, selection);
+        }
+        assert!(
+            selection.receipt.correctness_improvements() > 0
+                && selection.receipt.correctness_regressions() == 0,
+            "the proposed child did not improve correctness"
+        );
+        attempt += 1;
+        assert!(
+            attempt < 4,
+            "improving child never passed the measured gate"
+        );
+    };
+    data(&[
+        "genome",
+        "assess",
+        "gene-assessment",
+        "--proposal",
+        "gene-proposal",
+        "--selection-event",
+        &child_selection.event.event_id,
+    ]);
+    data(&["arena", "invariants", &child_evaluation]);
+    data(&[
+        "champion",
+        "seed",
+        "gene-seed",
+        "--world",
+        &world_id,
+        "--genome",
+        &candidate_id,
+        "--reason",
+        "Bootstrap the Gene Bank origin Champion.",
+    ]);
+    let ResponseData::ChampionTransition { transition } = data(&[
+        "champion",
+        "promote",
+        "gene-promote",
+        "--assessment",
+        "gene-assessment",
+    ]) else {
+        panic!("promotion expected");
+    };
+    assert_eq!(transition.payload.champion_genome_id, child.genome_id);
+
+    // Extract a Gene from the promoted, evidence-bound transition.
+    let ResponseData::Gene { gene } = data(&[
+        "gene",
+        "extract",
+        "uppercase-gene",
+        "--promotion",
+        "gene-promote",
+    ]) else {
+        panic!("Gene extraction expected");
+    };
+    assert_eq!(gene.payload.operation_before, "identity");
+    assert_eq!(gene.payload.operation_after, "ascii_uppercase");
+    assert_eq!(gene.payload.world_id, world_id);
+    assert!(gene.payload.evidence_trials >= 3);
+    let shown_gene = text(&["gene", "show", "uppercase-gene"]);
+    assert!(shown_gene.contains("gene=uppercase-gene"));
+
+    // Transfer the Gene onto a fresh recipient lineage under the same World
+    // through the ordinary compiler, then record its measured effect.
+    let recipient_path = genome_source("recipient", "[]");
+    let recipient_id = first_word(&text(&[
+        "genome",
+        "register",
+        recipient_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    let ResponseData::GeneTransfer { trial } = data(&[
+        "gene",
+        "transfer",
+        "uppercase-transfer",
+        "--gene",
+        "uppercase-gene",
+        "--to",
+        &recipient_id,
+    ]) else {
+        panic!("Gene transfer expected");
+    };
+    assert_eq!(trial.applied.to_genome_id, recipient_id);
+    let transfer_child = trial.applied.child.genome_id.clone();
+    data(&[
+        "arena",
+        "evaluate",
+        "uppercase-transfer-eval",
+        &recipient_id,
+        &transfer_child,
+    ]);
+    data(&["arena", "select", "uppercase-transfer-eval"]);
+    let ResponseData::GeneTransfer { trial: recorded } = data(&[
+        "gene",
+        "record",
+        "uppercase-transfer",
+        "--evaluation",
+        "uppercase-transfer-eval",
+    ]) else {
+        panic!("Gene transfer record expected");
+    };
+    let outcome = recorded
+        .recorded
+        .expect("a recorded transfer trial carries its outcome")
+        .outcome;
+    assert_eq!(outcome, GeneTransferOutcome::Positive);
+
+    // A single recorded lineage is not enough for speciation.
+    let refused = cli(
+        &data_dir,
+        &[
+            "gene",
+            "speciate",
+            "uppercase-species",
+            "--gene",
+            "uppercase-gene",
+            "--domain",
+            &world_id,
+        ],
+    );
+    assert_eq!(error_code(&refused), ApiErrorCode::InvalidRequest);
+
+    let ResponseData::Genes { genes } = data(&["gene", "list"]) else {
+        panic!("Gene list expected");
+    };
+    assert!(
+        genes
+            .iter()
+            .any(|summary| summary.payload.gene_id == "uppercase-gene" && summary.positive == 1),
+        "the extracted Gene must be listed with its recorded transfer"
+    );
+
+    assert!(text(&["replay"]).starts_with("replayed events="));
     daemon.stop();
 }
