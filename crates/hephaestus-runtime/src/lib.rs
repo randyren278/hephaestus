@@ -5,6 +5,7 @@ mod error;
 mod guardian;
 mod isolation;
 mod provider;
+mod provider_events;
 mod reference_instruction;
 mod runtime;
 mod sandbox;
@@ -17,6 +18,7 @@ pub use error::RuntimeError;
 pub use guardian::{hold_process_group_anchor, run_process_guardian};
 pub use isolation::{IsolationBackend, IsolationPolicy};
 pub use provider::ProviderInvocation;
+pub use provider_events::{ProviderEventCursor, extract_actual_cost_microusd, extract_final_answer};
 pub use reference_instruction::{
     ReferenceInstruction, execute_reference_worker_request, frame_reference_instruction,
 };

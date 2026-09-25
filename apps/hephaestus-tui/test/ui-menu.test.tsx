@@ -10,6 +10,7 @@ const status: ApiResponse = {version: 1, request_id: 'r', data: {type: 'status',
 test('the home menu (including Evidence & Costs and Author Markdown agent) fits an 80x24 terminal without overlap', () => {
 	const rendered = renderToString(<App client={{request: async () => status}} pollMs={1000} />);
 	assert.match(rendered, /Evidence & Costs/);
+	assert.match(rendered, /Gene Bank/);
 	assert.match(rendered, /Author Markdown agent/);
 	const lines = rendered.split('\n');
 	assert.ok(lines.length <= 24, `expected the home frame to fit 24 rows, got ${lines.length}`);

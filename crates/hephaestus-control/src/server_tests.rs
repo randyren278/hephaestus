@@ -10931,6 +10931,303 @@ fn evolve_start_rejects_invalid_conflicting_and_concurrent_requests() {
         .expect("a finished run is left alone");
 }
 
+fn write_fake_claude_binary(path: &Path) {
+    fs::write(
+        path,
+        "#!/bin/sh\n\
+cat >/dev/null\n\
+echo '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fake-session\"}'\n\
+echo '{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"path\":\"fixture.txt\"}}]}}'\n\
+echo '{\"type\":\"user\",\"parent_tool_use_id\":null,\"message\":{\"content\":[{\"type\":\"tool_result\",\"content\":\"deterministic fixture\",\"is_error\":false}]}}'\n\
+echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"Inventory complete: fixture.txt\",\"total_cost_usd\":0.0042,\"session_id\":\"fake-session\"}'\n",
+    )
+    .expect("write fake claude binary");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .expect("mark fake claude executable");
+}
+
+fn register_claude_provider_genome(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    world_id: &str,
+) -> GenomeRecord {
+    let genome_path = directory.path().join("claude-agent.json");
+    fs::write(
+        &genome_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "name": "claude-agent",
+            "parents": [],
+            "model": {"provider": "claude", "family": "sonnet"},
+            "authority": {"workspace_write": false, "network": false},
+            "artifacts": {}
+        }))
+        .expect("encode claude Genome"),
+    )
+    .expect("write claude Genome source");
+    let Some(ResponseData::Genome { genome }) = dispatch_call(
+        plane,
+        token,
+        "register-claude-genome",
+        Command::GenomeRegister {
+            path: genome_path.display().to_string(),
+            world_id: world_id.to_owned(),
+        },
+    )
+    .data
+    else {
+        panic!("claude Genome registration should succeed");
+    };
+    genome
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_traces() {
+    let directory = tempdir().expect("fixture directory");
+    let (repository, source_revision) = committed_reference_fixture(directory.path());
+    let data_dir = directory.path().join("data");
+    let current_executable = env::current_exe().expect("test executable");
+    let fake_claude = directory.path().join("fake-claude");
+    write_fake_claude_binary(&fake_claude);
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &current_executable,
+    )
+    .expect("open control plane for provider adapter run")
+    .with_provider_executables_for_testing(
+        "/nonexistent/codex-should-not-be-invoked",
+        &fake_claude,
+        Vec::new(),
+    );
+    let token = plane.token_hex.clone();
+    // A provider run's cost is bounded by its World's approved Law, not by
+    // the fixed zero ceiling the reference-worker smoke test uses; give this
+    // World enough headroom for the fake binary's reported $0.0042.
+    let world_path = directory.path().join("provider-world.json");
+    fs::write(
+        &world_path,
+        r#"{"schema_version":1,"name":"provider-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#,
+    )
+    .expect("write provider World source");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-provider-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("provider World registration should succeed");
+    };
+    let genome = register_claude_provider_genome(&mut plane, &token, &directory, &world.world_id);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    // `run`: synchronous path through `execute_provider_runtime`.
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "claude-run",
+        Command::RunReference {
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    assert!(
+        response.error.is_none(),
+        "claude adapter run failed: {:?}",
+        response.error
+    );
+    let (run_id, stdout_artifact_id, revision, run_completion, run_cost) =
+        match response.data.expect("claude run response") {
+            ResponseData::Run {
+                run_id,
+                stdout_artifact_id,
+                source_revision,
+                completion_reason,
+                actual_cost_microusd,
+                genome_id,
+                world_id,
+                trace_artifact_ids,
+                ..
+            } => {
+                assert_eq!(genome_id, genome.genome_id);
+                assert_eq!(world_id, world.world_id);
+                assert!(
+                    !trace_artifact_ids.is_empty(),
+                    "provider run must record trace evidence"
+                );
+                (
+                    run_id,
+                    stdout_artifact_id,
+                    source_revision,
+                    completion_reason,
+                    actual_cost_microusd,
+                )
+            }
+            other => panic!("unexpected claude run response: {other:?}"),
+        };
+    assert_eq!(run_completion, RunCompletionReason::Success);
+    assert_eq!(run_cost, 4_200, "claude's reported $0.0042 must round-trip");
+    assert_eq!(revision, source_revision);
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open provider CAS");
+    let stdout = artifacts
+        .get(&ArtifactId::parse(stdout_artifact_id).expect("stdout artifact ID"))
+        .expect("load final answer from CAS");
+    assert_eq!(
+        String::from_utf8(stdout).expect("final answer is UTF-8"),
+        "Inventory complete: fixture.txt",
+        "stdout must be the extracted final answer, not the raw NDJSON stream"
+    );
+
+    // `submit` deliberately fails closed for provider Genomes today: its
+    // canonical job-record projection hard-codes the reference-worker
+    // contract (a digest-pinned environment_id, the fixed inventory task_id,
+    // and a zero-cost budget), none of which fit an operator-configured CLI
+    // adapter. See docs/RUNTIMES.md for what extending it would need.
+    let submit_response = dispatch_call(
+        &mut plane,
+        &token,
+        "claude-submit-rejected",
+        Command::RunSubmit {
+            job_id: "claude-submit".to_owned(),
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    let submit_error = submit_response
+        .error
+        .expect("submit must reject a provider Genome instead of writing an unvalidatable job");
+    assert_eq!(submit_error.code, ApiErrorCode::InvalidRequest);
+    assert!(!plane.state.jobs.contains_key("claude-submit"));
+
+    // Replay proves the signed run result verifies from canonical history.
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("storage open")
+        .ledger
+        .replay_verified()
+        .expect("replay canonical ledger");
+    let recorded_runs: Vec<RunResultReceipt> = history
+        .iter()
+        .filter(|event| event.event_type == "run.result_recorded")
+        .map(|event| {
+            RunResultReceipt::parse_from_event(event, &plane.run_result_verifier)
+                .expect("provider run result verifies")
+        })
+        .collect();
+    assert!(
+        recorded_runs.iter().any(|receipt| receipt.run_id == run_id
+            && receipt.completion_reason == RunCompletionReason::Success
+            && receipt.actual_cost_microusd == 4_200),
+        "synchronous claude run must be in signed history with its reported cost"
+    );
+}
+
+#[test]
+fn provider_run_redacts_secret_looking_text_before_it_reaches_the_artifact_store() {
+    let directory = tempdir().expect("fixture directory");
+    let (repository, _source_revision) = committed_reference_fixture(directory.path());
+    let data_dir = directory.path().join("data");
+    let current_executable = env::current_exe().expect("test executable");
+    let fake_claude = directory.path().join("fake-claude-secret");
+    fs::write(
+        &fake_claude,
+        "#!/bin/sh\n\
+cat >/dev/null\n\
+echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"token=sk-verysecrettoken1234 and operator-secret\",\"total_cost_usd\":0}'\n",
+    )
+    .expect("write fake claude binary");
+    fs::set_permissions(&fake_claude, fs::Permissions::from_mode(0o700))
+        .expect("mark fake claude executable");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &current_executable,
+        &current_executable,
+    )
+    .expect("open control plane for redaction test")
+    .with_provider_executables_for_testing(
+        "/nonexistent/codex-should-not-be-invoked",
+        &fake_claude,
+        Vec::new(),
+    );
+    let token = plane.token_hex.clone();
+    let (world, _genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+    let genome_path = directory.path().join("claude-secret-agent.json");
+    fs::write(
+        &genome_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "name": "claude-secret-agent",
+            "parents": [],
+            "model": {"provider": "claude", "family": "sonnet"},
+            "authority": {"workspace_write": false, "network": false},
+            "artifacts": {}
+        }))
+        .expect("encode claude Genome"),
+    )
+    .expect("write claude Genome source");
+    let Some(ResponseData::Genome { genome }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-claude-secret-genome",
+        Command::GenomeRegister {
+            path: genome_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("claude Genome registration should succeed");
+    };
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "claude-secret-run",
+        Command::RunReference {
+            genome_id: genome.genome_id.clone(),
+        },
+    );
+    assert!(response.error.is_none(), "run failed: {:?}", response.error);
+    let ResponseData::Run {
+        stdout_artifact_id,
+        completion_reason,
+        ..
+    } = response.data.expect("run response")
+    else {
+        panic!("unexpected response shape");
+    };
+    assert_eq!(completion_reason, RunCompletionReason::Success);
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open CAS");
+    let stdout = artifacts
+        .get(&ArtifactId::parse(stdout_artifact_id).expect("stdout artifact ID"))
+        .expect("load redacted final answer from CAS");
+    let final_answer = String::from_utf8(stdout).expect("final answer is UTF-8");
+    assert!(
+        !final_answer.contains("sk-verysecrettoken1234"),
+        "the sk- prefixed token must never reach the artifact store: {final_answer}"
+    );
+    assert!(
+        final_answer.contains("[REDACTED]"),
+        "redaction must replace the secret rather than silently drop the whole message: {final_answer}"
+    );
+}
+
 // ---------------------------------------------------------------------
 // Gene Bank
 // ---------------------------------------------------------------------

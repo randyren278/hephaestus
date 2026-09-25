@@ -37,6 +37,21 @@ Capability subset checks are fail-closed, and operator control uses a non-loggab
 - A remote worker credential is content-addressed (`blake3(secret)`) and never persisted in raw form; expiry and revocation are pure functions of replayed history, so they hold across a daemon restart with no extra trust state.
 - worker.sock mutual authentication currently relies on the credential (worker → daemon) plus owner-only Unix socket permissions (daemon → worker); this is the same trust model control.sock already uses and does not yet extend to a genuinely cross-host network deployment (no TLS, no daemon certificate pinning) — tracked as a known gap, not a silent assumption.
 
+## Supply chain and release
+
+| Category | Concrete threat | Required control |
+|---|---|---|
+| Tampering | A compromised or malicious dependency is pulled into a release build | `cargo deny check` (licenses, RustSec advisories, crates.io-only sources) and `npm audit --audit-level=high` run in CI for every push (`.github/workflows/ci.yml`) |
+| Tampering | A CI Action is repointed to malicious code by moving its version tag | Every third-party Action in CI and release workflows is pinned to a commit SHA, not a tag |
+| Repudiation | A published archive cannot be tied back to the exact source and build that produced it | Keyless Sigstore signatures, GitHub build-provenance attestations, and a same-machine reproducibility check on every tagged release (see `docs/RELEASES.md`) |
+| Elevation of privilege | A workflow job is granted more GitHub permissions than its steps need | `permissions: contents: read` at the workflow root; only the jobs that publish or sign a release elevate to `contents: write` / `id-token: write` / `attestations: write` |
+
+`docs/RELEASES.md` states plainly what the reproducibility check does and does not prove: same-machine determinism, not an independent third-party rebuild.
+
+## Self-dogfooding
+
+Roadmap item 15 requires proof that no merge or release credential is reachable from a sandboxed candidate lineage before Hephaestus is trusted to propose changes to its own source. This is a narrower, testable instance of the "information disclosure" row above (`A candidate reads sealed tasks, sibling workspaces, credentials, or raw secrets in traces`): `IsolatedWorker::execute` (`crates/hephaestus-runtime/src/worker.rs`) clears the child process environment and sets only `PATH`, `HOME`, and `TMPDIR`, so `GIT_*`, `SSH_AUTH_SOCK`, `GITHUB_TOKEN`/`GH_TOKEN`, package-registry tokens, and signing secrets are never inherited. `candidate_sandbox_never_receives_merge_or_release_credentials` in `crates/hephaestus-runtime/tests/adversarial.rs` exercises this directly. See `docs/SELF_DOGFOODING.md` for the full runnable procedure and its honest scope.
+
 ## Security acceptance
 
-Every critical control path must have positive, negative, and mutation tests. Later milestones add sandbox escape, evaluator leakage, budget bypass, event tamper, corruption, stale-token, sibling-isolation, and partial-promotion fault tests.
+Every critical control path must have positive, negative, and mutation tests. `docs/ADVERSARIAL.md` names the sandbox escape, evaluator leakage, budget bypass, event tamper, corruption, and partial-promotion tests that satisfy this for roadmap item 15; stale-token and sibling-isolation fault tests remain open work.
