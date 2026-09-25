@@ -53,7 +53,8 @@
     "crates/hephaestus-runtime/src/guardian.rs",
     "crates/hephaestus-experience/src/sink.rs",
     "crates/hephaestus-arena/src/invariants.rs",
-    "crates/hephaestus-control/src/champion.rs"
+    "crates/hephaestus-control/src/champion.rs",
+    "crates/hephaestus-arena/src/clusters.rs"
   ],
   "mutations": [
     {
@@ -1803,8 +1804,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2281,6 +2282,34 @@
       "invariant": "Recompute dispatches on the already-recorded receipt's algorithm, so a stored v1 receipt still verifies.",
       "find": "        Some(event) => existing_receipt_algorithm(&stores, event)?,",
       "replace": "        Some(_) => CURRENT_ALGORITHM.to_owned(),"
+    },
+    {
+      "id": "cluster-sealed-data-excluded",
+      "file": "crates/hephaestus-arena/src/clusters.rs",
+      "invariant": "A sealed task's actual output and expected output are never shape-analyzed; sealed failures contribute only an aggregate completion-reason count.",
+      "find": "        } else if sealed_ids.contains(task_id) {\n            sealed_reasons.push(trial.completion_reason);",
+      "replace": "        } else if sealed_ids.contains(task_id) {\n            visible_trials.push(VisibleTrial {\n                completion_reason: trial.completion_reason,\n                expected_output: String::new(),\n                actual_output: trial.stdout.clone(),\n            });"
+    },
+    {
+      "id": "cluster-deterministic-signature-assignment",
+      "file": "crates/hephaestus-arena/src/clusters.rs",
+      "invariant": "Every authenticated completion reason maps deterministically to exactly one stable cluster signature.",
+      "find": "        RunCompletionReason::ProviderFailure => Some(\"completion_provider_failure\"),",
+      "replace": "        RunCompletionReason::ProviderFailure => None,"
+    },
+    {
+      "id": "cluster-suggested-mutation-matches-cluster",
+      "file": "crates/hephaestus-arena/src/clusters.rs",
+      "invariant": "A cluster's suggested_mutation must match what its signature actually supports; a case-mismatch cluster always names the reference-operation flip.",
+      "find": "        \"shape_case_mismatch\" => (\n            format!(\n                \"The candidate's output differs from the expected output only in letter \\\n                 case on {visible_count} visible task(s); flipping the parent's reference \\\n                 operation should correct the case mismatch.\"\n            ),\n            Some(SuggestedMutation::ReferenceOperationFlip),\n        ),",
+      "replace": "        \"shape_case_mismatch\" => (\n            format!(\n                \"The candidate's output differs from the expected output only in letter \\\n                 case on {visible_count} visible task(s); flipping the parent's reference \\\n                 operation should correct the case mismatch.\"\n            ),\n            None,\n        ),"
+    },
+    {
+      "id": "cluster-replay-recompute-conflict",
+      "file": "crates/hephaestus-arena/src/clusters.rs",
+      "invariant": "A stored forge.clustered event that decodes cleanly but recomputes to different content under the same analysis_id must fail closed as a conflict, not replay as an idempotent retry.",
+      "find": "        || analysis != *expected",
+      "replace": "        || false && analysis != *expected"
     }
   ]
 }
