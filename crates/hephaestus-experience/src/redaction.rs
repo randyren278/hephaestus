@@ -36,6 +36,14 @@ impl RedactionPolicy {
         RedactedFields { values, redacted }
     }
 
+    /// Redacts one blob of free text through the same value-and-token rules
+    /// [`Self::redact`] applies to structured trace fields. Used for raw
+    /// provider stdout/stderr, which is not itself a `{key: value}` map.
+    #[must_use]
+    pub fn redact_text(&self, text: &str) -> String {
+        self.redact_value(text)
+    }
+
     fn redact_value(&self, value: &str) -> String {
         let mut redacted = value.to_owned();
         for secret in &self.known_secrets {
