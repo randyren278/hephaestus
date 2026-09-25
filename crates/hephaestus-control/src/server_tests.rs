@@ -11362,6 +11362,12 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
 
     let gene = gene_bank_origin(&mut plane, &token, &directory, "uppercase-gene", 3);
 
+    // Re-extracting the same gene_id from a different promotion fails closed.
+    assert!(matches!(
+        plane.gene_extract(&gene.payload.gene_id, "a-different-promotion"),
+        Err(ExecuteError::Rejected(_))
+    ));
+
     // World B: uppercase helps. Three distinct lineages (b1, b2, b3), all positive.
     let helps_world = gene_bank_world(
         &mut plane,
@@ -11442,6 +11448,22 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
         &b2.genome_id,
     );
     assert_eq!(outcome_b2, GeneTransferOutcome::Positive);
+
+    // Two distinct positive lineages are not enough for speciation.
+    match plane.gene_speciate(
+        "species-too-few",
+        &gene.payload.gene_id,
+        &helps_world.world_id,
+    ) {
+        Err(ExecuteError::Rejected(message)) => {
+            assert!(
+                message.contains("distinct positive lineage"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("two lineages must refuse speciation: {other:?}"),
+    }
+
     let outcome_c1 = gene_bank_transfer_and_record(
         &mut plane,
         "transfer-c1",
@@ -11457,6 +11479,38 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
     // Reusing a trial id with a different recipient fails closed.
     assert!(matches!(
         plane.gene_transfer_apply("transfer-b1", &gene.payload.gene_id, &c1.genome_id),
+        Err(ExecuteError::Rejected(_))
+    ));
+
+    // A recipient that does not currently carry the Gene's origin operation
+    // cannot receive the transfer.
+    let already_uppercase_path = directory.path().join("already-uppercase.md");
+    fs::write(
+        &already_uppercase_path,
+        "---\nschema_version: 1\nname: already-uppercase\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"ascii_uppercase\"}\n```\n",
+    )
+    .expect("write already-uppercase Genome source");
+    let Some(ResponseData::Genome {
+        genome: already_uppercase,
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-already-uppercase",
+        Command::GenomeRegister {
+            path: already_uppercase_path.display().to_string(),
+            world_id: helps_world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("already-uppercase Genome registration should succeed");
+    };
+    assert!(matches!(
+        plane.gene_transfer_apply(
+            "transfer-already-uppercase",
+            &gene.payload.gene_id,
+            &already_uppercase.genome_id
+        ),
         Err(ExecuteError::Rejected(_))
     ));
 
