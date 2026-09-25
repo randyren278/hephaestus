@@ -20,13 +20,16 @@ use std::{
 
 use fs2::FileExt;
 use hephaestus_arena::{
-    ArenaError, EvaluationBinding, EvaluationInputs, EvaluationSources, EvaluationStores,
-    InvariantEvent, InvariantReceipt, IsolatedEvaluator, OperatorInvariantCheck, ReceiptContext,
-    ScoredEvaluation, SelectionEvent, SelectionReceipt, TrialPlan, TrustedManifest, Visibility,
-    check_reference_output_invariants, evaluate_and_record_scored, invariant_event_references,
-    load_operator_evaluation, load_recorded_evaluation, load_reference_output_invariants,
-    prepare_evaluation, select_and_record, selection_event_references,
-    verify_reference_output_invariant_event, verify_selection_event,
+    ArenaError, CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, EvaluationBinding,
+    EvaluationInputs, EvaluationSources, EvaluationStores, InvariantEvent, InvariantReceipt,
+    IsolatedEvaluator, OperatorClusterAnalysis, OperatorInvariantCheck, ReceiptContext,
+    ScoredEvaluation, SelectionEvent, SelectionReceipt, SuggestedMutation, TrialPlan,
+    TrustedManifest, Visibility, check_failure_clusters, check_reference_output_invariants,
+    cluster_event_references, evaluate_and_record_scored, invariant_event_references,
+    load_failure_clusters, load_operator_evaluation, load_recorded_evaluation,
+    load_reference_output_invariants, prepare_evaluation, select_and_record,
+    selection_event_references, verify_cluster_event, verify_reference_output_invariant_event,
+    verify_selection_event,
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
 use hephaestus_experience::{
@@ -50,11 +53,11 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError,
-    EvaluationEventRecord, EvaluationRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
-    ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
-    ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, ResponseData, RunCompletionReason, SelectionEventRecord, SelectionRecord,
-    WorldRecord,
+    EvaluationEventRecord, EvaluationRecord, ForgeAnalysisBinding, ForgeAnalysisRecord,
+    ForgeAssessmentEventRecord, ForgeAssessmentOutcome, ForgeAssessmentPayload,
+    ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord,
+    GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData,
+    RunCompletionReason, SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -531,6 +534,7 @@ impl ControlPlane {
         verify_forge_history(&data_dir, &history, &registered)?;
         verify_forge_assessment_history(&data_dir, &history, &registered)?;
         verify_invariant_history(&data_dir, &history, &registered)?;
+        verify_cluster_history(&data_dir, &history, &registered)?;
         verify_champion_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
@@ -695,6 +699,7 @@ impl ControlPlane {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn execute(
         &mut self,
         request_id: &str,
@@ -737,6 +742,10 @@ impl ControlPlane {
             Command::GenomeRegister { path, world_id } => self.register_genome(&path, &world_id),
             command @ Command::GenomePropose { .. } => self.propose_genome_command(command),
             command @ Command::GenomeAssess { .. } => self.assess_genome_command(command),
+            Command::ForgeAnalyze {
+                analysis_id,
+                evaluation_id,
+            } => self.analyze_forge_clusters(&analysis_id, &evaluation_id),
             Command::WorldShow { world_id } => self
                 .state
                 .registered
@@ -808,15 +817,25 @@ impl ControlPlane {
             selection_event_id,
             parent_genome_id,
             hypothesis,
+            analysis_id,
+            cluster_index,
         } = command
         else {
             return Err(ExecuteError::Internal);
         };
-        self.propose_genome(
+        let source = match (hypothesis, analysis_id, cluster_index) {
+            (Some(hypothesis), None, None) => ForgeHypothesisSource::Operator(hypothesis),
+            (None, Some(analysis_id), Some(cluster_index)) => ForgeHypothesisSource::Analysis {
+                analysis_id,
+                cluster_index,
+            },
+            _ => return Err(ExecuteError::Internal),
+        };
+        self.propose_genome_from_source(
             &proposal_id,
             &selection_event_id,
             &parent_genome_id,
-            &hypothesis,
+            source,
         )
     }
 
@@ -955,6 +974,7 @@ impl ControlPlane {
                 | Command::GenomeRegister { .. }
                 | Command::GenomePropose { .. }
                 | Command::GenomeAssess { .. }
+                | Command::ForgeAnalyze { .. }
                 | Command::ChampionSeed { .. }
                 | Command::ChampionPromote { .. }
                 | Command::ChampionRollback { .. }
@@ -1873,6 +1893,8 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_invariant_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_cluster_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
@@ -2452,6 +2474,82 @@ impl ControlPlane {
         })
     }
 
+    fn analyze_forge_clusters(
+        &mut self,
+        analysis_id: &str,
+        evaluation_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if analysis_id.trim().is_empty() || evaluation_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid(
+                "analysis_id and evaluation_id are required",
+            ));
+        }
+
+        // Resolve policy from the exact persisted evaluation receipt. The
+        // caller cannot choose a World or substitute another evaluation.
+        let operator = load_operator_evaluation(self.open_arena_stores()?, evaluation_id)
+            .map_err(map_cluster_error)?;
+        let world_id = operator.selection_evidence().world_id().to_owned();
+        drop(operator.into_stores());
+        let world = self
+            .state
+            .registered
+            .world(&world_id)
+            .map(|registered| registered.compiled().clone())
+            .ok_or(ExecuteError::NotFound)?;
+
+        // An existing deterministic analysis is a verified idempotent retry.
+        match load_failure_clusters(
+            self.open_arena_stores()?,
+            analysis_id,
+            evaluation_id,
+            &world,
+        ) {
+            Ok(check) => return self.finish_cluster_check(check),
+            Err(ArenaError::UnknownClusterAnalysis(_)) => {}
+            Err(error) => return Err(map_cluster_error(error)),
+        }
+
+        // Arena consumes storage on either outcome. Restore the daemon handles
+        // before refreshing or returning an error.
+        let storage = self.storage.take().ok_or(ExecuteError::Internal)?;
+        let checked = check_failure_clusters(
+            EvaluationStores {
+                events: storage.ledger,
+                artifacts: storage.artifacts,
+            },
+            analysis_id,
+            evaluation_id,
+            &world,
+            timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+        );
+        let check = match checked {
+            Ok(check) => check,
+            Err(error) => {
+                self.reopen_storage()?;
+                self.refresh_projection()?;
+                return Err(map_cluster_error(error));
+            }
+        };
+        self.finish_cluster_check(check)
+    }
+
+    fn finish_cluster_check(
+        &mut self,
+        check: OperatorClusterAnalysis,
+    ) -> Result<ResponseData, ExecuteError> {
+        let record = forge_analysis_record(check.analysis(), check.event());
+        let stores = check.into_stores();
+        self.storage = Some(CanonicalStorage {
+            ledger: stores.events,
+            artifacts: stores.artifacts,
+        });
+        self.refresh_projection()?;
+        Ok(ResponseData::ForgeAnalysis {
+            analysis: Box::new(record),
+        })
+    }
+
     fn open_arena_stores(&self) -> Result<EvaluationStores, ExecuteError> {
         EvaluationStores::open(
             self.data_dir.join("events.sqlite3"),
@@ -2943,6 +3041,10 @@ impl ControlPlane {
         Ok(ResponseData::Genome { genome: record })
     }
 
+    /// Convenience wrapper over [`Self::propose_genome_from_source`] for the
+    /// unchanged operator-authored hypothesis path used throughout the test
+    /// suite and by any direct in-process caller.
+    #[cfg(test)]
     fn propose_genome(
         &mut self,
         proposal_id: &str,
@@ -2950,12 +3052,26 @@ impl ControlPlane {
         parent_genome_id: &str,
         hypothesis: &str,
     ) -> Result<ResponseData, ExecuteError> {
+        self.propose_genome_from_source(
+            proposal_id,
+            selection_event_id,
+            parent_genome_id,
+            ForgeHypothesisSource::Operator(hypothesis.to_owned()),
+        )
+    }
+
+    fn propose_genome_from_source(
+        &mut self,
+        proposal_id: &str,
+        selection_event_id: &str,
+        parent_genome_id: &str,
+        source: ForgeHypothesisSource,
+    ) -> Result<ResponseData, ExecuteError> {
         if self.state.freeze.is_frozen() {
             return Err(ExecuteError::Invalid("evolution is frozen"));
         }
         validate_job_id(proposal_id)
             .map_err(|_| ExecuteError::Invalid("proposal_id is invalid"))?;
-        validate_hypothesis(hypothesis)?;
         let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
         let history = storage
             .ledger
@@ -2973,6 +3089,14 @@ impl ControlPlane {
             .registered
             .world(&world_id)
             .ok_or(ExecuteError::Internal)?;
+        let (hypothesis, analysis_binding) = resolve_forge_hypothesis(
+            &self.data_dir,
+            &history,
+            world.compiled(),
+            &evaluation_id,
+            parent_genome_id,
+            source,
+        )?;
         let (prompt_before, before, after, prompt_after_text) = forge_prompt_mutation(
             &storage.artifacts,
             &self.state.registered,
@@ -3001,12 +3125,13 @@ impl ControlPlane {
             world_id,
             parent_genome_id: parent_genome_id.to_owned(),
             child: child_record,
-            hypothesis: hypothesis.to_owned(),
+            hypothesis,
             artifact_name: "agent.prompt".to_owned(),
             prompt_artifact_before: prompt_before,
             prompt_artifact_after: prompt_after.as_str().to_owned(),
             operation_before: reference_instruction_operation(before).to_owned(),
             operation_after: reference_instruction_operation(after).to_owned(),
+            analysis_binding,
         };
         let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
         let payload_bytes =
@@ -3201,6 +3326,8 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_invariant_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_cluster_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
@@ -3267,6 +3394,16 @@ fn map_invariant_error(error: ArenaError) -> ExecuteError {
     }
 }
 
+fn map_cluster_error(error: ArenaError) -> ExecuteError {
+    match error {
+        ArenaError::UnknownEvaluation(_) | ArenaError::UnknownClusterAnalysis(_) => {
+            ExecuteError::NotFound
+        }
+        ArenaError::ClusterConflict(message) => ExecuteError::Rejected(message),
+        _ => ExecuteError::Internal,
+    }
+}
+
 fn selection_record(
     world_id: &str,
     receipt: &SelectionReceipt,
@@ -3291,6 +3428,13 @@ fn selection_record(
 fn invariant_record(receipt: &InvariantReceipt, event: &InvariantEvent) -> InvariantRecord {
     InvariantRecord {
         receipt: receipt.clone(),
+        event: event.clone(),
+    }
+}
+
+fn forge_analysis_record(analysis: &ClusterAnalysis, event: &ClusterEvent) -> ForgeAnalysisRecord {
+    ForgeAnalysisRecord {
+        analysis: analysis.clone(),
         event: event.clone(),
     }
 }
@@ -3958,6 +4102,80 @@ fn verified_forge_source(
     Ok((selection_hash, evaluation_id, world_id))
 }
 
+/// The two mutually exclusive ways a Forge proposal supplies its hypothesis.
+enum ForgeHypothesisSource {
+    /// The unchanged operator-authored path.
+    Operator(String),
+    /// A verified `forge.clustered` analysis and cluster index within it.
+    Analysis {
+        analysis_id: String,
+        cluster_index: u32,
+    },
+}
+
+/// Resolves the hypothesis text and, for an analysis-derived proposal, the
+/// binding recorded in the proposal payload. This never proposes, mutates, or
+/// promotes anything; it only reads and verifies already-recorded evidence.
+fn resolve_forge_hypothesis(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    world: &CompiledWorld,
+    evaluation_id: &str,
+    parent_genome_id: &str,
+    source: ForgeHypothesisSource,
+) -> Result<(String, Option<ForgeAnalysisBinding>), ExecuteError> {
+    match source {
+        ForgeHypothesisSource::Operator(hypothesis) => {
+            validate_hypothesis(&hypothesis)?;
+            Ok((hypothesis, None))
+        }
+        ForgeHypothesisSource::Analysis {
+            analysis_id,
+            cluster_index,
+        } => {
+            let event_id = format!("{CLUSTER_EVENT_PREFIX}{analysis_id}:clustered");
+            let event = history
+                .iter()
+                .find(|event| event.event_id == event_id)
+                .ok_or(ExecuteError::NotFound)?;
+            let stores =
+                EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                    .map_err(|_| ExecuteError::Internal)?;
+            let verified =
+                verify_cluster_event(stores, event, world).map_err(|_| ExecuteError::Internal)?;
+            let analysis = verified.analysis().clone();
+            let analysis_event_hash = verified.event().event_hash.clone();
+            drop(verified.into_stores());
+            if analysis.evaluation_id != evaluation_id
+                || analysis.parent_genome_id != parent_genome_id
+            {
+                return Err(ExecuteError::Rejected(
+                    "the bound analysis must be of the exact same parent evaluation".to_owned(),
+                ));
+            }
+            let cluster = analysis
+                .clusters
+                .get(usize::try_from(cluster_index).map_err(|_| ExecuteError::NotFound)?)
+                .ok_or(ExecuteError::NotFound)?;
+            if cluster.suggested_mutation != Some(SuggestedMutation::ReferenceOperationFlip) {
+                return Err(ExecuteError::Rejected(
+                    "the selected cluster has no supported mutation".to_owned(),
+                ));
+            }
+            Ok((
+                cluster.hypothesis.clone(),
+                Some(ForgeAnalysisBinding {
+                    analysis_id,
+                    analysis_event_id: event_id,
+                    analysis_event_hash,
+                    cluster_index,
+                    cluster_signature: cluster.signature.clone(),
+                }),
+            ))
+        }
+    }
+}
+
 fn forge_prompt_mutation(
     artifacts: &ArtifactStore,
     registered: &RegisteredObjects,
@@ -4117,6 +4335,71 @@ fn verify_invariant_history(
     Ok(())
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ClusterEventEnvelope {
+    schema_version: u16,
+    analysis_id: String,
+    evaluation_id: String,
+    world_id: String,
+    analysis_artifact_id: String,
+}
+
+fn verify_cluster_history(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+) -> Result<(), ControlError> {
+    for event in history.iter().filter(|event| {
+        event.event_type == "forge.clustered"
+            || event.event_id.starts_with(CLUSTER_EVENT_PREFIX)
+            || event.aggregate_id.starts_with(CLUSTER_EVENT_PREFIX)
+    }) {
+        let (analysis_id, evaluation_id, world_id) =
+            cluster_event_references(event).map_err(|_| {
+                ControlError::Projection("canonical cluster event envelope is invalid".to_owned())
+            })?;
+        let envelope: ClusterEventEnvelope =
+            serde_json::from_slice(&event.payload).map_err(|_| {
+                ControlError::Projection("canonical cluster event envelope is invalid".to_owned())
+            })?;
+        if envelope.schema_version != 1
+            || envelope.analysis_id != analysis_id
+            || envelope.evaluation_id != evaluation_id
+            || envelope.world_id != world_id
+            || envelope.analysis_artifact_id.trim().is_empty()
+        {
+            return Err(ControlError::Projection(
+                "canonical cluster event identity is invalid".to_owned(),
+            ));
+        }
+        let world = registered.world(&world_id).ok_or_else(|| {
+            ControlError::Projection("cluster World is not registered".to_owned())
+        })?;
+        let stores =
+            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+                .map_err(|_| {
+                    ControlError::Projection(
+                        "cluster evidence stores could not be opened".to_owned(),
+                    )
+                })?;
+        let verified = verify_cluster_event(stores, event, world.compiled()).map_err(|_| {
+            ControlError::Projection("canonical cluster analysis is invalid".to_owned())
+        })?;
+        if verified.analysis().evaluation_id != evaluation_id
+            || verified.analysis().world_id != world_id
+            || verified.event().analysis_artifact_id != envelope.analysis_artifact_id
+        {
+            return Err(ControlError::Projection(
+                "canonical cluster event differs from verified analysis".to_owned(),
+            ));
+        }
+        drop(verified.into_stores());
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
 fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     if let Command::GenomeShow { genome_id } | Command::GenomePrompt { genome_id } = command
         && genome_id.trim().is_empty()
@@ -4145,6 +4428,8 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         selection_event_id,
         parent_genome_id,
         hypothesis,
+        analysis_id,
+        cluster_index,
     } = command
     {
         validate_job_id(proposal_id)
@@ -4154,7 +4439,18 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
                 "selection_event_id and parent_genome_id are required",
             ));
         }
-        validate_hypothesis(hypothesis)?;
+        match (hypothesis, analysis_id, cluster_index) {
+            (Some(hypothesis), None, None) => validate_hypothesis(hypothesis)?,
+            (None, Some(analysis_id), Some(_)) => {
+                validate_job_id(analysis_id)
+                    .map_err(|_| ExecuteError::Invalid("analysis_id is invalid"))?;
+            }
+            _ => {
+                return Err(ExecuteError::Invalid(
+                    "exactly one of hypothesis or (analysis_id and cluster_index) is required",
+                ));
+            }
+        }
     }
     if let Command::GenomeAssess {
         assessment_id,
@@ -4202,6 +4498,17 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         && evaluation_id.trim().is_empty()
     {
         return Err(ExecuteError::Invalid("evaluation_id is required"));
+    }
+    if let Command::ForgeAnalyze {
+        analysis_id,
+        evaluation_id,
+    } = command
+    {
+        validate_job_id(analysis_id)
+            .map_err(|_| ExecuteError::Invalid("analysis_id is invalid"))?;
+        if evaluation_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("evaluation_id is required"));
+        }
     }
     require_champion_fields(command)
 }
@@ -5676,6 +5983,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::GenomeRegister { .. } => "control.genome_register",
         Command::GenomePropose { .. } => "control.genome_propose",
         Command::GenomeAssess { .. } => "control.genome_assess",
+        Command::ForgeAnalyze { .. } => "control.forge_analyze",
         Command::WorldShow { .. } => "control.world_show",
         Command::WorldList => "control.world_list",
         Command::WorldRegister { .. } => "control.world_register",

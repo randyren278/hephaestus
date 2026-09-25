@@ -1093,7 +1093,9 @@ fn command_audit_types_and_source_extensions_are_stable() {
                 proposal_id: "proposal-1".into(),
                 selection_event_id: "selection-event".into(),
                 parent_genome_id: "candidate".into(),
-                hypothesis: "The child should preserve case.".into(),
+                hypothesis: Some("The child should preserve case.".into()),
+                analysis_id: None,
+                cluster_index: None,
             },
             "control.genome_propose",
         ),
@@ -6882,6 +6884,7 @@ fn job_transition_rules_cover_admission_running_cancellation_and_terminal_edges(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn command_field_validation_rejects_empty_ids_and_paths() {
     let invalid = [
         Command::GenomeShow {
@@ -6925,25 +6928,33 @@ fn command_field_validation_rejects_empty_ids_and_paths() {
             proposal_id: String::new(),
             selection_event_id: "selection".to_owned(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "valid hypothesis".to_owned(),
+            hypothesis: Some("valid hypothesis".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::GenomePropose {
             proposal_id: "proposal".to_owned(),
             selection_event_id: String::new(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "valid hypothesis".to_owned(),
+            hypothesis: Some("valid hypothesis".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::GenomePropose {
             proposal_id: "proposal".to_owned(),
             selection_event_id: "selection".to_owned(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "\n".to_owned(),
+            hypothesis: Some("\n".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::GenomePropose {
             proposal_id: "proposal".to_owned(),
             selection_event_id: "selection".to_owned(),
             parent_genome_id: "candidate".to_owned(),
-            hypothesis: "x".repeat(513),
+            hypothesis: Some("x".repeat(513)),
+            analysis_id: None,
+            cluster_index: None,
         },
         Command::RunReference {
             genome_id: String::new(),
