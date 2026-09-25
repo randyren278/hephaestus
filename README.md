@@ -274,7 +274,7 @@ the suite to go red for every single one. A mutation that survives fails the
 build. The mutation jobs run only after the deterministic job passes; inspect
 the latest CI result before treating a commit as verified. The count can only go up.
 
-Alongside that: a 95% per-module coverage floor on each of 31 production-critical
+Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 34 production-critical
 modules (branch coverage where LCOV reports branches, line coverage otherwise),
 `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
 docs gate that fails if any path mentioned in this README stops existing.

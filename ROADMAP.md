@@ -154,4 +154,4 @@ This roadmap implements the complete master-plan sequence without presenting lat
 
 ## Build discipline
 
-For every item: observe the behavior test fail first; implement the smallest vertical slice; add mutations for every new invariant; raise `--assert-min`; add production-critical modules to the 95% coverage gate; update docs in the same commit; push; and wait for hosted CI green before starting the next item.
+For every item: observe the behavior test fail first; implement the smallest vertical slice; add mutations for every new invariant; raise `--assert-min`; add production-critical modules to the coverage gate (95% target; temporarily 80%, see TECH_DEBT.md); update docs in the same commit; push; and wait for hosted CI green before starting the next item.

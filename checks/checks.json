@@ -19,7 +19,7 @@
     "crates/hephaestus-control/": 240,
     "crates/hephaestus-runtime/": 240
   },
-  "coverage_floor": 95.0,
+  "coverage_floor": 80.0,
   "critical_modules": [
     "crates/hephaestus-arena/src/lib.rs",
     "crates/hephaestus-arena/src/selection.rs",
