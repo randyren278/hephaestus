@@ -1707,7 +1707,7 @@ fn evolution_human(run: &EvolutionRunRecord) -> String {
 
 fn meta_strategy_human(strategy: &MetaStrategyRecord) -> String {
     format!(
-        "strategy={} name={} mutation_prioritization={:?} generations={} experiment_allocation={} candidate_count={} gene_selection={:?}",
+        "strategy={} name={} mutation_prioritization={:?} generations={} experiment_allocation={} candidate_count={} gene_selection={:?} parent={}",
         strategy.strategy_id,
         strategy.config.name,
         strategy.config.mutation_prioritization,
@@ -1715,6 +1715,7 @@ fn meta_strategy_human(strategy: &MetaStrategyRecord) -> String {
         strategy.config.experiment_allocation,
         strategy.config.candidate_count,
         strategy.config.gene_selection,
+        strategy.config.parent_strategy_id.as_deref().unwrap_or("-"),
     )
 }
 
@@ -1760,6 +1761,13 @@ fn meta_receipt_human(receipt: &MetaReceiptRecord) -> String {
     lines.push(meta_interval_human(
         "cost_delta (b-a trials)",
         &receipt.payload.cost_delta,
+    ));
+    lines.push(format!(
+        "descendant_cheaper_at_equal_quality={}",
+        receipt
+            .payload
+            .descendant_cheaper_at_equal_quality
+            .map_or_else(|| "n/a (no declared lineage)".to_owned(), |verdict| verdict.to_string())
     ));
     lines.extend(receipt.payload.lineages.iter().map(meta_lineage_human));
     lines.join("\n")

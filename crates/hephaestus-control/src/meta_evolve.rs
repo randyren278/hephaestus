@@ -228,6 +228,11 @@ pub(super) fn verify_meta_evolution_history(history: &[StoredEvent]) -> Result<(
             {
                 return Err(bad());
             }
+            if let Some(parent_id) = payload.config.parent_strategy_id.as_deref()
+                && (parent_id == payload.strategy_id || !seen_strategies.contains_key(parent_id))
+            {
+                return Err(bad());
+            }
             if let Some(existing) = seen_strategies.get(&payload.strategy_id)
                 && *existing != payload
             {
@@ -314,9 +319,47 @@ pub(super) fn verify_meta_evolution_history(history: &[StoredEvent]) -> Result<(
             if payload.quality_delta != expected_quality || payload.cost_delta != expected_cost {
                 return Err(bad());
             }
+            let expected_verdict = descendant_verdict(
+                &payload.strategy_a_id,
+                &strategy_a.config,
+                &payload.strategy_b_id,
+                &strategy_b.config,
+                &expected_quality,
+                &expected_cost,
+            );
+            if payload.descendant_cheaper_at_equal_quality != expected_verdict {
+                return Err(bad());
+            }
         }
     }
     Ok(())
+}
+
+/// Whether one of the two compared strategies is the other's declared
+/// descendant and, if so, whether that descendant reached an equal-or-better
+/// Champion at a statistically lower experiment cost.
+///
+/// `quality_delta`/`cost_delta` are always oriented strategy-B-minus-A; when
+/// A is the declared descendant of B, this reorients them to
+/// descendant-minus-ancestor before comparing (negating an interval swaps
+/// which bound is the lower one). Returns `None` when neither strategy
+/// declares the other as its parent.
+pub(super) fn descendant_verdict(
+    strategy_a_id: &str,
+    strategy_a: &crate::protocol::EvolverStrategyConfig,
+    strategy_b_id: &str,
+    strategy_b: &crate::protocol::EvolverStrategyConfig,
+    quality_delta: &MetaBootstrapInterval,
+    cost_delta: &MetaBootstrapInterval,
+) -> Option<bool> {
+    let (quality_lower, cost_upper) = if strategy_b.parent_strategy_id.as_deref() == Some(strategy_a_id) {
+        (quality_delta.lower_x10000, cost_delta.upper_x10000)
+    } else if strategy_a.parent_strategy_id.as_deref() == Some(strategy_b_id) {
+        (-quality_delta.upper_x10000, -cost_delta.lower_x10000)
+    } else {
+        return None;
+    };
+    Some(quality_lower >= 0 && cost_upper < 0)
 }
 
 pub(super) fn promotions_of(run: &crate::protocol::EvolutionRunRecord) -> u32 {

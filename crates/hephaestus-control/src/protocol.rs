@@ -2110,6 +2110,16 @@ pub struct EvolverStrategyConfig {
     pub candidate_count: u32,
     /// Gene Bank selection policy. See [`GeneSelectionPolicy`].
     pub gene_selection: GeneSelectionPolicy,
+    /// Identity of the Evolver strategy Genome this strategy declares itself
+    /// a descendant of, if any. Part of this strategy's own content
+    /// identity: two strategies with identical knobs but different (or
+    /// absent) `parent_strategy_id` are distinct registrations. The
+    /// referenced strategy must already be registered at the time this one
+    /// is registered, and every replay re-checks that lineage edge against
+    /// the same history that preceded it. Declaring a parent grants no
+    /// additional authority; it is bookkeeping only.
+    #[serde(default)]
+    pub parent_strategy_id: Option<String>,
 }
 
 /// Canonical payload of the one `meta_strategy.registered` event for a
@@ -2223,6 +2233,17 @@ pub struct MetaEvaluationPayload {
     /// Experiment-cost delta in paired trials (strategy B minus strategy A),
     /// bootstrapped over lineages.
     pub cost_delta: MetaBootstrapInterval,
+    /// Set only when exactly one of the two compared strategies declares
+    /// the other as its `parent_strategy_id`. `Some(true)` means the
+    /// descendant reached an equal-or-better Champion (its bootstrapped
+    /// quality delta, oriented descendant-minus-ancestor, has a lower bound
+    /// `>= 0`) at a statistically lower experiment cost (its bootstrapped
+    /// cost delta, oriented descendant-minus-ancestor, has an upper bound
+    /// `< 0`). `None` when neither strategy is the other's declared parent,
+    /// so no lineage claim applies. Recomputed and cross-checked from
+    /// `quality_delta`/`cost_delta` and the two strategies' recorded
+    /// configs on every replay.
+    pub descendant_cheaper_at_equal_quality: Option<bool>,
 }
 
 /// Durable, replay-verified projection of one meta-evaluation receipt.

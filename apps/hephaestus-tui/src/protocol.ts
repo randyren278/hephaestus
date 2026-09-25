@@ -160,7 +160,7 @@ export type GeneSelectionPolicy = 'none' | 'highest_transfer_effect';
 export type EvolverStrategyConfig = {
 	schema_version: number; name: string; mutation_prioritization: MutationPrioritization;
 	generation_count: number; experiment_allocation: number; candidate_count: number;
-	gene_selection: GeneSelectionPolicy;
+	gene_selection: GeneSelectionPolicy; parent_strategy_id: string | null;
 };
 export type MetaStrategy = {strategy_id: string; config: EvolverStrategyConfig; event_id: string; sequence: number};
 export type MetaLineageSpec = {world_id: string; from_genome_id: string};
@@ -175,6 +175,7 @@ export type MetaEvaluation = {
 	meta_run_id: string; strategy_a_id: string; strategy_b_id: string; confidence_bps: number;
 	bootstrap_seed: number; bootstrap_resamples: number; algorithm: string;
 	lineages: MetaLineageOutcome[]; quality_delta: MetaBootstrapInterval; cost_delta: MetaBootstrapInterval;
+	descendant_cheaper_at_equal_quality: boolean | null;
 	event_id: string; sequence: number;
 };
 export type DenialEntry = {
@@ -579,12 +580,14 @@ function parseEvolverStrategyConfig(value: unknown): EvolverStrategyConfig | und
 		|| !MUTATION_PRIORITIZATIONS.includes(value['mutation_prioritization'] as MutationPrioritization)
 		|| !boundedCount(value['generation_count']) || !boundedCount(value['experiment_allocation'])
 		|| !boundedCount(value['candidate_count']) || typeof value['gene_selection'] !== 'string'
-		|| !GENE_SELECTION_POLICIES.includes(value['gene_selection'] as GeneSelectionPolicy)) return undefined;
+		|| !GENE_SELECTION_POLICIES.includes(value['gene_selection'] as GeneSelectionPolicy)
+		|| !optionalIdentifier(value['parent_strategy_id'])) return undefined;
 	return {
 		schema_version: value['schema_version'], name: value['name'],
 		mutation_prioritization: value['mutation_prioritization'] as MutationPrioritization,
 		generation_count: value['generation_count'], experiment_allocation: value['experiment_allocation'],
 		candidate_count: value['candidate_count'], gene_selection: value['gene_selection'] as GeneSelectionPolicy,
+		parent_strategy_id: value['parent_strategy_id'],
 	};
 }
 
@@ -632,11 +635,14 @@ function parseMetaEvaluation(value: unknown): MetaEvaluation | undefined {
 	const qualityDelta = parseMetaBootstrapInterval(value['quality_delta']);
 	const costDelta = parseMetaBootstrapInterval(value['cost_delta']);
 	const event = value['event'];
-	if (!qualityDelta || !costDelta || !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	const descendantVerdict = value['descendant_cheaper_at_equal_quality'];
+	if (!qualityDelta || !costDelta || !identifier(event['event_id']) || !safeInteger(event['sequence'])
+		|| !(descendantVerdict === null || typeof descendantVerdict === 'boolean')) return undefined;
 	return {
 		meta_run_id: value['meta_run_id'], strategy_a_id: value['strategy_a_id'], strategy_b_id: value['strategy_b_id'],
 		confidence_bps: value['confidence_bps'], bootstrap_seed: value['bootstrap_seed'], bootstrap_resamples: value['bootstrap_resamples'],
 		algorithm: value['algorithm'], lineages: lineages as MetaLineageOutcome[], quality_delta: qualityDelta, cost_delta: costDelta,
+		descendant_cheaper_at_equal_quality: descendantVerdict,
 		event_id: event['event_id'], sequence: event['sequence'],
 	};
 }
