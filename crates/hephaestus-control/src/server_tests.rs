@@ -3424,6 +3424,60 @@ fn selection_history_rejects_unregistered_world_reference() {
     ));
 }
 
+fn invariant_event_payload(
+    evaluation_id: &str,
+    world_id: &str,
+    receipt_artifact_id: &str,
+) -> Vec<u8> {
+    format!(
+        r#"{{"schema_version":1,"evaluation_id":"{evaluation_id}","world_id":"{world_id}","receipt_artifact_id":"{receipt_artifact_id}"}}"#
+    )
+    .into_bytes()
+}
+
+fn invariant_checked_event(evaluation_id: &str, payload: Vec<u8>) -> StoredEvent {
+    StoredEvent {
+        sequence: 1,
+        event_id: format!("arena:invariants:{evaluation_id}:checked"),
+        aggregate_id: format!("arena:invariants:{evaluation_id}"),
+        event_type: "invariants.recorded".to_owned(),
+        actor: "arena-plane".to_owned(),
+        timestamp_millis: 1,
+        payload,
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    }
+}
+
+#[test]
+fn invariant_history_rejects_unregistered_world_and_unknown_evaluation() {
+    let directory = tempdir().expect("daemon directory");
+    let plane = open_projection_test_plane(&directory);
+    let unregistered_world =
+        "hephaestus:world:3333333333333333333333333333333333333333333333333333333333333333";
+    let receipt_artifact_id = "4444444444444444444444444444444444444444444444444444444444444444";
+    let event = invariant_checked_event(
+        "forged-invariants",
+        invariant_event_payload("forged-invariants", unregistered_world, receipt_artifact_id),
+    );
+    assert!(matches!(
+        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "invariant World is not registered"
+    ));
+
+    let mut plane = plane;
+    let token = plane.token_hex.clone();
+    let (world, _genome, _task) = register_dispatch_objects(&mut plane, &token, &directory);
+    let event = invariant_checked_event(
+        "no-such-evaluation",
+        invariant_event_payload("no-such-evaluation", &world.world_id, receipt_artifact_id),
+    );
+    assert!(matches!(
+        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        Err(ControlError::Projection(message)) if message == "canonical invariant receipt is invalid"
+    ));
+}
+
 #[test]
 fn signed_success_result_without_completed_run_rejects_job_terminal() {
     let directory = tempdir().expect("daemon directory");
@@ -6668,6 +6722,117 @@ fn terminal_job_kill_is_idempotent_and_selection_errors_map_to_safe_api_states()
     assert!(matches!(
         map_selection_error(&ArenaError::UnsupportedEvaluator),
         ExecuteError::Internal
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnknownEvaluation("missing".to_owned())),
+        ExecuteError::NotFound
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnknownInvariantCheck("missing".to_owned())),
+        ExecuteError::NotFound
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::MissingWorldArtifact("arena.invariant_manifest")),
+        ExecuteError::Rejected(message)
+            if message == "registered World has no reference-output invariant profile"
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::InvariantConflict("evaluation-001".to_owned())),
+        ExecuteError::Rejected(message) if message == "evaluation-001"
+    ));
+    assert!(matches!(
+        map_invariant_error(ArenaError::UnsupportedEvaluator),
+        ExecuteError::Internal
+    ));
+}
+
+#[test]
+fn arena_selection_and_invariant_commands_validate_and_map_real_errors() {
+    let directory = tempdir().expect("Arena selection fixture");
+    let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    assert!(matches!(
+        plane.select_arena_evaluation(""),
+        Err(ExecuteError::Invalid("evaluation_id is required"))
+    ));
+    assert!(matches!(
+        plane.check_arena_invariants(""),
+        Err(ExecuteError::Invalid("evaluation_id is required"))
+    ));
+    assert!(matches!(
+        plane.select_arena_evaluation("missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.check_arena_invariants("missing-evaluation"),
+        Err(ExecuteError::NotFound)
+    ));
+    // require_command_fields already rejects a blank selection_event_id before
+    // dispatch reaches this method; only a direct call exercises its own guard.
+    assert!(matches!(
+        plane.assess_genome("assessment", "proposal", ""),
+        Err(ExecuteError::Invalid("selection_event_id is required"))
+    ));
+
+    for (request_id, command) in [
+        (
+            "arena-select-blank",
+            Command::ArenaSelect {
+                evaluation_id: String::new(),
+            },
+        ),
+        (
+            "arena-invariants-blank",
+            Command::ArenaInvariants {
+                evaluation_id: String::new(),
+            },
+        ),
+    ] {
+        let response = dispatch_call(&mut plane, &token, request_id, command);
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "evaluation_id is required"
+        ));
+    }
+
+    // This fixture's registered World has no invariant manifest, so a
+    // completed evaluation is a real, otherwise-valid target that still
+    // cannot be checked.
+    complete_arena_test_job(
+        &mut plane,
+        "no-invariant-profile",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    assert!(matches!(
+        plane.check_arena_invariants("no-invariant-profile"),
+        Err(ExecuteError::Rejected(message))
+            if message == "registered World has no reference-output invariant profile"
+    ));
+
+    let invariant_directory = tempdir().expect("Arena invariant dispatch fixture");
+    let (mut invariant_plane, invariant_parent, invariant_candidate) =
+        real_worker_arena_fixture_with_invariants(&invariant_directory, Some(CLEAN_INVARIANTS));
+    let invariant_token = invariant_plane.token_hex.clone();
+    complete_arena_test_job(
+        &mut invariant_plane,
+        "dispatched-invariants",
+        &invariant_parent.genome_id,
+        &invariant_candidate.genome_id,
+    );
+    let response = dispatch_call(
+        &mut invariant_plane,
+        &invariant_token,
+        "arena-invariants-dispatch",
+        Command::ArenaInvariants {
+            evaluation_id: "dispatched-invariants".to_owned(),
+        },
+    );
+    assert!(matches!(
+        response.data,
+        Some(ResponseData::ArenaInvariants { .. })
     ));
 }
 
