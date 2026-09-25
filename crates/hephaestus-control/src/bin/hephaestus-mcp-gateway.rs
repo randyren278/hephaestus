@@ -4,7 +4,7 @@
 //! transport (`initialize`, `notifications/initialized`, `tools/list`,
 //! `tools/call`) per the MCP specification, revision 2025-06-18
 //! (<https://modelcontextprotocol.io/specification/2025-06-18>). See
-//! docs/MCP_GATEWAY.md for the exact tool set, capability policy format, and
+//! `docs/MCP_GATEWAY.md` for the exact tool set, capability policy format, and
 //! ledgering behavior.
 //!
 //! Every tool call is routed through the daemon's ordinary authenticated
@@ -371,7 +371,7 @@ fn main() -> io::Result<()> {
     let arguments = Arguments::parse();
     let data_dir = arguments
         .data_dir
-        .map_or_else(|| data_dir_from_environment().unwrap_or_default(), |path| path);
+        .unwrap_or_else(|| data_dir_from_environment().unwrap_or_default());
     let policy_bytes = std::fs::read(&arguments.policy)?;
     let policy: ClientPolicy = match serde_json::from_slice(&policy_bytes) {
         Ok(policy) => policy,
@@ -452,12 +452,19 @@ fn handle_request(
     }
 }
 
-fn tools_call(client: &Client, policy: &ClientPolicy, params: &Value) -> Result<Value, (i64, String)> {
+fn tools_call(
+    client: &Client,
+    policy: &ClientPolicy,
+    params: &Value,
+) -> Result<Value, (i64, String)> {
     let name = params
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| (-32602, "params.name is required".to_owned()))?;
-    let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let Some(tool) = find_tool(name) else {
         return Err((-32602, format!("unknown tool: {name}")));
     };

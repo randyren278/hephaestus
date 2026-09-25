@@ -129,11 +129,23 @@ and that decision is itself a ledgered event.
 - **The web console is a local, read-only browser view.** It proxies a fixed
   allowlist of read-only daemon commands (`status`, `world_list`,
   `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
-  `job_status`) over an owner-only Unix socket, the same way the TUI does; it
+  `job_status`, `gene_list`, `gene_show`, `run_list`, `evaluation_list`,
+  `denial_list`) over an owner-only Unix socket, the same way the TUI does; it
   can never mutate canonical state. See
   [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md). There is no
-  MCP gateway, no remote workers, Gene Bank, drift detection, or autonomous
-  loop yet.
+  drift detection or autonomous loop view yet.
+- **The MCP gateway and remote workers are a first slice, not the full
+  distributed surface.** `hephaestus-mcp-gateway` exposes 11 read-only and 4
+  mutating tools over MCP's stdio JSON-RPC transport, enforced by a
+  per-client capability policy and ledgered (including denials) through the
+  daemon's ordinary authenticated API. `hephaestus-remote-worker`
+  authenticates with a scoped, expiring, operator-minted credential and
+  executes one job kind — a bounded direct reference run — with the daemon
+  remaining the sole signer of the result. See
+  [docs/MCP_GATEWAY.md](docs/MCP_GATEWAY.md) and
+  [docs/REMOTE_WORKERS.md](docs/REMOTE_WORKERS.md). Leasing an Arena trial, a
+  second storage backend, and migrating the daemon's internal storage calls
+  onto the new `EventLedger`/`ArtifactBackend` traits remain open.
 
 ---
 
@@ -269,8 +281,15 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus evaluations --limit <n>` | Recent Arena evaluations with selection, invariant, and Forge evidence references, newest first |
 | `hephaestus denials --limit <n>` | Recent refused operator requests and recorded runtime denials, newest first |
 | `hephaestus daemon stop` | Audited graceful stop |
+| `hephaestus worker credential-mint <worker-id> --ttl-seconds <n>` | Mint a scoped, expiring remote worker credential |
+| `hephaestus worker credential-revoke <credential-id>` | Revoke a remote worker credential; fails closed on future use |
+| `hephaestus worker submit <job-id> <genome-id>` | Admit one bounded direct reference run for remote-worker execution |
+| `hephaestus worker status <job-id>` | Inspect one remote-worker job |
 
 Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
+Remote workers: [docs/REMOTE_WORKERS.md](docs/REMOTE_WORKERS.md). The MCP
+gateway (`hephaestus-mcp-gateway`) is a separate stdio binary, not a CLI
+subcommand: [docs/MCP_GATEWAY.md](docs/MCP_GATEWAY.md).
 
 ---
 
@@ -324,6 +343,7 @@ scopes it to one crate while iterating.
 - [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): compiler contracts and source schemas
 - [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md)
 - [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
+- [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md)
 - [Roadmap](ROADMAP.md) · [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
 
 ## License

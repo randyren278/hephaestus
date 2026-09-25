@@ -107,8 +107,8 @@ test('CostsPanel shows a grand total and per-Genome totals grouped by World', ()
 
 test('DenialsPanel renders kind, command, and scope for both denial kinds', () => {
 	const denials: DenialEntry[] = [
-		{kind: 'runtime_capability_denied', timestamp_millis: 20, request_id: null, command: null, run_id: 'run-1', genome_id: 'genome-1', world_id: 'world-1'},
-		{kind: 'request_rejected', timestamp_millis: 10, request_id: 'r1', command: 'status', run_id: null, genome_id: null, world_id: null},
+		{kind: 'runtime_capability_denied', timestamp_millis: 20, request_id: null, command: null, run_id: 'run-1', genome_id: 'genome-1', world_id: 'world-1', client_id: null},
+		{kind: 'request_rejected', timestamp_millis: 10, request_id: 'r1', command: 'status', run_id: null, genome_id: null, world_id: null, client_id: null},
 	];
 	const output = renderToString(<DenialsPanel denials={denials} selected={0} height={10} />);
 	assert.match(output, /runtime capability denied/);

@@ -14,6 +14,11 @@ export const READ_ONLY_COMMANDS = [
 	'genome_prompt',
 	'champion_show',
 	'job_status',
+	'gene_list',
+	'gene_show',
+	'run_list',
+	'evaluation_list',
+	'denial_list',
 ] as const;
 
 export type ReadOnlyCommandTag = (typeof READ_ONLY_COMMANDS)[number];
@@ -35,7 +40,14 @@ export const NOT_ALLOWED_COMMANDS = [
 	'champion_rollback',
 ] as const;
 
-export type CommandRequestBody = {command: unknown; genome_id?: unknown; job_id?: unknown; world_id?: unknown};
+export type CommandRequestBody = {
+	command: unknown;
+	genome_id?: unknown;
+	job_id?: unknown;
+	world_id?: unknown;
+	gene_id?: unknown;
+	limit?: unknown;
+};
 
 const ID_PATTERN = /^[\w.:-]{1,256}$/;
 
@@ -68,5 +80,19 @@ export function toAllowedCommand(body: unknown): Command | undefined {
 			return isId(record.world_id) ? {command: commandTag, world_id: record.world_id} : undefined;
 		case 'job_status':
 			return isId(record.job_id) ? {command: commandTag, job_id: record.job_id} : undefined;
+		case 'gene_list':
+			return {command: commandTag};
+		case 'gene_show':
+			return isId(record.gene_id) ? {command: commandTag, gene_id: record.gene_id} : undefined;
+		case 'run_list':
+		case 'evaluation_list':
+		case 'denial_list':
+			return isLimit(record.limit)
+				? {command: commandTag, limit: record.limit}
+				: {command: commandTag, limit: 20};
 	}
+}
+
+function isLimit(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 200;
 }

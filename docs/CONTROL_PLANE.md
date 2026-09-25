@@ -55,7 +55,15 @@ hephaestus runs --limit <u32>
 hephaestus evaluations --limit <u32>
 hephaestus denials --limit <u32>
 hephaestus daemon stop
+hephaestus worker credential-mint <worker-id> --ttl-seconds <u64>
+hephaestus worker credential-revoke <credential-id>
+hephaestus worker submit <job-id> <genome-id>
+hephaestus worker status <job-id>
 ```
+
+`worker credential-mint`, `worker credential-revoke`, `worker submit`, and `worker status` are ordinary authenticated operator commands over control.sock; the remote worker itself authenticates separately, over a dedicated owner-only worker.sock, using the minted credential. See [docs/REMOTE_WORKERS.md](REMOTE_WORKERS.md).
+
+The MCP gateway (`hephaestus-mcp-gateway`, [docs/MCP_GATEWAY.md](MCP_GATEWAY.md)) is a separate stdio process that never contacts control.sock directly for its own identity; it holds the same operator.token the CLI does and routes every MCP tool call through this exact protocol as a new `Command::McpCall`, which the daemon ledgers unconditionally (including a denial) before dispatching the wrapped command, if any, through the ordinary path above.
 
 ## Registration
 

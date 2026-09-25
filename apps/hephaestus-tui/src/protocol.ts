@@ -122,9 +122,10 @@ export type EvolutionRun = {
 	generations: EvolutionGeneration[]; started_event_id: string;
 };
 export type DenialEntry = {
-	kind: 'request_rejected' | 'runtime_capability_denied'; timestamp_millis: number;
+	kind: 'request_rejected' | 'runtime_capability_denied' | 'mcp_call_denied'; timestamp_millis: number;
 	request_id: string | null; command: string | null;
 	run_id: string | null; genome_id: string | null; world_id: string | null;
+	client_id: string | null;
 };
 export type ResponseData =
 	| {type: 'status'; frozen: boolean; active_runs: number; event_count: number; genome_count: number}
@@ -431,7 +432,7 @@ function parseEvolutionRun(value: unknown): EvolutionRun | undefined {
 const RUN_STATES: JobState[] = ['admitted', 'running', 'cancellation_requested', 'succeeded', 'failed', 'interrupted'];
 const COMPLETION_REASONS = ['success', 'provider_failure', 'operator_interrupt', 'wall_budget_exceeded', 'output_budget_exceeded', 'io_failure'];
 const FORGE_OUTCOMES = ['metrics_passed', 'metrics_rejected'];
-const DENIAL_KINDS = ['request_rejected', 'runtime_capability_denied'];
+const DENIAL_KINDS = ['request_rejected', 'runtime_capability_denied', 'mcp_call_denied'];
 const MAX_LIST_ENTRIES = 200;
 
 function nullableBoundedString(value: unknown, maximum: number): value is string | null {
@@ -503,7 +504,8 @@ function validDenialEntry(value: unknown): value is DenialEntry {
 		&& nullableBoundedString(value['command'], 128)
 		&& nullableBoundedString(value['run_id'], 256)
 		&& nullableBoundedString(value['genome_id'], 256)
-		&& nullableBoundedString(value['world_id'], 256);
+		&& nullableBoundedString(value['world_id'], 256)
+		&& nullableBoundedString(value['client_id'], 256);
 }
 
 export function parseResponse(text: string, expectedRequestId: string): ApiResponse {

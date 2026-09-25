@@ -784,6 +784,7 @@ fn absolute_path(path: PathBuf) -> Result<String, &'static str> {
         .map_err(|_| "path is not valid UTF-8")
 }
 
+#[allow(clippy::too_many_lines)]
 fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
     Ok(match command {
         CliCommand::Status => Command::Status,
@@ -878,7 +879,11 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             command: DaemonCommand::Stop,
         } => Command::DaemonStop,
         CliCommand::Worker {
-            command: WorkerCommand::CredentialMint { worker_id, ttl_seconds },
+            command:
+                WorkerCommand::CredentialMint {
+                    worker_id,
+                    ttl_seconds,
+                },
         } => Command::WorkerCredentialMint {
             worker_id,
             ttl_seconds,

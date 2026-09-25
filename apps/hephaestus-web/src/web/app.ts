@@ -13,11 +13,13 @@ const tokenIndicator = document.getElementById('token-indicator')!;
 tokenIndicator.textContent = token ? 'session token loaded' : 'NO TOKEN — open the printed URL';
 tokenIndicator.className = token ? 'hdr-token ok' : 'hdr-token bad';
 
-type View = 'status' | 'worlds' | 'genome';
+type View = 'status' | 'worlds' | 'genome' | 'genes' | 'activity';
 const views: Record<View, HTMLElement> = {
 	status: document.getElementById('view-status')!,
 	worlds: document.getElementById('view-worlds')!,
 	genome: document.getElementById('view-genome')!,
+	genes: document.getElementById('view-genes')!,
+	activity: document.getElementById('view-activity')!,
 };
 
 function showView(view: View): void {
@@ -28,7 +30,12 @@ function showView(view: View): void {
 }
 
 for (const tab of document.querySelectorAll<HTMLButtonElement>('.tab')) {
-	tab.addEventListener('click', () => showView(tab.dataset['view'] as View));
+	tab.addEventListener('click', () => {
+		const view = tab.dataset['view'] as View;
+		showView(view);
+		if (view === 'genes') void loadGenes();
+		if (view === 'activity') void loadActivity();
+	});
 }
 
 function escapeHtml(value: string): string {
@@ -232,6 +239,96 @@ async function loadGenome(genomeId: string): Promise<void> {
     <h3>Prompt diff ${parent ? 'vs parent' : ''}</h3>
     <pre class="prompt">${diffHtml}</pre>
   </div>`;
+}
+
+async function loadGenes(): Promise<void> {
+	const el = views.genes;
+	el.innerHTML = '<div class="card"><h2>Genes</h2><p class="notice">Loading…</p></div>';
+	const response = await api({command: 'gene_list'});
+	if (response.data?.type !== 'genes') {
+		el.innerHTML = `<div class="card"><h2>Genes</h2>${noticeHtml(response) || '<p class="notice error">unexpected response</p>'}</div>`;
+		return;
+	}
+	const genes = response.data.genes;
+	if (genes.length === 0) {
+		el.innerHTML = '<div class="card"><h2>Genes</h2><p class="notice">No extracted Genes.</p></div>';
+		return;
+	}
+	el.innerHTML = `<div class="card"><h2>Genes</h2><table class="kv">
+    <tr><th>Gene</th><th>World</th><th>Lineages</th><th>+ / ~ / -</th><th>Contradiction</th><th>Species</th></tr>
+    ${genes
+			.map(
+				summary => `<tr>
+        <td>${escapeHtml(shortId(summary.gene.gene_id))}</td>
+        <td>${escapeHtml(shortId(summary.gene.world_id))}</td>
+        <td>${summary.lineages}</td>
+        <td>${summary.positive} / ${summary.neutral} / ${summary.negative}</td>
+        <td>${summary.contradiction ? 'yes' : 'no'}</td>
+        <td>${summary.species_ids.length}</td>
+      </tr>`,
+			)
+			.join('')}
+  </table></div>`;
+}
+
+function formatCost(microusd: number | null): string {
+	if (microusd === null) return '—';
+	return `$${(microusd / 1_000_000).toFixed(6)}`;
+}
+
+async function loadActivity(): Promise<void> {
+	const el = views.activity;
+	el.innerHTML = '<div class="card"><h2>Activity</h2><p class="notice">Loading…</p></div>';
+	const [runs, evaluations, denials] = await Promise.all([
+		api({command: 'run_list', limit: 50}),
+		api({command: 'evaluation_list', limit: 50}),
+		api({command: 'denial_list', limit: 50}),
+	]);
+	const runsHtml =
+		runs.data?.type === 'run_list'
+			? `<table class="kv"><tr><th>Run</th><th>Genome</th><th>State</th><th>Cost</th><th>Latency</th></tr>${runs.data.runs
+					.map(
+						run => `<tr>
+          <td>${escapeHtml(shortId(run.run_id))}</td>
+          <td>${escapeHtml(shortId(run.genome_id))}</td>
+          <td>${escapeHtml(run.state)}</td>
+          <td>${formatCost(run.actual_cost_microusd)}</td>
+          <td>${run.latency_millis ?? '—'}</td>
+        </tr>`,
+					)
+					.join('')}</table>`
+			: noticeHtml(runs) || '<p class="notice error">unexpected response</p>';
+	const evaluationsHtml =
+		evaluations.data?.type === 'evaluation_list'
+			? `<table class="kv"><tr><th>Evaluation</th><th>World</th><th>Parent cost</th><th>Candidate cost</th></tr>${evaluations.data.evaluations
+					.map(
+						entry => `<tr>
+          <td>${escapeHtml(shortId(entry.evaluation.evaluation_id))}</td>
+          <td>${escapeHtml(shortId(entry.evaluation.world_id))}</td>
+          <td>${formatCost(entry.selection?.parent_cost_microusd ?? null)}</td>
+          <td>${formatCost(entry.selection?.candidate_cost_microusd ?? null)}</td>
+        </tr>`,
+					)
+					.join('')}</table>`
+			: noticeHtml(evaluations) || '<p class="notice error">unexpected response</p>';
+	const denialsHtml =
+		denials.data?.type === 'denial_list'
+			? `<table class="kv"><tr><th>Kind</th><th>Command / Tool</th><th>Client</th><th>Genome</th><th>World</th></tr>${denials.data.denials
+					.map(
+						entry => `<tr>
+          <td>${escapeHtml(entry.kind)}</td>
+          <td>${entry.command ? escapeHtml(entry.command) : '—'}</td>
+          <td>${entry.client_id ? escapeHtml(entry.client_id) : '—'}</td>
+          <td>${entry.genome_id ? escapeHtml(shortId(entry.genome_id)) : '—'}</td>
+          <td>${entry.world_id ? escapeHtml(shortId(entry.world_id)) : '—'}</td>
+        </tr>`,
+					)
+					.join('')}</table>`
+			: noticeHtml(denials) || '<p class="notice error">unexpected response</p>';
+	el.innerHTML = `
+    <div class="card"><h2>Runs &amp; costs</h2>${runsHtml}</div>
+    <div class="card"><h2>Arena evaluations &amp; costs</h2>${evaluationsHtml}</div>
+    <div class="card"><h2>Authority &amp; denial history</h2>${denialsHtml}</div>`;
 }
 
 showView('status');

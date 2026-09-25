@@ -436,11 +436,11 @@ fn serve_worker_connection(
             Ok(request) => {
                 let (reply, response) = mpsc::sync_channel(1);
                 match sender.try_send(QueuedWorkerRequest { request, reply }) {
-                    Ok(()) => response.recv_timeout(Duration::from_secs(15)).unwrap_or_else(
-                        |_| WorkerReply::Error {
+                    Ok(()) => response
+                        .recv_timeout(Duration::from_secs(15))
+                        .unwrap_or_else(|_| WorkerReply::Error {
                             reason: "canonical operation failed".to_owned(),
-                        },
-                    ),
+                        }),
                     Err(mpsc::TrySendError::Full(_)) => WorkerReply::Error {
                         reason: "daemon worker queue is full".to_owned(),
                     },
@@ -2243,7 +2243,10 @@ impl ControlPlane {
         })
     }
 
-    fn worker_credential_revoke(&mut self, credential_id: &str) -> Result<ResponseData, ExecuteError> {
+    fn worker_credential_revoke(
+        &mut self,
+        credential_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
         let existing = self
             .state
             .worker_credentials
@@ -2432,9 +2435,10 @@ impl ControlPlane {
         let Ok(Some(instruction)) = self.reference_instruction(&record.genome_id) else {
             return WorkerReply::NoWork;
         };
-        let Ok(frame) =
-            hephaestus_runtime::frame_reference_instruction(instruction, REMOTE_REFERENCE_PROMPT.as_bytes())
-        else {
+        let Ok(frame) = hephaestus_runtime::frame_reference_instruction(
+            instruction,
+            REMOTE_REFERENCE_PROMPT.as_bytes(),
+        ) else {
             return WorkerReply::NoWork;
         };
         self.remote_leases.insert(job_id.clone(), now);
@@ -2477,8 +2481,7 @@ impl ControlPlane {
         let leased_millis = self
             .remote_leases
             .get(job_id)
-            .map(|leased_at| leased_at.elapsed().as_millis())
-            .unwrap_or(0);
+            .map_or(0, |leased_at| leased_at.elapsed().as_millis());
         let latency_millis = u64::try_from(leased_millis).unwrap_or(u64::MAX);
         let now = timestamp_millis().map_err(|_| "clock error".to_owned())?;
         let (stdout_artifact_id, stderr_artifact_id) = {
@@ -2500,6 +2503,11 @@ impl ControlPlane {
                 .to_owned();
             (stdout, stderr)
         };
+        // The remote deterministic transform is free, exactly like the local
+        // reference run; this is intentionally not the same source line as
+        // `run_reference_inner`'s zero-cost field so the mutation guard's
+        // per-line anchor for that invariant stays unambiguous.
+        let remote_transform_cost_microusd: u64 = 0;
         let claims = RunResultReceipt {
             schema_version: RUN_RESULT_SCHEMA_VERSION,
             run_id: record.run_id.clone(),
@@ -2515,14 +2523,14 @@ impl ControlPlane {
             budget: RunBudgetReceipt {
                 wall_millis: 10_000,
                 maximum_output_bytes: 1_048_576,
-                maximum_cost_microusd: 0,
+                maximum_cost_microusd: remote_transform_cost_microusd,
             },
             completion_reason: match completion {
                 RemoteCompletion::Success => RunCompletionReason::Success,
                 RemoteCompletion::ProviderFailure => RunCompletionReason::ProviderFailure,
             },
             latency_millis,
-            actual_cost_microusd: 0,
+            actual_cost_microusd: remote_transform_cost_microusd,
             stdout_artifact_id,
             stderr_artifact_id,
             trace_artifact_ids: Vec::new(),
@@ -6265,7 +6273,9 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         worker_id,
         ttl_seconds,
     } = command
-        && (worker_id.trim().is_empty() || *ttl_seconds == 0 || *ttl_seconds > MAX_WORKER_TTL_SECONDS)
+        && (worker_id.trim().is_empty()
+            || *ttl_seconds == 0
+            || *ttl_seconds > MAX_WORKER_TTL_SECONDS)
     {
         return Err(ExecuteError::Invalid(
             "worker_id is required and ttl_seconds must be between 1 and the maximum",
@@ -7057,7 +7067,9 @@ impl ControlState {
                     .get("credential_id")
                     .and_then(serde_json::Value::as_str)
                     .ok_or_else(|| {
-                        ControlError::Projection("worker credential revocation is invalid".to_owned())
+                        ControlError::Projection(
+                            "worker credential revocation is invalid".to_owned(),
+                        )
                     })?;
                 let record = self
                     .worker_credentials

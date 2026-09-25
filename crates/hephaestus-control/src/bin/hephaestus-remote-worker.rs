@@ -5,7 +5,7 @@
 //! leases one job at a time, executes it with the exact same isolated
 //! sandboxed transform the local `hephaestus-reference-worker` binary uses
 //! (`execute_reference_worker_request`), and returns the result for the
-//! daemon to sign and record. See docs/REMOTE_WORKERS.md.
+//! daemon to sign and record. See `docs/REMOTE_WORKERS.md`.
 
 use std::{
     io::{Read, Write},
@@ -46,9 +46,12 @@ struct Arguments {
 
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
-    let data_dir = match arguments.data_dir.clone().map_or_else(data_dir_from_environment, Ok) {
-        Ok(path) => path,
-        Err(_) => return ExitCode::FAILURE,
+    let Ok(data_dir) = arguments
+        .data_dir
+        .clone()
+        .map_or_else(data_dir_from_environment, Ok)
+    else {
+        return ExitCode::FAILURE;
     };
     let Some(token) = arguments
         .token
@@ -99,7 +102,7 @@ fn main() -> ExitCode {
                 eprintln!("hephaestus-remote-worker: {reason}");
                 return ExitCode::FAILURE;
             }
-            Ok(WorkerReply::ResultAccepted { .. }) | Err(_) => {
+            Ok(WorkerReply::ResultAccepted { .. }) | Err(()) => {
                 if arguments.once {
                     return ExitCode::FAILURE;
                 }

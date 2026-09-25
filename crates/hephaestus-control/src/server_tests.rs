@@ -11822,7 +11822,11 @@ fn gateway_mcp_call_denied_is_ledgered_without_dispatch() {
         .iter()
         .filter(|event| event.event_type == "mcp.call")
         .collect();
-    assert_eq!(mcp_events.len(), 1, "the denial must be ledgered exactly once");
+    assert_eq!(
+        mcp_events.len(),
+        1,
+        "the denial must be ledgered exactly once"
+    );
     assert!(
         !history
             .iter()
@@ -11830,9 +11834,13 @@ fn gateway_mcp_call_denied_is_ledgered_without_dispatch() {
         "a denied tool call must never dispatch its wrapped command"
     );
 
-    let Some(ResponseData::DenialList { denials }) =
-        dispatch_call(&mut plane, &token, "denials-after-mcp-denial", Command::DenialList { limit: 20 })
-            .data
+    let Some(ResponseData::DenialList { denials }) = dispatch_call(
+        &mut plane,
+        &token,
+        "denials-after-mcp-denial",
+        Command::DenialList { limit: 20 },
+    )
+    .data
     else {
         panic!("denial_list should succeed");
     };
@@ -11987,7 +11995,8 @@ fn worker_lease_and_result_round_trip_signs_and_records_the_output() {
     } = plane.handle_worker_request(WorkerRequest::Lease {
         worker_id: "worker-1".to_owned(),
         token: worker_token.clone(),
-    }) else {
+    })
+    else {
         panic!("a pending job should be leased");
     };
     assert_eq!(job_id, "remote-job-1");
@@ -11999,19 +12008,17 @@ fn worker_lease_and_result_round_trip_signs_and_records_the_output() {
     let output = hephaestus_runtime::execute_reference_worker_request(&frame)
         .expect("identity transform succeeds");
     assert_eq!(output, REMOTE_REFERENCE_PROMPT.as_bytes());
-    let output_hex = output
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let output_hex = hex_encode_bytes(&output);
 
-    let WorkerReply::ResultAccepted { job_id: accepted_job_id } =
-        plane.handle_worker_request(WorkerRequest::SubmitResult {
-            worker_id: "worker-1".to_owned(),
-            token: worker_token.clone(),
-            job_id: job_id.clone(),
-            output_hex: output_hex.clone(),
-            completion: RemoteCompletion::Success,
-        })
+    let WorkerReply::ResultAccepted {
+        job_id: accepted_job_id,
+    } = plane.handle_worker_request(WorkerRequest::SubmitResult {
+        worker_id: "worker-1".to_owned(),
+        token: worker_token.clone(),
+        job_id: job_id.clone(),
+        output_hex: output_hex.clone(),
+        completion: RemoteCompletion::Success,
+    })
     else {
         panic!("the signed result should be accepted");
     };
@@ -12021,9 +12028,14 @@ fn worker_lease_and_result_round_trip_signs_and_records_the_output() {
         state,
         completion_reason,
         ..
-    }) = dispatch_call(&mut plane, &token, "remote-status", Command::RemoteJobStatus {
-        job_id: "remote-job-1".to_owned(),
-    })
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "remote-status",
+        Command::RemoteJobStatus {
+            job_id: "remote-job-1".to_owned(),
+        },
+    )
     .data
     else {
         panic!("remote job status should succeed");
@@ -12096,7 +12108,8 @@ fn worker_revoked_credential_fails_closed() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
     let token = plane.token_hex.clone();
-    let (credential_id, worker_token) = mint_worker_credential(&mut plane, &token, "worker-revoked", 3_600);
+    let (credential_id, worker_token) =
+        mint_worker_credential(&mut plane, &token, "worker-revoked", 3_600);
 
     assert!(
         dispatch_call(

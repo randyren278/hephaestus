@@ -78,8 +78,8 @@ test('evaluation_list rejects an unrecognized Forge outcome', () => {
 
 test('denial_list accepts request-rejected and runtime-capability-denied entries newest-first', () => {
 	const text = withRequest(`{"type":"denial_list","denials":[
-		{"kind":"runtime_capability_denied","timestamp_millis":20,"request_id":null,"command":null,"run_id":"run-1","genome_id":"genome-1","world_id":"world-1"},
-		{"kind":"request_rejected","timestamp_millis":10,"request_id":"","command":"status","run_id":null,"genome_id":null,"world_id":null}
+		{"kind":"runtime_capability_denied","timestamp_millis":20,"request_id":null,"command":null,"run_id":"run-1","genome_id":"genome-1","world_id":"world-1","client_id":null},
+		{"kind":"request_rejected","timestamp_millis":10,"request_id":"","command":"status","run_id":null,"genome_id":null,"world_id":null,"client_id":null}
 	]}`);
 	const response = parseResponse(text, 'request');
 	assert.equal(response.data?.type, 'denial_list');
@@ -92,9 +92,9 @@ test('denial_list accepts request-rejected and runtime-capability-denied entries
 });
 
 test('denial_list rejects an unknown kind and an oversized entry count', () => {
-	const badKind = withRequest(`{"type":"denial_list","denials":[{"kind":"mystery","timestamp_millis":1,"request_id":null,"command":null,"run_id":null,"genome_id":null,"world_id":null}]}`);
+	const badKind = withRequest(`{"type":"denial_list","denials":[{"kind":"mystery","timestamp_millis":1,"request_id":null,"command":null,"run_id":null,"genome_id":null,"world_id":null,"client_id":null}]}`);
 	assert.throws(() => parseResponse(badKind, 'request'), /daemon response variant is invalid/);
-	const entry = `{"kind":"request_rejected","timestamp_millis":1,"request_id":"","command":"status","run_id":null,"genome_id":null,"world_id":null}`;
+	const entry = `{"kind":"request_rejected","timestamp_millis":1,"request_id":"","command":"status","run_id":null,"genome_id":null,"world_id":null,"client_id":null}`;
 	const denials = Array.from({length: 201}, () => entry).join(',');
 	const oversized = withRequest(`{"type":"denial_list","denials":[${denials}]}`);
 	assert.throws(() => parseResponse(oversized, 'request'), /daemon response variant is invalid/);

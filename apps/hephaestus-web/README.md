@@ -1,11 +1,12 @@
 # Hephaestus Web Console
 
-A local, read-only web console for the existing daemon protocol. It is the
-first slice of roadmap item 14 ("Web console, MCP gateway, and remote
-workers"): a browser view of daemon state, nothing more. There is no MCP
-gateway and no remote worker execution here, and this console cannot mutate
-canonical state — it forwards a fixed allowlist of read-only commands to the
-daemon and nothing else.
+A local, read-only web console for the existing daemon protocol. It is part
+of roadmap item 14 ("Web console, MCP gateway, and remote workers"): a
+browser view of daemon state, nothing more. The MCP gateway
+(`docs/MCP_GATEWAY.md`) and remote worker execution (`docs/REMOTE_WORKERS.md`)
+are separate daemon-adjacent processes, not part of this browser surface;
+this console cannot mutate canonical state — it forwards a fixed allowlist
+of read-only commands to the daemon and nothing else.
 
 ## Run from a source checkout
 
@@ -45,6 +46,11 @@ taken.
 - **Genome**: one Genome's record, its role in its World's Champion
   projection, and a line-level diff of its verified Markdown prompt against
   its first registered parent's prompt.
+- **Genes**: every extracted Gene with its World, lineage, positive/neutral/
+  negative transfer counts, contradiction flag, and species count.
+- **Activity**: recent direct runs and Arena evaluations with their costs
+  and latency, and recent authority/denial history (refused operator
+  requests, runtime capability denials, and denied MCP gateway tool calls).
 
 ## Security model
 
@@ -61,8 +67,9 @@ On top of that, this HTTP surface adds:
 
 - **Loopback-only bind**: the server listens on `127.0.0.1` alone.
 - **Read-only allowlist** (`src/allowlist.ts`): only `status`, `world_list`,
-  `genome_list`, `genome_show`, `genome_prompt`, `champion_show`, and
-  `job_status` can ever reach the daemon. A request naming any other
+  `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
+  `job_status`, `gene_list`, `gene_show`, `run_list`, `evaluation_list`, and
+  `denial_list` can ever reach the daemon. A request naming any other
   command — including every mutating command the daemon protocol defines
   (`freeze`, `champion_rollback`, `daemon_stop`, ...) — is refused with
   `400` before the daemon socket is touched.
@@ -109,7 +116,7 @@ proxied and a disallowed one never reaches the socket.
 
 ## Not in this slice
 
-No MCP gateway, no authenticated remote workers, no mutating action from the
-browser (seed/promote/rollback a Champion, register a Genome or World,
-submit or kill a job). Those remain open roadmap item 14 work; see
+No mutating action from the browser (seed/promote/rollback a Champion,
+register a Genome or World, submit or kill a job); no drift/canary state
+(not part of this lane's base); no full evidence/experiment views. See
 [ROADMAP.md](../../ROADMAP.md).
