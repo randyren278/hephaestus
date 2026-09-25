@@ -784,4 +784,82 @@ mod tests {
     fn empty_input_produces_no_clusters() {
         assert!(cluster_trials(&[], &[]).is_empty());
     }
+
+    fn sample_analysis(analysis_id: &str, clusters: Vec<FailureCluster>) -> ClusterAnalysis {
+        ClusterAnalysis {
+            schema_version: RECEIPT_SCHEMA_VERSION,
+            algorithm: ALGORITHM.to_owned(),
+            analysis_id: analysis_id.to_owned(),
+            evaluation_id: "evaluation-001".to_owned(),
+            evaluation_event_id: "arena:evaluation:evaluation-001:recorded".to_owned(),
+            evaluation_event_hash: "a".repeat(64),
+            world_id: format!("hephaestus:world:{}", "1".repeat(64)),
+            parent_genome_id: format!("hephaestus:genome:{}", "2".repeat(64)),
+            candidate_genome_id: format!("hephaestus:genome:{}", "3".repeat(64)),
+            total_visible_failed_trials: 1,
+            total_sealed_failed_trials: 0,
+            clusters,
+        }
+    }
+
+    #[test]
+    fn rehydrate_event_conflicts_when_stored_analysis_differs_from_recomputed() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut stores = EvaluationStores::open(
+            directory.path().join("events.sqlite3"),
+            directory.path().join("blobs"),
+        )
+        .unwrap();
+        let expected = sample_analysis(
+            "analysis-001",
+            vec![FailureCluster {
+                signature: "shape_case_mismatch".to_owned(),
+                visible_count: 1,
+                sealed_count: 0,
+                total_count: 1,
+                hypothesis: "expected hypothesis".to_owned(),
+                suggested_mutation: Some(SuggestedMutation::ReferenceOperationFlip),
+            }],
+        );
+        // The stored artifact recomputes to different cluster content under
+        // the exact same analysis_id, evaluation_id, and world_id: this must
+        // be rejected as a conflict, not silently accepted.
+        let differing = sample_analysis(
+            "analysis-001",
+            vec![FailureCluster {
+                signature: "shape_case_mismatch".to_owned(),
+                visible_count: 2,
+                sealed_count: 0,
+                total_count: 2,
+                hypothesis: "different hypothesis".to_owned(),
+                suggested_mutation: Some(SuggestedMutation::ReferenceOperationFlip),
+            }],
+        );
+        let analysis_artifact_id = stores
+            .artifacts
+            .put(&serde_json::to_vec(&differing).unwrap())
+            .unwrap();
+        let payload = ClusterEventPayload {
+            schema_version: RECEIPT_SCHEMA_VERSION,
+            analysis_id: expected.analysis_id.clone(),
+            evaluation_id: expected.evaluation_id.clone(),
+            world_id: expected.world_id.clone(),
+            analysis_artifact_id: analysis_artifact_id.as_str().to_owned(),
+        };
+        let event = stores
+            .events
+            .append(EventInput::new(
+                cluster_event_id(&expected.analysis_id),
+                cluster_aggregate_id(&expected.analysis_id),
+                EVENT_TYPE,
+                EVENT_ACTOR,
+                0,
+                serde_json::to_vec(&payload).unwrap(),
+            ))
+            .unwrap();
+        assert!(matches!(
+            rehydrate_event(&stores.artifacts, &event, &expected),
+            Err(ArenaError::ClusterConflict(_))
+        ));
+    }
 }
