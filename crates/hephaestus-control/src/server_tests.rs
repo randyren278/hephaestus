@@ -9123,6 +9123,27 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         invariants.event.receipt_artifact_id
     );
     assert_eq!(promoted.payload.reason, None);
+    let Some(ResponseData::EvaluationList { evaluations }) = dispatch_call(
+        &mut plane,
+        &token,
+        "evaluations-after-promotion",
+        Command::EvaluationList { limit: 50 },
+    )
+    .data
+    else {
+        panic!("evaluation list should succeed after promotion");
+    };
+    for entry in &evaluations {
+        let expected: Vec<String> = if entry.evaluation.evaluation_id == assessed.evaluation {
+            vec!["promote-child".to_owned()]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(
+            entry.champion_transition_ids, expected,
+            "only the promoting evaluation references the Champion transition"
+        );
+    }
     assert_champion_error(
         champion_transition(
             &mut plane,
