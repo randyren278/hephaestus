@@ -7,13 +7,18 @@ export type Command =
 	| {command: 'job_kill'; job_id: string}
 	| {command: 'genome_list'}
 	| {command: 'genome_show'; genome_id: string}
+	| {command: 'genome_register'; path: string; world_id: string}
 	| {command: 'world_list'}
 	| {command: 'genome_prompt'; genome_id: string}
 	| {command: 'champion_show'; world_id: string}
 	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string}
+	| {command: 'evaluate_pair'; evaluation_id: string; parent_genome_id: string; candidate_genome_id: string}
 	| {command: 'evolve_start'; run_id: string; world_id: string; from_genome_id: string; generations: number; budget: number}
 	| {command: 'evolve_status'; run_id: string}
-	| {command: 'evolve_cancel'; run_id: string};
+	| {command: 'evolve_cancel'; run_id: string}
+	| {command: 'run_list'; limit: number}
+	| {command: 'evaluation_list'; limit: number}
+	| {command: 'denial_list'; limit: number};
 
 export type ApiRequest = {version: 1; request_id: string; token: string; command: Command};
 export type JobState = 'admitted' | 'running' | 'cancellation_requested' | 'succeeded' | 'failed' | 'interrupted';
