@@ -115,14 +115,7 @@ fn parse_codex_event(value: &Value) -> Vec<RuntimeObservation> {
                 fields.insert("command".to_owned(), command);
             }
             let kind = match item_type {
-                "command_execution" => {
-                    if event_type == "item.completed" {
-                        RuntimeObservationKind::ToolResult
-                    } else {
-                        RuntimeObservationKind::ToolCalled
-                    }
-                }
-                "mcp_tool_call" => {
+                "command_execution" | "mcp_tool_call" => {
                     if event_type == "item.completed" {
                         RuntimeObservationKind::ToolResult
                     } else {
@@ -130,7 +123,6 @@ fn parse_codex_event(value: &Value) -> Vec<RuntimeObservation> {
                     }
                 }
                 "file_change" => RuntimeObservationKind::FileChanged,
-                "agent_message" => RuntimeObservationKind::ModelResponse,
                 _ => RuntimeObservationKind::ModelResponse,
             };
             vec![RuntimeObservation::new(kind, fields)]
@@ -298,6 +290,11 @@ fn parse_claude_result_event(value: &Value) -> Vec<RuntimeObservation> {
     )]
 }
 
+// The non-finite/non-positive and saturation checks below make the final
+// truncating cast exact for every value it actually reaches: rounded,
+// non-negative, and strictly less than `u64::MAX`.
+#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn usd_to_microusd(dollars: f64) -> u64 {
     if !dollars.is_finite() || dollars <= 0.0 {
         return 0;

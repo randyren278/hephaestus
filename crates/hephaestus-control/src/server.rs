@@ -3600,6 +3600,7 @@ impl ControlPlane {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)]
     fn run_with_context(
         &mut self,
         run_id: &str,

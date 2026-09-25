@@ -10980,6 +10980,7 @@ fn register_claude_provider_genome(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_traces() {
     let directory = tempdir().expect("fixture directory");
     let (repository, source_revision) = committed_reference_fixture(directory.path());

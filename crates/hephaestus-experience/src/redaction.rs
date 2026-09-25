@@ -105,6 +105,9 @@ mod tests {
         assert!(!redacted.contains("sk-verysecrettoken1234"));
         assert!(!redacted.contains("operator-secret"));
         assert!(redacted.contains("[REDACTED]"));
-        assert_eq!(policy.redact_text("nothing sensitive here"), "nothing sensitive here");
+        assert_eq!(
+            policy.redact_text("nothing sensitive here"),
+            "nothing sensitive here"
+        );
     }
 }
