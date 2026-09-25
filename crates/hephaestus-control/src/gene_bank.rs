@@ -902,6 +902,7 @@ pub(super) fn gene_summaries(history: &[StoredEvent]) -> Result<Vec<GeneSummary>
 
 /// Recomputes every Gene Bank event from the history that preceded it,
 /// exactly like [`super::champion::verify_champion_history`].
+#[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history(
     data_dir: &Path,
     history: &[StoredEvent],

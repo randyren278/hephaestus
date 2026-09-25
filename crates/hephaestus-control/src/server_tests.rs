@@ -11464,14 +11464,14 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
         other => panic!("two lineages must refuse speciation: {other:?}"),
     }
 
-    let outcome_c1 = gene_bank_transfer_and_record(
+    let outcome_hurts = gene_bank_transfer_and_record(
         &mut plane,
         "transfer-c1",
         &gene.payload.gene_id,
         &c1.genome_id,
     );
     assert_eq!(
-        outcome_c1,
+        outcome_hurts,
         GeneTransferOutcome::Negative,
         "negative transfer is retained, never dropped"
     );

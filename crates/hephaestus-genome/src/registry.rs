@@ -233,7 +233,7 @@ impl RegisteredObjects {
                 "genome.registered" => registered.register_genome(event, artifacts)?,
                 "forge.proposed" => registered.register_forge_child(event, artifacts)?,
                 "gene.transfer_applied" => {
-                    registered.register_gene_transfer_child(event, artifacts)?
+                    registered.register_gene_transfer_child(event, artifacts)?;
                 }
                 _ => {}
             }
