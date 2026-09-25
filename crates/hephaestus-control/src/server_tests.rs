@@ -14,7 +14,7 @@ use super::*;
 use crate::{
     ApiError, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
     ChampionTransitionRecord, GeneExtractedPayload, GeneRecord, GeneTransferAppliedPayload,
-    GeneTransferOutcome, GeneTransferRecordedPayload,
+    GeneTransferOutcome, GeneTransferRecordedPayload, MetaLineageSpec,
 };
 
 #[test]
@@ -11225,6 +11225,368 @@ echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"token=sk-verysec
     assert!(
         final_answer.contains("[REDACTED]"),
         "redaction must replace the secret rather than silently drop the whole message: {final_answer}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Recursive evolution of the Evolver (roadmap item 13). `real_worker_arena_fixture`
+// gives the first held-out lineage; `register_second_meta_lineage` registers a
+// second, distinctly named World and Genome pair on the same plane so the
+// meta-evaluation has two held-out lineages to bootstrap over.
+// ---------------------------------------------------------------------------
+
+fn register_second_meta_lineage(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        "second-lineage-visible",
+        Visibility::Visible,
+        vec![
+            hephaestus_arena::TrustedTask::new("visible-task", "visible", "VISIBLE")
+                .expect("visible task"),
+        ],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "second-lineage-sealed",
+        Visibility::Sealed,
+        vec![
+            hephaestus_arena::TrustedTask::new("sealed-task", "sealed", "SEALED")
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator = env::current_exe()
+        .expect("locate test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("locate Cargo binary directory")
+        .join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+    let evaluator_id = artifacts
+        .put(&fs::read(evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    drop(artifacts);
+    let world_path = directory.path().join("second-lineage-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"second-lineage","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+        ),
+    )
+    .expect("write second lineage World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        "second-lineage-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("second lineage World registration should succeed");
+    };
+    let register_genome = |plane: &mut ControlPlane, token: &str, name: &str, parents: &str| {
+        let path = directory.path().join(format!("{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+            ),
+        )
+        .expect("write Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            name,
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("second lineage Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(plane, token, "second-lineage-parent", "[]");
+    let candidate = register_genome(
+        plane,
+        token,
+        "second-lineage-candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+    );
+    (world, parent, candidate)
+}
+
+fn register_meta_strategy(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    label: &str,
+) -> String {
+    let path = directory.path().join(format!("strategy-{label}.json"));
+    fs::write(
+        &path,
+        format!(
+            r#"{{"schema_version":1,"name":"strategy-{label}","mutation_prioritization":"fifo","generation_count":1,"experiment_allocation":2,"candidate_count":1,"gene_selection":"none"}}"#
+        ),
+    )
+    .expect("write strategy source");
+    let Some(ResponseData::MetaStrategy { strategy }) = dispatch_call(
+        plane,
+        token,
+        &format!("meta-strategy-{label}"),
+        Command::MetaStrategyRegister {
+            path: path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("strategy registration should succeed");
+    };
+    strategy.strategy_id
+}
+
+#[test]
+#[allow(clippy::too_many_lines, clippy::similar_names)]
+fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent_a, _candidate_a) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_a = parent_a.world_id.clone();
+    let (world_b_record, parent_b, _candidate_b) =
+        register_second_meta_lineage(&mut plane, &token, &directory);
+    let world_b = world_b_record.world_id.clone();
+
+    let strategy_a_id = register_meta_strategy(&mut plane, &token, &directory, "a");
+    let strategy_b_id = register_meta_strategy(&mut plane, &token, &directory, "b");
+    assert_ne!(
+        strategy_a_id, strategy_b_id,
+        "distinct content, distinct identity"
+    );
+
+    let evaluate = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-evaluate",
+        Command::MetaEvaluate {
+            meta_run_id: "meta-1".to_owned(),
+            strategy_a_id: strategy_a_id.clone(),
+            strategy_b_id: strategy_b_id.clone(),
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: world_a.clone(),
+                    from_genome_id: parent_a.genome_id.clone(),
+                },
+                MetaLineageSpec {
+                    world_id: world_b.clone(),
+                    from_genome_id: parent_b.genome_id.clone(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 1,
+        },
+    );
+    assert!(
+        evaluate.error.is_none(),
+        "meta evaluate failed: {:?}",
+        evaluate.error
+    );
+    let Some(ResponseData::MetaEvaluation { receipt }) = evaluate.data else {
+        panic!("meta evaluate should return the recorded receipt");
+    };
+    assert_eq!(receipt.payload.meta_run_id, "meta-1");
+    assert_eq!(receipt.payload.lineages.len(), 2);
+    // Both strategies declare the identical generation/budget knobs and only
+    // the reference-operation-flip mutation exists, so this pair cannot show
+    // a real efficiency difference; the interval should center on zero.
+    assert_eq!(receipt.payload.quality_delta.estimate_x10000, 0);
+    assert_eq!(receipt.payload.cost_delta.estimate_x10000, 0);
+
+    // Re-running the same meta_run_id is idempotent and returns the exact
+    // recorded receipt without redoing any lineage work.
+    let repeat = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-evaluate-repeat",
+        Command::MetaEvaluate {
+            meta_run_id: "meta-1".to_owned(),
+            strategy_a_id,
+            strategy_b_id,
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: world_a.clone(),
+                    from_genome_id: parent_a.genome_id.clone(),
+                },
+                MetaLineageSpec {
+                    world_id: world_b.clone(),
+                    from_genome_id: parent_b.genome_id.clone(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 1,
+        },
+    );
+    assert!(repeat.error.is_none());
+    assert_eq!(repeat.data, Some(ResponseData::MetaEvaluation { receipt }));
+
+    // The meta-evaluation left each lineage's Champion exactly where it
+    // found it.
+    for (world_id, from_genome_id) in [
+        (world_a.clone(), parent_a.genome_id.clone()),
+        (world_b.clone(), parent_b.genome_id.clone()),
+    ] {
+        let Some(ResponseData::Champion { champion }) = dispatch_call(
+            &mut plane,
+            &token,
+            &format!("champion-after-{world_id}"),
+            Command::ChampionShow { world_id },
+        )
+        .data
+        else {
+            panic!("champion show should succeed");
+        };
+        assert_eq!(champion.champion_genome_id, Some(from_genome_id));
+    }
+
+    // A full verified replay accepts the meta-evolution events.
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay accepts meta-evolution history");
+    assert!(
+        history
+            .iter()
+            .any(|event| event.event_type == META_EVALUATION_EVENT_TYPE)
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == META_STRATEGY_EVENT_TYPE)
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn meta_strategy_register_is_idempotent_and_content_addressed() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, _parent, _candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    let first_id = register_meta_strategy(&mut plane, &token, &directory, "idempotent");
+    let second_id = register_meta_strategy(&mut plane, &token, &directory, "idempotent");
+    assert_eq!(first_id, second_id, "identical content registers once");
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay verified history");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == META_STRATEGY_EVENT_TYPE)
+            .count(),
+        1,
+        "re-registering identical content appends no second event"
+    );
+}
+
+#[test]
+#[allow(clippy::similar_names)]
+fn meta_evaluate_rejects_unregistered_strategies_and_duplicate_lineage_worlds() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent, _candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let (world_b_record, parent_b, _candidate_b) =
+        register_second_meta_lineage(&mut plane, &token, &directory);
+    let strategy_a_id = register_meta_strategy(&mut plane, &token, &directory, "solo-a");
+    let strategy_b_id = register_meta_strategy(&mut plane, &token, &directory, "solo-b");
+
+    // Two distinct-World lineages pass field validation, so this fails
+    // inside the handler once it resolves `strategy_b_id`.
+    let missing_strategy = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-missing-strategy",
+        Command::MetaEvaluate {
+            meta_run_id: "meta-missing".to_owned(),
+            strategy_a_id: strategy_a_id.clone(),
+            strategy_b_id: "hephaestus:meta-strategy:missing".to_owned(),
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: parent.world_id.clone(),
+                    from_genome_id: parent.genome_id.clone(),
+                },
+                MetaLineageSpec {
+                    world_id: world_b_record.world_id.clone(),
+                    from_genome_id: parent_b.genome_id.clone(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 0,
+        },
+    );
+    assert_eq!(
+        missing_strategy.error.expect("not found").code,
+        ApiErrorCode::NotFound
+    );
+
+    // Two distinct, registered strategies but the same World twice fails
+    // request-field validation before any lineage is ever run.
+    let duplicate_world = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-duplicate-world",
+        Command::MetaEvaluate {
+            meta_run_id: "meta-duplicate".to_owned(),
+            strategy_a_id,
+            strategy_b_id,
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: parent.world_id.clone(),
+                    from_genome_id: parent.genome_id.clone(),
+                },
+                MetaLineageSpec {
+                    world_id: parent.world_id.clone(),
+                    from_genome_id: parent.genome_id.clone(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 0,
+        },
+    );
+    assert_eq!(
+        duplicate_world.error.expect("invalid").code,
+        ApiErrorCode::InvalidRequest
     );
 }
 
