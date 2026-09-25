@@ -18,6 +18,7 @@ pub struct CompiledGenome {
     parents: Vec<String>,
     authority: CapabilitySet,
     artifacts: BTreeMap<String, String>,
+    model_provider: String,
 }
 
 impl CompiledGenome {
@@ -55,6 +56,15 @@ impl CompiledGenome {
     #[must_use]
     pub fn artifact_id(&self, name: &str) -> Option<&str> {
         self.artifacts.get(name).map(String::as_str)
+    }
+
+    /// Returns the declared runtime provider (`deterministic`, `codex`, or `claude`).
+    ///
+    /// Provider selection is operator/runtime configuration; it never widens or
+    /// narrows the compiled authority ceiling above.
+    #[must_use]
+    pub fn model_provider(&self) -> &str {
+        &self.model_provider
     }
 }
 
@@ -152,6 +162,7 @@ pub(crate) fn compiled_genome(raw: RawGenome, canonical_json: Vec<u8>) -> Compil
     let RawGenome {
         name,
         parents,
+        model,
         authority,
         artifacts,
         ..
@@ -163,6 +174,7 @@ pub(crate) fn compiled_genome(raw: RawGenome, canonical_json: Vec<u8>) -> Compil
         parents,
         authority: authority.capabilities(),
         artifacts,
+        model_provider: model.provider,
     }
 }
 

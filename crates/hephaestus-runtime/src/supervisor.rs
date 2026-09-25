@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     os::unix::process::CommandExt as _,
     path::PathBuf,
     process::{Child, Command, ExitStatus, Stdio},
@@ -18,8 +18,8 @@ use hephaestus_core::authority::CapabilitySet;
 
 use crate::{
     AdapterCapabilities, CapabilityToken, CompletionReason, IsolationPolicy, Provider,
-    ProviderInvocation, RunHandle, RunSnapshot, RunSpec, RunStatus, RuntimeAdapter, RuntimeError,
-    Sandbox, guardian::GuardianLaunch,
+    ProviderEventCursor, ProviderInvocation, RunHandle, RunSnapshot, RunSpec, RunStatus,
+    RuntimeAdapter, RuntimeError, RuntimeObservation, Sandbox, guardian::GuardianLaunch,
 };
 
 /// Provider-neutral child-process supervisor used for non-billable local helpers.
@@ -28,9 +28,15 @@ use crate::{
 /// mediation are available; this constructor deliberately grants no network.
 pub struct SupervisedRuntime {
     isolation: IsolationPolicy,
+    provider: Provider,
     executable: PathBuf,
     arguments: Vec<String>,
     guardian_executable: Option<PathBuf>,
+    /// Explicit, operator-supplied environment variables copied into the child
+    /// process on top of the fixed `PATH`/`HOME`/`TMPDIR` allowlist. Never the
+    /// daemon's own inherited environment: nothing here is copied unless a
+    /// caller names it explicitly.
+    extra_env: Vec<(String, String)>,
     runs: BTreeMap<String, SupervisedRun>,
 }
 
@@ -58,6 +64,9 @@ struct SupervisedRun {
     stdout_path: PathBuf,
     stderr_path: PathBuf,
     capabilities: CapabilitySet,
+    provider: Provider,
+    observation_cursor: ProviderEventCursor,
+    observed_bytes: u64,
 }
 
 struct SharedRun {
@@ -113,9 +122,11 @@ impl SupervisedRuntime {
         ProviderInvocation::deterministic(&executable, [], [])?;
         Ok(Self {
             isolation,
+            provider: Provider::Deterministic,
             executable,
             arguments: arguments.into_iter().collect(),
             guardian_executable: None,
+            extra_env: Vec::new(),
             runs: BTreeMap::new(),
         })
     }
@@ -137,6 +148,47 @@ impl SupervisedRuntime {
         ProviderInvocation::deterministic(&guardian, [], [])?;
         runtime.guardian_executable = Some(guardian);
         Ok(runtime)
+    }
+
+    /// Creates a Codex or Claude Code adapter. `executable` is operator
+    /// configuration (a daemon flag or environment variable naming the CLI
+    /// binary), which is exactly how offline tests point this at a fake.
+    ///
+    /// `extra_env` is an explicit, named allowlist of environment variables
+    /// copied into the child on top of `PATH`/`HOME`/`TMPDIR`; nothing from the
+    /// daemon's own environment is inherited unless it is named here.
+    ///
+    /// # Errors
+    ///
+    /// Rejects `Provider::Deterministic` (use [`Self::deterministic`]) and an
+    /// empty executable path.
+    pub fn provider_guarded(
+        isolation: IsolationPolicy,
+        provider: Provider,
+        executable: impl Into<PathBuf>,
+        guardian_executable: impl Into<PathBuf>,
+        extra_env: Vec<(String, String)>,
+    ) -> Result<Self, RuntimeError> {
+        if provider == Provider::Deterministic {
+            return Err(RuntimeError::InvalidSpec(
+                "use SupervisedRuntime::deterministic_guarded for the reference provider",
+            ));
+        }
+        let executable = executable.into();
+        if executable.as_os_str().is_empty() {
+            return Err(RuntimeError::InvalidSpec("provider executable is empty"));
+        }
+        let guardian = guardian_executable.into();
+        ProviderInvocation::deterministic(&guardian, [], [])?;
+        Ok(Self {
+            isolation,
+            provider,
+            executable,
+            arguments: Vec::new(),
+            guardian_executable: Some(guardian),
+            extra_env,
+            runs: BTreeMap::new(),
+        })
     }
 
     fn launch(
@@ -228,11 +280,14 @@ impl SupervisedRuntime {
                 stdout_path,
                 stderr_path,
                 capabilities: spec.capabilities(),
+                provider: self.provider,
+                observation_cursor: ProviderEventCursor::new(),
+                observed_bytes: 0,
             },
         );
         Ok(RunHandle {
             run_id: spec.run_id().to_owned(),
-            provider: Provider::Deterministic,
+            provider: self.provider,
         })
     }
 
@@ -241,13 +296,18 @@ impl SupervisedRuntime {
         spec: &RunSpec,
         sandbox: &Sandbox,
     ) -> Result<(Command, bool, Vec<u8>), RuntimeError> {
-        let stdin = if let Some(instruction) = spec.reference_instruction() {
-            instruction.frame(spec.prompt().as_bytes())?
-        } else {
-            spec.prompt().as_bytes().to_vec()
+        let invocation = match self.provider {
+            Provider::Deterministic => {
+                let stdin = if let Some(instruction) = spec.reference_instruction() {
+                    instruction.frame(spec.prompt().as_bytes())?
+                } else {
+                    spec.prompt().as_bytes().to_vec()
+                };
+                ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), stdin)?
+            }
+            Provider::Codex => ProviderInvocation::codex(&self.executable, spec, sandbox)?,
+            Provider::Claude => ProviderInvocation::claude(&self.executable, spec, sandbox)?,
         };
-        let invocation =
-            ProviderInvocation::deterministic(&self.executable, self.arguments.clone(), stdin)?;
         let mut worker_command = self.isolation.command(&invocation, sandbox)?;
         worker_command.env_clear();
         let path = std::env::var("PATH").ok();
@@ -256,6 +316,9 @@ impl SupervisedRuntime {
         }
         worker_command.env("HOME", sandbox.execution_dir());
         worker_command.env("TMPDIR", sandbox.execution_dir());
+        for (key, value) in &self.extra_env {
+            worker_command.env(key, value);
+        }
         let Some(guardian) = &self.guardian_executable else {
             return Ok((worker_command, false, invocation.stdin().to_vec()));
         };
@@ -296,7 +359,7 @@ impl SupervisedRuntime {
 
 impl RuntimeAdapter for SupervisedRuntime {
     fn provider(&self) -> Provider {
-        Provider::Deterministic
+        self.provider
     }
 
     fn report_capabilities(&self) -> AdapterCapabilities {
@@ -304,7 +367,13 @@ impl RuntimeAdapter for SupervisedRuntime {
             resume: false,
             interrupt: true,
             snapshot: true,
-            authority: CapabilitySet::new(true, false),
+            authority: match self.provider {
+                // Codex and Claude Code must themselves reach a hosted model API,
+                // so their ceiling allows network; the actual grant for one run
+                // still comes only from that run's own `RunSpec` capabilities.
+                Provider::Deterministic => CapabilitySet::new(true, false),
+                Provider::Codex | Provider::Claude => CapabilitySet::new(true, true),
+            },
         }
     }
 
@@ -367,6 +436,30 @@ impl RuntimeAdapter for SupervisedRuntime {
             stderr_path: run.stderr_path.clone(),
             capabilities: run.capabilities,
         })
+    }
+
+    fn drain_observations(
+        &mut self,
+        run_id: &str,
+    ) -> Result<Vec<RuntimeObservation>, RuntimeError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(RuntimeError::InvalidSpec("run does not exist"))?;
+        if run.provider == Provider::Deterministic {
+            return Ok(Vec::new());
+        }
+        let mut file = match File::open(&run.stdout_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        file.seek(SeekFrom::Start(run.observed_bytes))?;
+        let mut chunk = Vec::new();
+        file.read_to_end(&mut chunk)?;
+        run.observed_bytes += chunk.len() as u64;
+        let provider = run.provider;
+        Ok(run.observation_cursor.feed(provider, &chunk))
     }
 }
 
