@@ -166,6 +166,7 @@ jobs:
           -- --nocapture
           async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
           tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty
+          tui_evidence_screens_and_markdown_authoring_flow_through_a_pty
 
   mutation:
     name: Mutation guard (${{ matrix.scope }})

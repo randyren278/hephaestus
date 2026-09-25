@@ -55,8 +55,7 @@
     "crates/hephaestus-arena/src/invariants.rs",
     "crates/hephaestus-control/src/champion.rs",
     "crates/hephaestus-arena/src/clusters.rs",
-    "crates/hephaestus-control/src/drift.rs",
-    "crates/hephaestus-control/src/canary.rs"
+    "crates/hephaestus-control/src/drift.rs"
   ],
   "mutations": [
     {

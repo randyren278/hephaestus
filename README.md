@@ -113,12 +113,17 @@ and that decision is itself a ledgered event.
 - **The Ink TUI is a local operator console.** macOS packages bundle its
   JavaScript and pinned Node runtime; source checkouts use Node/npm. Besides
   local status, freeze/kill controls, and Arena progress by known evaluation
-  ID, it now has a Lineage and Champions screen: a World list, a Genome
-  ancestry tree marking Champion/standby/quarantined rows, a Genome detail
-  panel with a prompt diff against the parent, and an operator-confirmed
-  Champion rollback. It still has no runs, evidence receipt, cost, or denial
-  screens, and no packaged-install authoring flow (author/validate/register a
-  Markdown agent from the TUI); those remain roadmap item 9 work. See
+  ID, it has a Lineage and Champions screen (World list, Genome ancestry tree
+  marking Champion/standby/quarantined rows, a prompt diff against the
+  parent, and operator-confirmed Champion rollback), an Evidence & Costs
+  submenu with read-only Runs, Evidence receipts, Costs, and Denials screens
+  built from the existing `run_list`/`evaluation_list`/`denial_list`
+  projections and grouped by World, and a Markdown agent authoring flow: pick
+  a World, edit a Markdown Genome source via `$EDITOR` hand-off (or its
+  starter template), register it through `genome_register`, and run a paired
+  Test via `evaluate_pair` with live progress. Still missing: a
+  packaged-install acceptance run of that authoring flow from a clean,
+  non-source-checkout install, and a recorded demo video. See
   [the setup guide](apps/hephaestus-tui/README.md) and
   [macOS package instructions](docs/MACOS_INSTALL.md).
 - **The web console is a local, read-only browser view.** It proxies a fixed
@@ -280,7 +285,7 @@ the suite to go red for every single one. A mutation that survives fails the
 build. The mutation jobs run only after the deterministic job passes; inspect
 the latest CI result before treating a commit as verified. The count can only go up.
 
-Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 36 production-critical
+Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 35 production-critical
 modules (branch coverage where LCOV reports branches, line coverage otherwise),
 `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
 docs gate that fails if any path mentioned in this README stops existing.

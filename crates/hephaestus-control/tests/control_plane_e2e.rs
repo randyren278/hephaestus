@@ -6637,3 +6637,187 @@ fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary(
 
     daemon.stop();
 }
+
+/// Builds a real World, parent Genome, run, and paired Arena evaluation
+/// through the CLI, drives the Ink Evidence & Costs screens in a
+/// pseudo-terminal to confirm they show that real data, then drives the
+/// Markdown agent authoring flow end to end (World pick, `$EDITOR`
+/// hand-off, `genome_register`, and a paired Test via `evaluate_pair`)
+/// against the same real daemon. Opt-in with `HEPHAESTUS_TUI_PTY_E2E=1`;
+/// it requires `npm ci` in the TUI app.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
+    if std::env::var_os("HEPHAESTUS_TUI_PTY_E2E").is_none() {
+        return;
+    }
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"evidence fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let quickstart = Path::new(QUICKSTART);
+    let scratch = directory.path().join("scratch");
+    fs::create_dir_all(&scratch).expect("create scratch directory");
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+    let data = |arguments: &[&str]| {
+        let output = cli(&data_dir, arguments);
+        let parsed = response(&output);
+        assert!(
+            parsed.error.is_none(),
+            "CLI command {arguments:?} failed: {:?}",
+            parsed.error
+        );
+        parsed.data.expect("CLI response data")
+    };
+
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/visible.json").to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/sealed.json").to_str().unwrap(),
+    ]));
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier = first_word(&text(&["verifier"]));
+    let invariant_path = scratch.join("invariants.json");
+    fs::write(
+        &invariant_path,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[0]}"#,
+    )
+    .unwrap();
+    let invariants = first_word(&text(&[
+        "artifact",
+        "put",
+        invariant_path.to_str().unwrap(),
+    ]));
+    let world_path = scratch.join("world.json");
+    fs::write(
+        &world_path,
+        fs::read_to_string(quickstart.join("world.template.json"))
+            .unwrap()
+            .replace("__VISIBLE_MANIFEST__", &visible)
+            .replace("__SEALED_MANIFEST__", &sealed)
+            .replace("__EVALUATOR__", &evaluator)
+            .replace(
+                "\"__VERIFIER__\"",
+                &format!("\"{verifier}\",\n    \"arena.invariant_manifest\": \"{invariants}\""),
+            ),
+    )
+    .unwrap();
+    let world_id = first_word(&text(&["world", "register", world_path.to_str().unwrap()]));
+    let parent_id = first_word(&text(&[
+        "genome",
+        "register",
+        quickstart.join("agent.md").to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    let source_candidate_path = scratch.join("source-candidate.md");
+    fs::write(
+        &source_candidate_path,
+        fs::read_to_string(quickstart.join("candidate.md"))
+            .unwrap()
+            .replace("__PARENT_ID__", &parent_id),
+    )
+    .unwrap();
+    let candidate_id = first_word(&text(&[
+        "genome",
+        "register",
+        source_candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    // Populate a real run.
+    let ResponseData::Run {
+        completion_reason: RunCompletionReason::Success,
+        ..
+    } = data(&["run", &parent_id])
+    else {
+        panic!("reference run should succeed");
+    };
+
+    // Populate a real paired Arena evaluation with a selected, costed receipt.
+    data(&[
+        "arena",
+        "evaluate",
+        "evidence-source",
+        &parent_id,
+        &candidate_id,
+    ]);
+    let ResponseData::Selection { .. } = data(&["arena", "select", "evidence-source"]) else {
+        panic!("selection expected");
+    };
+
+    // Populate a real denial: an empty request_id is refused and ledgered.
+    let socket = data_dir.join("control.sock");
+    let token = fs::read_to_string(data_dir.join("operator.token")).expect("read token");
+    let denied = raw_request(
+        &socket,
+        &serde_json::to_vec(&ApiRequest {
+            version: API_VERSION,
+            request_id: String::new(),
+            token,
+            command: Command::Status,
+        })
+        .expect("encode empty-request-id request"),
+    );
+    assert_eq!(
+        denied.error.expect("empty request_id is refused").code,
+        ApiErrorCode::InvalidRequest
+    );
+
+    let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/hephaestus-tui");
+
+    let evidence_output = ProcessCommand::new("python3")
+        .arg(app.join("scripts/pty_evidence.py"))
+        .arg(&app)
+        .arg(&data_dir)
+        .arg(&world_id)
+        .arg(&parent_id)
+        .output()
+        .expect("run Ink evidence pseudo-terminal test");
+    assert!(
+        evidence_output.status.success(),
+        "PTY evidence screens failed:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&evidence_output.stdout),
+        String::from_utf8_lossy(&evidence_output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&evidence_output.stdout));
+
+    let author_output = ProcessCommand::new("python3")
+        .arg(app.join("scripts/pty_author.py"))
+        .arg(&app)
+        .arg(&data_dir)
+        .arg("quickstart-world")
+        .env("EDITOR", "true")
+        .output()
+        .expect("run Ink Markdown authoring pseudo-terminal test");
+    assert!(
+        author_output.status.success(),
+        "PTY Markdown authoring flow failed:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&author_output.stdout),
+        String::from_utf8_lossy(&author_output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&author_output.stdout));
+
+    daemon.stop();
+}
