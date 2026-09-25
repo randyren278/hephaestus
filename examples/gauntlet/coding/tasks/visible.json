@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-coding-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "coding-visible-function",
+      "input": "def add(a, b): return a + b",
+      "expected_output": "DEF ADD(A, B): RETURN A + B"
+    }
+  ]
+}

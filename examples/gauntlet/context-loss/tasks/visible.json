@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-context-loss-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "context-loss-visible",
+      "input": "{\"turns\":[\"FACT: the deploy key is banana\",\"small talk\",\"more small talk\",\"what is the deploy key?\"]}",
+      "expected_output": " the deploy key is banana"
+    }
+  ]
+}

@@ -6398,6 +6398,10 @@ fn verify_forge_prompt(
     let expected_after = match before {
         ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
         ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
+        // Every Gauntlet-mode operation (roadmap item 10) is outside Forge's
+        // supported mutation language: only the Identity/AsciiUppercase flip
+        // is a recognized one-step mutation.
+        _ => return Err(ControlError::Protocol("Forge parent prompt is unsupported")),
     };
     let expected_text = mutate_reference_instruction_document(before_text, before, expected_after)
         .map_err(|()| ControlError::Protocol("Forge prompt is outside mutation scope"))?;
@@ -6819,10 +6823,7 @@ fn verified_prompt_bytes(
 }
 
 fn reference_instruction_operation(instruction: ReferenceInstruction) -> &'static str {
-    match instruction {
-        ReferenceInstruction::Identity => "identity",
-        ReferenceInstruction::AsciiUppercase => "ascii_uppercase",
-    }
+    instruction.operation_name()
 }
 
 fn reference_instruction_document(instruction: ReferenceInstruction) -> String {
@@ -7030,6 +7031,14 @@ fn forge_prompt_mutation(
     let after = match before {
         ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
         ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
+        // Every Gauntlet-mode operation (roadmap item 10) is outside Forge's
+        // supported mutation language: only the Identity/AsciiUppercase flip
+        // is a recognized one-step mutation.
+        _ => {
+            return Err(ExecuteError::Rejected(
+                "the selected candidate prompt is outside the Forge mutation scope".to_owned(),
+            ));
+        }
     };
     let after_text =
         mutate_reference_instruction_document(prompt_text, before, after).map_err(|()| {

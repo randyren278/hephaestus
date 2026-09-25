@@ -1877,8 +1877,8 @@
       "id": "reference-instruction-unknown-fields-accepted",
       "file": "crates/hephaestus-runtime/src/reference_instruction.rs",
       "invariant": "The reference instruction document rejects unknown fields.",
-      "find": "#[serde(deny_unknown_fields)]",
-      "replace": "// mutation: permit unknown instruction fields"
+      "find": "#[serde(deny_unknown_fields)]\nstruct InstructionDocument {",
+      "replace": "// mutation: permit unknown instruction fields\nstruct InstructionDocument {"
     },
     {
       "id": "reference-instruction-version-unchecked",

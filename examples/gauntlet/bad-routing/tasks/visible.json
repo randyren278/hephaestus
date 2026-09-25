@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-bad-routing-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "bad-routing-visible",
+      "input": "{\"requires_capability\":\"large_context\",\"routes\":[{\"name\":\"cheap\",\"capability\":\"small\",\"cost\":1},{\"name\":\"expensive\",\"capability\":\"large_context\",\"cost\":9}]}",
+      "expected_output": "expensive"
+    }
+  ]
+}

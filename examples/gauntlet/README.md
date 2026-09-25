@@ -1,4 +1,4 @@
-# The Hephaestus Gauntlet (current slice)
+# The Hephaestus Gauntlet
 
 Roadmap item 10 and master-plan L24 describe a public benchmark suite
 "specifically designed to force harness adaptation," naming seven adversarial
@@ -6,36 +6,66 @@ failure modes: **context loss, premature completion, schema drift, bad
 routing, duplicate subagents, poisoned memory, and hallucinated
 verification.**
 
-## Honest coverage: 0 of 7 named failure modes are expressible today
+## Honest coverage: all 7 modes are expressible as deterministic proxies
 
 The only runtime `hephaestus evolve` can drive is the offline deterministic
-reference worker described in [docs/GENOMES.md](../../docs/GENOMES.md#offline-reference-instruction-subset):
-one fenced `hephaestus-reference-v1` instruction selecting `identity` or
-`ascii_uppercase`, applied to one bounded byte string, with no tool calls, no
-multi-turn context, no subagents, and no persisted memory. None of the seven
-named modes can be *genuinely* reproduced by that worker; building a fixture
-that merely resembles one in name would misrepresent what the Gauntlet
-actually proves. The honest per-mode gap:
+reference worker described in
+[docs/GENOMES.md](../../docs/GENOMES.md#offline-reference-instruction-subset).
+That worker has no real conversation state, tool calls, provider routing,
+subagents, or persisted memory — nothing about it changed. What changed is
+that the worker now accepts 14 additional operations
+(`crates/hephaestus-runtime/src/reference_instruction.rs`), one bad/fix pair
+per named mode, each of which parses a small strict JSON scenario from the
+task input and computes a byte-exact output that either exhibits or avoids
+the named pathology. This is honestly a **simulation embedded in the
+reference worker**, not a real model, tool schema, router, subagent
+orchestrator, memory store, or self-reporting model. It proves something
+real and narrow: given a scenario shaped like the failure mode, a
+deterministic "bad" transform genuinely produces the wrong answer and a
+deterministic "fix" transform genuinely produces the right one, and the
+Arena's trusted evaluator (not the candidate) is what tells them apart.
 
-| Failure mode | Expressible today? | Runtime capability required |
-|---|---|---|
-| Context loss | No | A multi-turn context window with bounded history/compaction. The reference worker has no conversation state at all: every task is one isolated input-to-output call. |
-| Premature completion | No | A multi-step task representation with an intermediate "done" signal and a verification gate that can catch a claim made before real completion. The reference worker either returns a complete transform or fails a hard budget; there is no partial-progress state to prematurely abandon. |
-| Schema drift | No | A real tool-calling adapter with a versioned tool/function schema that can change shape underneath a working harness. The reference worker has no tools; its only "schema" is the two-field `hephaestus-reference-v1` instruction envelope, which cannot drift independently of the Genome that declares it. |
-| Bad routing | No | A model/provider routing table with more than one selectable route and a cost or capability signal to route on. The reference worker is the only executable route; a Genome's `model` provider and family are recorded but only the deterministic reference pair ever runs (see [docs/GENOMES.md](../../docs/GENOMES.md)). |
-| Duplicate subagents | No | A subagent spawning/orchestration capability with an observable agent graph. The reference worker runs as a single isolated process per trial; there is no notion of a subagent, let alone two of them. |
-| Poisoned memory | No | A persistent memory/experience retrieval store that a candidate reads from across runs, plus a provenance policy to poison. Reference trials are stateless and isolated; nothing persists between one task execution and the next for a candidate to read. |
-| Hallucinated verification | No | A runtime whose own self-reported completion status can diverge from ground truth (in practice, a hosted-model adapter that can claim success it did not earn). The reference worker's `RunCompletionReason` is produced by our own deterministic code, not a model claim, so it cannot hallucinate; the trusted Arena evaluator, not the candidate, always computes the real correctness score independently. |
+| Failure mode | Bad operation | Fix operation | What the scenario encodes |
+|---|---|---|---|
+| Context loss | `context_loss_naive` | `context_loss_aware` | A JSON array of conversation turns; a fact is stated in an early turn (`FACT: ...`) and the last turn asks for it. The bad operation only reads the last turn (as if the context window had already dropped the earlier one) and returns `UNKNOWN`; the fix scans every turn. |
+| Premature completion | `premature_completion` | `verified_completion` | A JSON array of `"stepN:MARKER"` steps. The bad operation reports the first step's marker alone, as if it declared victory after one step; the fix requires every step's marker before reporting completion. |
+| Schema drift | `schema_drift_brittle` | `schema_drift_adaptive` | A JSON object with a `schema_version` and the value under a version-specific field name (`field_v1`/`field_v2`). The bad operation always reads the v1 field name even once the schema has drifted to v2 (returning `MISSING_FIELD`); the fix reads whichever field the declared version names. |
+| Bad routing | `bad_routing_cheapest` | `capability_aware_routing` | A JSON list of routes, each with a `capability` and `cost`, plus the task's `requires_capability`. The bad operation always picks the cheapest route regardless of capability match; the fix picks the cheapest route that can actually serve the request. |
+| Duplicate subagents | `duplicate_subagents_wasteful` | `deduplicated_subagents` | A JSON list of subagent task requests with exact duplicates. The bad operation executes every request, including duplicates; the fix deduplicates them first, preserving first-seen order. |
+| Poisoned memory | `poisoned_memory_trusting` | `provenance_checked_memory` | A JSON list of memory entries, each with `text` and a `trusted` provenance flag, ending in an untrusted (poisoned) entry. The bad operation returns the most recent entry regardless of trust; the fix returns the most recent *trusted* entry. |
+| Hallucinated verification | `hallucinated_verification_trusting` | `ground_truth_verification` | A JSON object with a self-reported `claimed_output`/`claimed_status` and a separate `actual_state`. The bad operation trusts a `"success"` status and echoes the claim even when it disagrees with the actual state; the fix always reports the actual state. |
 
-Every one of the seven needs a runtime and/or adapter capability roadmap
-items 5, 6, 11, 14, and 19 are meant to eventually supply (sandboxed
-multi-provider adapters, full trace/context provenance, the Gene Bank and
-transfer engine, the MCP gateway, and the drift engine). Building any of them
-into the deterministic reference worker directly would blur the "deterministic
-local reference runtime" line the roadmap and README both hold as load-bearing,
-so this slice does not attempt it.
+Every pair is exercised by
+`crates/hephaestus-runtime/src/reference_instruction.rs`'s
+`gauntlet_tests` module (one unit test per mode, checking the exact bytes
+each operation produces) and, at the Arena level, by
+`hephaestus-control`'s `gauntlet_failure_modes_reject_the_bad_operation_and_pass_the_fix`
+test: for each mode it registers a fixture World with a `parent` Genome
+carrying the bad operation and a `candidate` Genome carrying the fix, runs a
+real paired Arena evaluation, and asserts the parent scores zero correctness
+while the candidate scores full correctness. `examples/gauntlet/<mode>/`
+(one directory per mode: `context-loss/`, `premature-completion/`,
+`schema-drift/`, `bad-routing/`, `duplicate-subagents/`,
+`poisoned-memory/`, `hallucinated-verification/`) holds the matching
+World/Genome/task fixtures for a manual walkthrough, structured exactly like
+[`sealed-holdout/`](sealed-holdout/) below: `world.template.json`,
+`invariants.json`, `parent.md`, `candidate.md`, `tasks/visible.json`,
+`tasks/sealed.json`.
 
-## What *is* expressible today: sealed-holdout generalization
+### What this does *not* yet prove
+
+`evolve`'s only optimizer is Forge's reference-operation flip
+(`identity`⇄`ascii_uppercase`); it does not know how to propose any of the
+14 Gauntlet operations. A Genome carrying one of them is explicitly rejected
+by Forge's prompt-mutation check (`the selected candidate prompt is outside
+the Forge mutation scope`) rather than silently mishandled. That means an
+unattended `evolve` run cannot yet *discover* a fix for any of these seven
+modes on its own — only an operator (or a test) registering the fix Genome
+directly can demonstrate the pass. Closing that gap needs Forge to propose
+mutations across a larger space than one flip, which is future work, not
+claimed here.
+
+## What else is expressible today: sealed-holdout generalization
 
 The one property every later, richer Gauntlet World will still need is
 already fully real: **a candidate that looks strictly better on visible tasks
@@ -96,12 +126,32 @@ invariants.json` step substituted into `__INVARIANTS__`. Then either:
   never promoting past generation zero's Champion. That outcome is itself the
   point: the sealed holdout is doing its job.
 
+## The bundled `coding` World and `hephaestus evolve coding`
+
+[`coding/`](coding/) is the World `hephaestus evolve coding --budget <n>`
+registers and drives automatically (see
+[docs/EVOLUTION.md](../../docs/EVOLUTION.md)). It uses the same
+`identity`/`ascii_uppercase` pair as `sealed-holdout/` (the only pair Forge's
+mutation operator supports), applied to short Python-function-shaped visible
+and sealed tasks so the World reads as "coding"-flavored. Running it proves
+the unattended multi-generation *mechanism* end to end from one command —
+registration, three generations, completion — against a Gauntlet-named
+World; it does not prove the optimizer can solve a real coding task, and it
+does not exercise any of the seven named failure-mode operations above
+(those aren't reachable through Forge's mutation operator yet, as explained
+above).
+
 ## Extending this Gauntlet honestly
 
-When a future roadmap item adds one of the missing capabilities above (a
-real tool-calling adapter, a context/compaction mechanism, subagent
-orchestration, a memory store, or a routing table), add a new fixture World
-under `examples/gauntlet/<mode>/` that names the specific failure mode it
-reproduces, and update the coverage table in this file in the same commit.
-Until then, this directory's honest claim is exactly one property: sealed
-holdout evidence catches a regression a visible-only view would miss.
+The seven failure-mode proxies above are intentionally simple: one JSON
+scenario, one byte-exact bad/fix pair, proven only through direct Arena
+evaluation. When a future roadmap item adds a real capability (a real
+tool-calling adapter, a context/compaction mechanism, subagent orchestration,
+a persisted memory store, a routing table, or a Forge mutation operator that
+can propose more than the one-step operation flip), prefer building the
+richer version alongside these proxies rather than deleting them, and update
+this file's claims in the same commit. Until then, this directory's honest
+claims are exactly two: each named failure mode has a genuine deterministic
+proxy that Arena evaluation alone can reject/pass, and sealed-holdout
+evidence catches a visible-only regression that a richer Gauntlet World will
+still need to catch.

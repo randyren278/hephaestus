@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-premature-completion-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "premature-completion-visible",
+      "input": "{\"steps\":[\"step1:DONE_A\",\"step2:DONE_B\",\"step3:DONE_C\"]}",
+      "expected_output": "DONE_A,DONE_B,DONE_C"
+    }
+  ]
+}

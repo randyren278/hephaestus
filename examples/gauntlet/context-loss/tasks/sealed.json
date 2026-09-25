@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-context-loss-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "context-loss-sealed",
+      "input": "{\"turns\":[\"FACT: the on-call rotation lead is Priya\",\"unrelated aside\",\"another aside\",\"who leads the on-call rotation?\"]}",
+      "expected_output": " the on-call rotation lead is Priya"
+    }
+  ]
+}
