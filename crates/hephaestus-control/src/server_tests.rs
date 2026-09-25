@@ -10325,6 +10325,300 @@ fn evidence_run_list_marks_a_budget_exceeded_direct_run_failed() {
 }
 
 // ---------------------------------------------------------------------------
+// Gauntlet failure modes (roadmap item 10). Each of the seven named modes
+// (context loss, premature completion, schema drift, bad routing, duplicate
+// subagents, poisoned memory, hallucinated verification) is a deterministic
+// reference-worker operation pair defined in
+// `hephaestus_runtime::reference_instruction`: a "bad" operation that
+// exhibits the pathology on a crafted scenario, and a paired "fix" operation
+// that avoids it on the exact same input. `examples/gauntlet/<mode>/` holds
+// the matching example World/Genomes/tasks for a manual walkthrough; this
+// registers structurally identical objects in-process and proves, at the
+// Arena level, that the Genome carrying the bad operation is measurably
+// rejected (zero correctness) while the Genome carrying the fix passes.
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn register_gauntlet_objects(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    mode: &str,
+    task_input: &str,
+    expected_output: &str,
+    bad_operation: &str,
+    good_operation: &str,
+) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        format!("{mode}-visible"),
+        Visibility::Visible,
+        vec![
+            TrustedTask::new(format!("{mode}-visible-task"), task_input, expected_output)
+                .expect("visible task"),
+        ],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        format!("{mode}-sealed"),
+        Visibility::Sealed,
+        vec![
+            TrustedTask::new(format!("{mode}-sealed-task"), task_input, expected_output)
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator = env::current_exe()
+        .expect("locate test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("locate Cargo binary directory")
+        .join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+    let evaluator_id = artifacts
+        .put(&fs::read(evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    let invariant_id = artifacts
+        .put(CLEAN_INVARIANTS)
+        .expect("store invariant manifest");
+    drop(artifacts);
+    let world_path = directory.path().join(format!("gauntlet-{mode}-world.json"));
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"gauntlet-{mode}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+            invariant_id.as_str(),
+        ),
+    )
+    .expect("write Gauntlet World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        &format!("gauntlet-{mode}-world"),
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Gauntlet World registration should succeed");
+    };
+    let register_genome = |plane: &mut ControlPlane,
+                           token: &str,
+                           name: &str,
+                           parents: &str,
+                           operation: &str| {
+        let path = directory.path().join(format!("gauntlet-{mode}-{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: gauntlet-{mode}-{name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{operation}\"}}\n```\n"
+            ),
+        )
+        .expect("write Gauntlet Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            &format!("gauntlet-{mode}-{name}"),
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Gauntlet Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(plane, token, "parent", "[]", bad_operation);
+    let candidate = register_genome(
+        plane,
+        token,
+        "candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+        good_operation,
+    );
+    (world, parent, candidate)
+}
+
+fn real_worker_gauntlet_fixture(
+    directory: &TempDir,
+    mode: &str,
+    task_input: &str,
+    expected_output: &str,
+    bad_operation: &str,
+    good_operation: &str,
+) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Gauntlet fixture\n").expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open Gauntlet fixture");
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) = register_gauntlet_objects(
+        &mut plane,
+        &token,
+        directory,
+        mode,
+        task_input,
+        expected_output,
+        bad_operation,
+        good_operation,
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "gauntlet-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    (plane, parent, candidate)
+}
+
+/// One case per named Gauntlet failure mode: the bad operation's Genome is
+/// measurably rejected (zero correctness against the crafted task) and the
+/// paired fix's Genome passes (full correctness), on the exact same input.
+#[test]
+fn gauntlet_failure_modes_reject_the_bad_operation_and_pass_the_fix() {
+    for (mode, task_input, expected_output, bad_operation, good_operation) in [
+        (
+            "context-loss",
+            r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+            " the deploy key is banana",
+            "context_loss_naive",
+            "context_loss_aware",
+        ),
+        (
+            "premature-completion",
+            r#"{"steps":["step1:DONE_A","step2:DONE_B","step3:DONE_C"]}"#,
+            "DONE_A,DONE_B,DONE_C",
+            "premature_completion",
+            "verified_completion",
+        ),
+        (
+            "schema-drift",
+            r#"{"schema_version":2,"field_v1":null,"field_v2":"correct-value"}"#,
+            "correct-value",
+            "schema_drift_brittle",
+            "schema_drift_adaptive",
+        ),
+        (
+            "bad-routing",
+            r#"{"requires_capability":"large_context","routes":[{"name":"cheap","capability":"small","cost":1},{"name":"expensive","capability":"large_context","cost":9}]}"#,
+            "expensive",
+            "bad_routing_cheapest",
+            "capability_aware_routing",
+        ),
+        (
+            "duplicate-subagents",
+            r#"{"requests":["task-a","task-a","task-b"]}"#,
+            "task-a,task-b",
+            "duplicate_subagents_wasteful",
+            "deduplicated_subagents",
+        ),
+        (
+            "poisoned-memory",
+            r#"{"memory":[{"text":"correct-fact","trusted":true},{"text":"malicious-fact","trusted":false}]}"#,
+            "correct-fact",
+            "poisoned_memory_trusting",
+            "provenance_checked_memory",
+        ),
+        (
+            "hallucinated-verification",
+            r#"{"claimed_output":"success-value","claimed_status":"success","actual_state":"actual-value"}"#,
+            "actual-value",
+            "hallucinated_verification_trusting",
+            "ground_truth_verification",
+        ),
+    ] {
+        let directory = tempdir().expect("Gauntlet fixture directory");
+        let (mut plane, parent, candidate) = real_worker_gauntlet_fixture(
+            &directory,
+            mode,
+            task_input,
+            expected_output,
+            bad_operation,
+            good_operation,
+        );
+        let evaluation_id = format!("gauntlet-{mode}-evaluation");
+        complete_arena_test_job(
+            &mut plane,
+            &evaluation_id,
+            &parent.genome_id,
+            &candidate.genome_id,
+        );
+        let ResponseData::Selection { selection } = plane
+            .select_arena_evaluation(&evaluation_id)
+            .expect("select Gauntlet evidence")
+        else {
+            panic!("selection should succeed for {mode}");
+        };
+        assert_eq!(
+            selection.receipt.parent_correctness_bps(),
+            0,
+            "the bad operation should fail {mode}'s task entirely"
+        );
+        assert_eq!(
+            selection.receipt.candidate_correctness_bps(),
+            10_000,
+            "the fix should pass {mode}'s task entirely"
+        );
+        assert!(
+            selection.receipt.correctness_improvements() > 0,
+            "the fix should register as a correctness improvement for {mode}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Autonomous evolution (roadmap item 10). `real_worker_arena_fixture` already
 // registers a World plus two Genomes ("arena-parent" and its child
 // "arena-candidate", both the identity operation): `evolve_start_command`

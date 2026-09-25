@@ -359,7 +359,9 @@ mod gauntlet {
     }
 
     fn step_marker(step: &str) -> Result<&str, RuntimeError> {
-        step.split_once(':').map(|(_, marker)| marker).ok_or(BAD_INPUT)
+        step.split_once(':')
+            .map(|(_, marker)| marker)
+            .ok_or(BAD_INPUT)
     }
 
     /// Reports completion after the first step's marker alone.
@@ -395,7 +397,10 @@ mod gauntlet {
     /// drifted to v2 and the value now lives under a different field.
     fn schema_drift_brittle(text: &str) -> Result<Vec<u8>, RuntimeError> {
         let input: SchemaDriftInput = serde_json::from_str(text).map_err(|_| BAD_INPUT)?;
-        Ok(input.field_v1.unwrap_or_else(|| "MISSING_FIELD".to_owned()).into_bytes())
+        Ok(input
+            .field_v1
+            .unwrap_or_else(|| "MISSING_FIELD".to_owned())
+            .into_bytes())
     }
 
     /// Reads the field named by the declared schema version.
@@ -428,7 +433,11 @@ mod gauntlet {
     /// serve the task's capability requirement.
     fn bad_routing_cheapest(text: &str) -> Result<Vec<u8>, RuntimeError> {
         let input: RoutingInput = serde_json::from_str(text).map_err(|_| BAD_INPUT)?;
-        let cheapest = input.routes.iter().min_by_key(|route| route.cost).ok_or(BAD_INPUT)?;
+        let cheapest = input
+            .routes
+            .iter()
+            .min_by_key(|route| route.cost)
+            .ok_or(BAD_INPUT)?;
         Ok(cheapest.name.as_bytes().to_vec())
     }
 
@@ -749,8 +758,11 @@ mod gauntlet_tests {
     fn hallucinated_verification() {
         let input = r#"{"claimed_output":"success-value","claimed_status":"success","actual_state":"actual-value"}"#;
         assert_eq!(
-            run(ReferenceInstruction::HallucinatedVerificationTrusting, input)
-                .expect("hallucinating worker runs"),
+            run(
+                ReferenceInstruction::HallucinatedVerificationTrusting,
+                input
+            )
+            .expect("hallucinating worker runs"),
             b"success-value"
         );
         assert_eq!(

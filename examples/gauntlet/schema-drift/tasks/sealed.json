@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-schema-drift-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "schema-drift-sealed",
+      "input": "{\"schema_version\":2,\"field_v1\":null,\"field_v2\":\"another-correct-value\"}",
+      "expected_output": "another-correct-value"
+    }
+  ]
+}

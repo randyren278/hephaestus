@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-bad-routing-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "bad-routing-sealed",
+      "input": "{\"requires_capability\":\"vision\",\"routes\":[{\"name\":\"text-only\",\"capability\":\"small\",\"cost\":1},{\"name\":\"multimodal\",\"capability\":\"vision\",\"cost\":5}]}",
+      "expected_output": "multimodal"
+    }
+  ]
+}

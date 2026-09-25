@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-schema-drift-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "schema-drift-visible",
+      "input": "{\"schema_version\":2,\"field_v1\":null,\"field_v2\":\"correct-value\"}",
+      "expected_output": "correct-value"
+    }
+  ]
+}

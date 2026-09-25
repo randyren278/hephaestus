@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-premature-completion-sealed-v1",
+  "visibility": "sealed",
+  "tasks": [
+    {
+      "task_id": "premature-completion-sealed",
+      "input": "{\"steps\":[\"step1:MIGRATE\",\"step2:BACKFILL\",\"step3:VERIFY\"]}",
+      "expected_output": "MIGRATE,BACKFILL,VERIFY"
+    }
+  ]
+}
