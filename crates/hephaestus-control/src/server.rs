@@ -7556,6 +7556,8 @@ use gene_bank::{
     transfer_applied_event_id, transfer_applied_payload, transfer_record,
     transfer_recorded_event_id, transfer_recorded_payload, verify_gene_bank_history,
 };
+#[cfg(test)]
+use gene_bank::{GENE_MIN_EVIDENCE_TRIALS, SPECIATION_MIN_EFFECT_BPS};
 
 #[path = "evolve.rs"]
 mod evolve;
