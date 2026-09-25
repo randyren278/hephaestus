@@ -104,7 +104,7 @@ Every Gene Bank event — `gene.extracted`, `gene.transfer_applied`,
 `gene.transfer_recorded`, `gene.contradiction`, `gene.species_created` — is
 canonical JSON with a deterministic ID derived from its idempotency key
 (`gene:<gene-id>:extracted`, `gene:transfer:<trial-id>:applied`, and so on),
-exactly like Champion transitions in `champion.rs`. `verify_gene_bank_history`
+exactly like Champion transitions in `crates/hephaestus-control/src/champion.rs`. `verify_gene_bank_history`
 recomputes each event's payload from the exact history that preceded it on
 daemon startup, explicit `replay`, and every projection refresh, and rejects:
 
