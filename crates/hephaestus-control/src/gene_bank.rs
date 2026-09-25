@@ -902,15 +902,29 @@ pub(super) fn gene_summaries(history: &[StoredEvent]) -> Result<Vec<GeneSummary>
 
 /// Recomputes every Gene Bank event from the history that preceded it,
 /// exactly like [`super::champion::verify_champion_history`].
-#[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history(
     data_dir: &Path,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_gene_bank_history_with(
+        data_dir,
+        history,
+        registered,
+        &mut super::EvidenceCache::default(),
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+pub(super) fn verify_gene_bank_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut super::EvidenceCache,
+) -> Result<(), ControlError> {
     let invalid = |message: &str| ControlError::Projection(message.to_owned());
     for (index, event) in history.iter().enumerate() {
-        if !is_gene_bank_event(event) {
+        if !is_gene_bank_event(event) || cache.contains("gene_bank", event) {
             continue;
         }
         let prefix = &history[..index];
@@ -1017,6 +1031,7 @@ pub(super) fn verify_gene_bank_history(
             }
             _ => return Err(invalid("unexpected Gene Bank event type")),
         }
+        cache.insert("gene_bank", event);
     }
     Ok(())
 }

@@ -214,8 +214,22 @@ pub(super) fn verify_drift_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_drift_history_with(
+        data_dir,
+        history,
+        registered,
+        &mut super::EvidenceCache::default(),
+    )
+}
+
+pub(super) fn verify_drift_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut super::EvidenceCache,
+) -> Result<(), ControlError> {
     for (index, event) in history.iter().enumerate() {
-        if !is_drift_event(event) {
+        if !is_drift_event(event) || cache.contains("drift", event) {
             continue;
         }
         let payload = decode_drift_record(event)?;
@@ -245,6 +259,7 @@ pub(super) fn verify_drift_history(
                 "drift record differs from verified evidence".to_owned(),
             ));
         }
+        cache.insert("drift", event);
     }
     Ok(())
 }

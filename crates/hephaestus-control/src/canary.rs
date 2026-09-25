@@ -682,8 +682,22 @@ pub(super) fn verify_canary_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_canary_history_with(
+        data_dir,
+        history,
+        registered,
+        &mut super::EvidenceCache::default(),
+    )
+}
+
+pub(super) fn verify_canary_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut super::EvidenceCache,
+) -> Result<(), ControlError> {
     for (index, event) in history.iter().enumerate() {
-        if !is_canary_event(event) {
+        if !is_canary_event(event) || cache.contains("canary", event) {
             continue;
         }
         let payload = decode_canary_transition(event)?;
@@ -782,6 +796,7 @@ pub(super) fn verify_canary_history(
                 "canary transition differs from verified evidence".to_owned(),
             ));
         }
+        cache.insert("canary", event);
     }
     Ok(())
 }

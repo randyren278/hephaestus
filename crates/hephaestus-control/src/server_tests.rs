@@ -14202,3 +14202,50 @@ fn submit_admits_and_cancels_a_provider_job_through_daemon_stop() {
         ResponseData::Replay { .. }
     ));
 }
+
+#[test]
+fn projection_refresh_with_a_warm_evidence_cache_still_rejects_a_tampered_ledger() {
+    let directory = tempdir().expect("evidence cache fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let evaluation_id = "evidence-cache-evaluation";
+    plane
+        .submit_arena_job(evaluation_id, &parent.genome_id, &candidate.genome_id)
+        .expect("admit genuine Arena evaluation");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist trials for the evidence cache fixture");
+        assert!(
+            Instant::now() < deadline,
+            "genuine Arena evaluation did not finish"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    plane
+        .select_arena_evaluation(evaluation_id)
+        .expect("select completed Arena evidence");
+    plane
+        .refresh_projection()
+        .expect("refresh verifies and caches the selection");
+    assert!(
+        !plane.evidence_cache.verified.is_empty(),
+        "refresh caches verified evidence"
+    );
+
+    let connection =
+        rusqlite::Connection::open(plane.data_dir.join("events.sqlite3")).expect("open ledger");
+    let changed = connection
+        .execute(
+            "UPDATE events SET payload = ?1 WHERE event_type = 'selection.recorded'",
+            rusqlite::params![b"{}".as_slice()],
+        )
+        .expect("tamper with the cached selection event");
+    assert_eq!(changed, 1);
+    drop(connection);
+
+    assert!(
+        plane.refresh_projection().is_err(),
+        "a cached event whose ledger bytes changed must fail refresh"
+    );
+}

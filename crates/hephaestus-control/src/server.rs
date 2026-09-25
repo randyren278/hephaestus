@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -189,6 +189,8 @@ pub fn data_dir_from_environment() -> Result<PathBuf, ControlError> {
 
 /// Single-writer daemon state and local operator API.
 pub struct ControlPlane {
+    /// Evidence already verified by projection refresh in this process.
+    evidence_cache: EvidenceCache,
     data_dir: PathBuf,
     source_repository: PathBuf,
     evaluator_executable: PathBuf,
@@ -691,6 +693,7 @@ impl ControlPlane {
     ///
     /// Applies the same fail-closed storage and repository checks as
     /// [`Self::open_with_repository`].
+    #[allow(clippy::too_many_lines)]
     pub fn open_with_repository_evaluator_and_reference_worker(
         data_dir: impl Into<PathBuf>,
         source_repository: impl Into<PathBuf>,
@@ -784,6 +787,7 @@ impl ControlPlane {
             run_result_signer,
             run_result_verifier,
             storage: Some(CanonicalStorage { ledger, artifacts }),
+            evidence_cache: EvidenceCache::default(),
             state,
             _lock: lock,
             shutdown_requested: false,
@@ -5935,26 +5939,66 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_selection_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
-        verify_forge_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
-        verify_forge_assessment_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
-        verify_invariant_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
+        verify_selection_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        verify_forge_assessment_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        verify_invariant_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         verify_cluster_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_champion_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
-        verify_gene_bank_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
+        verify_champion_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        verify_gene_bank_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
         verify_meta_evolution_history(&history).map_err(|_| ExecuteError::Internal)?;
-        verify_drift_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
-        verify_canary_history(&self.data_dir, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
+        verify_drift_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        verify_canary_history_with(
+            &self.data_dir,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
             registered,
@@ -5964,7 +6008,7 @@ impl ControlPlane {
         .map_err(|_| ExecuteError::Internal)?;
         ControlState::verify_artifacts(&history, &storage.artifacts, &self.run_result_verifier)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_arena_evaluation_records(&self.data_dir, &state)
+        verify_arena_evaluation_records_with(&self.data_dir, &state, &mut self.evidence_cache)
             .map_err(|_| ExecuteError::Internal)?;
         self.state = state;
         Ok(())
@@ -6142,13 +6186,73 @@ fn evaluation_record_from_recorded(
     }
 }
 
+/// Remembers evidence a live daemon has already verified during projection
+/// refresh, so each refresh re-verifies only events appended since the last
+/// one instead of the whole history.
+///
+/// A key embeds the event's chain hash, which commits to the event and to its
+/// entire ledger prefix; every refresh still re-verifies the hash chain first,
+/// so a rewritten prefix changes every later hash and misses the cache.
+/// Startup, `replay`, and every direct verifier call use a fresh, empty cache
+/// and verify everything.
+#[derive(Default)]
+struct EvidenceCache {
+    verified: HashSet<String>,
+}
+
+impl EvidenceCache {
+    fn event_key(kind: &str, event: &StoredEvent) -> String {
+        format!(
+            "{kind}:{}:{}",
+            event.event_id,
+            blake3::Hash::from(event.hash).to_hex()
+        )
+    }
+
+    fn contains(&self, kind: &str, event: &StoredEvent) -> bool {
+        self.verified.contains(&Self::event_key(kind, event))
+    }
+
+    fn insert(&mut self, kind: &str, event: &StoredEvent) {
+        self.verified.insert(Self::event_key(kind, event));
+    }
+
+    fn contains_key(&self, key: &str) -> bool {
+        self.verified.contains(key)
+    }
+
+    fn insert_key(&mut self, key: String) {
+        self.verified.insert(key);
+    }
+}
+
+fn arena_record_cache_key(
+    evaluation_id: &str,
+    evaluation: Option<&EvaluationRecord>,
+) -> Result<String, ControlError> {
+    let digest = blake3::hash(&serde_json::to_vec(&evaluation)?);
+    Ok(format!("arena_record:{evaluation_id}:{}", digest.to_hex()))
+}
+
 fn verify_arena_evaluation_records(
     data_dir: &Path,
     state: &ControlState,
 ) -> Result<(), ControlError> {
+    verify_arena_evaluation_records_with(data_dir, state, &mut EvidenceCache::default())
+}
+
+fn verify_arena_evaluation_records_with(
+    data_dir: &Path,
+    state: &ControlState,
+    cache: &mut EvidenceCache,
+) -> Result<(), ControlError> {
     for job in state.arena_jobs.values().filter(|job| {
         job.state == JobState::Succeeded && job.terminal == Some(JobTerminal::Succeeded)
     }) {
+        let key = arena_record_cache_key(&job.evaluation_id, job.evaluation.as_ref())?;
+        if cache.contains_key(&key) {
+            continue;
+        }
         let stores =
             EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
                 .map_err(|_| {
@@ -6162,6 +6266,7 @@ fn verify_arena_evaluation_records(
                 "Arena terminal differs from trusted evaluation evidence".to_owned(),
             ));
         }
+        cache.insert_key(key);
     }
     Ok(())
 }
@@ -6170,6 +6275,15 @@ fn verify_forge_history(
     data_dir: &Path,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
+) -> Result<(), ControlError> {
+    verify_forge_history_with(data_dir, history, registered, &mut EvidenceCache::default())
+}
+
+fn verify_forge_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut EvidenceCache,
 ) -> Result<(), ControlError> {
     let artifacts = ArtifactStore::open(data_dir.join("blobs"))?;
     let mut proposal_ids = BTreeSet::new();
@@ -6183,6 +6297,9 @@ fn verify_forge_history(
             return Err(ControlError::Projection(
                 "Forge proposal id was recorded more than once".to_owned(),
             ));
+        }
+        if cache.contains("forge", event) {
+            continue;
         }
         let selection_event = history
             .iter()
@@ -6224,6 +6341,7 @@ fn verify_forge_history(
         verify_forge_child(&artifacts, registered, event, &payload, world.compiled())?;
         validate_hypothesis(&payload.hypothesis)
             .map_err(|_| ControlError::Projection("Forge hypothesis is invalid".to_owned()))?;
+        cache.insert("forge", event);
     }
     Ok(())
 }
@@ -6417,10 +6535,27 @@ fn verify_forge_assessment_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_forge_assessment_history_with(
+        data_dir,
+        history,
+        registered,
+        &mut EvidenceCache::default(),
+    )
+}
+
+fn verify_forge_assessment_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut EvidenceCache,
+) -> Result<(), ControlError> {
     for event in history
         .iter()
         .filter(|event| event.event_type == "forge.assessed")
     {
+        if cache.contains("forge_assessment", event) {
+            continue;
+        }
         let payload = decode_forge_assessment(event)?;
         if payload.schema_version != 1
             || event.actor != OPERATOR_ACTOR
@@ -6456,6 +6591,7 @@ fn verify_forge_assessment_history(
                 "Forge assessment differs from verified evidence".to_owned(),
             ));
         }
+        cache.insert("forge_assessment", event);
     }
     Ok(())
 }
@@ -6933,10 +7069,22 @@ fn verify_selection_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_selection_history_with(data_dir, history, registered, &mut EvidenceCache::default())
+}
+
+fn verify_selection_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut EvidenceCache,
+) -> Result<(), ControlError> {
     for event in history
         .iter()
         .filter(|event| event.event_type == "selection.recorded")
     {
+        if cache.contains("selection", event) {
+            continue;
+        }
         // The World identity in the event envelope is only a routing hint. Arena
         // independently recomputes the evaluation receipt and compares the full
         // canonical selection event against this registered World's policy.
@@ -6955,6 +7103,7 @@ fn verify_selection_history(
             ControlError::Projection("canonical selection receipt is invalid".to_owned())
         })?;
         drop(verified.into_stores());
+        cache.insert("selection", event);
     }
     Ok(())
 }
@@ -6973,11 +7122,23 @@ fn verify_invariant_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_invariant_history_with(data_dir, history, registered, &mut EvidenceCache::default())
+}
+
+fn verify_invariant_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut EvidenceCache,
+) -> Result<(), ControlError> {
     for event in history.iter().filter(|event| {
         event.event_type == "invariants.recorded"
             || event.event_id.starts_with("arena:invariants:")
             || event.aggregate_id.starts_with("arena:invariants:")
     }) {
+        if cache.contains("invariant", event) {
+            continue;
+        }
         let (evaluation_id, world_id) = invariant_event_references(event).map_err(|_| {
             ControlError::Projection("canonical invariant event envelope is invalid".to_owned())
         })?;
@@ -7017,6 +7178,7 @@ fn verify_invariant_history(
             ));
         }
         drop(verified.into_stores());
+        cache.insert("invariant", event);
     }
     Ok(())
 }
@@ -9742,6 +9904,7 @@ use champion::{
     CHAMPION_EVENT_TYPE, ChampionRequest, champion_aggregate_id, champion_event_id,
     champion_projection, champion_transition_payload, champion_transition_record,
     existing_champion_transition, validate_reason, verify_champion_history,
+    verify_champion_history_with,
 };
 
 #[path = "gene_bank.rs"]
@@ -9756,6 +9919,7 @@ use gene_bank::{
     species_aggregate_id, species_event_id, species_record, transfer_aggregate_id,
     transfer_applied_event_id, transfer_applied_payload, transfer_record,
     transfer_recorded_event_id, transfer_recorded_payload, verify_gene_bank_history,
+    verify_gene_bank_history_with,
 };
 #[cfg(test)]
 use gene_bank::{GENE_MIN_EVIDENCE_TRIALS, SPECIATION_MIN_EFFECT_BPS};
@@ -9784,11 +9948,15 @@ use meta_evolve::{
 #[path = "drift.rs"]
 mod drift;
 
-use drift::{drift_event_input, drift_record_payload, existing_drift_record, verify_drift_history};
+use drift::{
+    drift_event_input, drift_record_payload, existing_drift_record, verify_drift_history,
+    verify_drift_history_with,
+};
 
 #[path = "canary.rs"]
 mod canary;
 
 use canary::{
     CanaryRequest, canary_transition_payload, existing_canary_transition, verify_canary_history,
+    verify_canary_history_with,
 };

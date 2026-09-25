@@ -421,8 +421,22 @@ pub(super) fn verify_champion_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_champion_history_with(
+        data_dir,
+        history,
+        registered,
+        &mut super::EvidenceCache::default(),
+    )
+}
+
+pub(super) fn verify_champion_history_with(
+    data_dir: &Path,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut super::EvidenceCache,
+) -> Result<(), ControlError> {
     for (index, event) in history.iter().enumerate() {
-        if !is_champion_event(event) {
+        if !is_champion_event(event) || cache.contains("champion", event) {
             continue;
         }
         let payload = decode_champion_transition(event)?;
@@ -453,6 +467,7 @@ pub(super) fn verify_champion_history(
                 "Champion transition differs from verified evidence".to_owned(),
             ));
         }
+        cache.insert("champion", event);
     }
     Ok(())
 }
