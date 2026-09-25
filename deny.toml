@@ -1,0 +1,47 @@
+# Supply-chain policy for `cargo deny check` (roadmap item 15).
+#
+# Four lints, run together in CI and locally:
+#   advisories  - no known RUSTSEC vulnerabilities, unmaintained, or unsound crates
+#   licenses    - every license in the dependency tree is on the allowlist below
+#   bans        - only crates.io is a trusted source; duplicate versions warn, not fail
+#   sources     - only crates.io registries/git sources are permitted
+
+[graph]
+all-features = true
+
+[advisories]
+db-path = "$CARGO_HOME/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = []
+
+[licenses]
+version = 2
+# Allowlist matches the actual dependency tree (checked with `cargo deny check licenses`).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Internal workspace crates are path dependencies with no version pin; that is
+# a wildcard match by cargo-deny's definition but not a supply-chain risk.
+allow-wildcard-paths = true
+deny = []
+skip = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -17,13 +17,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           components: clippy, llvm-tools-preview, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.8.1
         with:
           prefix-key: v1-hephaestus
           shared-key: ubuntu-stable-dependencies
@@ -31,12 +31,12 @@ jobs:
           save-if: "true"
           cache-on-failure: "true"
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: "3.13"
 
       - name: Install coverage runner
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.62.15
 
       - name: Formatting
         run: cargo fmt --all -- --check
@@ -66,7 +66,7 @@ jobs:
 
       - name: Preserve Rust coverage report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
           name: rust-lcov-${{ github.run_attempt }}
           path: lcov.info
@@ -82,22 +82,41 @@ jobs:
       - name: Prepare mutation build dependencies
         run: cargo test --workspace --all-features --no-run
 
+  supply-chain:
+    name: Supply chain (cargo deny)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - name: Licenses, advisories, banned/duplicate crates, and crate sources
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+
   tui:
     name: Ink TUI checks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/hephaestus-tui
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
       - name: Install locked dependencies
         run: npm ci
+
+      - name: Audit locked dependencies (high and critical)
+        run: npm audit --audit-level=high
 
       - name: Typecheck
         run: npm run typecheck
@@ -116,14 +135,17 @@ jobs:
       run:
         working-directory: apps/hephaestus-web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
       - name: Install locked dependencies
         run: npm ci
+
+      - name: Audit locked dependencies (high and critical)
+        run: npm audit --audit-level=high
 
       - name: Typecheck
         run: npm run typecheck
@@ -139,18 +161,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.8.1
         with:
           prefix-key: v1-hephaestus
           shared-key: ubuntu-stable-dependencies
           cache-bin: "false"
           save-if: "false"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
@@ -276,12 +298,12 @@ jobs:
             minimum: 8
             timeout_minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         if: matrix.scope != 'mutation-checks' && matrix.scope != 'python-statistics'
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.8.1
         if: matrix.scope != 'mutation-checks' && matrix.scope != 'python-statistics'
         with:
           prefix-key: v1-hephaestus
@@ -289,7 +311,7 @@ jobs:
           cache-bin: "false"
           save-if: "false"
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: "3.13"
 

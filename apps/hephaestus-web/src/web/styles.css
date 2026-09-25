@@ -64,13 +64,9 @@ body {
 
 .hdr-sub { color: var(--ember-bright); font-size: 12px; }
 
-.crest {
+.crest-pixel {
+  image-rendering: pixelated;
   display: inline-block;
-  width: 14px;
-  height: 14px;
-  background: var(--ember);
-  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
-  box-shadow: 2px 2px 0 var(--gold);
 }
 
 .tabs { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }

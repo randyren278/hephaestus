@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -139,6 +140,40 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, symlinks=False)
 
 
+# Fixed epoch used for every tar entry and the gzip header so two builds from
+# identical inputs produce a byte-identical archive regardless of wall-clock
+# build time. This is the reproducible-builds convention (SOURCE_DATE_EPOCH=0).
+REPRODUCIBLE_MTIME = 0
+
+
+def write_reproducible_archive(archive_path: Path, stage_root: Path, package_name: str) -> None:
+    """Write a gzip-compressed tar whose bytes depend only on file content,
+    path, and mode, not on build time, walk order, or filesystem owner."""
+
+    def normalize(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        info.mtime = REPRODUCIBLE_MTIME
+        info.uid = 0
+        info.gid = 0
+        info.uname = ""
+        info.gname = ""
+        return info
+
+    entries: list[Path] = []
+    for path in stage_root.rglob("*"):
+        entries.append(path)
+    entries.sort(key=lambda path: path.relative_to(stage_root).as_posix())
+
+    with open(archive_path, "wb") as raw:
+        with gzip.GzipFile(
+            filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=REPRODUCIBLE_MTIME
+        ) as gz:
+            with tarfile.open(fileobj=gz, mode="w") as archive:
+                archive.add(stage_root, arcname=package_name, recursive=False, filter=normalize)
+                for path in entries:
+                    arcname = f"{package_name}/{path.relative_to(stage_root).as_posix()}"
+                    archive.add(path, arcname=arcname, recursive=False, filter=normalize)
+
+
 def build(args: argparse.Namespace) -> Path:
     root = Path(__file__).resolve().parents[1]
     if platform.system() != "Darwin":
@@ -216,8 +251,7 @@ def build(args: argparse.Namespace) -> Path:
         shutil.copy2(root / "scripts/package/install.sh", stage_root / "install.sh")
         (stage_root / "install.sh").chmod(0o755)
         os.chmod(package, 0o755)
-        with tarfile.open(archive_path, "w:gz", compresslevel=9) as archive:
-            archive.add(stage_root, arcname=package_name, recursive=True)
+        write_reproducible_archive(archive_path, stage_root, package_name)
     print(f"Created {archive_path} ({archive_path.stat().st_size:,} bytes)")
     return archive_path
 
