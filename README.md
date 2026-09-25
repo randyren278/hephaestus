@@ -129,11 +129,18 @@ and that decision is itself a ledgered event.
   projections and grouped by World, and a Markdown agent authoring flow: pick
   a World, edit a Markdown Genome source via `$EDITOR` hand-off (or its
   starter template), register it through `genome_register`, and run a paired
-  Test via `evaluate_pair` with live progress; and a read-only Gene Bank
+  Test via `evaluate_pair` with live progress; a read-only Gene Bank
   screen (`gene_list`/`gene_show`: extracted Genes, their transfer tally and
-  contradiction flag, and per-Gene transfer/speciation detail). There are
-  intentionally no drift, canary, MCP gateway, or remote-worker screens — the
-  daemon has none of those yet (see below). `scripts/package_macos_acceptance.sh`
+  contradiction flag, and per-Gene transfer/speciation detail); and a
+  read-only Drift, Canary & Meta-eval submenu (`drift_list`/`drift_show`,
+  `canary_list`/`canary_show`, `meta_strategy_list`/`meta_strategy_show`,
+  `meta_list`/`meta_show`): drift records with their observed delta versus
+  threshold, canaries with full stage/transition/evidence history, registered
+  Evolver strategies, and meta-evaluation receipts with their bootstrapped
+  quality/cost confidence intervals. There is intentionally no MCP gateway or
+  remote-worker activity screen — the daemon has no list command for MCP
+  calls or remote-worker jobs, only lookup by known ID (see below).
+  `scripts/package_macos_acceptance.sh`
   installs the packaged, non-source-checkout archive into an isolated `$HOME`
   and exercises the authoring flow's CLI equivalent (World/Genome
   registration, Arena run, replay) plus the bundled TUI against the real
@@ -145,11 +152,15 @@ and that decision is itself a ledgered event.
 - **The web console is a local, read-only browser view.** It proxies a fixed
   allowlist of read-only daemon commands (`status`, `world_list`,
   `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
-  `job_status`, `gene_list`, `gene_show`, `run_list`, `evaluation_list`,
-  `denial_list`) over an owner-only Unix socket, the same way the TUI does; it
-  can never mutate canonical state. See
+  `job_status`, `gene_list`, `gene_show`, `drift_show`, `drift_list`,
+  `canary_show`, `canary_list`, `meta_strategy_show`, `meta_strategy_list`,
+  `meta_show`, `meta_list`, `run_list`, `evaluation_list`, `denial_list`)
+  over an owner-only Unix socket, the same way the TUI does; it can never
+  mutate canonical state. Its tabs cover Status, Worlds/lineage, Genome
+  prompt diffs, Genes, Drift & Canary, Experiments (meta-evaluation), and
+  Activity (runs, evaluations, costs, and authority/denial history). See
   [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md). There is no
-  drift detection or autonomous loop view yet.
+  autonomous-loop or MCP/remote-worker activity view yet.
 - **The MCP gateway and remote workers are a first slice, not the full
   distributed surface.** `hephaestus-mcp-gateway` exposes 11 read-only and 4
   mutating tools over MCP's stdio JSON-RPC transport, enforced by a

@@ -16,6 +16,14 @@ export const READ_ONLY_COMMANDS = [
 	'job_status',
 	'gene_list',
 	'gene_show',
+	'drift_show',
+	'drift_list',
+	'canary_show',
+	'canary_list',
+	'meta_strategy_show',
+	'meta_strategy_list',
+	'meta_show',
+	'meta_list',
 	'run_list',
 	'evaluation_list',
 	'denial_list',
@@ -46,6 +54,10 @@ export type CommandRequestBody = {
 	job_id?: unknown;
 	world_id?: unknown;
 	gene_id?: unknown;
+	drift_id?: unknown;
+	canary_id?: unknown;
+	strategy_id?: unknown;
+	meta_run_id?: unknown;
 	limit?: unknown;
 };
 
@@ -84,6 +96,19 @@ export function toAllowedCommand(body: unknown): Command | undefined {
 			return {command: commandTag};
 		case 'gene_show':
 			return isId(record.gene_id) ? {command: commandTag, gene_id: record.gene_id} : undefined;
+		case 'drift_show':
+			return isId(record.drift_id) ? {command: commandTag, drift_id: record.drift_id} : undefined;
+		case 'canary_show':
+			return isId(record.canary_id) ? {command: commandTag, canary_id: record.canary_id} : undefined;
+		case 'meta_strategy_show':
+			return isId(record.strategy_id) ? {command: commandTag, strategy_id: record.strategy_id} : undefined;
+		case 'meta_show':
+			return isId(record.meta_run_id) ? {command: commandTag, meta_run_id: record.meta_run_id} : undefined;
+		case 'meta_strategy_list':
+			return {command: commandTag};
+		case 'drift_list':
+		case 'canary_list':
+		case 'meta_list':
 		case 'run_list':
 		case 'evaluation_list':
 		case 'denial_list':

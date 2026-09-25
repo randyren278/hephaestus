@@ -13,12 +13,14 @@ const tokenIndicator = document.getElementById('token-indicator')!;
 tokenIndicator.textContent = token ? 'session token loaded' : 'NO TOKEN — open the printed URL';
 tokenIndicator.className = token ? 'hdr-token ok' : 'hdr-token bad';
 
-type View = 'status' | 'worlds' | 'genome' | 'genes' | 'activity';
+type View = 'status' | 'worlds' | 'genome' | 'genes' | 'drift-canary' | 'experiments' | 'activity';
 const views: Record<View, HTMLElement> = {
 	status: document.getElementById('view-status')!,
 	worlds: document.getElementById('view-worlds')!,
 	genome: document.getElementById('view-genome')!,
 	genes: document.getElementById('view-genes')!,
+	'drift-canary': document.getElementById('view-drift-canary')!,
+	experiments: document.getElementById('view-experiments')!,
 	activity: document.getElementById('view-activity')!,
 };
 
@@ -34,6 +36,8 @@ for (const tab of document.querySelectorAll<HTMLButtonElement>('.tab')) {
 		const view = tab.dataset['view'] as View;
 		showView(view);
 		if (view === 'genes') void loadGenes();
+		if (view === 'drift-canary') void loadDriftCanary();
+		if (view === 'experiments') void loadExperiments();
 		if (view === 'activity') void loadActivity();
 	});
 }
@@ -329,6 +333,99 @@ async function loadActivity(): Promise<void> {
     <div class="card"><h2>Runs &amp; costs</h2>${runsHtml}</div>
     <div class="card"><h2>Arena evaluations &amp; costs</h2>${evaluationsHtml}</div>
     <div class="card"><h2>Authority &amp; denial history</h2>${denialsHtml}</div>`;
+}
+
+function formatX10000(value: number): string {
+	return (value / 10000).toFixed(4);
+}
+
+async function loadDriftCanary(): Promise<void> {
+	const el = views['drift-canary'];
+	el.innerHTML = '<div class="card"><h2>Drift &amp; Canary</h2><p class="notice">Loading…</p></div>';
+	const [drifts, canaries] = await Promise.all([
+		api({command: 'drift_list', limit: 50}),
+		api({command: 'canary_list', limit: 50}),
+	]);
+	const driftsHtml =
+		drifts.data?.type === 'drift_list'
+			? drifts.data.drifts.length === 0
+				? '<p class="notice">No drift recorded.</p>'
+				: `<table class="kv"><tr><th>Drift</th><th>World</th><th>Kind</th><th>Observed</th><th>Threshold</th></tr>${drifts.data.drifts
+						.map(
+							drift => `<tr>
+          <td>${escapeHtml(shortId(drift.drift_id))}</td>
+          <td>${escapeHtml(shortId(drift.world_id))}</td>
+          <td>${escapeHtml(drift.kind)}</td>
+          <td>${drift.observed_delta_bps}bps</td>
+          <td>${drift.threshold_bps}bps</td>
+        </tr>`,
+						)
+						.join('')}</table>`
+			: noticeHtml(drifts) || '<p class="notice error">unexpected response</p>';
+	const canariesHtml =
+		canaries.data?.type === 'canary_list'
+			? canaries.data.canaries.length === 0
+				? '<p class="notice">No canaries started.</p>'
+				: `<table class="kv"><tr><th>Canary</th><th>World</th><th>Candidate</th><th>Stage</th><th>Transitions</th></tr>${canaries.data.canaries
+						.map(
+							canary => `<tr>
+          <td>${escapeHtml(shortId(canary.canary_id))}</td>
+          <td>${escapeHtml(shortId(canary.world_id))}</td>
+          <td>${escapeHtml(shortId(canary.candidate_genome_id))}</td>
+          <td>${escapeHtml(canary.stage)}</td>
+          <td>${canary.transitions.length}</td>
+        </tr>`,
+						)
+						.join('')}</table>`
+			: noticeHtml(canaries) || '<p class="notice error">unexpected response</p>';
+	el.innerHTML = `
+    <div class="card"><h2>Drift records</h2>${driftsHtml}</div>
+    <div class="card"><h2>Canaries</h2>${canariesHtml}</div>`;
+}
+
+async function loadExperiments(): Promise<void> {
+	const el = views.experiments;
+	el.innerHTML = '<div class="card"><h2>Experiments</h2><p class="notice">Loading…</p></div>';
+	const [strategies, receipts] = await Promise.all([
+		api({command: 'meta_strategy_list'}),
+		api({command: 'meta_list', limit: 50}),
+	]);
+	const strategiesHtml =
+		strategies.data?.type === 'meta_strategies'
+			? strategies.data.strategies.length === 0
+				? '<p class="notice">No Evolver strategies registered.</p>'
+				: `<table class="kv"><tr><th>Strategy</th><th>Mutation prioritization</th><th>Generations</th><th>Candidates</th><th>Gene selection</th></tr>${strategies.data.strategies
+						.map(
+							strategy => `<tr>
+          <td>${escapeHtml(strategy.config.name)} <small class="notice">${escapeHtml(shortId(strategy.strategy_id))}</small></td>
+          <td>${escapeHtml(strategy.config.mutation_prioritization)}</td>
+          <td>${strategy.config.generation_count}</td>
+          <td>${strategy.config.candidate_count}</td>
+          <td>${escapeHtml(strategy.config.gene_selection)}</td>
+        </tr>`,
+						)
+						.join('')}</table>`
+			: noticeHtml(strategies) || '<p class="notice error">unexpected response</p>';
+	const receiptsHtml =
+		receipts.data?.type === 'meta_evaluation_list'
+			? receipts.data.receipts.length === 0
+				? '<p class="notice">No meta-evaluations recorded.</p>'
+				: `<table class="kv"><tr><th>Meta-evaluation</th><th>A</th><th>B</th><th>Lineages</th><th>Quality delta</th><th>Cost delta</th></tr>${receipts.data.receipts
+						.map(
+							receipt => `<tr>
+          <td>${escapeHtml(shortId(receipt.meta_run_id))}</td>
+          <td>${escapeHtml(shortId(receipt.strategy_a_id))}</td>
+          <td>${escapeHtml(shortId(receipt.strategy_b_id))}</td>
+          <td>${receipt.lineages.length}</td>
+          <td>${formatX10000(receipt.quality_delta.estimate_x10000)} [${formatX10000(receipt.quality_delta.lower_x10000)}, ${formatX10000(receipt.quality_delta.upper_x10000)}]</td>
+          <td>${formatX10000(receipt.cost_delta.estimate_x10000)} [${formatX10000(receipt.cost_delta.lower_x10000)}, ${formatX10000(receipt.cost_delta.upper_x10000)}]</td>
+        </tr>`,
+						)
+						.join('')}</table>`
+			: noticeHtml(receipts) || '<p class="notice error">unexpected response</p>';
+	el.innerHTML = `
+    <div class="card"><h2>Evolver strategies</h2>${strategiesHtml}</div>
+    <div class="card"><h2>Meta-evaluation receipts</h2>${receiptsHtml}</div>`;
 }
 
 showView('status');

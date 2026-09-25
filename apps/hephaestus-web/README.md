@@ -48,6 +48,13 @@ taken.
   its first registered parent's prompt.
 - **Genes**: every extracted Gene with its World, lineage, positive/neutral/
   negative transfer counts, contradiction flag, and species count.
+- **Drift & Canary**: recent drift records (World, kind, observed delta vs.
+  threshold) and recent canaries (candidate, World, stage, transition count).
+  Read-only; drift never replaces a Champion and this view cannot start,
+  advance, or roll back anything.
+- **Experiments**: registered Evolver strategies (`EvolverStrategyConfig`)
+  and recorded meta-evaluation receipts, including each receipt's bootstrap
+  quality/cost delta intervals.
 - **Activity**: recent direct runs and Arena evaluations with their costs
   and latency, and recent authority/denial history (refused operator
   requests, runtime capability denials, and denied MCP gateway tool calls).
@@ -68,8 +75,10 @@ On top of that, this HTTP surface adds:
 - **Loopback-only bind**: the server listens on `127.0.0.1` alone.
 - **Read-only allowlist** (`src/allowlist.ts`): only `status`, `world_list`,
   `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
-  `job_status`, `gene_list`, `gene_show`, `run_list`, `evaluation_list`, and
-  `denial_list` can ever reach the daemon. A request naming any other
+  `job_status`, `gene_list`, `gene_show`, `drift_show`, `drift_list`,
+  `canary_show`, `canary_list`, `meta_strategy_show`, `meta_strategy_list`,
+  `meta_show`, `meta_list`, `run_list`, `evaluation_list`, and `denial_list`
+  can ever reach the daemon. A request naming any other
   command — including every mutating command the daemon protocol defines
   (`freeze`, `champion_rollback`, `daemon_stop`, ...) — is refused with
   `400` before the daemon socket is touched.

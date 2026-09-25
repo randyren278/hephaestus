@@ -10,6 +10,15 @@ test('every read-only command builds a strictly typed command with valid identif
 	assert.deepEqual(toAllowedCommand({command: 'genome_prompt', genome_id: 'genome:abc123'}), {command: 'genome_prompt', genome_id: 'genome:abc123'});
 	assert.deepEqual(toAllowedCommand({command: 'champion_show', world_id: 'world:abc123'}), {command: 'champion_show', world_id: 'world:abc123'});
 	assert.deepEqual(toAllowedCommand({command: 'job_status', job_id: 'job-1'}), {command: 'job_status', job_id: 'job-1'});
+	assert.deepEqual(toAllowedCommand({command: 'drift_show', drift_id: 'drift-1'}), {command: 'drift_show', drift_id: 'drift-1'});
+	assert.deepEqual(toAllowedCommand({command: 'drift_list', limit: 20}), {command: 'drift_list', limit: 20});
+	assert.deepEqual(toAllowedCommand({command: 'drift_list'}), {command: 'drift_list', limit: 20});
+	assert.deepEqual(toAllowedCommand({command: 'canary_show', canary_id: 'canary-1'}), {command: 'canary_show', canary_id: 'canary-1'});
+	assert.deepEqual(toAllowedCommand({command: 'canary_list', limit: 20}), {command: 'canary_list', limit: 20});
+	assert.deepEqual(toAllowedCommand({command: 'meta_strategy_show', strategy_id: 'strategy-1'}), {command: 'meta_strategy_show', strategy_id: 'strategy-1'});
+	assert.deepEqual(toAllowedCommand({command: 'meta_strategy_list'}), {command: 'meta_strategy_list'});
+	assert.deepEqual(toAllowedCommand({command: 'meta_show', meta_run_id: 'meta-1'}), {command: 'meta_show', meta_run_id: 'meta-1'});
+	assert.deepEqual(toAllowedCommand({command: 'meta_list', limit: 20}), {command: 'meta_list', limit: 20});
 });
 
 test('refuses every mutating or unexposed daemon command', () => {
@@ -44,6 +53,19 @@ test('refuses an allowed command tag whose required identifier is missing or mal
 	assert.equal(toAllowedCommand({command: 'genome_show', genome_id: 'has space'}), undefined);
 	assert.equal(toAllowedCommand({command: 'champion_show'}), undefined);
 	assert.equal(toAllowedCommand({command: 'job_status', job_id: null}), undefined);
+	assert.equal(toAllowedCommand({command: 'drift_show'}), undefined);
+	assert.equal(toAllowedCommand({command: 'canary_show', canary_id: ''}), undefined);
+	assert.equal(toAllowedCommand({command: 'meta_strategy_show', strategy_id: 123}), undefined);
+	assert.equal(toAllowedCommand({command: 'meta_show', meta_run_id: 'has space'}), undefined);
+});
+
+test('refuses drift, canary, and meta mutating commands even though their read siblings are allowed', () => {
+	assert.equal(toAllowedCommand({command: 'drift_record', drift_id: 'd', world_id: 'w', kind: 'latency', evidence_evaluation_id: 'e'}), undefined);
+	assert.equal(toAllowedCommand({command: 'canary_start', canary_id: 'c', world_id: 'w', candidate_genome_id: 'g', assessment_id: 'a'}), undefined);
+	assert.equal(toAllowedCommand({command: 'canary_advance', canary_id: 'c', evidence_evaluation_id: 'e'}), undefined);
+	assert.equal(toAllowedCommand({command: 'canary_live_check', canary_id: 'c', evidence_evaluation_id: 'e'}), undefined);
+	assert.equal(toAllowedCommand({command: 'meta_strategy_register', path: '/tmp/strategy.json'}), undefined);
+	assert.equal(toAllowedCommand({command: 'meta_evaluate', meta_run_id: 'm', strategy_a_id: 'a', strategy_b_id: 'b', lineages: [], confidence_bps: 9500, bootstrap_seed: 1}), undefined);
 });
 
 test('the allowlist and the refusal ledger partition the protocol command set with no overlap', () => {
