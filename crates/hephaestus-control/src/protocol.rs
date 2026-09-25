@@ -207,6 +207,48 @@ pub enum Command {
         /// Registered World identity.
         world_id: String,
     },
+    /// Extract a Gene from one promoted, evidence-bound Champion transition.
+    GeneExtract {
+        /// Stable idempotency key for this Gene.
+        gene_id: String,
+        /// Champion transition that promoted the origin child; must be `Promoted`.
+        promotion_transition_id: String,
+    },
+    /// Apply one Gene's mutation to another lineage's Genome through the
+    /// ordinary compiler, producing an unevaluated transfer child.
+    GeneTransfer {
+        /// Stable idempotency key for this transfer trial.
+        trial_id: String,
+        /// Gene being transferred.
+        gene_id: String,
+        /// Recipient Genome the Gene's mutation is applied to.
+        to_genome_id: String,
+    },
+    /// Record one transfer trial's effect from a verified paired evaluation
+    /// and selection of the recipient versus the transfer child.
+    GeneRecord {
+        /// Transfer trial being recorded; must already be applied.
+        trial_id: String,
+        /// Exact Arena evaluation identity of the recipient-versus-child pair.
+        evaluation_id: String,
+    },
+    /// Inspect one Gene, its transfer trials, and any contradiction or species.
+    GeneShow {
+        /// Gene identity.
+        gene_id: String,
+    },
+    /// List every extracted Gene with its aggregate transfer counts.
+    GeneList,
+    /// Create a specialist species from persistent, statistically significant
+    /// domain advantage recorded across a Gene's transfer trials.
+    GeneSpeciate {
+        /// Stable idempotency key for this species.
+        species_id: String,
+        /// Gene whose domain advantage is being formalized.
+        gene_id: String,
+        /// Registered World (domain) the species specializes in.
+        domain_world_id: String,
+    },
     /// Start (or idempotently re-admit) an unattended, budget-bounded,
     /// multi-generation evolution run owned by the daemon's reconciliation loop.
     EvolveStart {
@@ -436,6 +478,32 @@ pub enum ResponseData {
     Champion {
         /// Current Champion, archived predecessors, and transition history.
         champion: Box<ChampionRecord>,
+    },
+    /// One extracted Gene bound to its origin evidence.
+    Gene {
+        /// Canonical Gene payload and event metadata.
+        gene: Box<GeneRecord>,
+    },
+    /// Every extracted Gene with its aggregate transfer counts.
+    Genes {
+        /// Canonical Gene summaries in ledger order.
+        genes: Vec<GeneSummary>,
+    },
+    /// One Gene transfer trial: applied, and recorded once evaluated.
+    GeneTransfer {
+        /// Canonical transfer trial payload and event metadata.
+        trial: Box<GeneTransferRecord>,
+    },
+    /// One specialist species created from persistent domain advantage.
+    GeneSpecies {
+        /// Canonical species payload and event metadata.
+        species: Box<GeneSpeciesRecord>,
+    },
+    /// Full Gene aggregate: origin evidence, every transfer trial, any
+    /// contradiction, and any species created from it.
+    GeneAggregate {
+        /// Canonical aggregate projection.
+        aggregate: Box<GeneAggregateRecord>,
     },
     /// Durable, replay-verified progress of one evolution run.
     Evolution {
@@ -1011,6 +1079,289 @@ pub struct ChampionRecord {
     pub quarantined_genome_ids: Vec<String>,
     /// Every transition of this World in ledger order.
     pub transitions: Vec<ChampionTransitionRecord>,
+}
+
+/// Canonical event metadata shared by every Gene Bank event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Gene Bank aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Canonical payload of one `gene.extracted` event. A Gene is the minimal
+/// mutation (reference operation flip) plus its origin evidence and
+/// World/domain scope; it can only be extracted from a promoted,
+/// evidence-bound Champion transition that meets the deterministic minimum
+/// evidence threshold.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneExtractedPayload {
+    /// Gene payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub gene_id: String,
+    /// The Champion promotion this Gene was extracted from.
+    pub promotion_transition_id: String,
+    /// Exact Champion transition event identity and hash.
+    pub promotion_event_id: String,
+    /// Hash of the exact Champion transition event.
+    pub promotion_event_hash: String,
+    /// Forge assessment joined by the promotion.
+    pub assessment_id: String,
+    /// Exact Forge assessment event identity and hash.
+    pub assessment_event_id: String,
+    /// Hash of the exact Forge assessment event.
+    pub assessment_event_hash: String,
+    /// Forge proposal that produced the origin child.
+    pub proposal_id: String,
+    /// Exact Forge proposal event identity and hash.
+    pub proposal_event_id: String,
+    /// Hash of the exact Forge proposal event.
+    pub proposal_event_hash: String,
+    /// Exact verified child-selection event identity and hash.
+    pub selection_event_id: String,
+    /// Hash of the exact verified selection event.
+    pub selection_event_hash: String,
+    /// Exact invariant event identity and hash joined by the promotion.
+    pub invariant_event_id: String,
+    /// Hash of the exact invariant event.
+    pub invariant_event_hash: String,
+    /// World/domain this Gene was extracted under.
+    pub world_id: String,
+    /// Origin parent Genome (pre-mutation).
+    pub origin_parent_genome_id: String,
+    /// Origin child Genome (post-mutation, promoted to Champion).
+    pub origin_child_genome_id: String,
+    /// Reference operation before the mutation.
+    pub operation_before: String,
+    /// Reference operation after the mutation.
+    pub operation_after: String,
+    /// Measured paired trial count backing the origin promotion.
+    pub evidence_trials: u32,
+    /// Deterministic minimum paired trial count a Gene requires.
+    pub evidence_threshold: u32,
+}
+
+/// Operator-visible Gene and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneRecord {
+    /// Canonical Gene payload.
+    pub payload: GeneExtractedPayload,
+    /// Canonical event metadata.
+    pub event: GeneEventRecord,
+}
+
+/// Measured effect of one transfer trial, classified from the paired
+/// selection receipt's confidence bounds on the correctness delta.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneTransferOutcome {
+    /// The lower confidence bound of the correctness delta is above zero.
+    Positive,
+    /// Neither bound crosses zero: no statistically significant effect.
+    Neutral,
+    /// The upper confidence bound of the correctness delta is below zero.
+    /// Negative transfer is retained, never dropped.
+    Negative,
+}
+
+/// Canonical payload of one `gene.transfer_applied` event: a Gene's mutation
+/// compiled onto a recipient Genome through the ordinary compiler.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneTransferAppliedPayload {
+    /// Transfer payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub trial_id: String,
+    /// Gene being transferred.
+    pub gene_id: String,
+    /// Exact Gene event identity and hash this trial is bound to.
+    pub gene_event_id: String,
+    /// Hash of the exact Gene event.
+    pub gene_event_hash: String,
+    /// Recipient Genome the Gene's mutation was applied to.
+    pub to_genome_id: String,
+    /// World/domain of the recipient lineage.
+    pub world_id: String,
+    /// Compiled, registered transfer child.
+    pub child: GenomeRecord,
+    /// Exact recipient prompt artifact address before the mutation.
+    pub prompt_artifact_before: String,
+    /// Exact transfer child prompt artifact address after the mutation.
+    pub prompt_artifact_after: String,
+}
+
+/// Canonical payload of one `gene.transfer_recorded` event: the measured
+/// effect of a transfer trial from a verified paired evaluation and selection.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneTransferRecordedPayload {
+    /// Transfer payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key, shared with the applied event.
+    pub trial_id: String,
+    /// Gene being transferred.
+    pub gene_id: String,
+    /// Exact `gene.transfer_applied` event identity and hash.
+    pub applied_event_id: String,
+    /// Hash of the exact `gene.transfer_applied` event.
+    pub applied_event_hash: String,
+    /// Stable Arena evaluation identity of the recipient-versus-child pair.
+    pub evaluation_id: String,
+    /// Exact verified selection event identity and hash.
+    pub selection_event_id: String,
+    /// Hash of the exact verified selection event.
+    pub selection_event_hash: String,
+    /// Content address of the verified `SelectionReceipt`.
+    pub selection_receipt_artifact_id: String,
+    /// Measured effect classification.
+    pub outcome: GeneTransferOutcome,
+    /// Paired correctness mean estimate in basis points.
+    pub estimate_bps: i64,
+    /// Lower confidence bound in basis points.
+    pub lower_bps: i64,
+    /// Upper confidence bound in basis points.
+    pub upper_bps: i64,
+}
+
+/// One Gene transfer trial: applied, and recorded once a paired evaluation
+/// and selection exist for it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneTransferRecord {
+    /// Canonical applied payload.
+    pub applied: GeneTransferAppliedPayload,
+    /// Canonical applied event metadata.
+    pub applied_event: GeneEventRecord,
+    /// Canonical recorded payload and event metadata, present once recorded.
+    pub recorded: Option<GeneTransferRecordedPayload>,
+    /// Canonical recorded event metadata, present once recorded.
+    pub recorded_event: Option<GeneEventRecord>,
+}
+
+/// Canonical payload of one `gene.contradiction` event: a Gene measured
+/// positive in one lineage and negative in another. Recorded once per Gene
+/// and never overwritten.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneContradictionPayload {
+    /// Contradiction payload schema.
+    pub schema_version: u16,
+    /// Gene the contradiction was detected for.
+    pub gene_id: String,
+    /// First positive transfer trial, in ledger order.
+    pub positive_trial_id: String,
+    /// World/domain of the positive trial's recipient lineage.
+    pub positive_world_id: String,
+    /// Exact `gene.transfer_recorded` event identity and hash of the positive trial.
+    pub positive_event_id: String,
+    /// Hash of the positive trial's recorded event.
+    pub positive_event_hash: String,
+    /// First negative transfer trial, in ledger order.
+    pub negative_trial_id: String,
+    /// World/domain of the negative trial's recipient lineage.
+    pub negative_world_id: String,
+    /// Exact `gene.transfer_recorded` event identity and hash of the negative trial.
+    pub negative_event_id: String,
+    /// Hash of the negative trial's recorded event.
+    pub negative_event_hash: String,
+}
+
+/// Operator-visible Gene contradiction and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneContradictionRecord {
+    /// Canonical contradiction payload.
+    pub payload: GeneContradictionPayload,
+    /// Canonical event metadata.
+    pub event: GeneEventRecord,
+}
+
+/// Canonical payload of one `gene.species_created` event: a specialist
+/// species admitted only from persistent, statistically significant domain
+/// advantage recorded across a Gene's transfer trials.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneSpeciesPayload {
+    /// Species payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub species_id: String,
+    /// Gene this species specializes.
+    pub gene_id: String,
+    /// Exact Gene event identity and hash.
+    pub gene_event_id: String,
+    /// Hash of the exact Gene event.
+    pub gene_event_hash: String,
+    /// World/domain this species specializes in.
+    pub domain_world_id: String,
+    /// Distinct recipient lineages (Genome identities) supporting the advantage.
+    pub lineage_genome_ids: Vec<String>,
+    /// Exact `gene.transfer_recorded` event identities and hashes supporting the advantage.
+    pub supporting_event_ids: Vec<String>,
+    /// Mean measured effect across supporting trials, in basis points.
+    pub average_estimate_bps: i64,
+    /// Deterministic minimum distinct-lineage count required.
+    pub minimum_lineages: u32,
+    /// Deterministic minimum mean effect size required, in basis points.
+    pub minimum_effect_bps: i64,
+}
+
+/// Operator-visible species and its durable event identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneSpeciesRecord {
+    /// Canonical species payload.
+    pub payload: GeneSpeciesPayload,
+    /// Canonical event metadata.
+    pub event: GeneEventRecord,
+}
+
+/// Aggregate transfer counts for one Gene, reported across every recorded
+/// transfer trial regardless of lineage count.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneSummary {
+    /// Canonical Gene payload.
+    pub payload: GeneExtractedPayload,
+    /// Canonical event metadata.
+    pub event: GeneEventRecord,
+    /// Distinct recipient lineages with a recorded transfer trial.
+    pub lineages: u32,
+    /// Recorded trials classified positive.
+    pub positive: u32,
+    /// Recorded trials classified neutral.
+    pub neutral: u32,
+    /// Recorded trials classified negative.
+    pub negative: u32,
+    /// Whether a contradiction has been recorded for this Gene.
+    pub contradiction: bool,
+    /// Species created from this Gene, if any.
+    pub species_ids: Vec<String>,
+}
+
+/// Full Gene aggregate: origin evidence, every transfer trial in ledger
+/// order, any contradiction, and any species created from it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneAggregateRecord {
+    /// The extracted Gene.
+    pub gene: GeneRecord,
+    /// Every transfer trial in ledger order.
+    pub transfers: Vec<GeneTransferRecord>,
+    /// The Gene's contradiction record, if one has been detected.
+    pub contradiction: Option<GeneContradictionRecord>,
+    /// Species created from this Gene, in ledger order.
+    pub species: Vec<GeneSpeciesRecord>,
 }
 
 /// Operator-visible aggregate invariant receipt and its canonical event.

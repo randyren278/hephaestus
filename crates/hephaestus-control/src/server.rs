@@ -545,6 +545,7 @@ impl ControlPlane {
         verify_invariant_history(&data_dir, &history, &registered)?;
         verify_cluster_history(&data_dir, &history, &registered)?;
         verify_champion_history(&data_dir, &history, &registered)?;
+        verify_gene_bank_history(&data_dir, &history, &registered)?;
         verify_evolution_history(&history, &registered)?;
         let has_run_results = history
             .iter()
@@ -817,6 +818,26 @@ impl ControlPlane {
             | Command::ChampionPromote { .. }
             | Command::ChampionRollback { .. }) => self.champion_transition_command(command),
             Command::ChampionShow { world_id } => self.champion_show(&world_id),
+            Command::GeneExtract {
+                gene_id,
+                promotion_transition_id,
+            } => self.gene_extract(&gene_id, &promotion_transition_id),
+            Command::GeneTransfer {
+                trial_id,
+                gene_id,
+                to_genome_id,
+            } => self.gene_transfer_apply(&trial_id, &gene_id, &to_genome_id),
+            Command::GeneRecord {
+                trial_id,
+                evaluation_id,
+            } => self.gene_transfer_record(&trial_id, &evaluation_id),
+            Command::GeneShow { gene_id } => self.gene_show(&gene_id),
+            Command::GeneList => self.gene_list(),
+            Command::GeneSpeciate {
+                species_id,
+                gene_id,
+                domain_world_id,
+            } => self.gene_speciate(&species_id, &gene_id, &domain_world_id),
             command @ Command::EvolveStart { .. } => self.evolve_start(command),
             Command::EvolveStatus { run_id } => self.evolve_status(&run_id),
             Command::EvolveCancel { run_id } => self.evolve_cancel(&run_id),
@@ -966,6 +987,286 @@ impl ControlPlane {
             champion_projection(&history, world_id).map_err(|_| ExecuteError::Internal)?;
         Ok(ResponseData::Champion {
             champion: Box::new(champion),
+        })
+    }
+
+    fn gene_extract(
+        &mut self,
+        gene_id: &str,
+        promotion_transition_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(gene_id).map_err(|_| ExecuteError::Invalid("gene_id is invalid"))?;
+        validate_job_id(promotion_transition_id)
+            .map_err(|_| ExecuteError::Invalid("promotion_transition_id is invalid"))?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) = existing_gene(&history, gene_id, promotion_transition_id)? {
+            return Ok(ResponseData::Gene {
+                gene: Box::new(existing),
+            });
+        }
+        let payload = gene_extraction_payload(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            gene_id,
+            promotion_transition_id,
+        )?;
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        let event = storage
+            .ledger
+            .append(EventInput::new(
+                gene_event_id(gene_id),
+                gene_aggregate_id(gene_id),
+                GENE_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::Gene {
+            gene: Box::new(gene_record(payload, &event)),
+        })
+    }
+
+    fn gene_transfer_apply(
+        &mut self,
+        trial_id: &str,
+        gene_id: &str,
+        to_genome_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.state.freeze.is_frozen() {
+            return Err(ExecuteError::Invalid("evolution is frozen"));
+        }
+        validate_job_id(trial_id).map_err(|_| ExecuteError::Invalid("trial_id is invalid"))?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) =
+            existing_transfer_applied(&history, trial_id, gene_id, to_genome_id)?
+        {
+            let event = history
+                .iter()
+                .find(|event| event.event_id == transfer_applied_event_id(trial_id))
+                .ok_or(ExecuteError::Internal)?;
+            return Ok(ResponseData::GeneTransfer {
+                trial: Box::new(transfer_record(existing, event, None, None)),
+            });
+        }
+        let payload = transfer_applied_payload(
+            &self.state.registered,
+            &storage.artifacts,
+            &history,
+            trial_id,
+            gene_id,
+            to_genome_id,
+        )?;
+        if self
+            .state
+            .registered
+            .genome(&payload.child.genome_id)
+            .is_some()
+        {
+            return Err(ExecuteError::Rejected(
+                "derived transfer child identity is already registered".to_owned(),
+            ));
+        }
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        let event = storage
+            .ledger
+            .append(EventInput::new(
+                transfer_applied_event_id(trial_id),
+                transfer_aggregate_id(trial_id),
+                TRANSFER_APPLIED_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::GeneTransfer {
+            trial: Box::new(transfer_record(payload, &event, None, None)),
+        })
+    }
+
+    fn gene_transfer_record(
+        &mut self,
+        trial_id: &str,
+        evaluation_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(trial_id).map_err(|_| ExecuteError::Invalid("trial_id is invalid"))?;
+        if evaluation_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("evaluation_id is required"));
+        }
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let applied_event = history
+            .iter()
+            .find(|event| event.event_id == transfer_applied_event_id(trial_id))
+            .ok_or(ExecuteError::NotFound)?
+            .clone();
+        let applied =
+            decode_transfer_applied(&applied_event).map_err(|_| ExecuteError::Internal)?;
+
+        if let Some(existing) = existing_transfer_recorded(&history, trial_id, evaluation_id)? {
+            let recorded_event = history
+                .iter()
+                .find(|event| event.event_id == transfer_recorded_event_id(trial_id))
+                .ok_or(ExecuteError::Internal)?;
+            return Ok(ResponseData::GeneTransfer {
+                trial: Box::new(transfer_record(
+                    applied,
+                    &applied_event,
+                    Some(existing),
+                    Some(recorded_event),
+                )),
+            });
+        }
+        let payload = transfer_recorded_payload(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            trial_id,
+            evaluation_id,
+        )?;
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        let recorded_event = storage
+            .ledger
+            .append(EventInput::new(
+                transfer_recorded_event_id(trial_id),
+                transfer_aggregate_id(trial_id),
+                TRANSFER_RECORDED_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+
+        // A contradiction is an automatic, idempotent side effect of
+        // recording a trial: the first time both a positive and a negative
+        // outcome exist for this Gene, record it once and never overwrite it.
+        let refreshed_history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if existing_contradiction(&refreshed_history, &applied.gene_id).is_none()
+            && let Some(contradiction) = detect_contradiction(&refreshed_history, &applied.gene_id)
+                .map_err(|_| ExecuteError::Internal)?
+        {
+            let contradiction_value =
+                serde_json::to_value(&contradiction).map_err(|_| ExecuteError::Internal)?;
+            let contradiction_bytes =
+                serde_json::to_vec(&contradiction_value).map_err(|_| ExecuteError::Internal)?;
+            storage
+                .ledger
+                .append(EventInput::new(
+                    contradiction_event_id(&applied.gene_id),
+                    gene_aggregate_id(&applied.gene_id),
+                    CONTRADICTION_EVENT_TYPE,
+                    OPERATOR_ACTOR,
+                    timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                    contradiction_bytes,
+                ))
+                .map_err(|_| ExecuteError::Internal)?;
+        }
+
+        self.refresh_projection()?;
+        Ok(ResponseData::GeneTransfer {
+            trial: Box::new(transfer_record(
+                applied,
+                &applied_event,
+                Some(payload),
+                Some(&recorded_event),
+            )),
+        })
+    }
+
+    fn gene_show(&self, gene_id: &str) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let aggregate = gene_aggregate(&history, gene_id)?;
+        Ok(ResponseData::GeneAggregate {
+            aggregate: Box::new(aggregate),
+        })
+    }
+
+    fn gene_list(&self) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Genes {
+            genes: gene_summaries(&history)?,
+        })
+    }
+
+    fn gene_speciate(
+        &mut self,
+        species_id: &str,
+        gene_id: &str,
+        domain_world_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(species_id).map_err(|_| ExecuteError::Invalid("species_id is invalid"))?;
+        self.state
+            .registered
+            .world(domain_world_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) = existing_species(&history, species_id, gene_id, domain_world_id)? {
+            return Ok(ResponseData::GeneSpecies {
+                species: Box::new(existing),
+            });
+        }
+        let payload = speciation_payload(&history, species_id, gene_id, domain_world_id)?;
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        let event = storage
+            .ledger
+            .append(EventInput::new(
+                species_event_id(species_id),
+                species_aggregate_id(species_id),
+                SPECIES_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::GeneSpecies {
+            species: Box::new(species_record(payload, &event)),
         })
     }
 
@@ -1698,6 +1999,10 @@ impl ControlPlane {
                 | Command::ChampionSeed { .. }
                 | Command::ChampionPromote { .. }
                 | Command::ChampionRollback { .. }
+                | Command::GeneExtract { .. }
+                | Command::GeneTransfer { .. }
+                | Command::GeneRecord { .. }
+                | Command::GeneSpeciate { .. }
                 | Command::WorldRegister { .. }
                 | Command::ManifestPut { .. }
                 | Command::ArtifactPut { .. }
@@ -1732,6 +2037,10 @@ impl ControlPlane {
                 | Command::ChampionSeed { .. }
                 | Command::ChampionPromote { .. }
                 | Command::ChampionRollback { .. }
+                | Command::GeneExtract { .. }
+                | Command::GeneTransfer { .. }
+                | Command::GeneRecord { .. }
+                | Command::GeneSpeciate { .. }
         );
         if !blocked {
             return Ok(());
@@ -2656,6 +2965,8 @@ impl ControlPlane {
         verify_cluster_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_gene_bank_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
@@ -4090,6 +4401,8 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
+        verify_gene_bank_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
@@ -5372,7 +5685,60 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     {
         return Err(ExecuteError::Invalid("run_id is invalid"));
     }
-    require_champion_fields(command)
+    require_champion_fields(command)?;
+    require_gene_fields(command)
+}
+
+fn require_gene_fields(command: &Command) -> Result<(), ExecuteError> {
+    match command {
+        Command::GeneExtract {
+            gene_id,
+            promotion_transition_id,
+        } => {
+            validate_job_id(gene_id).map_err(|_| ExecuteError::Invalid("gene_id is invalid"))?;
+            validate_job_id(promotion_transition_id)
+                .map_err(|_| ExecuteError::Invalid("promotion_transition_id is invalid"))?;
+        }
+        Command::GeneTransfer {
+            trial_id,
+            gene_id,
+            to_genome_id,
+        } => {
+            validate_job_id(trial_id).map_err(|_| ExecuteError::Invalid("trial_id is invalid"))?;
+            if gene_id.trim().is_empty() || to_genome_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid(
+                    "gene_id and to_genome_id are required",
+                ));
+            }
+        }
+        Command::GeneRecord {
+            trial_id,
+            evaluation_id,
+        } => {
+            validate_job_id(trial_id).map_err(|_| ExecuteError::Invalid("trial_id is invalid"))?;
+            if evaluation_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid("evaluation_id is required"));
+            }
+        }
+        Command::GeneShow { gene_id } if gene_id.trim().is_empty() => {
+            return Err(ExecuteError::Invalid("gene_id is required"));
+        }
+        Command::GeneSpeciate {
+            species_id,
+            gene_id,
+            domain_world_id,
+        } => {
+            validate_job_id(species_id)
+                .map_err(|_| ExecuteError::Invalid("species_id is invalid"))?;
+            if gene_id.trim().is_empty() || domain_world_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid(
+                    "gene_id and domain_world_id are required",
+                ));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn require_champion_fields(command: &Command) -> Result<(), ExecuteError> {
@@ -6864,6 +7230,12 @@ fn event_type(command: &Command) -> &'static str {
         Command::ChampionPromote { .. } => "control.champion_promote",
         Command::ChampionRollback { .. } => "control.champion_rollback",
         Command::ChampionShow { .. } => "control.champion_show",
+        Command::GeneExtract { .. } => "control.gene_extract",
+        Command::GeneTransfer { .. } => "control.gene_transfer",
+        Command::GeneRecord { .. } => "control.gene_record",
+        Command::GeneShow { .. } => "control.gene_show",
+        Command::GeneList => "control.gene_list",
+        Command::GeneSpeciate { .. } => "control.gene_speciate",
         Command::EvolveStart { .. } => "control.evolve_start",
         Command::EvolveStatus { .. } => "control.evolve_status",
         Command::EvolveCancel { .. } => "control.evolve_cancel",
@@ -7169,6 +7541,20 @@ use champion::{
     CHAMPION_EVENT_TYPE, ChampionRequest, champion_aggregate_id, champion_event_id,
     champion_projection, champion_transition_payload, champion_transition_record,
     existing_champion_transition, validate_reason, verify_champion_history,
+};
+
+#[path = "gene_bank.rs"]
+mod gene_bank;
+
+use gene_bank::{
+    CONTRADICTION_EVENT_TYPE, GENE_EVENT_TYPE, SPECIES_EVENT_TYPE, TRANSFER_APPLIED_EVENT_TYPE,
+    TRANSFER_RECORDED_EVENT_TYPE, contradiction_event_id, decode_transfer_applied,
+    detect_contradiction, existing_contradiction, existing_gene, existing_species,
+    existing_transfer_applied, existing_transfer_recorded, gene_aggregate, gene_aggregate_id,
+    gene_event_id, gene_extraction_payload, gene_record, gene_summaries, speciation_payload,
+    species_aggregate_id, species_event_id, species_record, transfer_aggregate_id,
+    transfer_applied_event_id, transfer_applied_payload, transfer_record,
+    transfer_recorded_event_id, transfer_recorded_payload, verify_gene_bank_history,
 };
 
 #[path = "evolve.rs"]
