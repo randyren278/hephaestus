@@ -13,7 +13,8 @@ use tempfile::{TempDir, tempdir};
 use super::*;
 use crate::{
     ApiError, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
-    ChampionTransitionRecord,
+    ChampionTransitionRecord, GeneExtractedPayload, GeneRecord, GeneTransferAppliedPayload,
+    GeneTransferOutcome, GeneTransferRecordedPayload,
 };
 
 #[test]
@@ -11222,5 +11223,854 @@ echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"token=sk-verysec
     assert!(
         final_answer.contains("[REDACTED]"),
         "redaction must replace the secret rather than silently drop the whole message: {final_answer}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// Gene Bank
+// ---------------------------------------------------------------------
+
+/// Opens a fresh real-worker control plane with no Worlds or Genomes
+/// registered, mirroring the boilerplate in
+/// `real_worker_arena_fixture_with_invariants` without its fixed
+/// single-task World.
+fn gene_bank_plane_fixture(directory: &TempDir) -> ControlPlane {
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Gene Bank fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(
+        cargo_evaluator.is_file(),
+        "missing evaluator {cargo_evaluator:?}"
+    );
+    let evaluator = directory.path().join("gene-bank-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open Gene Bank fixture");
+    let token = plane.token_hex.clone();
+    assert!(
+        dispatch_call(&mut plane, &token, "gene-bank-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    plane
+}
+
+/// Registers one Arena World whose visible tasks are exactly
+/// `visible_tasks` (id, input, expected). Every World gets its own sealed
+/// task and its own evaluator-artifact identities.
+fn gene_bank_world(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    request_id: &str,
+    world_name: &str,
+    visible_tasks: &[(&str, &str, &str)],
+) -> WorldRecord {
+    // The sealed task must agree with the visible tasks about whether
+    // uppercase helps or hurts: mixing the two would dilute a domain's
+    // correctness signal toward neutral regardless of the visible outcome.
+    let sealed_task = visible_tasks
+        .first()
+        .copied()
+        .unwrap_or(("sealed-task", "sealed", "SEALED"));
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        format!("{world_name}-visible"),
+        Visibility::Visible,
+        visible_tasks
+            .iter()
+            .map(|(id, input, expected)| {
+                TrustedTask::new(*id, *input, *expected).expect("visible task")
+            })
+            .collect::<Vec<_>>(),
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        format!("{world_name}-sealed"),
+        Visibility::Sealed,
+        vec![TrustedTask::new("sealed-task", sealed_task.1, sealed_task.2).expect("sealed task")],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator = env::current_exe()
+        .expect("locate test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("locate Cargo binary directory")
+        .join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+    let evaluator_id = artifacts
+        .put(&fs::read(evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    let invariant_id = artifacts
+        .put(CLEAN_INVARIANTS)
+        .expect("store invariant manifest");
+    drop(artifacts);
+    let world_path = directory.path().join(format!("{world_name}-world.json"));
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"{world_name}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+            invariant_id.as_str(),
+        ),
+    )
+    .expect("write Gene Bank World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        request_id,
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Gene Bank World registration should succeed");
+    };
+    world
+}
+
+/// Registers one identity-operation Genome under `world_id`.
+fn gene_bank_genome(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    world_id: &str,
+    name: &str,
+    parents: &str,
+) -> GenomeRecord {
+    let path = directory.path().join(format!("{name}.md"));
+    fs::write(
+        &path,
+        format!(
+            "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+        ),
+    )
+    .expect("write Genome source");
+    let Some(ResponseData::Genome { genome }) = dispatch_call(
+        plane,
+        token,
+        &format!("register-{name}"),
+        Command::GenomeRegister {
+            path: path.display().to_string(),
+            world_id: world_id.to_owned(),
+        },
+    )
+    .data
+    else {
+        panic!("Gene Bank Genome registration should succeed");
+    };
+    genome
+}
+
+/// Transfers `gene_id` onto `to_genome_id`, evaluates the recipient against
+/// the transfer child, and records the effect. Returns the recorded outcome.
+fn gene_bank_transfer_and_record(
+    plane: &mut ControlPlane,
+    trial_id: &str,
+    gene_id: &str,
+    to_genome_id: &str,
+) -> GeneTransferOutcome {
+    let ResponseData::GeneTransfer { trial } = plane
+        .gene_transfer_apply(trial_id, gene_id, to_genome_id)
+        .expect("apply Gene transfer")
+    else {
+        panic!("transfer apply should return its durable record");
+    };
+    let evaluation_id = format!("{trial_id}-eval");
+    complete_arena_test_job(
+        plane,
+        &evaluation_id,
+        to_genome_id,
+        &trial.applied.child.genome_id,
+    );
+    plane
+        .select_arena_evaluation(&evaluation_id)
+        .expect("select transfer trial evaluation");
+    let ResponseData::GeneTransfer { trial: recorded } = plane
+        .gene_transfer_record(trial_id, &evaluation_id)
+        .expect("record Gene transfer effect")
+    else {
+        panic!("transfer record should return its durable record");
+    };
+    recorded
+        .recorded
+        .expect("a recorded transfer trial carries its outcome")
+        .outcome
+}
+
+/// Builds the origin World A, promotes an `identity` -> `ascii_uppercase`
+/// Champion transition with `visible_task_count` measured paired trials,
+/// and extracts a Gene from it.
+fn gene_bank_origin(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    gene_id: &str,
+    visible_task_count: usize,
+) -> GeneRecord {
+    let tasks: Vec<(String, String, String)> = (0..visible_task_count)
+        .map(|index| {
+            let word = format!("word{index}");
+            (
+                format!("origin-task-{index}"),
+                word.clone(),
+                word.to_uppercase(),
+            )
+        })
+        .collect();
+    let task_refs: Vec<(&str, &str, &str)> = tasks
+        .iter()
+        .map(|(id, input, expected)| (id.as_str(), input.as_str(), expected.as_str()))
+        .collect();
+    let world = gene_bank_world(
+        plane,
+        token,
+        directory,
+        "origin-world",
+        "origin",
+        &task_refs,
+    );
+    let origin_parent = gene_bank_genome(
+        plane,
+        token,
+        directory,
+        &world.world_id,
+        "origin-parent",
+        "[]",
+    );
+    let origin_candidate = gene_bank_genome(
+        plane,
+        token,
+        directory,
+        &world.world_id,
+        "origin-candidate",
+        &format!("[\"{}\"]", origin_parent.genome_id),
+    );
+    let assessed = assessed_forge_child(
+        plane,
+        "origin",
+        &origin_parent.genome_id,
+        &origin_candidate.genome_id,
+        true,
+    );
+    plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("check origin invariant evidence");
+    champion_transition(
+        plane,
+        token,
+        "origin-seed",
+        Command::ChampionSeed {
+            transition_id: "origin-seed".to_owned(),
+            world_id: assessed.world.clone(),
+            genome_id: origin_candidate.genome_id.clone(),
+            reason: "bootstrap origin Champion".to_owned(),
+        },
+    )
+    .expect("seed origin Champion");
+    champion_transition(
+        plane,
+        token,
+        "origin-promote",
+        Command::ChampionPromote {
+            transition_id: "origin-promote".to_owned(),
+            assessment_id: "origin-assessment".to_owned(),
+        },
+    )
+    .expect("promote origin Champion");
+    let ResponseData::Gene { gene } = plane
+        .gene_extract(gene_id, "origin-promote")
+        .expect("extract Gene from a promoted, evidence-bound transition")
+    else {
+        panic!("gene extraction should return its durable record");
+    };
+    assert_eq!(gene.payload.operation_before, "identity");
+    assert_eq!(gene.payload.operation_after, "ascii_uppercase");
+    assert_eq!(gene.payload.world_id, world.world_id);
+    assert!(gene.payload.evidence_trials >= GENE_MIN_EVIDENCE_TRIALS);
+    *gene
+}
+
+#[test]
+fn gene_extraction_refuses_below_the_evidence_threshold_and_bad_input() {
+    let directory = tempdir().expect("Gene extraction refusal fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    for (request_id, gene_id, promotion_transition_id, expected) in [
+        (
+            "extract-bad-gene-id",
+            "bad id",
+            "promotion",
+            "gene_id is invalid",
+        ),
+        (
+            "extract-bad-promotion-id",
+            "gene",
+            "bad id",
+            "promotion_transition_id is invalid",
+        ),
+    ] {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            request_id,
+            Command::GeneExtract {
+                gene_id: gene_id.to_owned(),
+                promotion_transition_id: promotion_transition_id.to_owned(),
+            },
+        );
+        assert!(matches!(
+            response.error,
+            Some(error) if error.code == ApiErrorCode::InvalidRequest && error.message == expected
+        ));
+    }
+
+    assert!(matches!(
+        plane.gene_extract("missing-gene", "missing-promotion"),
+        Err(ExecuteError::NotFound)
+    ));
+
+    // The default fixture's single visible task always yields exactly one
+    // measured paired trial, below `GENE_MIN_EVIDENCE_TRIALS`.
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "thin",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("check thin invariant evidence");
+    champion_transition(
+        &mut plane,
+        &token,
+        "thin-seed",
+        Command::ChampionSeed {
+            transition_id: "thin-seed".to_owned(),
+            world_id: assessed.world.clone(),
+            genome_id: initial_candidate.genome_id.clone(),
+            reason: "bootstrap thin Champion".to_owned(),
+        },
+    )
+    .expect("seed thin Champion");
+    champion_transition(
+        &mut plane,
+        &token,
+        "thin-promote",
+        Command::ChampionPromote {
+            transition_id: "thin-promote".to_owned(),
+            assessment_id: "thin-assessment".to_owned(),
+        },
+    )
+    .expect("promote thin Champion");
+
+    match plane.gene_extract("thin-gene", "thin-promote") {
+        Err(ExecuteError::Rejected(message)) => {
+            assert!(
+                message.contains("measured paired trials"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("thin evidence must refuse extraction: {other:?}"),
+    }
+    assert!(
+        plane.state.registered.genome(&assessed.child).is_some(),
+        "a refused extraction must not roll back the promoted Champion"
+    );
+
+    // Extracting from a seed (not a promotion) is refused too.
+    match plane.gene_extract("seed-gene", "thin-seed") {
+        Err(ExecuteError::Rejected(message)) => {
+            assert!(
+                message.contains("promotion"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("a seed transition must refuse Gene extraction: {other:?}"),
+    }
+
+    let history = gene_bank_history(&plane);
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_type == GENE_EVENT_TYPE),
+        "a refused extraction must not record a Gene"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn gene_transfer_trials_record_contradiction_and_speciation() {
+    let directory = tempdir().expect("Gene Bank transfer fixture");
+    let mut plane = gene_bank_plane_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    let gene = gene_bank_origin(&mut plane, &token, &directory, "uppercase-gene", 3);
+
+    // Re-extracting the same gene_id from a different promotion fails closed.
+    assert!(matches!(
+        plane.gene_extract(&gene.payload.gene_id, "a-different-promotion"),
+        Err(ExecuteError::Rejected(_))
+    ));
+
+    // World B: uppercase helps. Three distinct lineages (b1, b2, b3), all positive.
+    let helps_world = gene_bank_world(
+        &mut plane,
+        &token,
+        &directory,
+        "helps-world",
+        "helps",
+        &[("helps-task", "delta", "DELTA")],
+    );
+    let b1 = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "b1",
+        "[]",
+    );
+    let b2 = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "b2",
+        "[]",
+    );
+    let b3 = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "b3",
+        "[]",
+    );
+
+    // World C: uppercase hurts (an exact-case match task).
+    let hurts_world = gene_bank_world(
+        &mut plane,
+        &token,
+        &directory,
+        "hurts-world",
+        "hurts",
+        &[("hurts-task", "MixedCase", "MixedCase")],
+    );
+    let c1 = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &hurts_world.world_id,
+        "c1",
+        "[]",
+    );
+
+    // Transfer trials: an unknown Gene or recipient Genome is refused.
+    assert!(matches!(
+        plane.gene_transfer_apply("transfer-missing-gene", "missing-gene", &b1.genome_id),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        plane.gene_transfer_apply(
+            "transfer-missing-genome",
+            &gene.payload.gene_id,
+            "missing-genome"
+        ),
+        Err(ExecuteError::NotFound)
+    ));
+
+    let outcome_b1 = gene_bank_transfer_and_record(
+        &mut plane,
+        "transfer-b1",
+        &gene.payload.gene_id,
+        &b1.genome_id,
+    );
+    assert_eq!(outcome_b1, GeneTransferOutcome::Positive);
+    let outcome_b2 = gene_bank_transfer_and_record(
+        &mut plane,
+        "transfer-b2",
+        &gene.payload.gene_id,
+        &b2.genome_id,
+    );
+    assert_eq!(outcome_b2, GeneTransferOutcome::Positive);
+
+    // Two distinct positive lineages are not enough for speciation.
+    match plane.gene_speciate(
+        "species-too-few",
+        &gene.payload.gene_id,
+        &helps_world.world_id,
+    ) {
+        Err(ExecuteError::Rejected(message)) => {
+            assert!(
+                message.contains("distinct positive lineage"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("two lineages must refuse speciation: {other:?}"),
+    }
+
+    let outcome_hurts = gene_bank_transfer_and_record(
+        &mut plane,
+        "transfer-c1",
+        &gene.payload.gene_id,
+        &c1.genome_id,
+    );
+    assert_eq!(
+        outcome_hurts,
+        GeneTransferOutcome::Negative,
+        "negative transfer is retained, never dropped"
+    );
+
+    // Reusing a trial id with a different recipient fails closed.
+    assert!(matches!(
+        plane.gene_transfer_apply("transfer-b1", &gene.payload.gene_id, &c1.genome_id),
+        Err(ExecuteError::Rejected(_))
+    ));
+
+    // A recipient that does not currently carry the Gene's origin operation
+    // cannot receive the transfer.
+    let already_uppercase_path = directory.path().join("already-uppercase.md");
+    fs::write(
+        &already_uppercase_path,
+        "---\nschema_version: 1\nname: already-uppercase\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"ascii_uppercase\"}\n```\n",
+    )
+    .expect("write already-uppercase Genome source");
+    let Some(ResponseData::Genome {
+        genome: already_uppercase,
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-already-uppercase",
+        Command::GenomeRegister {
+            path: already_uppercase_path.display().to_string(),
+            world_id: helps_world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("already-uppercase Genome registration should succeed");
+    };
+    assert!(matches!(
+        plane.gene_transfer_apply(
+            "transfer-already-uppercase",
+            &gene.payload.gene_id,
+            &already_uppercase.genome_id
+        ),
+        Err(ExecuteError::Rejected(_))
+    ));
+
+    // The three-lineage transfer trials above (two positive, one negative)
+    // are enough for the Gene's contradiction to be recorded automatically.
+    let aggregate = gene_aggregate(&gene_bank_history(&plane), &gene.payload.gene_id)
+        .expect("aggregate the Gene's transfer trials");
+    let contradiction = aggregate
+        .contradiction
+        .expect("a positive and a negative lineage must produce a contradiction record");
+    assert_eq!(
+        contradiction.payload.positive_world_id,
+        helps_world.world_id
+    );
+    assert_eq!(
+        contradiction.payload.negative_world_id,
+        hurts_world.world_id
+    );
+
+    // Recording another trial never overwrites the existing contradiction.
+    let outcome_b3 = gene_bank_transfer_and_record(
+        &mut plane,
+        "transfer-b3",
+        &gene.payload.gene_id,
+        &b3.genome_id,
+    );
+    assert_eq!(outcome_b3, GeneTransferOutcome::Positive);
+    let aggregate_again = gene_aggregate(&gene_bank_history(&plane), &gene.payload.gene_id)
+        .expect("re-aggregate the Gene's transfer trials");
+    assert_eq!(
+        aggregate_again
+            .contradiction
+            .expect("contradiction persists"),
+        contradiction
+    );
+
+    // A domain with a recorded negative can never admit a species.
+    match plane.gene_speciate(
+        "species-hurts",
+        &gene.payload.gene_id,
+        &hurts_world.world_id,
+    ) {
+        Err(ExecuteError::Rejected(message)) => {
+            assert!(
+                message.contains("negative"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("a domain with a recorded negative must refuse speciation: {other:?}"),
+    }
+
+    // The helps domain now has three distinct positive lineages: admitted.
+    let ResponseData::GeneSpecies { species } = plane
+        .gene_speciate(
+            "species-helps",
+            &gene.payload.gene_id,
+            &helps_world.world_id,
+        )
+        .expect("admit a species from persistent, significant domain advantage")
+    else {
+        panic!("speciation should return its durable record");
+    };
+    assert_eq!(species.payload.gene_id, gene.payload.gene_id);
+    assert_eq!(species.payload.domain_world_id, helps_world.world_id);
+    assert_eq!(species.payload.lineage_genome_ids.len(), 3);
+    assert!(species.payload.average_estimate_bps >= SPECIATION_MIN_EFFECT_BPS);
+
+    // Idempotent retry returns the identical recorded species.
+    let retry = plane
+        .gene_speciate(
+            "species-helps",
+            &gene.payload.gene_id,
+            &helps_world.world_id,
+        )
+        .expect("idempotent speciation retry");
+    assert!(matches!(
+        retry,
+        ResponseData::GeneSpecies { species: retried } if *retried == *species
+    ));
+    assert!(matches!(
+        plane.gene_speciate(
+            "species-helps",
+            &gene.payload.gene_id,
+            &hurts_world.world_id
+        ),
+        Err(ExecuteError::Rejected(_))
+    ));
+
+    // `gene show` and `gene list` report aggregates across the four lineages.
+    let ResponseData::GeneAggregate { aggregate } = plane
+        .gene_show(&gene.payload.gene_id)
+        .expect("show the full Gene aggregate")
+    else {
+        panic!("gene show should return the full aggregate");
+    };
+    assert_eq!(aggregate.transfers.len(), 4);
+    assert_eq!(aggregate.species.len(), 1);
+    assert!(aggregate.contradiction.is_some());
+
+    let ResponseData::Genes { genes } = plane.gene_list().expect("list every extracted Gene")
+    else {
+        panic!("gene list should return every Gene summary");
+    };
+    let summary = genes
+        .into_iter()
+        .find(|summary| summary.payload.gene_id == gene.payload.gene_id)
+        .expect("the extracted Gene is listed");
+    assert_eq!(summary.lineages, 4);
+    assert_eq!(summary.positive, 3);
+    assert_eq!(summary.negative, 1);
+    assert_eq!(summary.neutral, 0);
+    assert!(summary.contradiction);
+    assert_eq!(summary.species_ids, vec!["species-helps".to_owned()]);
+
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+    verify_gene_bank_history(
+        &plane.data_dir,
+        &gene_bank_history(&plane),
+        &plane.state.registered,
+    )
+    .expect("canonical Gene Bank history verifies");
+}
+
+fn gene_bank_history(plane: &ControlPlane) -> Vec<StoredEvent> {
+    plane
+        .storage
+        .as_ref()
+        .expect("canonical Gene Bank ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify Gene Bank history")
+}
+
+fn gene_bank_history_with_payload_edit<P, F>(
+    history: &[StoredEvent],
+    event_id: &str,
+    edit: F,
+) -> Vec<StoredEvent>
+where
+    P: serde::Serialize + serde::de::DeserializeOwned,
+    F: FnOnce(&mut P),
+{
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == event_id)
+        .expect("Gene Bank event exists");
+    let mut payload: P = serde_json::from_slice(&event.payload).expect("decode Gene Bank payload");
+    edit(&mut payload);
+    let canonical = serde_json::to_value(&payload).expect("canonicalize Gene Bank payload");
+    event.payload = serde_json::to_vec(&canonical).expect("encode Gene Bank payload");
+    tampered
+}
+
+#[test]
+fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
+    let directory = tempdir().expect("Gene Bank tamper fixture");
+    let mut plane = gene_bank_plane_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    let gene = gene_bank_origin(&mut plane, &token, &directory, "tamper-gene", 3);
+    let helps_world = gene_bank_world(
+        &mut plane,
+        &token,
+        &directory,
+        "tamper-helps-world",
+        "tamper-helps",
+        &[("tamper-task", "delta", "DELTA")],
+    );
+    let recipient = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "tamper-recipient",
+        "[]",
+    );
+    gene_bank_transfer_and_record(
+        &mut plane,
+        "tamper-transfer",
+        &gene.payload.gene_id,
+        &recipient.genome_id,
+    );
+
+    let history = gene_bank_history(&plane);
+    verify_gene_bank_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("canonical Gene Bank history verifies before tampering");
+
+    let tampered_gene_event_id = gene_event_id(&gene.payload.gene_id);
+    let tampered_gene = gene_bank_history_with_payload_edit::<GeneExtractedPayload, _>(
+        &history,
+        &tampered_gene_event_id,
+        |payload| payload.evidence_trials = 999,
+    );
+    assert!(
+        verify_gene_bank_history(&plane.data_dir, &tampered_gene, &plane.state.registered).is_err(),
+        "a tampered Gene payload must fail replay"
+    );
+
+    let applied_event_id = transfer_applied_event_id("tamper-transfer");
+    let tampered_applied = gene_bank_history_with_payload_edit::<GeneTransferAppliedPayload, _>(
+        &history,
+        &applied_event_id,
+        |payload| payload.to_genome_id = gene.payload.origin_parent_genome_id.clone(),
+    );
+    assert!(
+        verify_gene_bank_history(&plane.data_dir, &tampered_applied, &plane.state.registered)
+            .is_err(),
+        "a tampered transfer applied payload must fail replay"
+    );
+
+    let recorded_event_id = transfer_recorded_event_id("tamper-transfer");
+    let tampered_recorded = gene_bank_history_with_payload_edit::<GeneTransferRecordedPayload, _>(
+        &history,
+        &recorded_event_id,
+        |payload| payload.outcome = GeneTransferOutcome::Negative,
+    );
+    assert!(
+        verify_gene_bank_history(&plane.data_dir, &tampered_recorded, &plane.state.registered)
+            .is_err(),
+        "a tampered transfer outcome must fail replay"
+    );
+
+    let mut noncanonical = history.clone();
+    noncanonical
+        .iter_mut()
+        .find(|event| event.event_id == tampered_gene_event_id)
+        .expect("Gene event")
+        .payload
+        .push(b' ');
+    assert!(
+        verify_gene_bank_history(&plane.data_dir, &noncanonical, &plane.state.registered).is_err(),
+        "a noncanonical Gene payload must fail replay"
+    );
+
+    // ID-prefix detection of a retyped event: nothing later depends on the
+    // transfer-recorded event, so only identity-based detection can reject
+    // its rewritten event type.
+    let mut retyped = history.clone();
+    retyped
+        .iter_mut()
+        .find(|event| event.event_id == recorded_event_id)
+        .expect("transfer recorded event")
+        .event_type = "gene.rewritten".to_owned();
+    assert!(
+        verify_gene_bank_history(&plane.data_dir, &retyped, &plane.state.registered).is_err(),
+        "a retyped Gene Bank event must still be rejected by ID-prefix detection"
+    );
+
+    // Reordering: the applied trial cannot follow the recorded effect it
+    // produced.
+    let mut reordered = history;
+    let applied_index = reordered
+        .iter()
+        .position(|event| event.event_id == applied_event_id)
+        .expect("applied event");
+    let applied_event = reordered.remove(applied_index);
+    reordered.push(applied_event);
+    assert!(
+        verify_gene_bank_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
+        "a transfer record cannot precede the trial it applies to"
     );
 }

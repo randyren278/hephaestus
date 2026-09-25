@@ -232,6 +232,9 @@ impl RegisteredObjects {
                 "world.registered" => registered.register_world(event, artifacts)?,
                 "genome.registered" => registered.register_genome(event, artifacts)?,
                 "forge.proposed" => registered.register_forge_child(event, artifacts)?,
+                "gene.transfer_applied" => {
+                    registered.register_gene_transfer_child(event, artifacts)?;
+                }
                 _ => {}
             }
         }
@@ -355,12 +358,14 @@ impl RegisteredObjects {
         self.register_genome_record(event, record, artifacts)
     }
 
-    fn register_forge_child(
-        &mut self,
+    /// Decodes a canonical child-registering envelope (`forge.proposed` or
+    /// `gene.transfer_applied`) and returns its parsed JSON body and decoded
+    /// child `GenomeRecord`. Both callers additionally verify their own
+    /// distinct aggregate identity from the returned body.
+    fn decode_canonical_child_envelope(
         event: &StoredEvent,
-        artifacts: &ArtifactStore,
-    ) -> Result<(), RegistrationError> {
-        let kind = RegistrationKind::Genome;
+        kind: RegistrationKind,
+    ) -> Result<(serde_json::Value, GenomeRecord), RegistrationError> {
         let payload =
             serde_json::from_slice::<serde_json::Value>(&event.payload).map_err(|_| {
                 RegistrationError::InvalidPayload {
@@ -393,6 +398,16 @@ impl RegisteredObjects {
                 kind,
             }
         })?;
+        Ok((payload, record))
+    }
+
+    fn register_forge_child(
+        &mut self,
+        event: &StoredEvent,
+        artifacts: &ArtifactStore,
+    ) -> Result<(), RegistrationError> {
+        let kind = RegistrationKind::Genome;
+        let (payload, record) = Self::decode_canonical_child_envelope(event, kind)?;
         let proposal_id = payload
             .get("proposal_id")
             .and_then(serde_json::Value::as_str)
@@ -412,6 +427,32 @@ impl RegisteredObjects {
         self.register_genome_record(event, record, artifacts)
     }
 
+    fn register_gene_transfer_child(
+        &mut self,
+        event: &StoredEvent,
+        artifacts: &ArtifactStore,
+    ) -> Result<(), RegistrationError> {
+        let kind = RegistrationKind::Genome;
+        let (payload, record) = Self::decode_canonical_child_envelope(event, kind)?;
+        let trial_id = payload
+            .get("trial_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| RegistrationError::InvalidPayload {
+                event_id: event.event_id.clone(),
+                kind,
+            })?;
+        if event.aggregate_id != format!("gene:transfer:{trial_id}")
+            || event.event_id != format!("gene:transfer:{trial_id}:applied")
+        {
+            return Err(RegistrationError::AggregateMismatch {
+                event_id: event.event_id.clone(),
+                expected: format!("gene:transfer:{trial_id}"),
+                actual: event.aggregate_id.clone(),
+            });
+        }
+        self.register_genome_record(event, record, artifacts)
+    }
+
     fn register_genome_record(
         &mut self,
         event: &StoredEvent,
@@ -419,7 +460,7 @@ impl RegisteredObjects {
         artifacts: &ArtifactStore,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::Genome;
-        if event.event_type != "forge.proposed" {
+        if event.event_type != "forge.proposed" && event.event_type != "gene.transfer_applied" {
             require_aggregate(event, &record.genome_id)?;
         }
         if let Some(existing) = self.genomes.get(&record.genome_id) {

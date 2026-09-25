@@ -55,7 +55,8 @@
     "crates/hephaestus-arena/src/invariants.rs",
     "crates/hephaestus-control/src/champion.rs",
     "crates/hephaestus-arena/src/clusters.rs",
-    "crates/hephaestus-runtime/src/provider_events.rs"
+    "crates/hephaestus-runtime/src/provider_events.rs",
+    "crates/hephaestus-control/src/gene_bank.rs"
   ],
   "mutations": [
     {
@@ -1805,8 +1806,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2341,7 +2342,7 @@
       "replace": "        || false && analysis != *expected"
     },
     {
-      "id": "provider-extra-env-not-applied",
+"id": "provider-extra-env-not-applied",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "Operator-named extra environment variables actually reach a provider adapter's child process.",
       "find": "        for (key, value) in &self.extra_env {\n            worker_command.env(key, value);\n        }",
@@ -2367,6 +2368,62 @@
       "invariant": "A Codex turn.failed stream event is always surfaced as a recorded error, never silently dropped.",
       "find": "        \"turn.failed\" => {\n            let mut fields = BTreeMap::from([(\"provider\".to_owned(), \"codex\".to_owned())]);\n            if let Some(error) = value.get(\"error\") {\n                fields.insert(\"error\".to_owned(), error.to_string());\n            }\n            vec![RuntimeObservation::new(\n                RuntimeObservationKind::Error,\n                fields,\n            )]\n        }",
       "replace": "        \"turn.failed\" => {\n            Vec::new()\n        }"
+    },
+    {
+      "id": "control-gene-extraction-requires-promoted-transition",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A Gene can only be extracted from a Champion transition whose kind is Promoted, never a seed or rollback.",
+      "find": "    if promotion_payload.kind != ChampionTransitionKind::Promoted {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-extraction-requires-minimum-evidence",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Extraction refuses a promotion whose verified selection receipt has fewer measured paired trials than the deterministic minimum-evidence threshold.",
+      "find": "    if evidence_trials < GENE_MIN_EVIDENCE_TRIALS {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-extraction-idempotency-rejects-mismatched-promotion",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Reusing a gene_id with a different promotion_transition_id fails closed instead of returning the original Gene.",
+      "find": "    if payload.promotion_transition_id != promotion_transition_id {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-transfer-requires-origin-operation",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A transfer trial can only be applied to a recipient Genome that currently carries the Gene's exact origin (pre-mutation) operation.",
+      "find": "    if reference_instruction_operation(current) != gene.operation_before {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-transfer-positive-requires-lower-bound",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A transfer trial is classified positive only when the paired correctness delta's lower confidence bound is above zero.",
+      "find": "    let outcome = if receipt.lower_bps() > 0 {",
+      "replace": "    let outcome = if false {"
+    },
+    {
+      "id": "control-gene-transfer-negative-requires-upper-bound",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A transfer trial is classified negative only when the paired correctness delta's upper confidence bound is below zero; negative transfer is retained, never dropped.",
+      "find": "    } else if receipt.upper_bps() < 0 {",
+      "replace": "    } else if false {"
+    },
+    {
+      "id": "control-gene-speciation-requires-no-negative-in-domain",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Speciation refuses a domain that has any recorded negative transfer; a specialist species requires a persistent advantage.",
+      "find": "    if has_negative_in_domain {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-speciation-requires-minimum-lineages",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Speciation refuses a domain with fewer than the deterministic minimum count of distinct positive recipient lineages.",
+      "find": "    if lineages.len() < SPECIATION_MIN_LINEAGES {",
+      "replace": "    if false {"
     }
   ]
 }

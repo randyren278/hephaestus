@@ -18,7 +18,10 @@ pub use protocol::{
     EvolutionGenerationRecord, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
     ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
     ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
-    ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
+    ForgeProposalRecord, GeneAggregateRecord, GeneContradictionPayload, GeneContradictionRecord,
+    GeneEventRecord, GeneExtractedPayload, GeneRecord, GeneSpeciesPayload, GeneSpeciesRecord,
+    GeneSummary, GeneTransferAppliedPayload, GeneTransferOutcome, GeneTransferRecord,
+    GeneTransferRecordedPayload, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
     JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason, RunListEntry,
     SelectionEventRecord, SelectionRecord, WorldRecord,
 };

@@ -259,6 +259,11 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |
 | `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
 | `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
+| `hephaestus gene extract <id> --promotion <transition>` | Extract a Gene from a promoted, evidence-bound Champion transition ([docs/GENE_BANK.md](docs/GENE_BANK.md)) |
+| `hephaestus gene transfer <id> --gene <gene> --to <genome>` | Apply a Gene's mutation to another lineage's Genome through the ordinary compiler |
+| `hephaestus gene record <id> --evaluation <evaluation>` | Record a transfer trial's measured effect as positive, neutral, or negative |
+| `hephaestus gene show <id>` / `list` | Inspect one Gene's transfer trials, contradictions, and species, or list every Gene |
+| `hephaestus gene speciate <id> --gene <gene> --domain <world>` | Create a specialist species from persistent, statistically significant domain advantage |
 | `hephaestus replay` | Verify history and compare it with live state |
 | `hephaestus runs --limit <n>` | Recent direct runs and jobs, newest first, bounded (default 20, max 200) |
 | `hephaestus evaluations --limit <n>` | Recent Arena evaluations with selection, invariant, and Forge evidence references, newest first |
@@ -272,14 +277,14 @@ Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **330 deliberate source mutations**, each one
+runs the suite, then applies **338 deliberate source mutations**, each one
 disabling a specific documented invariant (from "an oversized request is
 accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
 build. The mutation jobs run only after the deterministic job passes; inspect
 the latest CI result before treating a commit as verified. The count can only go up.
 
-Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 34 production-critical
+Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 35 production-critical
 modules (branch coverage where LCOV reports branches, line coverage otherwise),
 `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
 docs gate that fails if any path mentioned in this README stops existing.
@@ -305,7 +310,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 330
+python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 338
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 
