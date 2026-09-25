@@ -292,6 +292,86 @@ pub enum Command {
     },
     /// Stop the local daemon after acknowledging the audited request.
     DaemonStop,
+    /// Route one versioned MCP tool call through the ordinary authenticated
+    /// operator API. The MCP gateway makes the capability-policy decision
+    /// before sending this; the daemon ledgers the decision unconditionally
+    /// (including a denial) and, only when allowed, dispatches the wrapped
+    /// command through this exact same authenticated path.
+    McpCall {
+        /// Stable identity of the connected MCP client, from its capability policy.
+        client_id: String,
+        /// Versioned tool name the client invoked.
+        tool: String,
+        /// Schema version of the invoked tool.
+        tool_version: u16,
+        /// The gateway's capability decision for this call.
+        decision: McpDecision,
+    },
+    /// Mint one scoped, expiring credential for a remote worker. The raw
+    /// token is returned exactly once and is never itself persisted; only
+    /// its content-derived identity is ledgered.
+    WorkerCredentialMint {
+        /// Operator-chosen stable identity for the worker holding this credential.
+        worker_id: String,
+        /// Time-to-live for the minted credential, in seconds.
+        ttl_seconds: u64,
+    },
+    /// Revoke one previously minted worker credential; fails closed on future use.
+    WorkerCredentialRevoke {
+        /// Content-derived credential identity returned by `WorkerCredentialMint`.
+        credential_id: String,
+    },
+    /// Admit one bounded direct reference run for remote-worker execution.
+    RemoteRunSubmit {
+        /// Caller-selected idempotency key, unique for one immutable Genome.
+        job_id: String,
+        /// Content-derived registered Genome identity.
+        genome_id: String,
+    },
+    /// Inspect one admitted remote-worker job.
+    RemoteJobStatus {
+        /// Stable job identity returned by `RemoteRunSubmit`.
+        job_id: String,
+    },
+}
+
+/// The MCP gateway's capability-policy decision for one tool call, ledgered
+/// unconditionally as part of the wrapping `McpCall` command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
+pub enum McpDecision {
+    /// The calling client's capability policy refused this tool call.
+    Denied {
+        /// Non-sensitive, stable reason the call was refused.
+        reason: String,
+    },
+    /// The calling client's capability policy allowed this tool call; the
+    /// wrapped command is dispatched through the ordinary authenticated path.
+    Allowed {
+        /// The exact operator command this tool call maps to.
+        command: Box<Command>,
+    },
+}
+
+/// Scope granted to a remote worker credential. This slice supports exactly
+/// one job kind.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerScope {
+    /// Lease and execute one direct reference run per job.
+    RemoteReferenceRun,
+}
+
+/// Durable, replay-verified lifecycle state of one remote-worker job.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteJobState {
+    /// Admitted and waiting for a worker to lease it.
+    Pending,
+    /// A worker has returned a signed successful result.
+    Succeeded,
+    /// A worker has returned a signed failed result.
+    Failed,
 }
 
 /// Hard ceiling on any bounded list command's `limit` field.
@@ -536,6 +616,42 @@ pub enum ResponseData {
         /// Entries in newest-first order.
         denials: Vec<DenialEntry>,
     },
+    /// An MCP tool call was refused by the gateway's capability policy.
+    /// The `mcp.call` ledger event recording this denial always exists;
+    /// no wrapped command was ever dispatched.
+    McpDenied {
+        /// Non-sensitive, stable reason the call was refused.
+        reason: String,
+    },
+    /// One freshly minted remote worker credential. The raw `token` is
+    /// returned exactly this once.
+    WorkerCredential {
+        /// Content-derived credential identity, safe to log and to revoke by.
+        credential_id: String,
+        /// Raw secret token; distribute it to the worker out of band.
+        token: String,
+        /// Operator-chosen worker identity this credential authenticates.
+        worker_id: String,
+        /// Absolute expiry, in milliseconds since the Unix epoch.
+        expires_at_millis: i64,
+        /// Granted scope.
+        scope: WorkerScope,
+    },
+    /// Durable, replay-verified progress of one remote-worker job.
+    RemoteJob {
+        /// Stable job identity.
+        job_id: String,
+        /// Immutable Genome identity executed by the runtime.
+        genome_id: String,
+        /// Current durable state.
+        state: RemoteJobState,
+        /// Runtime-owned terminal reason, present only once a signed result exists.
+        completion_reason: Option<RunCompletionReason>,
+        /// Runtime-owned terminal latency, present only once a signed result exists.
+        latency_millis: Option<u64>,
+        /// CAS address of the bounded output, present only once a signed result exists.
+        stdout_artifact_id: Option<String>,
+    },
 }
 
 /// One direct run or job entry, combining `state.jobs` lifecycle with a verified run result.
@@ -638,6 +754,8 @@ pub enum DenialKind {
     RequestRejected,
     /// The runtime authority boundary denied one capability during a run.
     RuntimeCapabilityDenied,
+    /// The MCP gateway's capability policy refused a tool call.
+    McpCallDenied,
 }
 
 /// One recorded refusal, drawn only from canonical events that ledger a denial.
@@ -658,6 +776,9 @@ pub struct DenialEntry {
     pub genome_id: Option<String>,
     /// Immutable World identity, present only for `RuntimeCapabilityDenied`.
     pub world_id: Option<String>,
+    /// Connected MCP client identity, present only for `McpCallDenied`.
+    #[serde(default)]
+    pub client_id: Option<String>,
 }
 
 /// Canonical payload of one durable Forge proposal event.

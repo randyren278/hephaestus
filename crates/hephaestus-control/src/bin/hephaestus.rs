@@ -136,6 +136,11 @@ enum CliCommand {
         #[command(subcommand)]
         command: DaemonCommand,
     },
+    /// Manage authenticated remote worker credentials and jobs.
+    Worker {
+        #[command(subcommand)]
+        command: WorkerCommand,
+    },
     /// Initialize a local example fixture.
     Init {
         /// Fixture to copy.
@@ -146,6 +151,35 @@ enum CliCommand {
     },
     /// Open the local interactive terminal operator interface.
     Tui,
+}
+
+#[derive(Subcommand)]
+enum WorkerCommand {
+    /// Mint one scoped, expiring credential for a remote worker.
+    CredentialMint {
+        /// Operator-chosen stable worker identity.
+        worker_id: String,
+        /// Time-to-live in seconds.
+        #[arg(long, default_value_t = 3600)]
+        ttl_seconds: u64,
+    },
+    /// Revoke one previously minted credential.
+    CredentialRevoke {
+        /// Content-derived credential identity.
+        credential_id: String,
+    },
+    /// Admit one bounded direct reference run for remote-worker execution.
+    Submit {
+        /// Caller-selected idempotency key.
+        job_id: String,
+        /// Content-derived registered Genome identity.
+        genome_id: String,
+    },
+    /// Inspect one admitted remote-worker job.
+    Status {
+        /// Stable job identity returned by `submit`.
+        job_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -843,6 +877,21 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Daemon {
             command: DaemonCommand::Stop,
         } => Command::DaemonStop,
+        CliCommand::Worker {
+            command: WorkerCommand::CredentialMint { worker_id, ttl_seconds },
+        } => Command::WorkerCredentialMint {
+            worker_id,
+            ttl_seconds,
+        },
+        CliCommand::Worker {
+            command: WorkerCommand::CredentialRevoke { credential_id },
+        } => Command::WorkerCredentialRevoke { credential_id },
+        CliCommand::Worker {
+            command: WorkerCommand::Submit { job_id, genome_id },
+        } => Command::RemoteRunSubmit { job_id, genome_id },
+        CliCommand::Worker {
+            command: WorkerCommand::Status { job_id },
+        } => Command::RemoteJobStatus { job_id },
         CliCommand::Init { .. } => return Err("init is a local command"),
         CliCommand::Tui => return Err("tui is a local interactive command"),
     })

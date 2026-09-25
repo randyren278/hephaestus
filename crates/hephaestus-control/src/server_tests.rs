@@ -7002,6 +7002,8 @@ fn job_transition_rules_cover_admission_running_cancellation_and_terminal_edges(
             completed_runs: BTreeSet::new(),
             registered: RegisteredObjects::default(),
             event_count: 0,
+            worker_credentials: BTreeMap::new(),
+            remote_jobs: BTreeMap::new(),
         }
     }
     let event = |event_type: &str| stored_event(1, event_type, "job:job-1", RUNTIME_ACTOR, b"{}");
@@ -11776,4 +11778,354 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         verify_gene_bank_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
         "a transfer record cannot precede the trial it applies to"
     );
+}
+
+// ---------------------------------------------------------------------
+// MCP gateway: capability-policy denial and allowed dispatch are ledgered
+// through the ordinary authenticated command path (roadmap item 14).
+// ---------------------------------------------------------------------
+
+#[test]
+fn gateway_mcp_call_denied_is_ledgered_without_dispatch() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "mcp-denied",
+        Command::McpCall {
+            client_id: "agent-1".to_owned(),
+            tool: "arena_evaluate".to_owned(),
+            tool_version: 1,
+            decision: McpDecision::Denied {
+                reason: "client is not granted this mutating tool".to_owned(),
+            },
+        },
+    );
+    assert_eq!(
+        response.data,
+        Some(ResponseData::McpDenied {
+            reason: "client is not granted this mutating tool".to_owned()
+        })
+    );
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after denied mcp call");
+    let mcp_events: Vec<_> = history
+        .iter()
+        .filter(|event| event.event_type == "mcp.call")
+        .collect();
+    assert_eq!(mcp_events.len(), 1, "the denial must be ledgered exactly once");
+    assert!(
+        !history
+            .iter()
+            .any(|event| event.event_type == "control.evaluate_pair"),
+        "a denied tool call must never dispatch its wrapped command"
+    );
+
+    let Some(ResponseData::DenialList { denials }) =
+        dispatch_call(&mut plane, &token, "denials-after-mcp-denial", Command::DenialList { limit: 20 })
+            .data
+    else {
+        panic!("denial_list should succeed");
+    };
+    let mcp_denial = denials
+        .iter()
+        .find(|entry| entry.kind == DenialKind::McpCallDenied)
+        .expect("mcp denial appears in the denial list");
+    assert_eq!(mcp_denial.client_id.as_deref(), Some("agent-1"));
+    assert_eq!(mcp_denial.command.as_deref(), Some("arena_evaluate"));
+}
+
+#[test]
+fn gateway_mcp_call_allowed_routes_through_ordinary_command() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "mcp-allowed-status",
+        Command::McpCall {
+            client_id: "agent-1".to_owned(),
+            tool: "status".to_owned(),
+            tool_version: 1,
+            decision: McpDecision::Allowed {
+                command: Box::new(Command::Status),
+            },
+        },
+    );
+    assert!(matches!(response.data, Some(ResponseData::Status { .. })));
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after allowed mcp call");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == "mcp.call")
+            .count(),
+        1,
+        "the allowed call itself is ledgered once"
+    );
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == "control.status")
+            .count(),
+        1,
+        "the wrapped command is dispatched through its ordinary authenticated path"
+    );
+}
+
+#[test]
+fn gateway_mcp_call_rejects_nested_mcp_call() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "mcp-nested",
+        Command::McpCall {
+            client_id: "agent-1".to_owned(),
+            tool: "status".to_owned(),
+            tool_version: 1,
+            decision: McpDecision::Allowed {
+                command: Box::new(Command::McpCall {
+                    client_id: "agent-1".to_owned(),
+                    tool: "status".to_owned(),
+                    tool_version: 1,
+                    decision: McpDecision::Allowed {
+                        command: Box::new(Command::Status),
+                    },
+                }),
+            },
+        },
+    );
+    assert_eq!(
+        response.error.expect("nested mcp_call is rejected").code,
+        ApiErrorCode::InvalidRequest
+    );
+}
+
+// ---------------------------------------------------------------------
+// Remote workers: scoped expiring credentials and idempotent leased
+// execution of the existing isolated reference-worker transform
+// (roadmap item 14).
+// ---------------------------------------------------------------------
+
+fn mint_worker_credential(
+    plane: &mut ControlPlane,
+    token: &str,
+    worker_id: &str,
+    ttl_seconds: u64,
+) -> (String, String) {
+    let Some(ResponseData::WorkerCredential {
+        credential_id,
+        token: worker_token,
+        ..
+    }) = dispatch_call(
+        plane,
+        token,
+        &format!("mint-{worker_id}"),
+        Command::WorkerCredentialMint {
+            worker_id: worker_id.to_owned(),
+            ttl_seconds,
+        },
+    )
+    .data
+    else {
+        panic!("credential mint should succeed");
+    };
+    (credential_id, worker_token)
+}
+
+#[test]
+fn worker_lease_and_result_round_trip_signs_and_records_the_output() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+    let (_, worker_token) = mint_worker_credential(&mut plane, &token, "worker-1", 3_600);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-remote", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let Some(ResponseData::RemoteJob { state, .. }) = dispatch_call(
+        &mut plane,
+        &token,
+        "remote-submit",
+        Command::RemoteRunSubmit {
+            job_id: "remote-job-1".to_owned(),
+            genome_id: genome.genome_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("remote run submit should succeed");
+    };
+    assert_eq!(state, RemoteJobState::Pending);
+
+    let WorkerReply::Leased {
+        job_id, frame_hex, ..
+    } = plane.handle_worker_request(WorkerRequest::Lease {
+        worker_id: "worker-1".to_owned(),
+        token: worker_token.clone(),
+    }) else {
+        panic!("a pending job should be leased");
+    };
+    assert_eq!(job_id, "remote-job-1");
+
+    let frame = (0..frame_hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&frame_hex[index..index + 2], 16).expect("hex byte"))
+        .collect::<Vec<u8>>();
+    let output = hephaestus_runtime::execute_reference_worker_request(&frame)
+        .expect("identity transform succeeds");
+    assert_eq!(output, REMOTE_REFERENCE_PROMPT.as_bytes());
+    let output_hex = output
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    let WorkerReply::ResultAccepted { job_id: accepted_job_id } =
+        plane.handle_worker_request(WorkerRequest::SubmitResult {
+            worker_id: "worker-1".to_owned(),
+            token: worker_token.clone(),
+            job_id: job_id.clone(),
+            output_hex: output_hex.clone(),
+            completion: RemoteCompletion::Success,
+        })
+    else {
+        panic!("the signed result should be accepted");
+    };
+    assert_eq!(accepted_job_id, "remote-job-1");
+
+    let Some(ResponseData::RemoteJob {
+        state,
+        completion_reason,
+        ..
+    }) = dispatch_call(&mut plane, &token, "remote-status", Command::RemoteJobStatus {
+        job_id: "remote-job-1".to_owned(),
+    })
+    .data
+    else {
+        panic!("remote job status should succeed");
+    };
+    assert_eq!(state, RemoteJobState::Succeeded);
+    assert_eq!(completion_reason, Some(RunCompletionReason::Success));
+
+    // Duplicate delivery is idempotent: the second submission must not
+    // append a second signed result.
+    let repeat = plane.handle_worker_request(WorkerRequest::SubmitResult {
+        worker_id: "worker-1".to_owned(),
+        token: worker_token,
+        job_id,
+        output_hex,
+        completion: RemoteCompletion::Success,
+    });
+    assert!(matches!(repeat, WorkerReply::ResultAccepted { .. }));
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after duplicate delivery");
+    assert_eq!(
+        history
+            .iter()
+            .filter(|event| event.event_type == "run.result_recorded")
+            .count(),
+        1,
+        "duplicate delivery must not record a second signed result"
+    );
+}
+
+#[test]
+fn worker_expired_credential_fails_closed() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let (_, worker_token) = mint_worker_credential(&mut plane, &token, "worker-expiring", 1);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-expiring", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    dispatch_call(
+        &mut plane,
+        &token,
+        "remote-submit-expiring",
+        Command::RemoteRunSubmit {
+            job_id: "remote-job-expiring".to_owned(),
+            genome_id: genome.genome_id,
+        },
+    );
+    std::thread::sleep(Duration::from_millis(1_100));
+
+    let reply = plane.handle_worker_request(WorkerRequest::Lease {
+        worker_id: "worker-expiring".to_owned(),
+        token: worker_token,
+    });
+    assert!(
+        matches!(reply, WorkerReply::Error { .. }),
+        "an expired credential must fail closed"
+    );
+}
+
+#[test]
+fn worker_revoked_credential_fails_closed() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (credential_id, worker_token) = mint_worker_credential(&mut plane, &token, "worker-revoked", 3_600);
+
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "revoke",
+            Command::WorkerCredentialRevoke { credential_id }
+        )
+        .error
+        .is_none()
+    );
+
+    let reply = plane.handle_worker_request(WorkerRequest::Lease {
+        worker_id: "worker-revoked".to_owned(),
+        token: worker_token,
+    });
+    assert!(
+        matches!(reply, WorkerReply::Error { .. }),
+        "a revoked credential must fail closed"
+    );
+}
+
+#[test]
+fn worker_unknown_credential_fails_closed() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let reply = plane.handle_worker_request(WorkerRequest::Lease {
+        worker_id: "ghost".to_owned(),
+        token: "ab".repeat(32),
+    });
+    assert!(matches!(reply, WorkerReply::Error { .. }));
 }

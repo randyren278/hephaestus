@@ -17,7 +17,9 @@ pub use error::RuntimeError;
 pub use guardian::{hold_process_group_anchor, run_process_guardian};
 pub use isolation::{IsolationBackend, IsolationPolicy};
 pub use provider::ProviderInvocation;
-pub use reference_instruction::{ReferenceInstruction, execute_reference_worker_request};
+pub use reference_instruction::{
+    ReferenceInstruction, execute_reference_worker_request, frame_reference_instruction,
+};
 pub use runtime::{
     AdapterCapabilities, CompletionReason, Provider, RunHandle, RunSnapshot, RunStatus,
     RuntimeAdapter, RuntimeObservation, RuntimeObservationKind,

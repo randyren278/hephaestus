@@ -22,7 +22,9 @@ pub use protocol::{
     GeneEventRecord, GeneExtractedPayload, GeneRecord, GeneSpeciesPayload, GeneSpeciesRecord,
     GeneSummary, GeneTransferAppliedPayload, GeneTransferOutcome, GeneTransferRecord,
     GeneTransferRecordedPayload, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason, RunListEntry,
-    SelectionEventRecord, SelectionRecord, WorldRecord,
+    JobTerminal, MAX_LIST_LIMIT, McpDecision, RemoteJobState, ResponseData, RunCompletionReason,
+    RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
 };
-pub use server::{ControlPlane, data_dir_from_environment};
+pub use server::{
+    ControlPlane, RemoteCompletion, WorkerReply, WorkerRequest, data_dir_from_environment,
+};

@@ -87,6 +87,23 @@ impl ReferenceInstruction {
     }
 }
 
+/// Frames one reference instruction and its input for a worker transport.
+///
+/// This is the exact framing the local `hephaestus-reference-worker` binary
+/// consumes over stdin; a remote worker uses the same bytes over its own
+/// authenticated channel, so the isolated sandboxed transform itself is
+/// identical regardless of transport.
+///
+/// # Errors
+///
+/// Rejects oversized input.
+pub fn frame_reference_instruction(
+    instruction: ReferenceInstruction,
+    input: &[u8],
+) -> Result<Vec<u8>, RuntimeError> {
+    instruction.frame(input)
+}
+
 /// Executes a validated reference worker frame. The worker has no filesystem or network behavior.
 ///
 /// # Errors

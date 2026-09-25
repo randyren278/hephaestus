@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     env,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -60,8 +60,8 @@ use crate::{
     ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
     ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
     ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason, RunListEntry,
-    SelectionEventRecord, SelectionRecord, WorldRecord,
+    JobTerminal, MAX_LIST_LIMIT, McpDecision, RemoteJobState, ResponseData, RunCompletionReason,
+    RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -71,6 +71,8 @@ const MAX_REQUEST_BYTES: usize = 7 * 1_048_576;
 const TEST_ARENA_OVERALL_WALL_ENV: &str = "HEPHAESTUS_TEST_ARENA_OVERALL_WALL_MILLIS";
 const CONTROL_AGGREGATE: &str = "hephaestus-control";
 const OPERATOR_ACTOR: &str = "local-operator";
+/// Hard ceiling on `WorkerCredentialMint`'s `ttl_seconds`: 30 days.
+const MAX_WORKER_TTL_SECONDS: u64 = 30 * 24 * 60 * 60;
 const RUNTIME_ACTOR: &str = "daemon-runtime";
 const MAX_EVALUATION_WALL_MILLIS: u64 = 86_400_000;
 const MAX_EVALUATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
@@ -87,6 +89,79 @@ const MAX_QUEUED_REQUESTS: usize = 16;
 // enough headroom under `validate_job_id`'s 128-byte limit for any generation
 // index up to `u32::MAX`.
 const MAX_EVOLUTION_RUN_ID_BYTES: usize = 100;
+const REMOTE_REFERENCE_PROMPT: &str =
+    "Inventory the isolated repository without modifying it or using the network.";
+const MAX_WORKER_MESSAGE_BYTES: usize = 2 * 1_048_576;
+const REMOTE_LEASE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// One authenticated request from a remote worker over the dedicated
+/// `worker.sock`. Every variant carries the worker's scoped credential; an
+/// invalid, expired, or revoked credential fails closed before any lease or
+/// result is processed.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WorkerRequest {
+    /// Ask for one pending remote job, if any is available.
+    Lease {
+        /// Operator-chosen worker identity presenting this credential.
+        worker_id: String,
+        /// Raw credential secret, hex-encoded.
+        token: String,
+    },
+    /// Return the signed result of one previously leased job.
+    SubmitResult {
+        /// Operator-chosen worker identity presenting this credential.
+        worker_id: String,
+        /// Raw credential secret, hex-encoded.
+        token: String,
+        /// Job identity being completed.
+        job_id: String,
+        /// Hex-encoded raw output bytes from `execute_reference_worker_request`.
+        output_hex: String,
+        /// Worker-observed completion outcome.
+        completion: RemoteCompletion,
+    },
+}
+
+/// Coarse, worker-observed completion outcome for one leased job. The
+/// daemon, not the worker, is the sole signer of the canonical result this
+/// produces.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteCompletion {
+    /// The reference worker transform completed successfully.
+    Success,
+    /// The reference worker transform failed.
+    ProviderFailure,
+}
+
+/// The daemon's reply to one `WorkerRequest`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WorkerReply {
+    /// One job leased to the requesting worker.
+    Leased {
+        /// Job identity to return a result for.
+        job_id: String,
+        /// Immutable Genome identity executed by the runtime.
+        genome_id: String,
+        /// Hex-encoded exact bytes for `execute_reference_worker_request`.
+        frame_hex: String,
+    },
+    /// No pending job is currently available to lease.
+    NoWork,
+    /// The result was accepted; a canonical signed result now exists (or
+    /// already existed, for a duplicate delivery).
+    ResultAccepted {
+        /// The completed job identity.
+        job_id: String,
+    },
+    /// The request was refused; nothing was recorded.
+    Error {
+        /// Non-sensitive, stable refusal reason.
+        reason: String,
+    },
+}
 
 /// Resolves `HEPHAESTUS_HOME`, then the conventional per-user data directory.
 ///
@@ -130,6 +205,12 @@ pub struct ControlPlane {
     active_arena_job: Option<ActiveArenaJob>,
     arena_message_receiver: Option<mpsc::Receiver<ArenaWorkerMessage>>,
     arena_message_sender: Option<mpsc::SyncSender<ArenaWorkerMessage>>,
+    // Ephemeral, non-canonical: which remote job a lease currently claims and
+    // when that lease was granted. Never survives a restart; a lease that a
+    // worker never returns simply becomes eligible for another worker after
+    // `REMOTE_LEASE_TIMEOUT`, and the daemon's signed result stays the only
+    // durable fact.
+    remote_leases: HashMap<String, Instant>,
 }
 
 struct CanonicalStorage {
@@ -322,6 +403,60 @@ impl Drop for SandboxCleanupGuard {
 struct QueuedRequest {
     request: ApiRequest,
     reply: mpsc::SyncSender<ApiResponse>,
+}
+
+struct QueuedWorkerRequest {
+    request: WorkerRequest,
+    reply: mpsc::SyncSender<WorkerReply>,
+}
+
+fn serve_worker_connection(
+    mut stream: UnixStream,
+    sender: &mpsc::SyncSender<QueuedWorkerRequest>,
+    active_handlers: Arc<AtomicUsize>,
+) {
+    let _count = HandlerCount(active_handlers);
+    if stream.set_nonblocking(false).is_err() {
+        return;
+    }
+    let _read_timeout_error = stream.set_read_timeout(Some(Duration::from_secs(2))).err();
+    let _write_timeout_error = stream.set_write_timeout(Some(Duration::from_secs(2))).err();
+    let mut bytes = Vec::new();
+    let response = match std::io::Read::by_ref(&mut stream)
+        .take(u64::try_from(MAX_WORKER_MESSAGE_BYTES).unwrap_or(u64::MAX) + 1)
+        .read_to_end(&mut bytes)
+    {
+        Ok(_) if bytes.len() > MAX_WORKER_MESSAGE_BYTES => WorkerReply::Error {
+            reason: "request exceeds limit".to_owned(),
+        },
+        Err(_) => WorkerReply::Error {
+            reason: "request could not be read".to_owned(),
+        },
+        Ok(_) => match serde_json::from_slice::<WorkerRequest>(&bytes) {
+            Ok(request) => {
+                let (reply, response) = mpsc::sync_channel(1);
+                match sender.try_send(QueuedWorkerRequest { request, reply }) {
+                    Ok(()) => response.recv_timeout(Duration::from_secs(15)).unwrap_or_else(
+                        |_| WorkerReply::Error {
+                            reason: "canonical operation failed".to_owned(),
+                        },
+                    ),
+                    Err(mpsc::TrySendError::Full(_)) => WorkerReply::Error {
+                        reason: "daemon worker queue is full".to_owned(),
+                    },
+                    Err(mpsc::TrySendError::Disconnected(_)) => WorkerReply::Error {
+                        reason: "daemon is stopping".to_owned(),
+                    },
+                }
+            }
+            Err(_) => WorkerReply::Error {
+                reason: "request does not match the declared schema".to_owned(),
+            },
+        },
+    };
+    if let Ok(bytes) = serde_json::to_vec(&response) {
+        let _ignored = write_bounded_response(&mut stream, &bytes);
+    }
 }
 
 struct HandlerCount(Arc<AtomicUsize>);
@@ -608,6 +743,7 @@ impl ControlPlane {
             active_arena_job: None,
             arena_message_receiver: None,
             arena_message_sender: None,
+            remote_leases: HashMap::new(),
         })
     }
 
@@ -626,10 +762,24 @@ impl ControlPlane {
         let (request_sender, request_receiver) =
             mpsc::sync_channel::<QueuedRequest>(MAX_QUEUED_REQUESTS);
         let active_handlers = Arc::new(AtomicUsize::new(0));
+
+        let worker_socket_path = self.data_dir.join("worker.sock");
+        remove_stale_socket(&worker_socket_path)?;
+        let worker_listener = UnixListener::bind(&worker_socket_path)?;
+        fs::set_permissions(&worker_socket_path, fs::Permissions::from_mode(0o600))?;
+        worker_listener.set_nonblocking(true)?;
+        let (worker_sender, worker_receiver) =
+            mpsc::sync_channel::<QueuedWorkerRequest>(MAX_QUEUED_REQUESTS);
+        let active_worker_handlers = Arc::new(AtomicUsize::new(0));
+
         while !self.shutdown_requested {
             self.service_async_messages()?;
             if let Ok(queued) = request_receiver.try_recv() {
                 let response = self.handle(queued.request);
+                let _ignored = queued.reply.send(response);
+            }
+            if let Ok(queued) = worker_receiver.try_recv() {
+                let response = self.handle_worker_request(queued.request);
                 let _ignored = queued.reply.send(response);
             }
             match listener.accept() {
@@ -642,6 +792,23 @@ impl ControlPlane {
                         let sender = request_sender.clone();
                         let handlers = Arc::clone(&active_handlers);
                         thread::spawn(move || serve_connection(stream, &sender, handlers));
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(2));
+                }
+                Err(error) => return Err(error.into()),
+            }
+            match worker_listener.accept() {
+                Ok((stream, _)) => {
+                    let current = active_worker_handlers.fetch_add(1, Ordering::AcqRel);
+                    if current >= MAX_SOCKET_HANDLERS {
+                        active_worker_handlers.fetch_sub(1, Ordering::AcqRel);
+                        reject_busy_stream(stream);
+                    } else {
+                        let sender = worker_sender.clone();
+                        let handlers = Arc::clone(&active_worker_handlers);
+                        thread::spawn(move || serve_worker_connection(stream, &sender, handlers));
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -846,6 +1013,21 @@ impl ControlPlane {
             Command::EvaluationList { limit } => self.evaluation_list(limit),
             Command::DenialList { limit } => self.denial_list(limit),
             Command::DaemonStop => self.request_daemon_stop(),
+            Command::McpCall { decision, .. } => match decision {
+                McpDecision::Denied { reason } => Ok(ResponseData::McpDenied { reason }),
+                McpDecision::Allowed { command } => self.execute(request_id, *command),
+            },
+            Command::WorkerCredentialMint {
+                worker_id,
+                ttl_seconds,
+            } => self.worker_credential_mint(&worker_id, ttl_seconds),
+            Command::WorkerCredentialRevoke { credential_id } => {
+                self.worker_credential_revoke(&credential_id)
+            }
+            Command::RemoteRunSubmit { job_id, genome_id } => {
+                self.remote_run_submit(&job_id, &genome_id)
+            }
+            Command::RemoteJobStatus { job_id } => self.remote_job_status(&job_id),
         }
     }
 
@@ -1945,6 +2127,7 @@ impl ControlPlane {
                             run_id: None,
                             genome_id: None,
                             world_id: None,
+                            client_id: None,
                         },
                     ));
                 }
@@ -1962,6 +2145,29 @@ impl ControlPlane {
                         run_id: Some(receipt.provenance.run_id().to_owned()),
                         genome_id: Some(receipt.provenance.genome_id().to_owned()),
                         world_id: Some(receipt.provenance.world_id().to_owned()),
+                        client_id: None,
+                    },
+                ));
+            } else if event.event_type == "mcp.call"
+                && let Ok(recorded) = serde_json::from_slice::<RecordedCommand>(&event.payload)
+                && let Command::McpCall {
+                    client_id,
+                    tool,
+                    decision: McpDecision::Denied { .. },
+                    ..
+                } = &recorded.command
+            {
+                entries.push((
+                    event.sequence,
+                    DenialEntry {
+                        kind: DenialKind::McpCallDenied,
+                        timestamp_millis: event.timestamp_millis,
+                        request_id: Some(recorded.request_id.clone()),
+                        command: Some(tool.clone()),
+                        run_id: None,
+                        genome_id: None,
+                        world_id: None,
+                        client_id: Some(client_id.clone()),
                     },
                 ));
             }
@@ -1983,6 +2189,360 @@ impl ControlPlane {
             frozen: self.state.freeze.is_frozen(),
             killed_runs: 0,
         })
+    }
+
+    fn worker_credential_mint(
+        &mut self,
+        worker_id: &str,
+        ttl_seconds: u64,
+    ) -> Result<ResponseData, ExecuteError> {
+        let mut secret = [0_u8; 32];
+        File::open("/dev/urandom")
+            .and_then(|mut file| file.read_exact(&mut secret))
+            .map_err(|_| ExecuteError::Internal)?;
+        let token = hex_encode(&secret);
+        let credential_id = blake3::hash(&secret).to_hex()[..32].to_owned();
+        let now = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
+        let ttl_millis = i64::try_from(ttl_seconds)
+            .ok()
+            .and_then(|seconds| seconds.checked_mul(1000))
+            .ok_or(ExecuteError::Internal)?;
+        let expires_at_millis = now.checked_add(ttl_millis).ok_or(ExecuteError::Internal)?;
+        let record = WorkerCredentialRecord {
+            schema_version: 1,
+            credential_id: credential_id.clone(),
+            worker_id: worker_id.to_owned(),
+            scope: WorkerScope::RemoteReferenceRun,
+            expires_at_millis,
+            revoked: false,
+        };
+        let payload = serde_json::to_vec(&record).map_err(|_| ExecuteError::Internal)?;
+        let event = self
+            .storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                format!("worker-credential:{credential_id}"),
+                format!("worker-credential:{credential_id}"),
+                "worker.credential_minted",
+                OPERATOR_ACTOR,
+                now,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.state
+            .apply(&event, &self.operator_token, &self.run_result_verifier)
+            .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::WorkerCredential {
+            credential_id,
+            token,
+            worker_id: worker_id.to_owned(),
+            expires_at_millis,
+            scope: WorkerScope::RemoteReferenceRun,
+        })
+    }
+
+    fn worker_credential_revoke(&mut self, credential_id: &str) -> Result<ResponseData, ExecuteError> {
+        let existing = self
+            .state
+            .worker_credentials
+            .get(credential_id)
+            .ok_or(ExecuteError::NotFound)?;
+        if existing.revoked {
+            return Ok(ResponseData::Acknowledged {
+                frozen: self.state.freeze.is_frozen(),
+                killed_runs: 0,
+            });
+        }
+        let payload = serde_json::to_vec(&serde_json::json!({ "credential_id": credential_id }))
+            .map_err(|_| ExecuteError::Internal)?;
+        let now = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
+        let event = self
+            .storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                format!("worker-credential-revoke:{credential_id}"),
+                format!("worker-credential:{credential_id}"),
+                "worker.credential_revoked",
+                OPERATOR_ACTOR,
+                now,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.state
+            .apply(&event, &self.operator_token, &self.run_result_verifier)
+            .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Acknowledged {
+            frozen: self.state.freeze.is_frozen(),
+            killed_runs: 0,
+        })
+    }
+
+    fn remote_run_submit(
+        &mut self,
+        job_id: &str,
+        genome_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if let Some(existing) = self.state.remote_jobs.get(job_id) {
+            if existing.genome_id != genome_id {
+                return Err(ExecuteError::Rejected(
+                    "job id is already bound to another Genome".to_owned(),
+                ));
+            }
+            return self.remote_job_status(job_id);
+        }
+        let genome = self.runnable_genome(genome_id)?;
+        self.reference_instruction(genome_id)?.ok_or_else(|| {
+            ExecuteError::Rejected("Genome has no reference instruction".to_owned())
+        })?;
+        let run_id = remote_job_run_id(job_id);
+        let record = RemoteJobRecord {
+            schema_version: 1,
+            job_id: job_id.to_owned(),
+            genome_id: genome.genome_id.clone(),
+            run_id,
+        };
+        let payload = serde_json::to_vec(&record).map_err(|_| ExecuteError::Internal)?;
+        let now = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
+        let event = self
+            .storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                format!("remote-job-admit:{job_id}"),
+                format!("remote-job:{job_id}"),
+                "remote_worker.job_admitted",
+                OPERATOR_ACTOR,
+                now,
+                payload,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.state
+            .apply(&event, &self.operator_token, &self.run_result_verifier)
+            .map_err(|_| ExecuteError::Internal)?;
+        self.remote_job_status(job_id)
+    }
+
+    fn remote_job_status(&self, job_id: &str) -> Result<ResponseData, ExecuteError> {
+        let record = self
+            .state
+            .remote_jobs
+            .get(job_id)
+            .ok_or(ExecuteError::NotFound)?;
+        if let Some(result) = self.state.run_results.get(&record.run_id) {
+            let state = if matches!(result.completion_reason, RunCompletionReason::Success) {
+                RemoteJobState::Succeeded
+            } else {
+                RemoteJobState::Failed
+            };
+            return Ok(ResponseData::RemoteJob {
+                job_id: record.job_id.clone(),
+                genome_id: record.genome_id.clone(),
+                state,
+                completion_reason: Some(result.completion_reason),
+                latency_millis: Some(result.latency_millis),
+                stdout_artifact_id: Some(result.stdout_artifact_id.clone()),
+            });
+        }
+        Ok(ResponseData::RemoteJob {
+            job_id: record.job_id.clone(),
+            genome_id: record.genome_id.clone(),
+            state: RemoteJobState::Pending,
+            completion_reason: None,
+            latency_millis: None,
+            stdout_artifact_id: None,
+        })
+    }
+
+    /// Handles one authenticated message from a remote worker connecting
+    /// over the dedicated `worker.sock`. Runs on the same single-writer
+    /// thread as `handle`, so a lease and a result never race a concurrent
+    /// operator command.
+    pub(crate) fn handle_worker_request(&mut self, request: WorkerRequest) -> WorkerReply {
+        match request {
+            WorkerRequest::Lease { worker_id, token } => {
+                if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {
+                    return WorkerReply::Error {
+                        reason: reason.to_owned(),
+                    };
+                }
+                self.lease_remote_job()
+            }
+            WorkerRequest::SubmitResult {
+                worker_id,
+                token,
+                job_id,
+                output_hex,
+                completion,
+            } => {
+                if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {
+                    return WorkerReply::Error {
+                        reason: reason.to_owned(),
+                    };
+                }
+                match self.record_remote_job_result(&job_id, &output_hex, completion) {
+                    Ok(()) => WorkerReply::ResultAccepted { job_id },
+                    Err(reason) => WorkerReply::Error { reason },
+                }
+            }
+        }
+    }
+
+    fn verify_worker_credential(&self, worker_id: &str, token: &str) -> Result<(), &'static str> {
+        let secret = hex_decode(token).map_err(|_| "credential token is malformed")?;
+        let credential_id = blake3::hash(&secret).to_hex()[..32].to_owned();
+        let record = self
+            .state
+            .worker_credentials
+            .get(&credential_id)
+            .ok_or("credential is not recognized")?;
+        if record.revoked {
+            return Err("credential has been revoked");
+        }
+        if record.worker_id != worker_id {
+            return Err("credential does not match worker_id");
+        }
+        let now = timestamp_millis().map_err(|_| "clock error")?;
+        if now >= record.expires_at_millis {
+            return Err("credential has expired");
+        }
+        Ok(())
+    }
+
+    fn lease_remote_job(&mut self) -> WorkerReply {
+        let now = Instant::now();
+        self.remote_leases
+            .retain(|_, leased_at| now.duration_since(*leased_at) < REMOTE_LEASE_TIMEOUT);
+        let Some((job_id, record)) = self
+            .state
+            .remote_jobs
+            .iter()
+            .find(|(job_id, record)| {
+                !self.state.run_results.contains_key(&record.run_id)
+                    && !self.remote_leases.contains_key(job_id.as_str())
+            })
+            .map(|(job_id, record)| (job_id.clone(), record.clone()))
+        else {
+            return WorkerReply::NoWork;
+        };
+        let Ok(Some(instruction)) = self.reference_instruction(&record.genome_id) else {
+            return WorkerReply::NoWork;
+        };
+        let Ok(frame) =
+            hephaestus_runtime::frame_reference_instruction(instruction, REMOTE_REFERENCE_PROMPT.as_bytes())
+        else {
+            return WorkerReply::NoWork;
+        };
+        self.remote_leases.insert(job_id.clone(), now);
+        WorkerReply::Leased {
+            job_id,
+            genome_id: record.genome_id,
+            frame_hex: hex_encode_bytes(&frame),
+        }
+    }
+
+    fn record_remote_job_result(
+        &mut self,
+        job_id: &str,
+        output_hex: &str,
+        completion: RemoteCompletion,
+    ) -> Result<(), String> {
+        let record = self
+            .state
+            .remote_jobs
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| "job_id is not recognized".to_owned())?;
+        if self.state.run_results.contains_key(&record.run_id) {
+            self.remote_leases.remove(job_id);
+            return Ok(());
+        }
+        let output =
+            hex_decode_bytes(output_hex).map_err(|_| "output is not valid hex".to_owned())?;
+        if output.len() > 1_048_576 {
+            return Err("output exceeds the byte limit".to_owned());
+        }
+        let genome = self
+            .state
+            .registered
+            .genome(&record.genome_id)
+            .map(|genome| genome.record().clone())
+            .ok_or_else(|| "Genome is no longer registered".to_owned())?;
+        let source_revision = resolve_source_revision(&self.source_repository)
+            .map_err(|_| "source revision could not be resolved".to_owned())?;
+        let leased_millis = self
+            .remote_leases
+            .get(job_id)
+            .map(|leased_at| leased_at.elapsed().as_millis())
+            .unwrap_or(0);
+        let latency_millis = u64::try_from(leased_millis).unwrap_or(u64::MAX);
+        let now = timestamp_millis().map_err(|_| "clock error".to_owned())?;
+        let (stdout_artifact_id, stderr_artifact_id) = {
+            let storage = self
+                .storage
+                .as_mut()
+                .ok_or_else(|| "storage unavailable".to_owned())?;
+            let stdout = storage
+                .artifacts
+                .put(&output)
+                .map_err(|_| "output could not be stored".to_owned())?
+                .as_str()
+                .to_owned();
+            let stderr = storage
+                .artifacts
+                .put(&[])
+                .map_err(|_| "diagnostic output could not be stored".to_owned())?
+                .as_str()
+                .to_owned();
+            (stdout, stderr)
+        };
+        let claims = RunResultReceipt {
+            schema_version: RUN_RESULT_SCHEMA_VERSION,
+            run_id: record.run_id.clone(),
+            genome_id: genome.genome_id.clone(),
+            world_id: genome.world_id.clone(),
+            source_revision,
+            task_id: "remote-reference-v1".to_owned(),
+            input_commitment: ArtifactId::for_bytes(REMOTE_REFERENCE_PROMPT.as_bytes())
+                .as_str()
+                .to_owned(),
+            seed: 0,
+            environment_id: format!("{}-remote-worker", reference_environment_id()),
+            budget: RunBudgetReceipt {
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 0,
+            },
+            completion_reason: match completion {
+                RemoteCompletion::Success => RunCompletionReason::Success,
+                RemoteCompletion::ProviderFailure => RunCompletionReason::ProviderFailure,
+            },
+            latency_millis,
+            actual_cost_microusd: 0,
+            stdout_artifact_id,
+            stderr_artifact_id,
+            trace_artifact_ids: Vec::new(),
+        };
+        let event_input = self
+            .run_result_signer
+            .issue(claims, now)
+            .map_err(|_| "result claims could not be signed".to_owned())?;
+        let event = self
+            .storage
+            .as_mut()
+            .ok_or_else(|| "storage unavailable".to_owned())?
+            .ledger
+            .append(event_input)
+            .map_err(|_| "result could not be recorded".to_owned())?;
+        self.state
+            .apply(&event, &self.operator_token, &self.run_result_verifier)
+            .map_err(|_| "result could not be applied".to_owned())?;
+        self.remote_leases.remove(job_id);
+        Ok(())
     }
 
     fn require_no_active_job_for_sync_work(&self, command: &Command) -> Result<(), ExecuteError> {
@@ -5685,6 +6245,48 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     {
         return Err(ExecuteError::Invalid("run_id is invalid"));
     }
+    if let Command::McpCall {
+        client_id,
+        tool,
+        decision,
+        ..
+    } = command
+    {
+        if client_id.trim().is_empty() || tool.trim().is_empty() {
+            return Err(ExecuteError::Invalid("client_id and tool are required"));
+        }
+        if let McpDecision::Allowed { command: inner } = decision
+            && matches!(**inner, Command::McpCall { .. })
+        {
+            return Err(ExecuteError::Invalid("mcp_call must not nest mcp_call"));
+        }
+    }
+    if let Command::WorkerCredentialMint {
+        worker_id,
+        ttl_seconds,
+    } = command
+        && (worker_id.trim().is_empty() || *ttl_seconds == 0 || *ttl_seconds > MAX_WORKER_TTL_SECONDS)
+    {
+        return Err(ExecuteError::Invalid(
+            "worker_id is required and ttl_seconds must be between 1 and the maximum",
+        ));
+    }
+    if let Command::WorkerCredentialRevoke { credential_id } = command
+        && credential_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("credential_id is required"));
+    }
+    if let Command::RemoteRunSubmit { job_id, genome_id } = command {
+        validate_job_id(job_id).map_err(|_| ExecuteError::Invalid("job_id is invalid"))?;
+        if genome_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid("genome_id is required"));
+        }
+    }
+    if let Command::RemoteJobStatus { job_id } = command
+        && job_id.trim().is_empty()
+    {
+        return Err(ExecuteError::Invalid("job_id is required"));
+    }
     require_champion_fields(command)?;
     require_gene_fields(command)
 }
@@ -6105,6 +6707,33 @@ fn job_run_id(job_id: &str) -> String {
     format!("async-{}", &digest[..32])
 }
 
+fn remote_job_run_id(job_id: &str) -> String {
+    let digest = blake3::hash(job_id.as_bytes()).to_hex().to_string();
+    format!("remote-{}", &digest[..32])
+}
+
+fn hex_encode_bytes(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+fn hex_decode_bytes(value: &str) -> Result<Vec<u8>, ExecuteError> {
+    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ExecuteError::Invalid("value is not valid hex"));
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| ExecuteError::Invalid("value is not valid hex"))
+        })
+        .collect()
+}
+
 fn paired_run_prefix(evaluation_id: &str) -> String {
     let digest = blake3::hash(evaluation_id.as_bytes()).to_hex().to_string();
     format!("paired-{}", &digest[..24])
@@ -6248,6 +6877,35 @@ struct ControlState {
     completed_runs: BTreeSet<String>,
     registered: RegisteredObjects,
     event_count: u64,
+    worker_credentials: BTreeMap<String, WorkerCredentialRecord>,
+    remote_jobs: BTreeMap<String, RemoteJobRecord>,
+}
+
+/// Durable, replay-verified projection of one minted worker credential. The
+/// raw secret is never stored; `credential_id` is its content-derived,
+/// safe-to-log identity (`blake3(secret)[..32]`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerCredentialRecord {
+    schema_version: u16,
+    credential_id: String,
+    worker_id: String,
+    scope: WorkerScope,
+    expires_at_millis: i64,
+    revoked: bool,
+}
+
+/// Durable, replay-verified admission of one remote-worker job. Terminal
+/// state is derived by joining `run_id` against `ControlState::run_results`,
+/// the same signed-result table local runs populate, so a remote result is
+/// indistinguishable from a local one once recorded.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteJobRecord {
+    schema_version: u16,
+    job_id: String,
+    genome_id: String,
+    run_id: String,
 }
 
 impl ControlState {
@@ -6268,6 +6926,8 @@ impl ControlState {
             completed_runs: BTreeSet::new(),
             registered,
             event_count: 0,
+            worker_credentials: BTreeMap::new(),
+            remote_jobs: BTreeMap::new(),
         };
         for event in events {
             state.apply(event, operator_token, run_result_verifier)?;
@@ -6378,6 +7038,47 @@ impl ControlState {
                         "duplicate Arena receipt identity".to_owned(),
                     ));
                 }
+            }
+            "worker.credential_minted" => {
+                let record: WorkerCredentialRecord = serde_json::from_slice(&event.payload)?;
+                require_projection_text(&record.credential_id, "credential_id")?;
+                require_projection_text(&record.worker_id, "worker_id")?;
+                if record.revoked || self.worker_credentials.contains_key(&record.credential_id) {
+                    return Err(ControlError::Projection(
+                        "worker credential mint is invalid".to_owned(),
+                    ));
+                }
+                self.worker_credentials
+                    .insert(record.credential_id.clone(), record);
+            }
+            "worker.credential_revoked" => {
+                let value: serde_json::Value = serde_json::from_slice(&event.payload)?;
+                let credential_id = value
+                    .get("credential_id")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        ControlError::Projection("worker credential revocation is invalid".to_owned())
+                    })?;
+                let record = self
+                    .worker_credentials
+                    .get_mut(credential_id)
+                    .ok_or_else(|| {
+                        ControlError::Projection(
+                            "worker credential revocation names an unknown credential".to_owned(),
+                        )
+                    })?;
+                record.revoked = true;
+            }
+            "remote_worker.job_admitted" => {
+                let record: RemoteJobRecord = serde_json::from_slice(&event.payload)?;
+                require_projection_text(&record.job_id, "job_id")?;
+                require_projection_text(&record.run_id, "run_id")?;
+                if self.remote_jobs.contains_key(&record.job_id) {
+                    return Err(ControlError::Projection(
+                        "remote job admission is a duplicate".to_owned(),
+                    ));
+                }
+                self.remote_jobs.insert(record.job_id.clone(), record);
             }
             _ => {}
         }
@@ -7244,6 +7945,11 @@ fn event_type(command: &Command) -> &'static str {
         Command::EvaluationList { .. } => "control.evaluation_list",
         Command::DenialList { .. } => "control.denial_list",
         Command::DaemonStop => "control.daemon_stop",
+        Command::McpCall { .. } => "mcp.call",
+        Command::WorkerCredentialMint { .. } => "control.worker_credential_mint",
+        Command::WorkerCredentialRevoke { .. } => "control.worker_credential_revoke",
+        Command::RemoteRunSubmit { .. } => "control.remote_run_submit",
+        Command::RemoteJobStatus { .. } => "control.remote_job_status",
     }
 }
 
