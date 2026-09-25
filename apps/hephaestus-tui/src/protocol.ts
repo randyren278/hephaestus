@@ -18,6 +18,12 @@ export type Command =
 	| {command: 'canary_advance'; canary_id: string; evidence_evaluation_id: string}
 	| {command: 'canary_live_check'; canary_id: string; evidence_evaluation_id: string}
 	| {command: 'canary_show'; canary_id: string}
+	| {command: 'gene_extract'; gene_id: string; promotion_transition_id: string}
+	| {command: 'gene_transfer'; trial_id: string; gene_id: string; to_genome_id: string}
+	| {command: 'gene_record'; trial_id: string; evaluation_id: string}
+	| {command: 'gene_show'; gene_id: string}
+	| {command: 'gene_list'}
+	| {command: 'gene_speciate'; species_id: string; gene_id: string; domain_world_id: string}
 	| {command: 'evaluate_pair'; evaluation_id: string; parent_genome_id: string; candidate_genome_id: string}
 	| {command: 'evolve_start'; run_id: string; world_id: string; from_genome_id: string; generations: number; budget: number}
 	| {command: 'evolve_status'; run_id: string}
@@ -72,6 +78,37 @@ export type CanaryTransition = {
 export type Canary = {
 	canary_id: string; world_id: string; candidate_genome_id: string; previous_champion_genome_id: string;
 	stage: CanaryStage; transitions: CanaryTransition[];
+};
+export type Gene = {
+	gene_id: string; promotion_transition_id: string; world_id: string;
+	origin_parent_genome_id: string; origin_child_genome_id: string;
+	operation_before: string; operation_after: string;
+	evidence_trials: number; evidence_threshold: number;
+	event_id: string; sequence: number;
+};
+export type GeneTransferOutcome = 'positive' | 'neutral' | 'negative';
+export type GeneTransfer = {
+	trial_id: string; gene_id: string; to_genome_id: string; world_id: string; child: Genome;
+	applied_event_id: string; applied_sequence: number;
+	evaluation_id: string | null; outcome: GeneTransferOutcome | null;
+	estimate_bps: number | null; lower_bps: number | null; upper_bps: number | null;
+	recorded_event_id: string | null; recorded_sequence: number | null;
+};
+export type GeneContradiction = {
+	gene_id: string; positive_trial_id: string; positive_world_id: string;
+	negative_trial_id: string; negative_world_id: string; event_id: string; sequence: number;
+};
+export type GeneSpecies = {
+	species_id: string; gene_id: string; domain_world_id: string;
+	lineage_genome_ids: string[]; average_estimate_bps: number;
+	minimum_lineages: number; minimum_effect_bps: number; event_id: string; sequence: number;
+};
+export type GeneSummary = {
+	gene: Gene; lineages: number; positive: number; neutral: number; negative: number;
+	contradiction: boolean; species_ids: string[];
+};
+export type GeneAggregate = {
+	gene: Gene; transfers: GeneTransfer[]; contradiction: GeneContradiction | null; species: GeneSpecies[];
 };
 export const MAX_LIST_ITEMS = 10_000;
 export type RunListEntry = {
@@ -131,6 +168,11 @@ export type ResponseData =
 	| {type: 'drift'; drift: Drift}
 	| {type: 'canary_transition'; transition: CanaryTransition}
 	| {type: 'canary'; canary: Canary}
+	| {type: 'gene'; gene: Gene}
+	| {type: 'genes'; genes: GeneSummary[]}
+	| {type: 'gene_transfer'; trial: GeneTransfer}
+	| {type: 'gene_species'; species: GeneSpecies}
+	| {type: 'gene_aggregate'; aggregate: GeneAggregate}
 	| {type: 'evolution'; run: EvolutionRun}
 	| {type: 'run_list'; runs: RunListEntry[]}
 	| {type: 'evaluation_list'; evaluations: EvaluationListEntry[]}
@@ -258,6 +300,30 @@ function parseDrift(value: unknown): Drift | undefined {
 	};
 }
 
+const GENE_TRANSFER_OUTCOMES: GeneTransferOutcome[] = ['positive', 'neutral', 'negative'];
+
+function nonnegativeNumber(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value);
+}
+
+function parseGene(value: unknown): Gene | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const payload = value['payload'];
+	const event = value['event'];
+	if (!identifier(payload['gene_id']) || !identifier(payload['promotion_transition_id']) || !identifier(payload['world_id'])
+		|| !identifier(payload['origin_parent_genome_id']) || !identifier(payload['origin_child_genome_id'])
+		|| !boundedString(payload['operation_before'], 64) || !boundedString(payload['operation_after'], 64)
+		|| !boundedCount(payload['evidence_trials']) || !boundedCount(payload['evidence_threshold'])
+		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		gene_id: payload['gene_id'], promotion_transition_id: payload['promotion_transition_id'], world_id: payload['world_id'],
+		origin_parent_genome_id: payload['origin_parent_genome_id'], origin_child_genome_id: payload['origin_child_genome_id'],
+		operation_before: payload['operation_before'], operation_after: payload['operation_after'],
+		evidence_trials: payload['evidence_trials'], evidence_threshold: payload['evidence_threshold'],
+		event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
 function parseCanaryEvidence(value: unknown): CanaryEvidence | null | undefined {
 	if (value === null) return null;
 	if (!record(value)) return undefined;
@@ -305,6 +371,99 @@ function parseCanary(value: unknown): Canary | undefined {
 		canary_id: value['canary_id'], world_id: value['world_id'], candidate_genome_id: value['candidate_genome_id'],
 		previous_champion_genome_id: value['previous_champion_genome_id'], stage: value['stage'] as CanaryStage,
 		transitions: transitions as CanaryTransition[],
+	};
+}
+
+function parseGeneTransfer(value: unknown): GeneTransfer | undefined {
+	if (!record(value) || !record(value['applied']) || !record(value['applied_event'])) return undefined;
+	const applied = value['applied'];
+	const appliedEvent = value['applied_event'];
+	const child = parseGenome(applied['child']);
+	if (!identifier(applied['trial_id']) || !identifier(applied['gene_id']) || !identifier(applied['to_genome_id'])
+		|| !identifier(applied['world_id']) || !child
+		|| !identifier(appliedEvent['event_id']) || !safeInteger(appliedEvent['sequence'])) return undefined;
+	const recorded = value['recorded'];
+	const recordedEvent = value['recorded_event'];
+	if (recorded === null) {
+		if (recordedEvent !== null) return undefined;
+		return {
+			trial_id: applied['trial_id'], gene_id: applied['gene_id'], to_genome_id: applied['to_genome_id'],
+			world_id: applied['world_id'], child, applied_event_id: appliedEvent['event_id'], applied_sequence: appliedEvent['sequence'],
+			evaluation_id: null, outcome: null, estimate_bps: null, lower_bps: null, upper_bps: null,
+			recorded_event_id: null, recorded_sequence: null,
+		};
+	}
+	if (!record(recorded) || !record(recordedEvent)
+		|| !identifier(recorded['evaluation_id'])
+		|| typeof recorded['outcome'] !== 'string' || !GENE_TRANSFER_OUTCOMES.includes(recorded['outcome'] as GeneTransferOutcome)
+		|| !Number.isSafeInteger(recorded['estimate_bps']) || !Number.isSafeInteger(recorded['lower_bps']) || !Number.isSafeInteger(recorded['upper_bps'])
+		|| !identifier(recordedEvent['event_id']) || !safeInteger(recordedEvent['sequence'])) return undefined;
+	return {
+		trial_id: applied['trial_id'], gene_id: applied['gene_id'], to_genome_id: applied['to_genome_id'],
+		world_id: applied['world_id'], child, applied_event_id: appliedEvent['event_id'], applied_sequence: appliedEvent['sequence'],
+		evaluation_id: recorded['evaluation_id'], outcome: recorded['outcome'] as GeneTransferOutcome,
+		estimate_bps: recorded['estimate_bps'] as number, lower_bps: recorded['lower_bps'] as number, upper_bps: recorded['upper_bps'] as number,
+		recorded_event_id: recordedEvent['event_id'], recorded_sequence: recordedEvent['sequence'],
+	};
+}
+
+function parseGeneContradiction(value: unknown): GeneContradiction | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const payload = value['payload'];
+	const event = value['event'];
+	if (!identifier(payload['gene_id']) || !identifier(payload['positive_trial_id']) || !identifier(payload['positive_world_id'])
+		|| !identifier(payload['negative_trial_id']) || !identifier(payload['negative_world_id'])
+		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		gene_id: payload['gene_id'], positive_trial_id: payload['positive_trial_id'], positive_world_id: payload['positive_world_id'],
+		negative_trial_id: payload['negative_trial_id'], negative_world_id: payload['negative_world_id'],
+		event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
+function parseGeneSpecies(value: unknown): GeneSpecies | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const payload = value['payload'];
+	const event = value['event'];
+	if (!identifier(payload['species_id']) || !identifier(payload['gene_id']) || !identifier(payload['domain_world_id'])
+		|| !identifierList(payload['lineage_genome_ids']) || !Number.isSafeInteger(payload['average_estimate_bps'])
+		|| !boundedCount(payload['minimum_lineages']) || !nonnegativeNumber(payload['minimum_effect_bps'])
+		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	return {
+		species_id: payload['species_id'], gene_id: payload['gene_id'], domain_world_id: payload['domain_world_id'],
+		lineage_genome_ids: [...payload['lineage_genome_ids']], average_estimate_bps: payload['average_estimate_bps'] as number,
+		minimum_lineages: payload['minimum_lineages'] as number, minimum_effect_bps: payload['minimum_effect_bps'] as number,
+		event_id: event['event_id'], sequence: event['sequence'],
+	};
+}
+
+function parseGeneSummary(value: unknown): GeneSummary | undefined {
+	if (!record(value)) return undefined;
+	const gene = parseGene(value);
+	if (!gene || !boundedCount(value['lineages']) || !boundedCount(value['positive']) || !boundedCount(value['neutral'])
+		|| !boundedCount(value['negative']) || typeof value['contradiction'] !== 'boolean'
+		|| !identifierList(value['species_ids'])) return undefined;
+	return {
+		gene, lineages: value['lineages'], positive: value['positive'], neutral: value['neutral'], negative: value['negative'],
+		contradiction: value['contradiction'], species_ids: [...value['species_ids']],
+	};
+}
+
+function parseGeneAggregate(value: unknown): GeneAggregate | undefined {
+	if (!record(value)) return undefined;
+	const gene = parseGene(value['gene']);
+	if (!gene || !Array.isArray(value['transfers']) || value['transfers'].length > MAX_LIST_ITEMS
+		|| !Array.isArray(value['species']) || value['species'].length > MAX_LIST_ITEMS) return undefined;
+	const transfers = value['transfers'].map(parseGeneTransfer);
+	if (transfers.some(transfer => transfer === undefined)) return undefined;
+	const species = value['species'].map(parseGeneSpecies);
+	if (species.some(item => item === undefined)) return undefined;
+	const contradiction = value['contradiction'];
+	if (contradiction !== null && !parseGeneContradiction(contradiction)) return undefined;
+	return {
+		gene, transfers: transfers as GeneTransfer[],
+		contradiction: contradiction === null ? null : (parseGeneContradiction(contradiction) as GeneContradiction),
+		species: species as GeneSpecies[],
 	};
 }
 
@@ -563,6 +722,32 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			const canary = parseCanary(data['canary']);
 			if (!canary) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'canary', canary}};
+		}
+		case 'gene': {
+			const gene = parseGene(data['gene']);
+			if (!gene) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'gene', gene}};
+		}
+		case 'genes': {
+			if (!Array.isArray(data['genes']) || data['genes'].length > MAX_LIST_ITEMS) break;
+			const genes = data['genes'].map(parseGeneSummary);
+			if (genes.some(gene => gene === undefined)) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genes', genes: genes as GeneSummary[]}};
+		}
+		case 'gene_transfer': {
+			const trial = parseGeneTransfer(data['trial']);
+			if (!trial) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'gene_transfer', trial}};
+		}
+		case 'gene_species': {
+			const species = parseGeneSpecies(data['species']);
+			if (!species) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'gene_species', species}};
+		}
+		case 'gene_aggregate': {
+			const aggregate = parseGeneAggregate(data['aggregate']);
+			if (!aggregate) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'gene_aggregate', aggregate}};
 		}
 		case 'evolution': {
 			const run = parseEvolutionRun(data['run']);

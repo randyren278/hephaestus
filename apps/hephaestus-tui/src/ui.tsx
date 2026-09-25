@@ -7,17 +7,20 @@ import {aggregateCosts, type CostEntry} from './evidence.js';
 import {CostsPanel, DenialsPanel, EvidencePanel, RunsPanel} from './evidence-view.js';
 import {lineageRows, roleOf} from './lineage.js';
 import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js';
-import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type DenialEntry, type EvaluationListEntry, type Genome, type ResponseData, type RunListEntry, type World} from './protocol.js';
+import {GeneDetailPanel, GeneListPanel} from './gene-view.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type DenialEntry, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Author Markdown agent'] as const;
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Author Markdown agent'] as const;
 const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
 type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
 	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback'
 	| 'evidence-menu' | 'runs' | 'evidence' | 'costs' | 'denials'
+	| 'genes' | 'gene-detail'
 	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent';
 const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
 const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
 const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
+const GENE_VIEWS: View[] = ['genes', 'gene-detail'];
 const AUTHOR_VIEWS: View[] = ['author-world', 'author-path', 'author-register', 'author-test-parent'];
 const LIST_LIMIT = 200;
 type TuiClient = Pick<ControlClient, 'request'>;
@@ -111,6 +114,9 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [denialIndex, setDenialIndex] = useState(0);
 	const [costIndex, setCostIndex] = useState(0);
 	const [evidenceMenuIndex, setEvidenceMenuIndex] = useState(0);
+	const [genes, setGenes] = useState<GeneSummary[]>([]);
+	const [geneIndex, setGeneIndex] = useState(0);
+	const [geneDetail, setGeneDetail] = useState<GeneAggregate>();
 	const [authorPath, setAuthorPath] = useState('');
 	const [authorGenome, setAuthorGenome] = useState<Genome>();
 	const [authorNotice, setAuthorNotice] = useState('');
@@ -309,6 +315,25 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		}
 	}, [client, lifetime]);
 	const costs: CostEntry[] = aggregateCosts(runs, evaluations);
+	const loadGenes = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'gene_list'}, lifetime.signal);
+			if (response.data?.type === 'genes') { setGenes(response.data.genes); setNotice(`${response.data.genes.length} Genes in the Gene Bank`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Gene Bank unavailable');
+		}
+	}, [client, lifetime]);
+	const loadGeneDetail = useCallback(async (geneId: string) => {
+		setGeneDetail(undefined);
+		try {
+			const response = await client.request({command: 'gene_show', gene_id: geneId}, lifetime.signal);
+			if (response.data?.type === 'gene_aggregate') setGeneDetail(response.data.aggregate);
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Gene detail unavailable');
+		}
+	}, [client, lifetime]);
 
 	/** Hands the real terminal to `$EDITOR`/`$VISUAL` and restores Ink's raw-mode input afterward. */
 	const openEditor = async (path: string): Promise<void> => {
@@ -485,6 +510,21 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			}
 			return;
 		}
+		if (view === 'genes') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.upArrow || input === 'k') setGeneIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setGeneIndex(value => Math.min(Math.max(0, genes.length - 1), value + 1));
+			if (input.toLowerCase() === 'r') void loadGenes();
+			if (key.return && genes[geneIndex]) { setView('gene-detail'); void loadGeneDetail(genes[geneIndex]!.gene.gene_id); }
+			return;
+		}
+		if (view === 'gene-detail') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('genes'); return; }
+			if (input.toLowerCase() === 'r' && genes[geneIndex]) void loadGeneDetail(genes[geneIndex]!.gene.gene_id);
+			return;
+		}
 		if (view === 'author-world') {
 			if (input.toLowerCase() === 'q') { quit(); return; }
 			if (key.escape) { setView('home'); return; }
@@ -610,7 +650,8 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 7: setView('worlds'); void loadWorlds(); break;
 				case 6: arenaCurrentId.current = ''; setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
 				case 8: setEvidenceMenuIndex(0); setView('evidence-menu'); break;
-				case 9: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
+				case 9: setGeneIndex(0); setGeneDetail(undefined); setView('genes'); void loadGenes(); break;
+				case 10: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
 			}
 		}
 	});
@@ -618,6 +659,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const compact = columns < 72 || rows < 20;
 	const lineageMode = LINEAGE_VIEWS.includes(view);
 	const evidenceMode = EVIDENCE_VIEWS.includes(view);
+	const geneMode = GENE_VIEWS.includes(view);
 	const authorMode = AUTHOR_VIEWS.includes(view);
 	const authorCandidates = lineageRowsView.filter(row => row.genome_id !== authorGenome?.genome_id);
 	// Reserved for everything outside the lineage panel (header, banner, hint
@@ -657,6 +699,10 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'costs' && <CostsPanel costs={costs} selected={costIndex} height={panelHeight - 2} />}
 			{view === 'denials' && <DenialsPanel denials={denials} selected={denialIndex} height={panelHeight - 2} />}
 		</Box>}
+		{geneMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
+			{view === 'genes' && <GeneListPanel genes={genes} selected={geneIndex} height={panelHeight - 2} />}
+			{view === 'gene-detail' && <GeneDetailPanel aggregate={geneDetail} height={panelHeight - 6} />}
+		</Box>}
 		{authorMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
 			{view === 'author-world' && <WorldList worlds={worlds} selected={worldIndex} height={worldListHeight} />}
 			{view === 'author-path' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
@@ -672,7 +718,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			</Box>}
 			{view === 'author-test-parent' && world && <LineagePanel world={world} rows={authorCandidates} champion={champion} selected={authorParentIndex} height={lineagePanelHeight} />}
 		</Box>}
-		{!lineageMode && !evidenceMode && !authorMode && <Box marginTop={compact ? 0 : 1}>
+		{!lineageMode && !evidenceMode && !geneMode && !authorMode && <Box marginTop={compact ? 0 : 1}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
 				<Text color="gray">OPERATOR ACTIONS</Text>
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
@@ -700,6 +746,8 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'confirm-rollback' && <Text color="red">Restore the previous Champion and quarantine {shortId(champion?.champion_genome_id ?? '')}? Press Y to request, N/Esc to back out.</Text>}
 			{view === 'evidence-menu' && <Text color="gray">Enter open · Esc back</Text>}
 			{EVIDENCE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · R refresh · Esc back</Text>}
+			{view === 'genes' && <Text color="gray">Read-only · Enter inspect Gene · R refresh · Esc back</Text>}
+			{view === 'gene-detail' && <Text color="gray">Read-only · R refresh · Esc back</Text>}
 			{view === 'author-world' && <Text color="gray">Enter choose World · Esc back</Text>}
 			{view === 'author-path' && <Text>Path: {authorPath}<Text color="gray">  (Enter open $EDITOR · Esc back)</Text></Text>}
 			{view === 'author-register' && <Text color="gray">{authorGenome ? 'T test against a parent · Esc finish' : 'Enter register · Esc cancel'}</Text>}
@@ -709,6 +757,6 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		<Box borderStyle="single" borderColor="gray" paddingX={1}>
 			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
+		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || geneMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }

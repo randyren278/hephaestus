@@ -10,9 +10,9 @@ use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, CanaryRecord, CanaryTransitionRecord,
     ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind, DriftRecord,
     EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, ForgeAnalysisRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord,
-    InvariantRecord, JobState, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
-    data_dir_from_environment,
+    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GeneRecord,
+    GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord, JobState,
+    ResponseData, RunListEntry, SelectionRecord, WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -101,6 +101,11 @@ enum CliCommand {
     Canary {
         #[command(subcommand)]
         command: CanaryCommand,
+    },
+    /// Extract, transfer, and speciate reusable Genes across lineages.
+    Gene {
+        #[command(subcommand)]
+        command: GeneCommand,
     },
     /// Run trusted paired evaluations.
     Arena {
@@ -336,6 +341,56 @@ enum CanaryCommand {
     Show {
         /// Stable canary idempotency key.
         canary_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum GeneCommand {
+    /// Extract a Gene from a promoted, evidence-bound Champion transition.
+    Extract {
+        /// Stable idempotency key for this Gene.
+        gene_id: String,
+        /// Champion transition that promoted the origin child.
+        #[arg(long)]
+        promotion: String,
+    },
+    /// Apply a Gene's mutation to another lineage's Genome through the
+    /// ordinary compiler, producing an unevaluated transfer child.
+    Transfer {
+        /// Stable idempotency key for this transfer trial.
+        trial_id: String,
+        /// Gene being transferred.
+        #[arg(long)]
+        gene: String,
+        /// Recipient Genome the Gene's mutation is applied to.
+        #[arg(long)]
+        to: String,
+    },
+    /// Record a transfer trial's effect from a verified paired evaluation.
+    Record {
+        /// Transfer trial being recorded; must already be applied.
+        trial_id: String,
+        /// Arena evaluation identity of the recipient-versus-child pair.
+        #[arg(long)]
+        evaluation: String,
+    },
+    /// Show one Gene, its transfer trials, and any contradiction or species.
+    Show {
+        /// Gene identity.
+        gene_id: String,
+    },
+    /// List every extracted Gene with its aggregate transfer counts.
+    List,
+    /// Create a specialist species from persistent domain advantage.
+    Speciate {
+        /// Stable idempotency key for this species.
+        species_id: String,
+        /// Gene whose domain advantage is being formalized.
+        #[arg(long)]
+        gene: String,
+        /// Registered World (domain) the species specializes in.
+        #[arg(long)]
+        domain: String,
     },
 }
 
@@ -877,6 +932,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         CliCommand::Champion { command } => champion_command_from_cli(command),
         CliCommand::Drift { command } => drift_command_from_cli(command),
         CliCommand::Canary { command } => canary_command_from_cli(command),
+        CliCommand::Gene { command } => gene_command_from_cli(command),
         CliCommand::Evolve { command } => evolve_command_from_cli(command),
         CliCommand::Replay => Command::Replay,
         CliCommand::Runs { limit } => Command::RunList { limit },
@@ -968,6 +1024,38 @@ fn canary_command_from_cli(command: CanaryCommand) -> Command {
             evidence_evaluation_id: evidence,
         },
         CanaryCommand::Show { canary_id } => Command::CanaryShow { canary_id },
+    }
+}
+
+fn gene_command_from_cli(command: GeneCommand) -> Command {
+    match command {
+        GeneCommand::Extract { gene_id, promotion } => Command::GeneExtract {
+            gene_id,
+            promotion_transition_id: promotion,
+        },
+        GeneCommand::Transfer { trial_id, gene, to } => Command::GeneTransfer {
+            trial_id,
+            gene_id: gene,
+            to_genome_id: to,
+        },
+        GeneCommand::Record {
+            trial_id,
+            evaluation,
+        } => Command::GeneRecord {
+            trial_id,
+            evaluation_id: evaluation,
+        },
+        GeneCommand::Show { gene_id } => Command::GeneShow { gene_id },
+        GeneCommand::List => Command::GeneList,
+        GeneCommand::Speciate {
+            species_id,
+            gene,
+            domain,
+        } => Command::GeneSpeciate {
+            species_id,
+            gene_id: gene,
+            domain_world_id: domain,
+        },
     }
 }
 
@@ -1138,6 +1226,39 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Canary { canary }), None) => {
             println!("{}", canary_human(canary));
         }
+        (Some(ResponseData::Gene { gene }), None) => {
+            println!("{}", gene_human(gene));
+        }
+        (Some(ResponseData::Genes { genes }), None) => {
+            for summary in genes {
+                println!("{}", gene_summary_human(summary));
+            }
+        }
+        (Some(ResponseData::GeneTransfer { trial }), None) => {
+            println!("{}", gene_transfer_human(trial));
+        }
+        (Some(ResponseData::GeneSpecies { species }), None) => {
+            println!("{}", gene_species_human(species));
+        }
+        (Some(ResponseData::GeneAggregate { aggregate }), None) => {
+            println!("{}", gene_human(&aggregate.gene));
+            for transfer in &aggregate.transfers {
+                println!("{}", gene_transfer_human(transfer));
+            }
+            if let Some(contradiction) = &aggregate.contradiction {
+                println!(
+                    "contradiction gene={} positive_trial={} positive_world={} negative_trial={} negative_world={}",
+                    contradiction.payload.gene_id,
+                    contradiction.payload.positive_trial_id,
+                    contradiction.payload.positive_world_id,
+                    contradiction.payload.negative_trial_id,
+                    contradiction.payload.negative_world_id,
+                );
+            }
+            for species in &aggregate.species {
+                println!("{}", gene_species_human(species));
+            }
+        }
         (Some(ResponseData::Evolution { run }), None) => {
             println!("{}", evolution_human(run));
         }
@@ -1247,6 +1368,67 @@ fn canary_human(canary: &CanaryRecord) -> String {
     )];
     lines.extend(canary.transitions.iter().map(canary_transition_human));
     lines.join("\n")
+}
+
+fn gene_human(gene: &GeneRecord) -> String {
+    format!(
+        "gene={} promotion={} world={} operation={}->{} trials={} threshold={} event={} sequence={} hash={}",
+        gene.payload.gene_id,
+        gene.payload.promotion_transition_id,
+        gene.payload.world_id,
+        gene.payload.operation_before,
+        gene.payload.operation_after,
+        gene.payload.evidence_trials,
+        gene.payload.evidence_threshold,
+        gene.event.event_id,
+        gene.event.sequence,
+        gene.event.event_hash,
+    )
+}
+
+fn gene_summary_human(summary: &GeneSummary) -> String {
+    format!(
+        "gene={} world={} lineages={} positive={} neutral={} negative={} contradiction={} species={}",
+        summary.payload.gene_id,
+        summary.payload.world_id,
+        summary.lineages,
+        summary.positive,
+        summary.neutral,
+        summary.negative,
+        summary.contradiction,
+        summary.species_ids.join(","),
+    )
+}
+
+fn gene_transfer_human(trial: &GeneTransferRecord) -> String {
+    let outcome = trial.recorded.as_ref().map_or_else(
+        || "unrecorded".to_owned(),
+        |recorded| format!("{:?}", recorded.outcome),
+    );
+    format!(
+        "trial={} gene={} to={} child={} world={} outcome={} estimate_bps={}",
+        trial.applied.trial_id,
+        trial.applied.gene_id,
+        trial.applied.to_genome_id,
+        trial.applied.child.genome_id,
+        trial.applied.world_id,
+        outcome,
+        trial
+            .recorded
+            .as_ref()
+            .map_or(0, |recorded| recorded.estimate_bps),
+    )
+}
+
+fn gene_species_human(species: &GeneSpeciesRecord) -> String {
+    format!(
+        "species={} gene={} domain={} lineages={} average_estimate_bps={}",
+        species.payload.species_id,
+        species.payload.gene_id,
+        species.payload.domain_world_id,
+        species.payload.lineage_genome_ids.len(),
+        species.payload.average_estimate_bps,
+    )
 }
 
 fn evolution_human(run: &EvolutionRunRecord) -> String {

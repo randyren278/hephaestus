@@ -55,7 +55,9 @@
     "crates/hephaestus-arena/src/invariants.rs",
     "crates/hephaestus-control/src/champion.rs",
     "crates/hephaestus-arena/src/clusters.rs",
-    "crates/hephaestus-control/src/drift.rs"
+    "crates/hephaestus-control/src/drift.rs",
+    "crates/hephaestus-runtime/src/provider_events.rs",
+    "crates/hephaestus-control/src/gene_bank.rs"
   ],
   "mutations": [
     {
@@ -383,9 +385,9 @@
     {
       "id": "reference-runtime-cost-falsified",
       "file": "crates/hephaestus-control/src/server.rs",
-      "invariant": "The deterministic reference result reports its exact zero provider cost.",
-      "find": "        actual_cost_microusd: 0,",
-      "replace": "        actual_cost_microusd: 1,"
+      "invariant": "The reference-worker execution path always signs a zero-cost run result.",
+      "find": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 0,",
+      "replace": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 1,"
     },
     {
       "id": "workspace-capability-report-inverted",
@@ -901,9 +903,9 @@
     {
       "id": "run-result-cost-unbounded",
       "file": "crates/hephaestus-experience/src/run_result.rs",
-      "invariant": "The deterministic reference receipt cannot claim non-zero provider cost.",
-      "find": "        if self.actual_cost_microusd != 0 {",
-      "replace": "        if false && self.actual_cost_microusd != 0 {"
+      "invariant": "A signed run result can never claim a cost above its own approved budget.",
+      "find": "        if self.actual_cost_microusd > self.budget.maximum_cost_microusd {",
+      "replace": "        if false && self.actual_cost_microusd > self.budget.maximum_cost_microusd {"
     },
     {
       "id": "run-result-output-artifact-unvalidated",
@@ -1112,8 +1114,8 @@
       "id": "control-evaluation-environment-arch-forgotten",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The runtime-owned environment fingerprint binds the host architecture.",
-      "find": "        std::env::consts::ARCH",
-      "replace": "        \"unknown-arch\""
+      "find": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        std::env::consts::ARCH",
+      "replace": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        \"unknown-arch\""
     },
     {
       "id": "control-legacy-unsigned-history-accepted",
@@ -1805,8 +1807,8 @@
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2374,6 +2376,90 @@
       "invariant": "Replay verification of a completing or rolling-back canary event must recompute its expected payload from the history as it stood before its companion Champion transition was appended, not after.",
       "find": "                derivation_bound = derivation_bound.min(position);",
       "replace": "                derivation_bound = derivation_bound.max(position);"
+    },
+    {
+      "id": "provider-extra-env-not-applied",
+      "file": "crates/hephaestus-runtime/src/supervisor.rs",
+      "invariant": "Operator-named extra environment variables actually reach a provider adapter's child process.",
+      "find": "        for (key, value) in &self.extra_env {\n            worker_command.env(key, value);\n        }",
+      "replace": "        for (key, value) in &self.extra_env {\n            if false {\n                worker_command.env(key, value);\n            }\n        }"
+    },
+    {
+      "id": "provider-redaction-skipped",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Raw provider stdout/stderr text is redacted through the same policy as structured trace fields before persistence.",
+      "find": "    pub fn redact_text(&self, text: &str) -> String {\n        self.redact_value(text)\n    }",
+      "replace": "    pub fn redact_text(&self, text: &str) -> String {\n        text.to_owned()\n    }"
+    },
+    {
+      "id": "provider-claude-permission-denied-not-recorded",
+      "file": "crates/hephaestus-runtime/src/provider_events.rs",
+      "invariant": "A Claude permission_denied stream event is always surfaced as a recorded denial, never silently dropped.",
+      "find": "        \"permission_denied\" => {\n            let mut fields = BTreeMap::from([\n                (\"provider\".to_owned(), \"claude\".to_owned()),\n                (\"denied\".to_owned(), \"true\".to_owned()),\n            ]);\n            if let Some(tool) = text_field(value, \"tool_name\") {\n                fields.insert(\"tool_name\".to_owned(), tool);\n            }\n            vec![RuntimeObservation::new(\n                RuntimeObservationKind::Error,\n                fields,\n            )]\n        }",
+      "replace": "        \"permission_denied\" => {\n            Vec::new()\n        }"
+    },
+    {
+      "id": "provider-codex-turn-failed-not-recorded",
+      "file": "crates/hephaestus-runtime/src/provider_events.rs",
+      "invariant": "A Codex turn.failed stream event is always surfaced as a recorded error, never silently dropped.",
+      "find": "        \"turn.failed\" => {\n            let mut fields = BTreeMap::from([(\"provider\".to_owned(), \"codex\".to_owned())]);\n            if let Some(error) = value.get(\"error\") {\n                fields.insert(\"error\".to_owned(), error.to_string());\n            }\n            vec![RuntimeObservation::new(\n                RuntimeObservationKind::Error,\n                fields,\n            )]\n        }",
+      "replace": "        \"turn.failed\" => {\n            Vec::new()\n        }"
+    },
+    {
+      "id": "control-gene-extraction-requires-promoted-transition",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A Gene can only be extracted from a Champion transition whose kind is Promoted, never a seed or rollback.",
+      "find": "    if promotion_payload.kind != ChampionTransitionKind::Promoted {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-extraction-requires-minimum-evidence",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Extraction refuses a promotion whose verified selection receipt has fewer measured paired trials than the deterministic minimum-evidence threshold.",
+      "find": "    if evidence_trials < GENE_MIN_EVIDENCE_TRIALS {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-extraction-idempotency-rejects-mismatched-promotion",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Reusing a gene_id with a different promotion_transition_id fails closed instead of returning the original Gene.",
+      "find": "    if payload.promotion_transition_id != promotion_transition_id {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-transfer-requires-origin-operation",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A transfer trial can only be applied to a recipient Genome that currently carries the Gene's exact origin (pre-mutation) operation.",
+      "find": "    if reference_instruction_operation(current) != gene.operation_before {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-transfer-positive-requires-lower-bound",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A transfer trial is classified positive only when the paired correctness delta's lower confidence bound is above zero.",
+      "find": "    let outcome = if receipt.lower_bps() > 0 {",
+      "replace": "    let outcome = if false {"
+    },
+    {
+      "id": "control-gene-transfer-negative-requires-upper-bound",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "A transfer trial is classified negative only when the paired correctness delta's upper confidence bound is below zero; negative transfer is retained, never dropped.",
+      "find": "    } else if receipt.upper_bps() < 0 {",
+      "replace": "    } else if false {"
+    },
+    {
+      "id": "control-gene-speciation-requires-no-negative-in-domain",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Speciation refuses a domain that has any recorded negative transfer; a specialist species requires a persistent advantage.",
+      "find": "    if has_negative_in_domain {",
+      "replace": "    if false {"
+    },
+    {
+      "id": "control-gene-speciation-requires-minimum-lineages",
+      "file": "crates/hephaestus-control/src/gene_bank.rs",
+      "invariant": "Speciation refuses a domain with fewer than the deterministic minimum count of distinct positive recipient lineages.",
+      "find": "    if lineages.len() < SPECIATION_MIN_LINEAGES {",
+      "replace": "    if false {"
     }
   ]
 }

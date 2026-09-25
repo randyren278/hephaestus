@@ -197,31 +197,31 @@ jobs:
             prefix: crates/hephaestus-control/
             shard_index: 0
             shard_count: 5
-            minimum: 17
+            minimum: 19
             timeout_minutes: 30
           - scope: hephaestus-control-2
             prefix: crates/hephaestus-control/
             shard_index: 1
             shard_count: 5
-            minimum: 17
+            minimum: 18
             timeout_minutes: 30
           - scope: hephaestus-control-3
             prefix: crates/hephaestus-control/
             shard_index: 2
             shard_count: 5
-            minimum: 17
+            minimum: 18
             timeout_minutes: 30
           - scope: hephaestus-control-4
             prefix: crates/hephaestus-control/
             shard_index: 3
             shard_count: 5
-            minimum: 16
+            minimum: 18
             timeout_minutes: 30
           - scope: hephaestus-control-5
             prefix: crates/hephaestus-control/
             shard_index: 4
             shard_count: 5
-            minimum: 16
+            minimum: 18
             timeout_minutes: 30
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs
@@ -253,7 +253,11 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-supervisor
             prefix: crates/hephaestus-runtime/src/supervisor.rs
-            minimum: 11
+            minimum: 12
+            timeout_minutes: 30
+          - scope: runtime-provider-events
+            prefix: crates/hephaestus-runtime/src/provider_events.rs
+            minimum: 2
             timeout_minutes: 30
           - scope: runtime-worker
             prefix: crates/hephaestus-runtime/src/worker.rs
@@ -261,7 +265,7 @@ jobs:
             timeout_minutes: 30
           - scope: hephaestus-experience
             prefix: crates/hephaestus-experience/
-            minimum: 71
+            minimum: 72
             timeout_minutes: 20
           - scope: mutation-checks
             prefix: checks/

@@ -23,6 +23,7 @@ const STATIC_FILES: Record<string, {file: string; contentType: string}> = {
 	'/index.html': {file: 'index.html', contentType: 'text/html; charset=utf-8'},
 	'/app.js': {file: 'app.js', contentType: 'text/javascript; charset=utf-8'},
 	'/styles.css': {file: 'styles.css', contentType: 'text/css; charset=utf-8'},
+	'/web-header-crest.svg': {file: 'web-header-crest.svg', contentType: 'image/svg+xml; charset=utf-8'},
 };
 
 const TOKEN_HEADER = 'x-hephaestus-web-token';
