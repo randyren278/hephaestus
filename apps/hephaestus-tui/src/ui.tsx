@@ -1,14 +1,21 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, useWindowSize} from 'ink';
 import {ControlClient} from './client.js';
+import {aggregateCosts, type CostEntry} from './evidence.js';
+import {CostsPanel, DenialsPanel, EvidencePanel, RunsPanel} from './evidence-view.js';
 import {lineageRows, roleOf} from './lineage.js';
 import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js';
-import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type Genome, type ResponseData, type World} from './protocol.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Champion, type Command, type DenialEntry, type EvaluationListEntry, type Genome, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions'] as const;
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs'] as const;
+const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
 type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
-	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback';
+	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback'
+	| 'evidence-menu' | 'runs' | 'evidence' | 'costs' | 'denials';
 const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
+const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
+const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
+const LIST_LIMIT = 200;
 type TuiClient = Pick<ControlClient, 'request'>;
 type Props = {client?: TuiClient; pollMs?: number};
 
@@ -91,6 +98,14 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const [detailId, setDetailId] = useState('');
 	const [prompts, setPrompts] = useState<Record<string, string | null>>({});
 	const [reason, setReason] = useState('');
+	const [runs, setRuns] = useState<RunListEntry[]>([]);
+	const [runIndex, setRunIndex] = useState(0);
+	const [evaluations, setEvaluations] = useState<EvaluationListEntry[]>([]);
+	const [evaluationIndex, setEvaluationIndex] = useState(0);
+	const [denials, setDenials] = useState<DenialEntry[]>([]);
+	const [denialIndex, setDenialIndex] = useState(0);
+	const [costIndex, setCostIndex] = useState(0);
+	const [evidenceMenuIndex, setEvidenceMenuIndex] = useState(0);
 	const [status, setStatus] = useState<ApiResponse>();
 	const [stale, setStale] = useState(false);
 	const [notice, setNotice] = useState('Connecting to the local control plane…');
@@ -242,6 +257,50 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		const parent = genome.parent_ids.find(id => genomes.some(candidate => candidate.genome_id === id));
 		for (const id of [genomeId, ...(parent ? [parent] : [])]) if (!(id in prompts)) void loadPrompt(id);
 	};
+	const loadRuns = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'run_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'run_list') { setRuns(response.data.runs); setNotice(`${response.data.runs.length} runs`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Runs unavailable');
+		}
+	}, [client, lifetime]);
+	const loadEvaluations = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'evaluation_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'evaluation_list') { setEvaluations(response.data.evaluations); setNotice(`${response.data.evaluations.length} evaluations`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Evidence unavailable');
+		}
+	}, [client, lifetime]);
+	const loadDenials = useCallback(async () => {
+		try {
+			const response = await client.request({command: 'denial_list', limit: LIST_LIMIT}, lifetime.signal);
+			if (response.data?.type === 'denial_list') { setDenials(response.data.denials); setNotice(`${response.data.denials.length} denials`); }
+			else setNotice(messageFor(response));
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Denials unavailable');
+		}
+	}, [client, lifetime]);
+	const loadCosts = useCallback(async () => {
+		try {
+			const [runResponse, evaluationResponse] = [
+				await client.request({command: 'run_list', limit: LIST_LIMIT}, lifetime.signal),
+				await client.request({command: 'evaluation_list', limit: LIST_LIMIT}, lifetime.signal),
+			];
+			const nextRuns = runResponse.data?.type === 'run_list' ? runResponse.data.runs : [];
+			const nextEvaluations = evaluationResponse.data?.type === 'evaluation_list' ? evaluationResponse.data.evaluations : [];
+			setRuns(nextRuns);
+			setEvaluations(nextEvaluations);
+			setNotice(`${aggregateCosts(nextRuns, nextEvaluations).length} costed Genomes`);
+		} catch (error) {
+			if (!lifetime.signal.aborted) setNotice(error instanceof Error ? safeText(error.message) : 'Costs unavailable');
+		}
+	}, [client, lifetime]);
+	const costs: CostEntry[] = aggregateCosts(runs, evaluations);
+
 	const rollback = async () => {
 		if (!world || busy) return;
 		setBusy(true);
@@ -333,6 +392,36 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			}
 			return;
 		}
+		if (view === 'evidence-menu') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('home'); return; }
+			if (key.upArrow || input === 'k') setEvidenceMenuIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setEvidenceMenuIndex(value => Math.min(EVIDENCE_MENU.length - 1, value + 1));
+			if (key.return) {
+				switch (evidenceMenuIndex) {
+					case 0: setRunIndex(0); setView('runs'); void loadRuns(); break;
+					case 1: setEvaluationIndex(0); setView('evidence'); void loadEvaluations(); break;
+					case 2: setCostIndex(0); setView('costs'); void loadCosts(); break;
+					case 3: setDenialIndex(0); setView('denials'); void loadDenials(); break;
+				}
+			}
+			return;
+		}
+		if (view === 'runs' || view === 'evidence' || view === 'costs' || view === 'denials') {
+			if (input.toLowerCase() === 'q') { quit(); return; }
+			if (key.escape) { setView('evidence-menu'); return; }
+			const length = view === 'runs' ? runs.length : view === 'evidence' ? evaluations.length : view === 'costs' ? costs.length : denials.length;
+			const setIndex = view === 'runs' ? setRunIndex : view === 'evidence' ? setEvaluationIndex : view === 'costs' ? setCostIndex : setDenialIndex;
+			if (key.upArrow || input === 'k') setIndex(value => Math.max(0, value - 1));
+			if (key.downArrow || input === 'j') setIndex(value => Math.min(Math.max(0, length - 1), value + 1));
+			if (input.toLowerCase() === 'r') {
+				if (view === 'runs') void loadRuns();
+				else if (view === 'evidence') void loadEvaluations();
+				else if (view === 'costs') void loadCosts();
+				else void loadDenials();
+			}
+			return;
+		}
 		if (view === 'lineage') {
 			if (input.toLowerCase() === 'q') { quit(); return; }
 			if (key.escape) { setView('worlds'); return; }
@@ -395,12 +484,14 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 5: setJobPromptAction('cancel'); setView('job-id'); setJobId(''); break;
 				case 7: setView('worlds'); void loadWorlds(); break;
 				case 6: arenaCurrentId.current = ''; setArenaInput(''); setArenaJobId(''); setArenaJob(undefined); setArenaStale(false); setArenaNotice('Enter an evaluation ID to inspect its durable progress.'); setView('arena-id'); break;
+				case 8: setEvidenceMenuIndex(0); setView('evidence-menu'); break;
 			}
 		}
 	});
 
 	const compact = columns < 72 || rows < 20;
 	const lineageMode = LINEAGE_VIEWS.includes(view);
+	const evidenceMode = EVIDENCE_VIEWS.includes(view);
 	// Reserved for everything outside the lineage panel (header, banner, hint
 	// bar, notice bar, help line); see the layout budget below.
 	const panelHeight = Math.max(3, rows - (compact ? 10 : 16));
@@ -428,7 +519,17 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'genome' && detail && <GenomeDetail genome={detail} parent={detailParent} role={roleOf(detail.genome_id, champion)}
 				prompt={prompts[detail.genome_id]} parentPrompt={detailParent ? prompts[detailParent.genome_id] : ''} height={genomeDetailHeight} />}
 		</Box>}
-		{!lineageMode && <Box marginTop={compact ? 0 : 1}>
+		{evidenceMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
+			{view === 'evidence-menu' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+				<Text bold color="yellow">EVIDENCE &amp; COSTS</Text>
+				{EVIDENCE_MENU.map((label, index) => <Text key={label} color={evidenceMenuIndex === index ? 'yellow' : 'white'}>{evidenceMenuIndex === index ? '› ' : '  '}{label}</Text>)}
+			</Box>}
+			{view === 'runs' && <RunsPanel runs={runs} selected={runIndex} height={panelHeight - 2} />}
+			{view === 'evidence' && <EvidencePanel evaluations={evaluations} selected={evaluationIndex} height={panelHeight - 2} />}
+			{view === 'costs' && <CostsPanel costs={costs} selected={costIndex} height={panelHeight - 2} />}
+			{view === 'denials' && <DenialsPanel denials={denials} selected={denialIndex} height={panelHeight - 2} />}
+		</Box>}
+		{!lineageMode && !evidenceMode && <Box marginTop={compact ? 0 : 1}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
 				<Text color="gray">OPERATOR ACTIONS</Text>
 				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
@@ -454,11 +555,13 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'genome' && <Text color="gray">Prompt diff against the first registered parent · Esc back</Text>}
 			{view === 'rollback-reason' && <Text>Rollback reason: {reason}<Text color="gray">  (Enter confirm · Esc cancel)</Text></Text>}
 			{view === 'confirm-rollback' && <Text color="red">Restore the previous Champion and quarantine {shortId(champion?.champion_genome_id ?? '')}? Press Y to request, N/Esc to back out.</Text>}
+			{view === 'evidence-menu' && <Text color="gray">Enter open · Esc back</Text>}
+			{EVIDENCE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · R refresh · Esc back</Text>}
 		</Box>}
 		<Box flexGrow={1} />
 		<Box borderStyle="single" borderColor="gray" paddingX={1}>
 			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' ? 'Esc back · R refresh' : lineageMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
+		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }
