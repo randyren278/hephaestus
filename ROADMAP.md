@@ -86,6 +86,8 @@ This roadmap implements the complete master-plan sequence without presenting lat
 **Hook**: The benchmark measures improvement ability under budget, not static agent quality.
 **Invariants**: The optimizer cannot alter evaluators or Laws; budgets are runtime-enforced; unseen-task evidence is sealed until experiment completion; no manual edits occur mid-run.
 
+**Evolve slice**: `hephaestus evolve start|status|cancel` runs durable, replay-verified, budget-bounded evolution in the daemon using only existing Arena, Forge, invariant, and Champion primitives; it respects freeze, never alters evaluators or Laws, and a generation's promotion claim must cite matching evidence. In-process tests run three unattended generations with the deterministic reference runtime. A sealed-holdout fixture World (examples/gauntlet) shows the zero-regression policy refusing a candidate that improves only on visible tasks. The seven named Gauntlet failure modes need richer runtimes and are not yet expressible, and statistically supported improvement on a sealed holdout is not yet demonstrated.
+
 ### 11. Population intelligence: Gene Bank, transfer, and speciation
 **Why**: Proven adaptations should compound across lineages while preserving evidence about where they fail.
 **Done when**: Successful mutations become Genes only after minimum evidence; transfer trials record positive and negative effects across at least three lineages; contradictions are explicit; specialist species are created only from persistent statistically significant domain advantage.

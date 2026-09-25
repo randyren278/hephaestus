@@ -8,10 +8,10 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, ChampionRecord, ChampionTransitionRecord, Client,
-    Command, DenialEntry, EvaluationListEntry, EvaluationRecord, ForgeAnalysisRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord,
-    InvariantRecord, JobState, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
-    data_dir_from_environment,
+    Command, DenialEntry, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord,
+    ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
+    GenomeRecord, InvariantRecord, JobState, ResponseData, RunListEntry, SelectionRecord,
+    WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -95,6 +95,11 @@ enum CliCommand {
     Arena {
         #[command(subcommand)]
         command: ArenaCommand,
+    },
+    /// Start, inspect, and cancel unattended multi-generation evolution runs.
+    Evolve {
+        #[command(subcommand)]
+        command: EvolveCommand,
     },
     /// Cluster failure evidence and suggest hypotheses and mutations.
     Forge {
@@ -288,6 +293,42 @@ enum ArenaCommand {
     Invariants {
         /// Stable Arena evaluation identity.
         evaluation_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum EvolveCommand {
+    /// Start (or idempotently re-admit) an unattended, budget-bounded run.
+    ///
+    /// The World must already have a second registered Genome besides
+    /// `--from`: the evolve engine uses it as the fixed comparison baseline
+    /// for every generation's diagnostic evaluation.
+    Start {
+        /// Stable idempotency key for this run.
+        run_id: String,
+        /// Registered World the run evolves within.
+        #[arg(long)]
+        world: String,
+        /// Genome seeded (or already installed) as generation zero's Champion.
+        #[arg(long)]
+        from: String,
+        /// Hard ceiling on the number of generations this run may complete.
+        #[arg(long)]
+        generations: u32,
+        /// Hard ceiling on the number of paired Arena evaluations (trials)
+        /// this run may submit; each generation consumes exactly two.
+        #[arg(long)]
+        budget: u64,
+    },
+    /// Show one evolution run's durable, replay-verified progress.
+    Status {
+        /// Stable run identity returned by `start`.
+        run_id: String,
+    },
+    /// Request cooperative cancellation of one active evolution run.
+    Cancel {
+        /// Stable run identity returned by `start`.
+        run_id: String,
     },
 }
 
@@ -738,6 +779,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             evaluation_id: evaluation,
         },
         CliCommand::Champion { command } => champion_command_from_cli(command),
+        CliCommand::Evolve { command } => evolve_command_from_cli(command),
         CliCommand::Replay => Command::Replay,
         CliCommand::Runs { limit } => Command::RunList { limit },
         CliCommand::Evaluations { limit } => Command::EvaluationList { limit },
@@ -780,6 +822,26 @@ fn champion_command_from_cli(command: ChampionCommand) -> Command {
             reason,
         },
         ChampionCommand::Show { world_id } => Command::ChampionShow { world_id },
+    }
+}
+
+fn evolve_command_from_cli(command: EvolveCommand) -> Command {
+    match command {
+        EvolveCommand::Start {
+            run_id,
+            world,
+            from,
+            generations,
+            budget,
+        } => Command::EvolveStart {
+            run_id,
+            world_id: world,
+            from_genome_id: from,
+            generations,
+            budget,
+        },
+        EvolveCommand::Status { run_id } => Command::EvolveStatus { run_id },
+        EvolveCommand::Cancel { run_id } => Command::EvolveCancel { run_id },
     }
 }
 
@@ -921,6 +983,9 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Champion { champion }), None) => {
             println!("{}", champion_human(champion));
         }
+        (Some(ResponseData::Evolution { run }), None) => {
+            println!("{}", evolution_human(run));
+        }
         (
             Some(ResponseData::Replay {
                 event_count,
@@ -980,6 +1045,37 @@ fn champion_human(champion: &ChampionRecord) -> String {
         champion.transitions.len(),
     )];
     lines.extend(champion.transitions.iter().map(champion_transition_human));
+    lines.join("\n")
+}
+
+fn evolution_human(run: &EvolutionRunRecord) -> String {
+    let mut lines = vec![format!(
+        "run={} world={} from={} baseline={} state={:?} finish_reason={} generations={}/{} trials={}/{} cancel_requested={}",
+        run.run_id,
+        run.world_id,
+        run.from_genome_id,
+        run.baseline_genome_id,
+        run.state,
+        run.finish_reason
+            .map_or_else(|| "none".to_owned(), |reason| format!("{reason:?}")),
+        run.generations.len(),
+        run.max_generations,
+        run.trials_consumed,
+        run.max_paired_trials,
+        run.cancel_requested,
+    )];
+    lines.extend(run.generations.iter().map(|generation| {
+        format!(
+            "  generation={} champion_before={} child={} promoted={} champion_after={} proposal={} assessment={}",
+            generation.payload.generation_index,
+            generation.payload.champion_before,
+            generation.payload.child_genome_id,
+            generation.payload.promoted,
+            generation.payload.champion_after,
+            generation.payload.proposal_id,
+            generation.payload.assessment_id,
+        )
+    }));
     lines.join("\n")
 }
 
@@ -1331,6 +1427,53 @@ mod tests {
             parse(&["hephaestus", "champion", "show", "world-1"]),
             Command::ChampionShow {
                 world_id: "world-1".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn evolve_commands_map_flags_to_authenticated_commands() {
+        let parse = |arguments: &[&str]| {
+            command_from_cli(
+                Arguments::try_parse_from(arguments)
+                    .expect("CLI parses")
+                    .command,
+            )
+            .expect("command maps")
+        };
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "evolve",
+                "start",
+                "run-1",
+                "--world",
+                "world-1",
+                "--from",
+                "genome-1",
+                "--generations",
+                "3",
+                "--budget",
+                "6"
+            ]),
+            Command::EvolveStart {
+                run_id: "run-1".to_owned(),
+                world_id: "world-1".to_owned(),
+                from_genome_id: "genome-1".to_owned(),
+                generations: 3,
+                budget: 6,
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "evolve", "status", "run-1"]),
+            Command::EvolveStatus {
+                run_id: "run-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "evolve", "cancel", "run-1"]),
+            Command::EvolveCancel {
+                run_id: "run-1".to_owned(),
             }
         );
     }

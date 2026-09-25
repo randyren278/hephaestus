@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "manifest_id": "gauntlet-sealed-holdout-visible-v1",
+  "visibility": "visible",
+  "tasks": [
+    {
+      "task_id": "visible-lowercase-report",
+      "input": "quarterly report ready for review",
+      "expected_output": "QUARTERLY REPORT READY FOR REVIEW"
+    },
+    {
+      "task_id": "visible-lowercase-status",
+      "input": "build status is green",
+      "expected_output": "BUILD STATUS IS GREEN"
+    }
+  ]
+}

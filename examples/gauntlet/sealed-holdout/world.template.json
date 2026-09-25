@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "name": "gauntlet-sealed-holdout",
+  "laws": {
+    "candidate_network": false,
+    "candidate_evaluator_access": false,
+    "maximum_cost_microusd": 0
+  },
+  "authority_ceiling": { "workspace_write": false, "network": false },
+  "mutation_scope": ["harness"],
+  "promotion": {
+    "minimum_delta_bps": 0,
+    "maximum_regressions": 0,
+    "confidence_bps": 9500
+  },
+  "objectives": ["correctness"],
+  "evaluator_artifacts": {
+    "arena.visible_manifest": "__VISIBLE_MANIFEST__",
+    "arena.sealed_manifest": "__SEALED_MANIFEST__",
+    "arena.evaluator": "__EVALUATOR__",
+    "arena.runtime_verifier": "__VERIFIER__",
+    "arena.invariant_manifest": "__INVARIANTS__"
+  }
+}

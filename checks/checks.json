@@ -2249,6 +2249,34 @@
       "replace": "        evaluation_ids.sort_by_key(|entry| entry.0);"
     },
     {
+      "id": "control-evolve-freeze-halts-runs",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A frozen daemon never advances an evolution run.",
+      "find": "        if self.state.freeze.is_frozen() {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection",
+      "replace": "        if false {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection"
+    },
+    {
+      "id": "control-evolve-budget-enforced",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An evolution run stops before exceeding its paired-trial budget.",
+      "find": "        if run.trials_consumed.saturating_add(TRIALS_PER_GENERATION) > run.max_paired_trials {",
+      "replace": "        if false {"
+    },
+    {
+      "id": "control-evolve-generation-ceiling",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An evolution run stops at its generation ceiling.",
+      "find": "        if generation_index >= run.max_generations {",
+      "replace": "        if false {"
+    },
+    {
+      "id": "control-evolve-replay-requires-promotion-evidence",
+      "file": "crates/hephaestus-control/src/evolve.rs",
+      "invariant": "Replay rejects a generation that claims promotion without a matching evidence-bound Champion promotion.",
+      "find": "                    if !promoted {\n                        return Err(bad());\n                    }",
+      "replace": "                    if false {\n                        return Err(bad());\n                    }"
+    },
+    {
       "id": "selection-latency-tolerance-uses-min-not-max",
       "file": "crates/hephaestus-arena/src/selection.rs",
       "invariant": "The latency noise floor is the larger of the proportional and fixed terms, not the smaller.",

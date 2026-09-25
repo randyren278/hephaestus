@@ -207,6 +207,30 @@ pub enum Command {
         /// Registered World identity.
         world_id: String,
     },
+    /// Start (or idempotently re-admit) an unattended, budget-bounded,
+    /// multi-generation evolution run owned by the daemon's reconciliation loop.
+    EvolveStart {
+        /// Stable caller-selected idempotency key for the run.
+        run_id: String,
+        /// Registered World the run evolves within.
+        world_id: String,
+        /// Genome seeded (or already installed) as the World's Champion at generation zero.
+        from_genome_id: String,
+        /// Hard ceiling on the number of generations this run may complete.
+        generations: u32,
+        /// Hard ceiling on the number of paired Arena evaluations (trials) this run may submit.
+        budget: u64,
+    },
+    /// Inspect one evolution run's durable, replay-verified progress.
+    EvolveStatus {
+        /// Stable run identity returned by `EvolveStart`.
+        run_id: String,
+    },
+    /// Request cooperative cancellation of one active evolution run.
+    EvolveCancel {
+        /// Stable run identity returned by `EvolveStart`.
+        run_id: String,
+    },
     /// Verify and replay canonical history into a fresh projection.
     Replay,
     /// List recent direct runs and jobs, newest first, bounded by `limit`.
@@ -412,6 +436,11 @@ pub enum ResponseData {
     Champion {
         /// Current Champion, archived predecessors, and transition history.
         champion: Box<ChampionRecord>,
+    },
+    /// Durable, replay-verified progress of one evolution run.
+    Evolution {
+        /// Run configuration, completed generations, and terminal state.
+        run: Box<EvolutionRunRecord>,
     },
     /// Result of a fresh verified replay.
     Replay {
@@ -1040,6 +1069,168 @@ pub enum ApiErrorCode {
     Internal,
     /// Another bounded job is already active, or request capacity is full.
     Busy,
+}
+
+/// Durable lifecycle of one autonomous evolution run.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvolutionRunState {
+    /// The daemon's reconciliation loop is still admitted to advance this run.
+    Running,
+    /// The run reached a terminal state; `finish_reason` explains why.
+    Finished,
+}
+
+/// Why one evolution run stopped advancing.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvolutionFinishReason {
+    /// The run completed its configured `max_generations`.
+    GenerationsExhausted,
+    /// The run would have exceeded its configured `max_paired_trials`.
+    BudgetExhausted,
+    /// An operator requested cancellation through `EvolveCancel`.
+    Cancelled,
+    /// A generation's paired evaluation did not terminate successfully
+    /// (for example, a daemon restart recovered it as failed or interrupted).
+    Interrupted,
+}
+
+/// Canonical payload of the one `evolution.started` event for a run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionStartedPayload {
+    /// Run payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key.
+    pub run_id: String,
+    /// Registered World the run evolves within.
+    pub world_id: String,
+    /// Genome installed as generation zero's Champion.
+    pub from_genome_id: String,
+    /// Registered comparison Genome used as the fixed "parent" side of every
+    /// generation's diagnostic evaluation. Chosen deterministically as the
+    /// lexicographically smallest other Genome registered under the World.
+    pub baseline_genome_id: String,
+    /// Hard ceiling on the number of generations this run may complete.
+    pub max_generations: u32,
+    /// Hard ceiling on the number of paired Arena evaluations (trials) this run may submit.
+    pub max_paired_trials: u64,
+}
+
+/// Canonical payload of one `evolution.generation` event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionGenerationPayload {
+    /// Generation payload schema.
+    pub schema_version: u16,
+    /// Owning run identity.
+    pub run_id: String,
+    /// Zero-based index of this generation within the run.
+    pub generation_index: u32,
+    /// World Champion at the start of this generation.
+    pub champion_before: String,
+    /// Paired evaluation identity establishing `champion_before` as the
+    /// selected candidate that Forge mutates.
+    pub diagnostic_evaluation_id: String,
+    /// Durable Forge proposal mutating `champion_before`.
+    pub proposal_id: String,
+    /// Proposed child Genome identity.
+    pub child_genome_id: String,
+    /// Paired evaluation identity of `champion_before` versus `child_genome_id`.
+    pub child_evaluation_id: String,
+    /// Evidence-only Forge assessment of the child against the Champion.
+    pub assessment_id: String,
+    /// Whether the assessed child was promoted to Champion.
+    pub promoted: bool,
+    /// World Champion after this generation (equal to `champion_before` unless promoted).
+    pub champion_after: String,
+}
+
+/// Canonical payload of the one `evolution.finished` event for a run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionFinishedPayload {
+    /// Finish payload schema.
+    pub schema_version: u16,
+    /// Owning run identity.
+    pub run_id: String,
+    /// Number of generations recorded before this run stopped.
+    pub generations_completed: u32,
+    /// Number of paired Arena evaluations (trials) this run consumed.
+    pub trials_consumed: u64,
+    /// Why the run stopped.
+    pub reason: EvolutionFinishReason,
+}
+
+/// Canonical payload of one `evolution.cancel_requested` event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionCancelPayload {
+    /// Cancel payload schema.
+    pub schema_version: u16,
+    /// Owning run identity.
+    pub run_id: String,
+}
+
+/// Payload-free canonical ledger metadata for one evolution event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Per-run evolution aggregate identity.
+    pub aggregate_id: String,
+    /// Stable event type.
+    pub event_type: String,
+    /// Fixed trusted actor.
+    pub actor: String,
+    /// Canonical event-chain hash.
+    pub event_hash: String,
+}
+
+/// One completed generation, operator-visible.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionGenerationRecord {
+    /// Canonical generation payload.
+    pub payload: EvolutionGenerationPayload,
+    /// Canonical event metadata.
+    pub event: EvolutionEventRecord,
+}
+
+/// Durable, replay-verified projection of one evolution run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionRunRecord {
+    /// Stable caller-selected idempotency key.
+    pub run_id: String,
+    /// Registered World the run evolves within.
+    pub world_id: String,
+    /// Genome installed as generation zero's Champion.
+    pub from_genome_id: String,
+    /// Fixed comparison Genome used by every generation's diagnostic evaluation.
+    pub baseline_genome_id: String,
+    /// Hard ceiling on the number of generations this run may complete.
+    pub max_generations: u32,
+    /// Hard ceiling on the number of paired Arena evaluations (trials) this run may submit.
+    pub max_paired_trials: u64,
+    /// Paired Arena evaluations (trials) consumed by completed generations.
+    pub trials_consumed: u64,
+    /// Current lifecycle state.
+    pub state: EvolutionRunState,
+    /// Whether an operator has requested cancellation.
+    pub cancel_requested: bool,
+    /// Present once `state` is `Finished`.
+    pub finish_reason: Option<EvolutionFinishReason>,
+    /// Completed generations, oldest first.
+    pub generations: Vec<EvolutionGenerationRecord>,
+    /// Canonical event metadata for `evolution.started`.
+    pub started_event: EvolutionEventRecord,
+    /// Canonical event metadata for `evolution.finished`, once finished.
+    pub finished_event: Option<EvolutionEventRecord>,
 }
 
 #[cfg(test)]

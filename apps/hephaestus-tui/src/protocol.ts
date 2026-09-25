@@ -10,7 +10,10 @@ export type Command =
 	| {command: 'world_list'}
 	| {command: 'genome_prompt'; genome_id: string}
 	| {command: 'champion_show'; world_id: string}
-	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string};
+	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string}
+	| {command: 'evolve_start'; run_id: string; world_id: string; from_genome_id: string; generations: number; budget: number}
+	| {command: 'evolve_status'; run_id: string}
+	| {command: 'evolve_cancel'; run_id: string};
 
 export type ApiRequest = {version: 1; request_id: string; token: string; command: Command};
 export type JobState = 'admitted' | 'running' | 'cancellation_requested' | 'succeeded' | 'failed' | 'interrupted';
@@ -63,6 +66,19 @@ export type EvaluationListEntry = {
 	forge_assessment: EvaluationForgeSummary | null;
 	champion_transition_ids: string[];
 };
+export type EvolutionRunState = 'running' | 'finished';
+export type EvolutionFinishReason = 'generations_exhausted' | 'budget_exhausted' | 'cancelled' | 'interrupted';
+export type EvolutionGeneration = {
+	generation_index: number; champion_before: string; diagnostic_evaluation_id: string;
+	proposal_id: string; child_genome_id: string; child_evaluation_id: string; assessment_id: string;
+	promoted: boolean; champion_after: string; event_id: string; sequence: number;
+};
+export type EvolutionRun = {
+	run_id: string; world_id: string; from_genome_id: string; baseline_genome_id: string;
+	max_generations: number; max_paired_trials: number; trials_consumed: number;
+	state: EvolutionRunState; cancel_requested: boolean; finish_reason: EvolutionFinishReason | null;
+	generations: EvolutionGeneration[]; started_event_id: string;
+};
 export type DenialEntry = {
 	kind: 'request_rejected' | 'runtime_capability_denied'; timestamp_millis: number;
 	request_id: string | null; command: string | null;
@@ -79,6 +95,7 @@ export type ResponseData =
 	| {type: 'genome_prompt'; genome_id: string; prompt: string}
 	| {type: 'champion'; champion: Champion}
 	| {type: 'champion_transition'; transition: ChampionTransition}
+	| {type: 'evolution'; run: EvolutionRun}
 	| {type: 'run_list'; runs: RunListEntry[]}
 	| {type: 'evaluation_list'; evaluations: EvaluationListEntry[]}
 	| {type: 'denial_list'; denials: DenialEntry[]};
@@ -175,6 +192,75 @@ function parseChampion(value: unknown): Champion | undefined {
 		world_id: value['world_id'], champion_genome_id: value['champion_genome_id'],
 		standby_genome_ids: [...value['standby_genome_ids']], quarantined_genome_ids: [...value['quarantined_genome_ids']],
 		transitions: transitions as ChampionTransition[],
+	};
+}
+
+const EVOLUTION_STATES: EvolutionRunState[] = ['running', 'finished'];
+const EVOLUTION_FINISH_REASONS: EvolutionFinishReason[] = ['generations_exhausted', 'budget_exhausted', 'cancelled', 'interrupted'];
+const MAX_EVOLUTION_GENERATIONS = 1_000_000;
+
+function nullableEnum<T extends string>(value: unknown, allowed: readonly T[]): value is T | null {
+	return value === null || (typeof value === 'string' && (allowed as readonly string[]).includes(value));
+}
+
+function validEvolutionGeneration(value: unknown): boolean {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return false;
+	const payload = value['payload'];
+	const event = value['event'];
+	return boundedCount(payload['generation_index'])
+		&& identifier(payload['champion_before'])
+		&& identifier(payload['diagnostic_evaluation_id'])
+		&& identifier(payload['proposal_id'])
+		&& identifier(payload['child_genome_id'])
+		&& identifier(payload['child_evaluation_id'])
+		&& identifier(payload['assessment_id'])
+		&& typeof payload['promoted'] === 'boolean'
+		&& identifier(payload['champion_after'])
+		&& identifier(event['event_id'])
+		&& safeInteger(event['sequence']);
+}
+
+function parseEvolutionGeneration(value: unknown): EvolutionGeneration | undefined {
+	if (!validEvolutionGeneration(value)) return undefined;
+	const payload = (value as {payload: Record<string, unknown>}).payload;
+	const event = (value as {event: Record<string, unknown>}).event;
+	return {
+		generation_index: payload['generation_index'] as number,
+		champion_before: payload['champion_before'] as string,
+		diagnostic_evaluation_id: payload['diagnostic_evaluation_id'] as string,
+		proposal_id: payload['proposal_id'] as string,
+		child_genome_id: payload['child_genome_id'] as string,
+		child_evaluation_id: payload['child_evaluation_id'] as string,
+		assessment_id: payload['assessment_id'] as string,
+		promoted: payload['promoted'] as boolean,
+		champion_after: payload['champion_after'] as string,
+		event_id: event['event_id'] as string,
+		sequence: event['sequence'] as number,
+	};
+}
+
+function parseEvolutionRun(value: unknown): EvolutionRun | undefined {
+	if (!record(value)) return undefined;
+	const startedEvent = value['started_event'];
+	if (!identifier(value['run_id']) || !identifier(value['world_id']) || !identifier(value['from_genome_id'])
+		|| !identifier(value['baseline_genome_id']) || !boundedCount(value['max_generations'])
+		|| !boundedCount(value['max_paired_trials']) || !boundedCount(value['trials_consumed'])
+		|| typeof value['state'] !== 'string' || !EVOLUTION_STATES.includes(value['state'] as EvolutionRunState)
+		|| typeof value['cancel_requested'] !== 'boolean'
+		|| !nullableEnum(value['finish_reason'], EVOLUTION_FINISH_REASONS)
+		|| !record(startedEvent) || !identifier(startedEvent['event_id'])
+		|| !Array.isArray(value['generations']) || value['generations'].length > MAX_EVOLUTION_GENERATIONS) {
+		return undefined;
+	}
+	const generations = value['generations'].map(parseEvolutionGeneration);
+	if (generations.some(generation => generation === undefined)) return undefined;
+	return {
+		run_id: value['run_id'], world_id: value['world_id'], from_genome_id: value['from_genome_id'],
+		baseline_genome_id: value['baseline_genome_id'], max_generations: value['max_generations'],
+		max_paired_trials: value['max_paired_trials'], trials_consumed: value['trials_consumed'],
+		state: value['state'] as EvolutionRunState, cancel_requested: value['cancel_requested'],
+		finish_reason: value['finish_reason'] as EvolutionFinishReason | null,
+		generations: generations as EvolutionGeneration[], started_event_id: startedEvent['event_id'],
 	};
 }
 
@@ -349,6 +435,11 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			const transition = parseTransition(data['transition']);
 			if (!transition) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'champion_transition', transition}};
+		}
+		case 'evolution': {
+			const run = parseEvolutionRun(data['run']);
+			if (!run) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'evolution', run}};
 		}
 		case 'run_list': {
 			const runs = data['runs'];
