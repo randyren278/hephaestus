@@ -1767,7 +1767,10 @@ fn meta_receipt_human(receipt: &MetaReceiptRecord) -> String {
         receipt
             .payload
             .descendant_cheaper_at_equal_quality
-            .map_or_else(|| "n/a (no declared lineage)".to_owned(), |verdict| verdict.to_string())
+            .map_or_else(
+                || "n/a (no declared lineage)".to_owned(),
+                |verdict| verdict.to_string()
+            )
     ));
     lines.extend(receipt.payload.lineages.iter().map(meta_lineage_human));
     lines.join("\n")

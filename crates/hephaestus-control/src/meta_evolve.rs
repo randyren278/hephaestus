@@ -344,6 +344,7 @@ pub(super) fn verify_meta_evolution_history(history: &[StoredEvent]) -> Result<(
 /// descendant-minus-ancestor before comparing (negating an interval swaps
 /// which bound is the lower one). Returns `None` when neither strategy
 /// declares the other as its parent.
+#[allow(clippy::similar_names)]
 pub(super) fn descendant_verdict(
     strategy_a_id: &str,
     strategy_a: &crate::protocol::EvolverStrategyConfig,
@@ -352,13 +353,14 @@ pub(super) fn descendant_verdict(
     quality_delta: &MetaBootstrapInterval,
     cost_delta: &MetaBootstrapInterval,
 ) -> Option<bool> {
-    let (quality_lower, cost_upper) = if strategy_b.parent_strategy_id.as_deref() == Some(strategy_a_id) {
-        (quality_delta.lower_x10000, cost_delta.upper_x10000)
-    } else if strategy_a.parent_strategy_id.as_deref() == Some(strategy_b_id) {
-        (-quality_delta.upper_x10000, -cost_delta.lower_x10000)
-    } else {
-        return None;
-    };
+    let (quality_lower, cost_upper) =
+        if strategy_b.parent_strategy_id.as_deref() == Some(strategy_a_id) {
+            (quality_delta.lower_x10000, cost_delta.upper_x10000)
+        } else if strategy_a.parent_strategy_id.as_deref() == Some(strategy_b_id) {
+            (-quality_delta.upper_x10000, -cost_delta.lower_x10000)
+        } else {
+            return None;
+        };
     Some(quality_lower >= 0 && cost_upper < 0)
 }
 
