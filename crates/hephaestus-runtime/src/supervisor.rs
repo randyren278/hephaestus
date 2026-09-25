@@ -317,7 +317,18 @@ impl SupervisedRuntime {
         let invocation = match self.provider {
             Provider::Deterministic => {
                 let stdin = if let Some(instruction) = spec.reference_instruction() {
-                    instruction.frame(spec.prompt().as_bytes())?
+                    #[cfg(feature = "test-support")]
+                    {
+                        match test_reference_delay_millis_for_genome(spec.genome_id()) {
+                            Some(delay_millis) => instruction
+                                .frame_with_test_delay(spec.prompt().as_bytes(), delay_millis)?,
+                            None => instruction.frame(spec.prompt().as_bytes())?,
+                        }
+                    }
+                    #[cfg(not(feature = "test-support"))]
+                    {
+                        instruction.frame(spec.prompt().as_bytes())?
+                    }
                 } else {
                     spec.prompt().as_bytes().to_vec()
                 };
@@ -373,6 +384,44 @@ impl SupervisedRuntime {
         frame.push(b'\n');
         Ok((Command::new(guardian), true, frame))
     }
+}
+
+/// Test-only, process-wide slot naming a single Genome id and a delay in
+/// milliseconds. Lets a test make one specific, already-registered Genome's
+/// reference worker genuinely slower (a real `sleep` inside the worker
+/// process) without touching any other Genome or introducing timing races.
+/// Compiled only under `test-support`, so it cannot exist in a release
+/// build; a plain `Mutex`, not an env var, so setting it never requires
+/// `unsafe` (this workspace forbids `unsafe` code).
+#[cfg(feature = "test-support")]
+static TEST_REFERENCE_DELAY: std::sync::Mutex<Option<(String, u64)>> = std::sync::Mutex::new(None);
+
+/// Test-only: arranges for the reference worker to sleep `delay_millis`
+/// (bounded, see [`crate::reference_instruction`]) whenever it next runs
+/// `genome_id`. See [`TEST_REFERENCE_DELAY`].
+#[cfg(feature = "test-support")]
+pub fn set_test_reference_delay(genome_id: impl Into<String>, delay_millis: u64) {
+    *TEST_REFERENCE_DELAY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((genome_id.into(), delay_millis));
+}
+
+/// Test-only: clears any delay set by [`set_test_reference_delay`].
+#[cfg(feature = "test-support")]
+pub fn clear_test_reference_delay() {
+    *TEST_REFERENCE_DELAY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+}
+
+#[cfg(feature = "test-support")]
+fn test_reference_delay_millis_for_genome(genome_id: &str) -> Option<u64> {
+    let guard = TEST_REFERENCE_DELAY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (target, millis) = guard.as_ref()?;
+    (target == genome_id).then_some(*millis)
 }
 
 impl RuntimeAdapter for SupervisedRuntime {

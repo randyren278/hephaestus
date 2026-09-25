@@ -53,18 +53,18 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 
 use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
-    API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, ChampionTransitionPayload, Command,
-    ControlError, DenialEntry, DenialKind, EvaluationEventRecord, EvaluationForgeSummary,
-    EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
-    EvolutionCancelPayload, EvolutionFinishReason, EvolutionFinishedPayload,
-    EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
-    EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
-    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GenomeRecord,
-    InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, McpDecision,
-    MetaEvaluationPayload, MetaLineageOutcome, MetaStrategyRegisteredPayload, RemoteJobState,
-    ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord,
-    WorkerScope, WorldRecord,
+    API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind,
+    ChampionTransitionPayload, Command, ControlError, DenialEntry, DenialKind, DriftKind,
+    EvaluationEventRecord, EvaluationForgeSummary, EvaluationInvariantSummary, EvaluationListEntry,
+    EvaluationRecord, EvaluationSelectionSummary, EvolutionCancelPayload, EvolutionFinishReason,
+    EvolutionFinishedPayload, EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState,
+    EvolutionStartedPayload, EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord,
+    ForgeAssessmentEventRecord, ForgeAssessmentOutcome, ForgeAssessmentPayload,
+    ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord,
+    GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT,
+    McpDecision, MetaEvaluationPayload, MetaLineageOutcome, MetaStrategyRegisteredPayload,
+    RemoteJobState, ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord,
+    SelectionRecord, WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -731,6 +731,8 @@ impl ControlPlane {
         verify_gene_bank_history(&data_dir, &history, &registered)?;
         verify_evolution_history(&history, &registered)?;
         verify_meta_evolution_history(&history)?;
+        verify_drift_history(&data_dir, &history, &registered)?;
+        verify_canary_history(&data_dir, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -1054,6 +1056,17 @@ impl ControlPlane {
             | Command::ChampionPromote { .. }
             | Command::ChampionRollback { .. }) => self.champion_transition_command(command),
             Command::ChampionShow { world_id } => self.champion_show(&world_id),
+            Command::DriftRecord {
+                drift_id,
+                world_id,
+                kind,
+                evidence_evaluation_id,
+            } => self.record_drift(&drift_id, &world_id, kind, &evidence_evaluation_id),
+            Command::DriftShow { drift_id } => self.drift_show(&drift_id),
+            command @ (Command::CanaryStart { .. }
+            | Command::CanaryAdvance { .. }
+            | Command::CanaryLiveCheck { .. }) => self.canary_transition_command(command),
+            Command::CanaryShow { canary_id } => self.canary_show(&canary_id),
             Command::GeneExtract {
                 gene_id,
                 promotion_transition_id,
@@ -1244,6 +1257,241 @@ impl ControlPlane {
             champion_projection(&history, world_id).map_err(|_| ExecuteError::Internal)?;
         Ok(ResponseData::Champion {
             champion: Box::new(champion),
+        })
+    }
+
+    fn record_drift(
+        &mut self,
+        drift_id: &str,
+        world_id: &str,
+        kind: DriftKind,
+        evidence_evaluation_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(drift_id).map_err(|_| ExecuteError::Invalid("drift_id is invalid"))?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_drift_history(&self.data_dir, &history, &self.state.registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) =
+            existing_drift_record(&history, drift_id, world_id, kind, evidence_evaluation_id)?
+        {
+            return Ok(ResponseData::Drift {
+                drift: Box::new(existing),
+            });
+        }
+        let payload = drift_record_payload(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            drift_id,
+            world_id,
+            kind,
+            evidence_evaluation_id,
+        )?;
+        let event = storage
+            .ledger
+            .append(drift_event_input(
+                &payload,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+            )?)
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::Drift {
+            drift: Box::new(
+                drift::decode_drift_record(&event)
+                    .ok()
+                    .map(|decoded| drift::drift_record(decoded, &event))
+                    .ok_or(ExecuteError::Internal)?,
+            ),
+        })
+    }
+
+    fn drift_show(&self, drift_id: &str) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let drift = drift::drift_projection(&history, drift_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(ResponseData::Drift {
+            drift: Box::new(drift),
+        })
+    }
+
+    fn canary_transition_command(
+        &mut self,
+        command: Command,
+    ) -> Result<ResponseData, ExecuteError> {
+        let (canary_id, request) = match command {
+            Command::CanaryStart {
+                canary_id,
+                world_id,
+                candidate_genome_id,
+                assessment_id,
+            } => (
+                canary_id,
+                CanaryRequest::Start {
+                    world_id,
+                    candidate_genome_id,
+                    assessment_id,
+                },
+            ),
+            Command::CanaryAdvance {
+                canary_id,
+                evidence_evaluation_id,
+            } => (
+                canary_id,
+                CanaryRequest::Advance {
+                    evidence_evaluation_id,
+                },
+            ),
+            Command::CanaryLiveCheck {
+                canary_id,
+                evidence_evaluation_id,
+            } => (
+                canary_id,
+                CanaryRequest::LiveCheck {
+                    evidence_evaluation_id,
+                },
+            ),
+            _ => return Err(ExecuteError::Internal),
+        };
+        self.transition_canary(&canary_id, &request)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn transition_canary(
+        &mut self,
+        canary_id: &str,
+        request: &CanaryRequest,
+    ) -> Result<ResponseData, ExecuteError> {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return Err(ExecuteError::Busy);
+        }
+        validate_job_id(canary_id).map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
+        let storage = self.storage.as_mut().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_canary_history(&self.data_dir, &history, &self.state.registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(existing) = existing_canary_transition(&history, canary_id, request)? {
+            return Ok(ResponseData::CanaryTransition {
+                transition: Box::new(existing),
+            });
+        }
+        let mut payload = canary_transition_payload(
+            &self.data_dir,
+            &history,
+            &self.state.registered,
+            canary_id,
+            request,
+        )?;
+        let timestamp = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
+
+        // A completing advance or a live regression check also appends the
+        // one existing Champion transition event that policy already admits;
+        // this reuses `champion::champion_transition_payload` rather than
+        // duplicating promotion or rollback policy.
+        if payload.kind == CanaryTransitionKind::Advanced && payload.stage == CanaryStage::Completed
+        {
+            let promotion_transition_id = canary::canary_id_promotion_transition_id(canary_id);
+            let promotion_payload = champion_transition_payload(
+                &self.data_dir,
+                &history,
+                &self.state.registered,
+                &promotion_transition_id,
+                &ChampionRequest::Promote {
+                    assessment_id: payload.assessment_id.clone(),
+                },
+            )?;
+            let payload_value =
+                serde_json::to_value(&promotion_payload).map_err(|_| ExecuteError::Internal)?;
+            let payload_bytes =
+                serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+            storage
+                .ledger
+                .append(EventInput::new(
+                    champion_event_id(&promotion_transition_id),
+                    champion_aggregate_id(&promotion_payload.world_id),
+                    CHAMPION_EVENT_TYPE,
+                    OPERATOR_ACTOR,
+                    timestamp,
+                    payload_bytes,
+                ))
+                .map_err(|_| ExecuteError::Internal)?;
+        } else if payload.kind == CanaryTransitionKind::LiveRegressionDetected {
+            let rollback_transition_id = canary::canary_id_rollback_transition_id(canary_id);
+            let rollback_payload = champion_transition_payload(
+                &self.data_dir,
+                &history,
+                &self.state.registered,
+                &rollback_transition_id,
+                &ChampionRequest::Rollback {
+                    world_id: payload.world_id.clone(),
+                    reason: format!(
+                        "canary {canary_id} automatic rollback: live evaluation {} regressed beyond the documented threshold",
+                        payload
+                            .evidence
+                            .as_ref()
+                            .map(|evidence| evidence.evidence_evaluation_id.as_str())
+                            .unwrap_or_default()
+                    ),
+                },
+            )?;
+            let payload_value =
+                serde_json::to_value(&rollback_payload).map_err(|_| ExecuteError::Internal)?;
+            let payload_bytes =
+                serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+            let rollback_event = storage
+                .ledger
+                .append(EventInput::new(
+                    champion_event_id(&rollback_transition_id),
+                    champion_aggregate_id(&rollback_payload.world_id),
+                    CHAMPION_EVENT_TYPE,
+                    OPERATOR_ACTOR,
+                    timestamp,
+                    payload_bytes,
+                ))
+                .map_err(|_| ExecuteError::Internal)?;
+            payload.champion_rollback_event_hash = Some(hex_encode(&rollback_event.hash));
+        }
+
+        let event = storage
+            .ledger
+            .append(canary::canary_event_input(&payload, timestamp)?)
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        Ok(ResponseData::CanaryTransition {
+            transition: Box::new(
+                canary::decode_canary_transition(&event)
+                    .ok()
+                    .map(|decoded| canary::canary_transition_record(decoded, &event))
+                    .ok_or(ExecuteError::Internal)?,
+            ),
+        })
+    }
+
+    fn canary_show(&self, canary_id: &str) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let canary = canary::canary_projection(&history, canary_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(ResponseData::Canary {
+            canary: Box::new(canary),
         })
     }
 
@@ -2990,6 +3238,10 @@ impl ControlPlane {
                 | Command::ChampionSeed { .. }
                 | Command::ChampionPromote { .. }
                 | Command::ChampionRollback { .. }
+                | Command::DriftRecord { .. }
+                | Command::CanaryStart { .. }
+                | Command::CanaryAdvance { .. }
+                | Command::CanaryLiveCheck { .. }
                 | Command::GeneExtract { .. }
                 | Command::GeneTransfer { .. }
                 | Command::GeneRecord { .. }
@@ -3030,6 +3282,10 @@ impl ControlPlane {
                 | Command::ChampionSeed { .. }
                 | Command::ChampionPromote { .. }
                 | Command::ChampionRollback { .. }
+                | Command::DriftRecord { .. }
+                | Command::CanaryStart { .. }
+                | Command::CanaryAdvance { .. }
+                | Command::CanaryLiveCheck { .. }
                 | Command::GeneExtract { .. }
                 | Command::GeneTransfer { .. }
                 | Command::GeneRecord { .. }
@@ -4045,6 +4301,10 @@ impl ControlPlane {
         verify_cluster_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_drift_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_canary_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_gene_bank_history(&self.data_dir, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
@@ -5667,6 +5927,10 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
         verify_meta_evolution_history(&history).map_err(|_| ExecuteError::Internal)?;
+        verify_drift_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
+        verify_canary_history(&self.data_dir, &history, &registered)
+            .map_err(|_| ExecuteError::Internal)?;
         let state = ControlState::from_events(
             &history,
             registered,
@@ -7059,6 +7323,7 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         return Err(ExecuteError::Invalid("meta_run_id is invalid"));
     }
     require_champion_fields(command)?;
+    require_drift_and_canary_fields(command)?;
     require_gene_fields(command)
 }
 
@@ -7156,6 +7421,60 @@ fn require_champion_fields(command: &Command) -> Result<(), ExecuteError> {
         _ => return Ok(()),
     };
     validate_job_id(transition_id).map_err(|_| ExecuteError::Invalid("transition_id is invalid"))
+}
+
+fn require_drift_and_canary_fields(command: &Command) -> Result<(), ExecuteError> {
+    match command {
+        Command::DriftRecord {
+            drift_id,
+            world_id,
+            evidence_evaluation_id,
+            ..
+        } => {
+            validate_job_id(drift_id).map_err(|_| ExecuteError::Invalid("drift_id is invalid"))?;
+            if world_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid("world_id is required"));
+            }
+            validate_job_id(evidence_evaluation_id)
+                .map_err(|_| ExecuteError::Invalid("evidence_evaluation_id is invalid"))
+        }
+        Command::DriftShow { drift_id } => {
+            validate_job_id(drift_id).map_err(|_| ExecuteError::Invalid("drift_id is invalid"))
+        }
+        Command::CanaryStart {
+            canary_id,
+            world_id,
+            candidate_genome_id,
+            assessment_id,
+        } => {
+            validate_job_id(canary_id)
+                .map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
+            if world_id.trim().is_empty() || candidate_genome_id.trim().is_empty() {
+                return Err(ExecuteError::Invalid(
+                    "world_id and candidate_genome_id are required",
+                ));
+            }
+            validate_job_id(assessment_id)
+                .map_err(|_| ExecuteError::Invalid("assessment_id is invalid"))
+        }
+        Command::CanaryAdvance {
+            canary_id,
+            evidence_evaluation_id,
+        }
+        | Command::CanaryLiveCheck {
+            canary_id,
+            evidence_evaluation_id,
+        } => {
+            validate_job_id(canary_id)
+                .map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
+            validate_job_id(evidence_evaluation_id)
+                .map_err(|_| ExecuteError::Invalid("evidence_evaluation_id is invalid"))
+        }
+        Command::CanaryShow { canary_id } => {
+            validate_job_id(canary_id).map_err(|_| ExecuteError::Invalid("canary_id is invalid"))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn source_format(path: &str) -> Result<SourceFormat, ExecuteError> {
@@ -9052,6 +9371,12 @@ fn event_type(command: &Command) -> &'static str {
         Command::ChampionPromote { .. } => "control.champion_promote",
         Command::ChampionRollback { .. } => "control.champion_rollback",
         Command::ChampionShow { .. } => "control.champion_show",
+        Command::DriftRecord { .. } => "control.drift_record",
+        Command::DriftShow { .. } => "control.drift_show",
+        Command::CanaryStart { .. } => "control.canary_start",
+        Command::CanaryAdvance { .. } => "control.canary_advance",
+        Command::CanaryLiveCheck { .. } => "control.canary_live_check",
+        Command::CanaryShow { .. } => "control.canary_show",
         Command::GeneExtract { .. } => "control.gene_extract",
         Command::GeneTransfer { .. } => "control.gene_transfer",
         Command::GeneRecord { .. } => "control.gene_record",
@@ -9426,4 +9751,16 @@ use meta_evolve::{
     meta_evaluation_projection, meta_strategy_aggregate_id, meta_strategy_event_id,
     meta_strategy_id, meta_strategy_list, meta_strategy_projection, paired_bootstrap,
     promotions_of, verify_meta_evolution_history,
+};
+
+#[path = "drift.rs"]
+mod drift;
+
+use drift::{drift_event_input, drift_record_payload, existing_drift_record, verify_drift_history};
+
+#[path = "canary.rs"]
+mod canary;
+
+use canary::{
+    CanaryRequest, canary_transition_payload, existing_canary_transition, verify_canary_history,
 };

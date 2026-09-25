@@ -7,11 +7,12 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
-    API_VERSION, ApiResponse, ArenaJobProgress, ChampionRecord, ChampionTransitionRecord, Client,
-    Command, DenialEntry, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord,
-    ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
-    GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord,
-    JobState, MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
+    API_VERSION, ApiResponse, ArenaJobProgress, CanaryRecord, CanaryTransitionRecord,
+    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind, DriftRecord,
+    EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, ForgeAnalysisRecord,
+    ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GeneRecord,
+    GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord, JobState,
+    MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
     MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
     data_dir_from_environment,
 };
@@ -92,6 +93,16 @@ enum CliCommand {
     Champion {
         #[command(subcommand)]
         command: ChampionCommand,
+    },
+    /// Record drift observations derived from verified evidence.
+    Drift {
+        #[command(subcommand)]
+        command: DriftCommand,
+    },
+    /// Start, advance, live-check, and inspect staged canary rollouts.
+    Canary {
+        #[command(subcommand)]
+        command: CanaryCommand,
     },
     /// Extract, transfer, and speciate reusable Genes across lineages.
     Gene {
@@ -287,6 +298,91 @@ enum ChampionCommand {
     Show {
         /// Registered World identity.
         world_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DriftCommand {
+    /// Record one drift observation derived from a verified paired evaluation
+    /// of the current Champion. Drift never directly replaces a Champion.
+    Record {
+        /// Stable idempotency key for this drift record.
+        drift_id: String,
+        /// Registered World the drift was observed under.
+        #[arg(long)]
+        world: String,
+        /// Kind of shift the evidence must cite.
+        #[arg(long, value_enum)]
+        kind: DriftKindArg,
+        /// Evaluation identity supplying the cited `SelectionReceipt`.
+        #[arg(long)]
+        evidence: String,
+    },
+    /// Show one recorded drift observation.
+    Show {
+        /// Stable drift idempotency key.
+        drift_id: String,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum DriftKindArg {
+    Latency,
+    Cost,
+    Correctness,
+    Workload,
+}
+
+impl From<DriftKindArg> for DriftKind {
+    fn from(value: DriftKindArg) -> Self {
+        match value {
+            DriftKindArg::Latency => Self::Latency,
+            DriftKindArg::Cost => Self::Cost,
+            DriftKindArg::Correctness => Self::Correctness,
+            DriftKindArg::Workload => Self::Workload,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum CanaryCommand {
+    /// Start (or idempotently re-admit) a canary bound to a candidate and a
+    /// passing Forge assessment. The prior Champion stays Champion.
+    Start {
+        /// Stable idempotency key for the canary.
+        canary_id: String,
+        /// Registered World the canary runs under.
+        #[arg(long)]
+        world: String,
+        /// Candidate Genome this canary rolls out.
+        #[arg(long)]
+        candidate: String,
+        /// Forge assessment of the current Champion against the candidate.
+        #[arg(long)]
+        assessment: String,
+    },
+    /// Advance a canary on staged health evidence. A regression automatically
+    /// aborts the canary instead of advancing it.
+    Advance {
+        /// Stable canary idempotency key.
+        canary_id: String,
+        /// Evaluation identity supplying this stage's `SelectionReceipt`.
+        #[arg(long)]
+        evidence: String,
+    },
+    /// Check a completed canary's Champion against the previous Champion; a
+    /// regression automatically triggers a Champion rollback.
+    LiveCheck {
+        /// Stable canary idempotency key.
+        canary_id: String,
+        /// Evaluation identity supplying the live `SelectionReceipt`.
+        #[arg(long)]
+        evidence: String,
+    },
+    /// Show one canary's stage and transition history.
+    Show {
+        /// Stable canary idempotency key.
+        canary_id: String,
     },
 }
 
@@ -949,6 +1045,8 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             evaluation_id: evaluation,
         },
         CliCommand::Champion { command } => champion_command_from_cli(command),
+        CliCommand::Drift { command } => drift_command_from_cli(command),
+        CliCommand::Canary { command } => canary_command_from_cli(command),
         CliCommand::Gene { command } => gene_command_from_cli(command),
         CliCommand::Evolve { command } => evolve_command_from_cli(command),
         CliCommand::Meta { command } => meta_command_from_cli(command)?,
@@ -1013,6 +1111,54 @@ fn champion_command_from_cli(command: ChampionCommand) -> Command {
             reason,
         },
         ChampionCommand::Show { world_id } => Command::ChampionShow { world_id },
+    }
+}
+
+fn drift_command_from_cli(command: DriftCommand) -> Command {
+    match command {
+        DriftCommand::Record {
+            drift_id,
+            world,
+            kind,
+            evidence,
+        } => Command::DriftRecord {
+            drift_id,
+            world_id: world,
+            kind: kind.into(),
+            evidence_evaluation_id: evidence,
+        },
+        DriftCommand::Show { drift_id } => Command::DriftShow { drift_id },
+    }
+}
+
+fn canary_command_from_cli(command: CanaryCommand) -> Command {
+    match command {
+        CanaryCommand::Start {
+            canary_id,
+            world,
+            candidate,
+            assessment,
+        } => Command::CanaryStart {
+            canary_id,
+            world_id: world,
+            candidate_genome_id: candidate,
+            assessment_id: assessment,
+        },
+        CanaryCommand::Advance {
+            canary_id,
+            evidence,
+        } => Command::CanaryAdvance {
+            canary_id,
+            evidence_evaluation_id: evidence,
+        },
+        CanaryCommand::LiveCheck {
+            canary_id,
+            evidence,
+        } => Command::CanaryLiveCheck {
+            canary_id,
+            evidence_evaluation_id: evidence,
+        },
+        CanaryCommand::Show { canary_id } => Command::CanaryShow { canary_id },
     }
 }
 
@@ -1257,6 +1403,15 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Champion { champion }), None) => {
             println!("{}", champion_human(champion));
         }
+        (Some(ResponseData::Drift { drift }), None) => {
+            println!("{}", drift_human(drift));
+        }
+        (Some(ResponseData::CanaryTransition { transition }), None) => {
+            println!("{}", canary_transition_human(transition));
+        }
+        (Some(ResponseData::Canary { canary }), None) => {
+            println!("{}", canary_human(canary));
+        }
         (Some(ResponseData::Gene { gene }), None) => {
             println!("{}", gene_human(gene));
         }
@@ -1409,6 +1564,52 @@ fn champion_human(champion: &ChampionRecord) -> String {
         champion.transitions.len(),
     )];
     lines.extend(champion.transitions.iter().map(champion_transition_human));
+    lines.join("\n")
+}
+
+fn drift_human(drift: &DriftRecord) -> String {
+    format!(
+        "drift={} world={} kind={:?} baseline={} shifted={} threshold_bps={} observed_delta_bps={} evidence={} event={} sequence={} hash={}",
+        drift.payload.drift_id,
+        drift.payload.world_id,
+        drift.payload.kind,
+        drift.payload.baseline_genome_id,
+        drift.payload.shifted_genome_id,
+        drift.payload.threshold_bps,
+        drift.payload.observed_delta_bps,
+        drift.payload.evidence_evaluation_id,
+        drift.event.event_id,
+        drift.event.sequence,
+        drift.event.event_hash,
+    )
+}
+
+fn canary_transition_human(transition: &CanaryTransitionRecord) -> String {
+    format!(
+        "canary={} world={} kind={:?} stage={:?} candidate={} previous_champion={} event={} sequence={} hash={}",
+        transition.payload.canary_id,
+        transition.payload.world_id,
+        transition.payload.kind,
+        transition.payload.stage,
+        transition.payload.candidate_genome_id,
+        transition.payload.previous_champion_genome_id,
+        transition.event.event_id,
+        transition.event.sequence,
+        transition.event.event_hash,
+    )
+}
+
+fn canary_human(canary: &CanaryRecord) -> String {
+    let mut lines = vec![format!(
+        "canary={} world={} candidate={} previous_champion={} stage={:?} transitions={}",
+        canary.canary_id,
+        canary.world_id,
+        canary.candidate_genome_id,
+        canary.previous_champion_genome_id,
+        canary.stage,
+        canary.transitions.len(),
+    )];
+    lines.extend(canary.transitions.iter().map(canary_transition_human));
     lines.join("\n")
 }
 
@@ -1822,7 +2023,9 @@ mod tests {
         Arguments, command_from_cli, copy_fixture_into_new_destination, evaluation_human,
         fixture_source_dir, packaged_tui_paths,
     };
-    use hephaestus_control::{Command, EvaluationEventRecord, EvaluationRecord, MetaLineageSpec};
+    use hephaestus_control::{
+        Command, DriftKind, EvaluationEventRecord, EvaluationRecord, MetaLineageSpec,
+    };
 
     #[test]
     fn genome_assess_maps_stable_ids_to_the_authenticated_command() {
@@ -1913,6 +2116,110 @@ mod tests {
             parse(&["hephaestus", "champion", "show", "world-1"]),
             Command::ChampionShow {
                 world_id: "world-1".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn drift_commands_map_flags_to_authenticated_commands() {
+        let parse = |arguments: &[&str]| {
+            command_from_cli(
+                Arguments::try_parse_from(arguments)
+                    .expect("CLI parses")
+                    .command,
+            )
+            .expect("command maps")
+        };
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "drift",
+                "record",
+                "drift-1",
+                "--world",
+                "world-1",
+                "--kind",
+                "latency",
+                "--evidence",
+                "evaluation-1"
+            ]),
+            Command::DriftRecord {
+                drift_id: "drift-1".to_owned(),
+                world_id: "world-1".to_owned(),
+                kind: DriftKind::Latency,
+                evidence_evaluation_id: "evaluation-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "drift", "show", "drift-1"]),
+            Command::DriftShow {
+                drift_id: "drift-1".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn canary_commands_map_flags_to_authenticated_commands() {
+        let parse = |arguments: &[&str]| {
+            command_from_cli(
+                Arguments::try_parse_from(arguments)
+                    .expect("CLI parses")
+                    .command,
+            )
+            .expect("command maps")
+        };
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "canary",
+                "start",
+                "canary-1",
+                "--world",
+                "world-1",
+                "--candidate",
+                "genome-2",
+                "--assessment",
+                "assessment-1"
+            ]),
+            Command::CanaryStart {
+                canary_id: "canary-1".to_owned(),
+                world_id: "world-1".to_owned(),
+                candidate_genome_id: "genome-2".to_owned(),
+                assessment_id: "assessment-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "canary",
+                "advance",
+                "canary-1",
+                "--evidence",
+                "evaluation-1"
+            ]),
+            Command::CanaryAdvance {
+                canary_id: "canary-1".to_owned(),
+                evidence_evaluation_id: "evaluation-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "canary",
+                "live-check",
+                "canary-1",
+                "--evidence",
+                "evaluation-2"
+            ]),
+            Command::CanaryLiveCheck {
+                canary_id: "canary-1".to_owned(),
+                evidence_evaluation_id: "evaluation-2".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "canary", "show", "canary-1"]),
+            Command::CanaryShow {
+                canary_id: "canary-1".to_owned(),
             }
         );
     }

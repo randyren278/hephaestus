@@ -291,6 +291,12 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |
 | `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
 | `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
+| `hephaestus drift record <id> --world <w> --kind latency\|cost\|correctness\|workload --evidence <evaluation>` | Record verified drift evidence against the current Champion; never replaces it ([docs/CANARY.md](docs/CANARY.md)) |
+| `hephaestus drift show <id>` | Inspect one recorded drift observation |
+| `hephaestus canary start <id> --world <w> --candidate <genome> --assessment <assessment>` | Start a staged canary bound to a shadow-evaluated candidate; the prior Champion stays Champion |
+| `hephaestus canary advance <id> --evidence <evaluation>` | Advance 5% -> 25% -> 50% -> 100% on healthy evidence; automatically aborts on a regression |
+| `hephaestus canary live-check <id> --evidence <evaluation>` | Check a completed canary's Champion against the previous one; a regression automatically rolls back through the existing Champion policy |
+| `hephaestus canary show <id>` | Inspect one canary's stage and transition history |
 | `hephaestus gene extract <id> --promotion <transition>` | Extract a Gene from a promoted, evidence-bound Champion transition ([docs/GENE_BANK.md](docs/GENE_BANK.md)) |
 | `hephaestus gene transfer <id> --gene <gene> --to <genome>` | Apply a Gene's mutation to another lineage's Genome through the ordinary compiler |
 | `hephaestus gene record <id> --evaluation <evaluation>` | Record a transfer trial's measured effect as positive, neutral, or negative |
@@ -316,14 +322,14 @@ subcommand: [docs/MCP_GATEWAY.md](docs/MCP_GATEWAY.md).
 ## Why you can trust it
 
 Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **338 deliberate source mutations**, each one
+runs the suite, then applies **343 deliberate source mutations**, each one
 disabling a specific documented invariant (from "an oversized request is
 accepted" to "a Genome registered before its World is accepted"), and requires
 the suite to go red for every single one. A mutation that survives fails the
 build. The mutation jobs run only after the deterministic job passes; inspect
 the latest CI result before treating a commit as verified. The count can only go up.
 
-Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 35 production-critical
+Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 37 production-critical
 modules (branch coverage where LCOV reports branches, line coverage otherwise),
 `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
 docs gate that fails if any path mentioned in this README stops existing.
@@ -349,7 +355,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 338
+python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 343
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 
@@ -365,6 +371,7 @@ scopes it to one crate while iterating.
 - [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
 - [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md)
 - [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md)
+- [Evolution runs](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md)
 - [Roadmap](ROADMAP.md) · [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
 
 ## License
