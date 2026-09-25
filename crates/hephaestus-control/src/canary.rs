@@ -62,8 +62,14 @@ fn bps_delta(before: u64, after: u64) -> i64 {
 
 pub(super) fn regression_deltas(receipt: &SelectionReceipt) -> RegressionDeltas {
     RegressionDeltas {
-        latency_bps: bps_delta(receipt.parent_latency_millis(), receipt.candidate_latency_millis()),
-        cost_bps: bps_delta(receipt.parent_cost_microusd(), receipt.candidate_cost_microusd()),
+        latency_bps: bps_delta(
+            receipt.parent_latency_millis(),
+            receipt.candidate_latency_millis(),
+        ),
+        cost_bps: bps_delta(
+            receipt.parent_cost_microusd(),
+            receipt.candidate_cost_microusd(),
+        ),
         correctness_bps: i64::from(receipt.candidate_correctness_bps())
             - i64::from(receipt.parent_correctness_bps()),
         reliability_bps: i64::from(receipt.candidate_reliability_bps())
@@ -103,16 +109,14 @@ impl CanaryRequest {
                 candidate_genome_id: payload.candidate_genome_id.clone(),
                 assessment_id: payload.assessment_id.clone(),
             }),
-            CanaryTransitionKind::Advanced | CanaryTransitionKind::Aborted => {
-                Ok(Self::Advance {
-                    evidence_evaluation_id: payload
-                        .evidence
-                        .as_ref()
-                        .ok_or_else(invalid)?
-                        .evidence_evaluation_id
-                        .clone(),
-                })
-            }
+            CanaryTransitionKind::Advanced | CanaryTransitionKind::Aborted => Ok(Self::Advance {
+                evidence_evaluation_id: payload
+                    .evidence
+                    .as_ref()
+                    .ok_or_else(invalid)?
+                    .evidence_evaluation_id
+                    .clone(),
+            }),
             CanaryTransitionKind::LiveRegressionDetected => Ok(Self::LiveCheck {
                 evidence_evaluation_id: payload
                     .evidence
@@ -212,7 +216,8 @@ pub(super) fn canary_projection(
         let run = record.as_mut().ok_or_else(|| {
             ControlError::Projection("canary transition precedes its start".to_owned())
         })?;
-        run.transitions.push(canary_transition_record(payload, event));
+        run.transitions
+            .push(canary_transition_record(payload, event));
     }
     Ok(record)
 }
@@ -312,13 +317,32 @@ pub(super) fn canary_transition_payload(
             world_id,
             candidate_genome_id,
             assessment_id,
-        } => start_payload(history, registered, canary_id, world_id, candidate_genome_id, assessment_id),
+        } => start_payload(
+            history,
+            registered,
+            canary_id,
+            world_id,
+            candidate_genome_id,
+            assessment_id,
+        ),
         CanaryRequest::Advance {
             evidence_evaluation_id,
-        } => advance_payload(data_dir, history, registered, canary_id, evidence_evaluation_id),
+        } => advance_payload(
+            data_dir,
+            history,
+            registered,
+            canary_id,
+            evidence_evaluation_id,
+        ),
         CanaryRequest::LiveCheck {
             evidence_evaluation_id,
-        } => live_check_payload(data_dir, history, registered, canary_id, evidence_evaluation_id),
+        } => live_check_payload(
+            data_dir,
+            history,
+            registered,
+            canary_id,
+            evidence_evaluation_id,
+        ),
     }
 }
 
@@ -353,13 +377,15 @@ fn start_payload(
             "candidate must differ from the current Champion".to_owned(),
         ));
     }
-    validate_job_id(assessment_id).map_err(|_| ExecuteError::Invalid("assessment_id is invalid"))?;
+    validate_job_id(assessment_id)
+        .map_err(|_| ExecuteError::Invalid("assessment_id is invalid"))?;
     let assessment_event_id = forge_assessment_event_id(assessment_id);
     let assessment_event = history
         .iter()
         .find(|event| event.event_id == assessment_event_id)
         .ok_or(ExecuteError::NotFound)?;
-    let assessment = decode_forge_assessment(assessment_event).map_err(|_| ExecuteError::Internal)?;
+    let assessment =
+        decode_forge_assessment(assessment_event).map_err(|_| ExecuteError::Internal)?;
     // The bound assessment is this canary's shadow evaluation: it must exist
     // and exactly evidence the current Champion against the candidate, but
     // its outcome is not itself a gate. Completion still requires a
@@ -421,7 +447,8 @@ fn advance_payload(
         || receipt.candidate_genome_id() != canary.candidate_genome_id
     {
         return Err(ExecuteError::Rejected(
-            "evidence does not pair the current Champion against this canary's candidate".to_owned(),
+            "evidence does not pair the current Champion against this canary's candidate"
+                .to_owned(),
         ));
     }
     let deltas = regression_deltas(&receipt);
@@ -656,9 +683,28 @@ pub(super) fn verify_canary_history(
             ));
         }
         let request = CanaryRequest::from_payload(&payload)?;
+        // A completing advance or a live regression check also appends one
+        // separate, later-sequenced Champion transition event as part of the
+        // same admitted request. Recomputing this canary event's payload
+        // must see the history exactly as it stood when the request was
+        // first admitted, so that companion event (and anything after it,
+        // which cannot legitimately exist yet) is excluded here.
+        let mut derivation_bound = index;
+        for companion_transition_id in [
+            canary_id_promotion_transition_id(&payload.canary_id),
+            canary_id_rollback_transition_id(&payload.canary_id),
+        ] {
+            let companion_event_id = champion_event_id(&companion_transition_id);
+            if let Some(position) = history[..index]
+                .iter()
+                .position(|candidate| candidate.event_id == companion_event_id)
+            {
+                derivation_bound = derivation_bound.min(position);
+            }
+        }
         let mut expected = canary_transition_payload(
             data_dir,
-            &history[..index],
+            &history[..derivation_bound],
             registered,
             &payload.canary_id,
             &request,
@@ -675,7 +721,9 @@ pub(super) fn verify_canary_history(
             let rollback_event = history
                 .iter()
                 .find(|candidate| candidate.event_id == rollback_event_id)
-                .ok_or_else(|| ControlError::Projection("canary rollback event is missing".to_owned()))?;
+                .ok_or_else(|| {
+                    ControlError::Projection("canary rollback event is missing".to_owned())
+                })?;
             let rollback_payload = champion::decode_champion_transition(rollback_event)?;
             if rollback_payload.kind != ChampionTransitionKind::RolledBack
                 || rollback_payload.world_id != payload.world_id
@@ -714,17 +762,11 @@ pub(super) fn canary_event_input(
     let event_id = match payload.kind {
         CanaryTransitionKind::Started => canary_started_event_id(&payload.canary_id),
         CanaryTransitionKind::Advanced | CanaryTransitionKind::Aborted => {
-            let evidence = payload
-                .evidence
-                .as_ref()
-                .ok_or(ExecuteError::Internal)?;
+            let evidence = payload.evidence.as_ref().ok_or(ExecuteError::Internal)?;
             canary_advance_event_id(&payload.canary_id, &evidence.evidence_evaluation_id)
         }
         CanaryTransitionKind::LiveRegressionDetected => {
-            let evidence = payload
-                .evidence
-                .as_ref()
-                .ok_or(ExecuteError::Internal)?;
+            let evidence = payload.evidence.as_ref().ok_or(ExecuteError::Internal)?;
             canary_livecheck_event_id(&payload.canary_id, &evidence.evidence_evaluation_id)
         }
     };

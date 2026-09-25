@@ -19,9 +19,9 @@ pub use protocol::{
     EvolutionCancelPayload, EvolutionEventRecord, EvolutionFinishReason, EvolutionFinishedPayload,
     EvolutionGenerationPayload, EvolutionGenerationRecord, EvolutionRunRecord, EvolutionRunState,
     EvolutionStartedPayload, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
-    ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord,
-    ForgeProposalPayload, ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress,
-    JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason,
-    RunListEntry, SelectionEventRecord, SelectionRecord, WorldRecord,
+    ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
+    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GenomeRecord,
+    InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, ResponseData,
+    RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 pub use server::{ControlPlane, data_dir_from_environment};

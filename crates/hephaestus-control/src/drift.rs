@@ -10,8 +10,8 @@ use hephaestus_genome::RegisteredObjects;
 use hephaestus_ledger::{EventInput, StoredEvent};
 
 use super::canary::{
-    CORRECTNESS_REGRESSION_BPS, LATENCY_REGRESSION_BPS, RELIABILITY_REGRESSION_BPS,
-    COST_REGRESSION_BPS, regression_deltas,
+    CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
+    RELIABILITY_REGRESSION_BPS, regression_deltas,
 };
 use super::champion::champion_projection;
 use super::{ControlError, ExecuteError, OPERATOR_ACTOR, hex_encode, validate_job_id};
@@ -137,8 +137,9 @@ pub(super) fn drift_record_payload(
         data_dir.join("blobs"),
     )
     .map_err(|_| ExecuteError::Internal)?;
-    let verified = hephaestus_arena::verify_selection_event(stores, selection_event, world.compiled())
-        .map_err(|_| ExecuteError::Internal)?;
+    let verified =
+        hephaestus_arena::verify_selection_event(stores, selection_event, world.compiled())
+            .map_err(|_| ExecuteError::Internal)?;
     let receipt = verified.receipt().clone();
     drop(verified.into_stores());
 
@@ -151,7 +152,10 @@ pub(super) fn drift_record_payload(
     let deltas = regression_deltas(&receipt);
     let threshold = threshold_bps(kind);
     let (observed_delta_bps, crossed) = match kind {
-        DriftKind::Latency => (deltas.latency_bps, deltas.latency_bps >= i64::from(threshold)),
+        DriftKind::Latency => (
+            deltas.latency_bps,
+            deltas.latency_bps >= i64::from(threshold),
+        ),
         DriftKind::Cost => (deltas.cost_bps, deltas.cost_bps >= i64::from(threshold)),
         DriftKind::Correctness => (
             deltas.correctness_bps,
@@ -164,7 +168,8 @@ pub(super) fn drift_record_payload(
     };
     if !crossed {
         return Err(ExecuteError::Rejected(
-            "evidence does not show a shift beyond the documented threshold for this kind".to_owned(),
+            "evidence does not show a shift beyond the documented threshold for this kind"
+                .to_owned(),
         ));
     }
 

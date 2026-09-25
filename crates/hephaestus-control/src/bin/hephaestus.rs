@@ -8,8 +8,8 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, CanaryRecord, CanaryTransitionRecord,
-    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind,
-    DriftRecord, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, ForgeAnalysisRecord,
+    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind, DriftRecord,
+    EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, ForgeAnalysisRecord,
     ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord, GenomeRecord,
     InvariantRecord, JobState, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
     data_dir_from_environment,
@@ -953,11 +953,17 @@ fn canary_command_from_cli(command: CanaryCommand) -> Command {
             candidate_genome_id: candidate,
             assessment_id: assessment,
         },
-        CanaryCommand::Advance { canary_id, evidence } => Command::CanaryAdvance {
+        CanaryCommand::Advance {
+            canary_id,
+            evidence,
+        } => Command::CanaryAdvance {
             canary_id,
             evidence_evaluation_id: evidence,
         },
-        CanaryCommand::LiveCheck { canary_id, evidence } => Command::CanaryLiveCheck {
+        CanaryCommand::LiveCheck {
+            canary_id,
+            evidence,
+        } => Command::CanaryLiveCheck {
             canary_id,
             evidence_evaluation_id: evidence,
         },

@@ -54,15 +54,14 @@ use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
 use crate::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind,
     ChampionTransitionPayload, Command, ControlError, DenialEntry, DenialKind, DriftKind,
-    EvaluationEventRecord, EvaluationForgeSummary,
-    EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
-    EvolutionCancelPayload, EvolutionFinishReason, EvolutionFinishedPayload,
-    EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
-    ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
-    ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
-    ForgeProposalRecord, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, ResponseData, RunCompletionReason, RunListEntry,
-    SelectionEventRecord, SelectionRecord, WorldRecord,
+    EvaluationEventRecord, EvaluationForgeSummary, EvaluationInvariantSummary, EvaluationListEntry,
+    EvaluationRecord, EvaluationSelectionSummary, EvolutionCancelPayload, EvolutionFinishReason,
+    EvolutionFinishedPayload, EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState,
+    EvolutionStartedPayload, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
+    ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
+    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GenomeRecord,
+    InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, ResponseData,
+    RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -1049,7 +1048,10 @@ impl ControlPlane {
         })
     }
 
-    fn canary_transition_command(&mut self, command: Command) -> Result<ResponseData, ExecuteError> {
+    fn canary_transition_command(
+        &mut self,
+        command: Command,
+    ) -> Result<ResponseData, ExecuteError> {
         let (canary_id, request) = match command {
             Command::CanaryStart {
                 canary_id,
@@ -5634,7 +5636,8 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
     {
         return Err(ExecuteError::Invalid("run_id is invalid"));
     }
-    require_champion_fields(command)
+    require_champion_fields(command)?;
+    require_drift_and_canary_fields(command)
 }
 
 fn require_champion_fields(command: &Command) -> Result<(), ExecuteError> {
@@ -5678,8 +5681,7 @@ fn require_champion_fields(command: &Command) -> Result<(), ExecuteError> {
         }
         _ => return Ok(()),
     };
-    validate_job_id(transition_id).map_err(|_| ExecuteError::Invalid("transition_id is invalid"))?;
-    require_drift_and_canary_fields(command)
+    validate_job_id(transition_id).map_err(|_| ExecuteError::Invalid("transition_id is invalid"))
 }
 
 fn require_drift_and_canary_fields(command: &Command) -> Result<(), ExecuteError> {
@@ -5706,7 +5708,8 @@ fn require_drift_and_canary_fields(command: &Command) -> Result<(), ExecuteError
             candidate_genome_id,
             assessment_id,
         } => {
-            validate_job_id(canary_id).map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
+            validate_job_id(canary_id)
+                .map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
             if world_id.trim().is_empty() || candidate_genome_id.trim().is_empty() {
                 return Err(ExecuteError::Invalid(
                     "world_id and candidate_genome_id are required",
@@ -5723,7 +5726,8 @@ fn require_drift_and_canary_fields(command: &Command) -> Result<(), ExecuteError
             canary_id,
             evidence_evaluation_id,
         } => {
-            validate_job_id(canary_id).map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
+            validate_job_id(canary_id)
+                .map_err(|_| ExecuteError::Invalid("canary_id is invalid"))?;
             validate_job_id(evidence_evaluation_id)
                 .map_err(|_| ExecuteError::Invalid("evidence_evaluation_id is invalid"))
         }

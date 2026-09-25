@@ -12,9 +12,9 @@ use tempfile::{TempDir, tempdir};
 
 use super::*;
 use crate::{
-    ApiError, CanaryEvidence, CanaryRecord, CanaryStage, CanaryTransitionKind,
-    CanaryTransitionPayload, CanaryTransitionRecord, ChampionRecord, ChampionTransitionKind,
-    ChampionTransitionPayload, ChampionTransitionRecord, DriftKind, DriftRecord,
+    ApiError, CanaryRecord, CanaryStage, CanaryTransitionKind, CanaryTransitionPayload,
+    CanaryTransitionRecord, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
+    ChampionTransitionRecord, DriftKind, DriftRecord, DriftRecordPayload,
 };
 
 #[test]
@@ -10927,4 +10927,830 @@ fn evolve_start_rejects_invalid_conflicting_and_concurrent_requests() {
     plane
         .service_async_messages()
         .expect("a finished run is left alone");
+}
+
+fn canary_transition(
+    plane: &mut ControlPlane,
+    token: &str,
+    request_id: &str,
+    command: Command,
+) -> Result<CanaryTransitionRecord, ApiError> {
+    let response = dispatch_call(plane, token, request_id, command);
+    match (response.data, response.error) {
+        (Some(ResponseData::CanaryTransition { transition }), None) => Ok(*transition),
+        (None, Some(error)) => Err(error),
+        other => panic!("unexpected canary response: {other:?}"),
+    }
+}
+
+fn canary_show(plane: &mut ControlPlane, token: &str, canary_id: &str) -> CanaryRecord {
+    match dispatch_call(
+        plane,
+        token,
+        "canary-show",
+        Command::CanaryShow {
+            canary_id: canary_id.to_owned(),
+        },
+    )
+    .data
+    {
+        Some(ResponseData::Canary { canary }) => *canary,
+        other => panic!("unexpected canary projection: {other:?}"),
+    }
+}
+
+fn assert_canary_error(
+    result: Result<CanaryTransitionRecord, ApiError>,
+    code: ApiErrorCode,
+    message: &str,
+) {
+    let error = result.expect_err("canary transition should be refused");
+    assert_eq!((error.code, error.message.as_str()), (code, message));
+}
+
+/// Evaluates `parent` against `candidate` and returns the evaluation ID of a
+/// fresh, verified selection receipt pairing them: directly usable as
+/// canary staged or live-check evidence.
+fn canary_evidence_evaluation(
+    plane: &mut ControlPlane,
+    evaluation_id: &str,
+    parent: &str,
+    candidate: &str,
+) -> String {
+    complete_arena_test_job(plane, evaluation_id, parent, candidate);
+    plane
+        .select_arena_evaluation(evaluation_id)
+        .expect("select canary evidence");
+    evaluation_id.to_owned()
+}
+
+fn canary_history(plane: &ControlPlane) -> Vec<StoredEvent> {
+    plane
+        .storage
+        .as_ref()
+        .expect("canonical canary ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify canary history")
+}
+
+fn canary_history_with_payload_edit(
+    history: &[StoredEvent],
+    event_id: &str,
+    edit: impl FnOnce(&mut CanaryTransitionPayload),
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == event_id)
+        .expect("canary event exists");
+    let mut payload: CanaryTransitionPayload =
+        serde_json::from_slice(&event.payload).expect("decode canary payload");
+    edit(&mut payload);
+    let canonical = serde_json::to_value(&payload).expect("canonicalize canary payload");
+    event.payload = serde_json::to_vec(&canonical).expect("encode canary payload");
+    tampered
+}
+
+fn drift_record_cmd(
+    plane: &mut ControlPlane,
+    token: &str,
+    request_id: &str,
+    command: Command,
+) -> Result<DriftRecord, ApiError> {
+    let response = dispatch_call(plane, token, request_id, command);
+    match (response.data, response.error) {
+        (Some(ResponseData::Drift { drift }), None) => Ok(*drift),
+        (None, Some(error)) => Err(error),
+        other => panic!("unexpected drift response: {other:?}"),
+    }
+}
+
+fn drift_history(plane: &ControlPlane) -> Vec<StoredEvent> {
+    plane
+        .storage
+        .as_ref()
+        .expect("canonical drift ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify drift history")
+}
+
+fn drift_history_with_payload_edit(
+    history: &[StoredEvent],
+    event_id: &str,
+    edit: impl FnOnce(&mut DriftRecordPayload),
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == event_id)
+        .expect("drift event exists");
+    let mut payload: DriftRecordPayload =
+        serde_json::from_slice(&event.payload).expect("decode drift payload");
+    edit(&mut payload);
+    let canonical = serde_json::to_value(&payload).expect("canonicalize drift payload");
+    event.payload = serde_json::to_vec(&canonical).expect("encode drift payload");
+    tampered
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
+    let directory = tempdir().expect("canary fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "canary-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = assessed.world.clone();
+    plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("record child invariant evidence");
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: initial_candidate.genome_id.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let start = |canary_id: &str| Command::CanaryStart {
+        canary_id: canary_id.to_owned(),
+        world_id: world_id.clone(),
+        candidate_genome_id: assessed.child.clone(),
+        assessment_id: "canary-improve-assessment".to_owned(),
+    };
+
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "start-missing-world",
+            Command::CanaryStart {
+                canary_id: "canary".to_owned(),
+                world_id: " ".to_owned(),
+                candidate_genome_id: assessed.child.clone(),
+                assessment_id: "canary-improve-assessment".to_owned(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "world_id and candidate_genome_id are required",
+    );
+
+    let started =
+        canary_transition(&mut plane, &token, "start", start("canary")).expect("start canary");
+    assert_eq!(started.payload.kind, CanaryTransitionKind::Started);
+    assert_eq!(started.payload.stage, CanaryStage::Pending);
+    assert_eq!(started.payload.candidate_genome_id, assessed.child);
+    assert_eq!(
+        started.payload.previous_champion_genome_id,
+        initial_candidate.genome_id
+    );
+    assert_eq!(started.event.event_id, "canary:canary:started");
+    assert_eq!(
+        canary_transition(&mut plane, &token, "start-retry", start("canary")),
+        Ok(started.clone()),
+        "an identical retry returns the recorded transition"
+    );
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "start-conflict",
+            Command::CanaryStart {
+                canary_id: "canary".to_owned(),
+                world_id: world_id.clone(),
+                candidate_genome_id: initial_parent.genome_id.clone(),
+                assessment_id: "canary-improve-assessment".to_owned(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "canary_id / evidence is already bound to different canary content",
+    );
+
+    // Freeze blocks a would-be-healthy advance. Evidence generation itself
+    // is new Arena work, so it is captured before freezing.
+    let evidence_1 = canary_evidence_evaluation(
+        &mut plane,
+        "canary-evidence-1",
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-advance", Command::Freeze)
+            .error
+            .is_none()
+    );
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "advance-frozen",
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: evidence_1.clone(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "evolution is frozen",
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-advance", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let advance1 = canary_transition(
+        &mut plane,
+        &token,
+        "advance-1",
+        Command::CanaryAdvance {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: evidence_1.clone(),
+        },
+    )
+    .expect("advance to 5%");
+    assert_eq!(advance1.payload.kind, CanaryTransitionKind::Advanced);
+    assert_eq!(advance1.payload.stage, CanaryStage::Stage5);
+    assert!(
+        !advance1
+            .payload
+            .evidence
+            .as_ref()
+            .expect("evidence")
+            .regressed
+    );
+    assert_eq!(
+        canary_transition(
+            &mut plane,
+            &token,
+            "advance-1-retry",
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: evidence_1.clone(),
+            },
+        ),
+        Ok(advance1.clone()),
+        "an identical retry returns the recorded transition"
+    );
+
+    let evidence_2 = canary_evidence_evaluation(
+        &mut plane,
+        "canary-evidence-2",
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    let advance2 = canary_transition(
+        &mut plane,
+        &token,
+        "advance-2",
+        Command::CanaryAdvance {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: evidence_2.clone(),
+        },
+    )
+    .expect("advance to 25%");
+    assert_eq!(advance2.payload.stage, CanaryStage::Stage25);
+
+    let evidence_3 = canary_evidence_evaluation(
+        &mut plane,
+        "canary-evidence-3",
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    let advance3 = canary_transition(
+        &mut plane,
+        &token,
+        "advance-3",
+        Command::CanaryAdvance {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: evidence_3.clone(),
+        },
+    )
+    .expect("advance to 50%");
+    assert_eq!(advance3.payload.stage, CanaryStage::Stage50);
+
+    // The prior Champion stays Champion until 100%.
+    assert_eq!(
+        champion_show(&mut plane, &token, &world_id)
+            .champion_genome_id
+            .as_deref(),
+        Some(initial_candidate.genome_id.as_str())
+    );
+
+    let evidence_4 = canary_evidence_evaluation(
+        &mut plane,
+        "canary-evidence-4",
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    let advance4 = canary_transition(
+        &mut plane,
+        &token,
+        "advance-4",
+        Command::CanaryAdvance {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: evidence_4.clone(),
+        },
+    )
+    .expect("complete the canary");
+    assert_eq!(advance4.payload.stage, CanaryStage::Completed);
+    let promotion = advance4
+        .payload
+        .champion_promotion
+        .clone()
+        .expect("promotion evidence");
+    assert_eq!(promotion.assessment_id, "canary-improve-assessment");
+
+    // Completion promoted through the existing, unchanged Champion path.
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(assessed.child.as_str())
+    );
+    assert_eq!(champion.transitions.len(), 2, "seed then promote");
+    assert_eq!(
+        champion.transitions[1].payload.kind,
+        ChampionTransitionKind::Promoted
+    );
+
+    let canary = canary_show(&mut plane, &token, "canary");
+    assert_eq!(canary.stage, CanaryStage::Completed);
+    assert_eq!(canary.transitions.len(), 5, "started plus four advances");
+
+    // A terminal canary refuses further advancement.
+    let evidence_5 = canary_evidence_evaluation(
+        &mut plane,
+        "canary-evidence-5",
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "advance-terminal",
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: evidence_5.clone(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "canary has already reached a terminal stage",
+    );
+
+    // Live-check requires the completion pairing exactly; a reversed pairing
+    // is refused, and healthy (non-regressed) evidence is correctly refused
+    // rather than triggering an unwarranted rollback.
+    let reversed_evidence = canary_evidence_evaluation(
+        &mut plane,
+        "canary-evidence-reversed",
+        &assessed.child,
+        &initial_parent.genome_id,
+    );
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "live-check-wrong-pair",
+            Command::CanaryLiveCheck {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: reversed_evidence,
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "evidence does not pair the previous Champion against the live Champion",
+    );
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "live-check-healthy",
+            Command::CanaryLiveCheck {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: evidence_4,
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "evidence does not show a live regression",
+    );
+
+    // A candidate not evidenced against the current Champion cannot start.
+    let pending_started = canary_transition(
+        &mut plane,
+        &token,
+        "start-pending",
+        Command::CanaryStart {
+            canary_id: "canary-pending".to_owned(),
+            world_id: world_id.clone(),
+            candidate_genome_id: initial_parent.genome_id.clone(),
+            assessment_id: "canary-improve-assessment".to_owned(),
+        },
+    );
+    assert_canary_error(
+        pending_started,
+        ApiErrorCode::InvalidRequest,
+        "assessment does not evidence the current Champion against this candidate",
+    );
+
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+
+    let history = canary_history(&plane);
+    verify_canary_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("canonical canary history verifies");
+    for (event_id, edit) in [
+        (
+            started.event.event_id.clone(),
+            Box::new(|payload: &mut CanaryTransitionPayload| {
+                payload
+                    .candidate_genome_id
+                    .clone_from(&initial_parent.genome_id);
+            }) as Box<dyn FnOnce(&mut CanaryTransitionPayload)>,
+        ),
+        (
+            advance4.event.event_id.clone(),
+            Box::new(|payload: &mut CanaryTransitionPayload| {
+                payload.champion_promotion = None;
+            }),
+        ),
+        (
+            advance1.event.event_id.clone(),
+            Box::new(|payload: &mut CanaryTransitionPayload| {
+                payload.stage = CanaryStage::Stage25;
+            }),
+        ),
+    ] {
+        let tampered = canary_history_with_payload_edit(&history, &event_id, edit);
+        assert!(
+            verify_canary_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+            "tampered canary transition {event_id} must fail replay"
+        );
+    }
+    let mut retyped = history.clone();
+    retyped
+        .iter_mut()
+        .find(|event| event.event_id == started.event.event_id)
+        .expect("start event")
+        .event_type = "canary.rewritten".to_owned();
+    assert!(verify_canary_history(&plane.data_dir, &retyped, &plane.state.registered).is_err());
+    let mut reordered = history;
+    let start_index = reordered
+        .iter()
+        .position(|event| event.event_id == started.event.event_id)
+        .expect("start event");
+    let start_event = reordered.remove(start_index);
+    reordered.push(start_event);
+    assert!(
+        verify_canary_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
+        "an advance cannot precede the start it depends on"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn canary_injected_regression_during_staged_advance_automatically_aborts_and_replays() {
+    let directory = tempdir().expect("canary regression fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let improved = assessed_forge_child(
+        &mut plane,
+        "base-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = improved.world.clone();
+
+    // Seed the Champion directly as the already-improved Genome, so a second
+    // flip of the reference operation is a genuine regression against it.
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: improved.child.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    // The candidate flipped to the worse reference operation: a real,
+    // verified regression against the seeded Champion.
+    let regressed = assessed_forge_child(
+        &mut plane,
+        "canary-regress",
+        &initial_parent.genome_id,
+        &improved.child,
+        false,
+    );
+    assert!(
+        regressed.selection_event != improved.selection_event,
+        "regression uses fresh, distinct evidence"
+    );
+
+    canary_transition(
+        &mut plane,
+        &token,
+        "start",
+        Command::CanaryStart {
+            canary_id: "canary".to_owned(),
+            world_id: world_id.clone(),
+            candidate_genome_id: regressed.child.clone(),
+            assessment_id: "canary-regress-assessment".to_owned(),
+        },
+    )
+    .expect("start canary on a candidate not yet known to be safe");
+
+    // Abort is a safety action and remains available while frozen.
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-advance", Command::Freeze)
+            .error
+            .is_none()
+    );
+    let aborted = canary_transition(
+        &mut plane,
+        &token,
+        "advance-regressed",
+        Command::CanaryAdvance {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: regressed.evaluation.clone(),
+        },
+    )
+    .expect("regression evidence automatically aborts rather than erroring");
+    assert_eq!(aborted.payload.kind, CanaryTransitionKind::Aborted);
+    assert_eq!(aborted.payload.stage, CanaryStage::Aborted);
+    let evidence = aborted.payload.evidence.clone().expect("abort evidence");
+    assert!(evidence.regressed);
+    assert!(
+        evidence.correctness_delta_bps <= -i64::from(super::canary::CORRECTNESS_REGRESSION_BPS),
+        "the regression must cross the documented correctness threshold"
+    );
+    assert!(aborted.payload.reason.is_some());
+
+    // The prior Champion was never at risk.
+    assert_eq!(
+        champion_show(&mut plane, &token, &world_id)
+            .champion_genome_id
+            .as_deref(),
+        Some(improved.child.as_str())
+    );
+    assert_eq!(
+        canary_show(&mut plane, &token, "canary").stage,
+        CanaryStage::Aborted
+    );
+
+    // An identical retry with the same evidence is idempotent.
+    assert_eq!(
+        canary_transition(
+            &mut plane,
+            &token,
+            "advance-regressed-retry",
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: regressed.evaluation.clone(),
+            },
+        ),
+        Ok(aborted.clone())
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    // A terminal (aborted) canary refuses any further advancement.
+    let fresh_evidence = canary_evidence_evaluation(
+        &mut plane,
+        "canary-post-abort-evidence",
+        &improved.child,
+        &initial_parent.genome_id,
+    );
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "advance-after-abort",
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: fresh_evidence,
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "canary has already reached a terminal stage",
+    );
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+    let history = canary_history(&plane);
+    verify_canary_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("canonical canary history verifies");
+    let tampered = canary_history_with_payload_edit(
+        &history,
+        &aborted.event.event_id,
+        |payload: &mut CanaryTransitionPayload| {
+            payload.kind = CanaryTransitionKind::Advanced;
+            payload.stage = CanaryStage::Stage5;
+        },
+    );
+    assert!(
+        verify_canary_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+        "a rewritten abort must fail replay"
+    );
+}
+
+fn assert_drift_error(result: Result<DriftRecord, ApiError>, message: &str) {
+    let error = result.expect_err("drift record should be refused");
+    assert_eq!(
+        (error.code, error.message.as_str()),
+        (ApiErrorCode::InvalidRequest, message)
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn drift_record_derives_from_verified_evidence_and_replays() {
+    let directory = tempdir().expect("drift fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let improved = assessed_forge_child(
+        &mut plane,
+        "base-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = improved.world.clone();
+
+    assert_drift_error(
+        drift_record_cmd(
+            &mut plane,
+            &token,
+            "drift-no-champion",
+            Command::DriftRecord {
+                drift_id: "drift".to_owned(),
+                world_id: world_id.clone(),
+                kind: DriftKind::Correctness,
+                evidence_evaluation_id: improved.evaluation.clone(),
+            },
+        ),
+        "World has no Champion; seed one before recording drift",
+    );
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: improved.child.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let regressed = assessed_forge_child(
+        &mut plane,
+        "drift-regress",
+        &initial_parent.genome_id,
+        &improved.child,
+        false,
+    );
+
+    // The wrong kind for this evidence is refused rather than silently
+    // recorded under a threshold it did not actually cross.
+    assert_drift_error(
+        drift_record_cmd(
+            &mut plane,
+            &token,
+            "drift-wrong-kind",
+            Command::DriftRecord {
+                drift_id: "drift".to_owned(),
+                world_id: world_id.clone(),
+                kind: DriftKind::Latency,
+                evidence_evaluation_id: regressed.evaluation.clone(),
+            },
+        ),
+        "evidence does not show a shift beyond the documented threshold for this kind",
+    );
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "drift-record",
+        Command::DriftRecord {
+            drift_id: "drift".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Correctness,
+            evidence_evaluation_id: regressed.evaluation.clone(),
+        },
+    )
+    .expect("record a genuine correctness drift");
+    assert_eq!(recorded.payload.kind, DriftKind::Correctness);
+    assert_eq!(recorded.payload.baseline_genome_id, improved.child);
+    assert_eq!(recorded.payload.shifted_genome_id, regressed.child);
+    assert_eq!(recorded.event.event_id, "drift:drift:recorded");
+    assert!(recorded.payload.observed_delta_bps <= -i64::from(recorded.payload.threshold_bps));
+
+    assert_eq!(
+        drift_record_cmd(
+            &mut plane,
+            &token,
+            "drift-retry",
+            Command::DriftRecord {
+                drift_id: "drift".to_owned(),
+                world_id: world_id.clone(),
+                kind: DriftKind::Correctness,
+                evidence_evaluation_id: regressed.evaluation.clone(),
+            },
+        ),
+        Ok(recorded.clone()),
+        "an identical retry returns the recorded drift"
+    );
+    assert_drift_error(
+        drift_record_cmd(
+            &mut plane,
+            &token,
+            "drift-conflict",
+            Command::DriftRecord {
+                drift_id: "drift".to_owned(),
+                world_id: world_id.clone(),
+                kind: DriftKind::Workload,
+                evidence_evaluation_id: regressed.evaluation.clone(),
+            },
+        ),
+        "drift_id is already bound to different drift content",
+    );
+
+    let shown = match dispatch_call(
+        &mut plane,
+        &token,
+        "drift-show",
+        Command::DriftShow {
+            drift_id: "drift".to_owned(),
+        },
+    )
+    .data
+    {
+        Some(ResponseData::Drift { drift }) => *drift,
+        other => panic!("unexpected drift show response: {other:?}"),
+    };
+    assert_eq!(shown, recorded);
+
+    // Drift never directly replaces a Champion.
+    assert_eq!(
+        champion_show(&mut plane, &token, &world_id)
+            .champion_genome_id
+            .as_deref(),
+        Some(improved.child.as_str())
+    );
+
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+    let history = drift_history(&plane);
+    verify_drift_history(&plane.data_dir, &history, &plane.state.registered)
+        .expect("canonical drift history verifies");
+    let tampered = drift_history_with_payload_edit(
+        &history,
+        &recorded.event.event_id,
+        |payload: &mut DriftRecordPayload| {
+            payload.observed_delta_bps = 0;
+        },
+    );
+    assert!(
+        verify_drift_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+        "a rewritten drift observation must fail replay"
+    );
+    let mut retyped = history;
+    retyped
+        .iter_mut()
+        .find(|event| event.event_id == recorded.event.event_id)
+        .expect("drift event")
+        .event_type = "drift.rewritten".to_owned();
+    assert!(verify_drift_history(&plane.data_dir, &retyped, &plane.state.registered).is_err());
 }
