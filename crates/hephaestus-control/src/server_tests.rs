@@ -8723,9 +8723,16 @@ fn assessed_forge_child(
         if !require_metrics_pass || child.receipt.metrics_eligible() {
             break (evaluation, child);
         }
+        // Only measurement noise justifies another paired run; a child that did
+        // not improve correctness fails immediately.
+        assert!(
+            child.receipt.correctness_improvements() > 0
+                && child.receipt.correctness_regressions() == 0,
+            "the proposed child did not improve correctness"
+        );
         attempt += 1;
         assert!(
-            attempt < 12,
+            attempt < 4,
             "an improving child never passed the measured gate"
         );
     };

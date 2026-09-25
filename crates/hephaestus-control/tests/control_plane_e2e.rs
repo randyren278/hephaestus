@@ -6077,9 +6077,14 @@ fn tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty() {
         if selection.receipt.metrics_eligible() {
             break (evaluation, selection);
         }
+        assert!(
+            selection.receipt.correctness_improvements() > 0
+                && selection.receipt.correctness_regressions() == 0,
+            "the proposed child did not improve correctness"
+        );
         attempt += 1;
         assert!(
-            attempt < 12,
+            attempt < 4,
             "improving child never passed the measured gate"
         );
     };
