@@ -12,8 +12,9 @@ use tempfile::{TempDir, tempdir};
 
 use super::*;
 use crate::{
-    ApiError, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
-    ChampionTransitionRecord,
+    ApiError, CanaryEvidence, CanaryRecord, CanaryStage, CanaryTransitionKind,
+    CanaryTransitionPayload, CanaryTransitionRecord, ChampionRecord, ChampionTransitionKind,
+    ChampionTransitionPayload, ChampionTransitionRecord, DriftKind, DriftRecord,
 };
 
 #[test]

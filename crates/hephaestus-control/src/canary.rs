@@ -24,7 +24,7 @@ use super::{
 };
 use crate::protocol::{
     CanaryEventRecord, CanaryEvidence, CanaryRecord, CanaryStage, CanaryTransitionKind,
-    CanaryTransitionPayload, CanaryTransitionRecord, ChampionTransitionKind, ForgeAssessmentOutcome,
+    CanaryTransitionPayload, CanaryTransitionRecord, ChampionTransitionKind,
 };
 
 pub(super) const CANARY_EVENT_TYPE: &str = "canary.transitioned";
@@ -360,11 +360,11 @@ fn start_payload(
         .find(|event| event.event_id == assessment_event_id)
         .ok_or(ExecuteError::NotFound)?;
     let assessment = decode_forge_assessment(assessment_event).map_err(|_| ExecuteError::Internal)?;
-    if assessment.outcome != ForgeAssessmentOutcome::MetricsPassed {
-        return Err(ExecuteError::Rejected(
-            "Forge assessment did not pass the World metrics policy".to_owned(),
-        ));
-    }
+    // The bound assessment is this canary's shadow evaluation: it must exist
+    // and exactly evidence the current Champion against the candidate, but
+    // its outcome is not itself a gate. Completion still requires a
+    // `MetricsPassed` assessment through the unchanged Champion promotion
+    // policy, and every stage in between is independently health-gated.
     if assessment.world_id != world_id
         || assessment.parent_genome_id != current_champion
         || assessment.child_genome_id != candidate_genome_id
@@ -528,12 +528,17 @@ fn live_check_payload(
         &canary.world_id,
         evidence_evaluation_id,
     )?;
+    // Same evidence orientation as staged advancement: parent is the
+    // previous Champion (the baseline), candidate is this canary's rollout
+    // candidate, which is now the live Champion. A regression here means
+    // the live Champion (candidate) measured worse than the previous
+    // Champion (parent) it replaced.
     if receipt.world_id() != canary.world_id
-        || receipt.parent_genome_id() != canary.candidate_genome_id
-        || receipt.candidate_genome_id() != canary.previous_champion_genome_id
+        || receipt.parent_genome_id() != canary.previous_champion_genome_id
+        || receipt.candidate_genome_id() != canary.candidate_genome_id
     {
         return Err(ExecuteError::Rejected(
-            "evidence does not pair the live Champion against the previous Champion".to_owned(),
+            "evidence does not pair the previous Champion against the live Champion".to_owned(),
         ));
     }
     let deltas = regression_deltas(&receipt);
