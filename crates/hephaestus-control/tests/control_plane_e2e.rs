@@ -14,9 +14,9 @@ use hephaestus_arena::{
     TrialPlan, TrustedManifest, TrustedTask, Visibility, evaluate_and_record,
 };
 use hephaestus_control::{
-    API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, Command, ControlError, ControlPlane,
-    DenialKind, ForgeAssessmentOutcome, GenomeRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, ResponseData, RunCompletionReason, WorldRecord,
+    API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind, Command,
+    ControlError, ControlPlane, DenialKind, ForgeAssessmentOutcome, GenomeRecord, JobProgress,
+    JobRecord, JobState, JobTerminal, ResponseData, RunCompletionReason, WorldRecord,
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client};
@@ -6266,6 +6266,373 @@ fn evidence_cli_lists_runs_and_denials_newest_first_and_bounded() {
         replayed_runs.data, listed.data,
         "run listing must be stable across a verified replay"
     );
+
+    daemon.stop();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("README.md"), b"canary fixture\n").expect("write fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+    let quickstart = Path::new(QUICKSTART);
+    let scratch = directory.path().join("scratch");
+    fs::create_dir_all(&scratch).expect("create scratch directory");
+    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+    let data = |arguments: &[&str]| {
+        let output = cli(&data_dir, arguments);
+        let parsed = response(&output);
+        assert!(
+            parsed.error.is_none(),
+            "CLI command {arguments:?} failed: {:?}",
+            parsed.error
+        );
+        parsed.data.expect("CLI response data")
+    };
+    let error = |arguments: &[&str]| {
+        let output = cli(&data_dir, arguments);
+        let parsed: ApiResponse =
+            serde_json::from_slice(&output.stdout).expect("decode CLI response");
+        if parsed.error.is_none() {
+            panic!("CLI command {arguments:?} unexpectedly succeeded: {parsed:?}");
+        }
+        parsed.error.expect("checked above")
+    };
+
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/visible.json").to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/sealed.json").to_str().unwrap(),
+    ]));
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier = first_word(&text(&["verifier"]));
+    let invariant_path = scratch.join("invariants.json");
+    fs::write(
+        &invariant_path,
+        br#"{"schema_version":1,"algorithm":"reference-output-invariants-v1","maximum_output_bytes":4096,"forbidden_ascii_bytes":[0]}"#,
+    )
+    .unwrap();
+    let invariants = first_word(&text(&[
+        "artifact",
+        "put",
+        invariant_path.to_str().unwrap(),
+    ]));
+    let world_path = scratch.join("world.json");
+    fs::write(
+        &world_path,
+        fs::read_to_string(quickstart.join("world.template.json"))
+            .unwrap()
+            .replace("__VISIBLE_MANIFEST__", &visible)
+            .replace("__SEALED_MANIFEST__", &sealed)
+            .replace("__EVALUATOR__", &evaluator)
+            .replace(
+                "\"__VERIFIER__\"",
+                &format!("\"{verifier}\",\n    \"arena.invariant_manifest\": \"{invariants}\""),
+            ),
+    )
+    .unwrap();
+    let world_id = first_word(&text(&["world", "register", world_path.to_str().unwrap()]));
+    let parent_id = first_word(&text(&[
+        "genome",
+        "register",
+        quickstart.join("agent.md").to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    let candidate_path = scratch.join("candidate.md");
+    fs::write(
+        &candidate_path,
+        fs::read_to_string(quickstart.join("candidate.md"))
+            .unwrap()
+            .replace("__PARENT_ID__", &parent_id),
+    )
+    .unwrap();
+    let candidate_id = first_word(&text(&[
+        "genome",
+        "register",
+        candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    // Seed the Champion directly: canary start requires one to already exist.
+    data(&[
+        "champion",
+        "seed",
+        "canary-e2e-seed",
+        "--world",
+        &world_id,
+        "--genome",
+        &parent_id,
+        "--reason",
+        "Bootstrap the canary lineage.",
+    ]);
+
+    // Shadow evaluation: propose and assess an improving flip of the Champion,
+    // exactly as an operator would before starting a canary.
+    data(&[
+        "arena",
+        "evaluate",
+        "canary-e2e-source",
+        &candidate_id,
+        &parent_id,
+    ]);
+    let ResponseData::Selection { selection: source } =
+        data(&["arena", "select", "canary-e2e-source"])
+    else {
+        panic!("source selection expected");
+    };
+    let ResponseData::ForgeProposal { proposal } = data(&[
+        "genome",
+        "propose",
+        "canary-e2e-proposal",
+        "--selection-event",
+        &source.event.event_id,
+        "--parent",
+        &parent_id,
+        "--hypothesis",
+        "Uppercase output satisfies the quickstart tasks.",
+    ]) else {
+        panic!("Forge proposal expected");
+    };
+    let good_child = proposal.payload.child.clone();
+    let mut attempt = 0;
+    let (good_evaluation, good_selection) = loop {
+        let evaluation = format!("canary-e2e-child-{attempt}");
+        data(&[
+            "arena",
+            "evaluate",
+            &evaluation,
+            &parent_id,
+            &good_child.genome_id,
+        ]);
+        let ResponseData::Selection { selection } = data(&["arena", "select", &evaluation]) else {
+            panic!("child selection expected");
+        };
+        if selection.receipt.metrics_eligible() {
+            break (evaluation, selection);
+        }
+        assert!(
+            selection.receipt.correctness_improvements() > 0
+                && selection.receipt.correctness_regressions() == 0,
+            "the proposed child did not improve correctness"
+        );
+        attempt += 1;
+        assert!(
+            attempt < 4,
+            "improving child never passed the measured gate"
+        );
+    };
+    data(&[
+        "genome",
+        "assess",
+        "canary-e2e-assessment",
+        "--proposal",
+        "canary-e2e-proposal",
+        "--selection-event",
+        &good_selection.event.event_id,
+    ]);
+    data(&["arena", "invariants", &good_evaluation]);
+
+    // Start the canary bound to that shadow evaluation.
+    let started = data(&[
+        "canary",
+        "start",
+        "canary-e2e",
+        "--world",
+        &world_id,
+        "--candidate",
+        &good_child.genome_id,
+        "--assessment",
+        "canary-e2e-assessment",
+    ]);
+    let ResponseData::CanaryTransition { transition } = started else {
+        panic!("canary start should return its transition");
+    };
+    assert_eq!(transition.payload.stage, CanaryStage::Pending);
+
+    // Advance through 5/25/50/100%, completing by promoting through the
+    // existing, unchanged Champion path.
+    let mut evidence_ids = Vec::new();
+    for stage in 0..4 {
+        let evaluation = format!("canary-e2e-stage-{stage}");
+        data(&[
+            "arena",
+            "evaluate",
+            &evaluation,
+            &parent_id,
+            &good_child.genome_id,
+        ]);
+        data(&["arena", "select", &evaluation]);
+        evidence_ids.push(evaluation.clone());
+        let advanced = data(&["canary", "advance", "canary-e2e", "--evidence", &evaluation]);
+        let ResponseData::CanaryTransition { transition } = advanced else {
+            panic!("canary advance should return its transition");
+        };
+        assert_eq!(transition.payload.kind, CanaryTransitionKind::Advanced);
+    }
+    let ResponseData::Canary { canary } = data(&["canary", "show", "canary-e2e"]) else {
+        panic!("canary show should return the projection");
+    };
+    assert_eq!(canary.stage, CanaryStage::Completed);
+    assert_eq!(canary.transitions.len(), 5, "started plus four advances");
+
+    let ResponseData::Champion { champion } = data(&["champion", "show", &world_id]) else {
+        panic!("Champion projection expected");
+    };
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(good_child.genome_id.as_str())
+    );
+
+    // A completed canary correctly refuses a live-check against healthy
+    // evidence rather than rolling back on nothing.
+    let healthy_live_check = error(&[
+        "canary",
+        "live-check",
+        "canary-e2e",
+        "--evidence",
+        evidence_ids.last().unwrap(),
+    ]);
+    assert_eq!(healthy_live_check.code, ApiErrorCode::InvalidRequest);
+    assert_eq!(
+        healthy_live_check.message,
+        "evidence does not show a live regression"
+    );
+
+    // Now flip the promoted Champion back to the worse reference operation
+    // and start a second canary on it: an injected regression.
+    let ResponseData::Selection {
+        selection: regress_source,
+    } = data(&["arena", "select", evidence_ids.last().unwrap()])
+    else {
+        panic!("regress source selection expected");
+    };
+    let ResponseData::ForgeProposal {
+        proposal: regress_proposal,
+    } = data(&[
+        "genome",
+        "propose",
+        "canary-e2e-regress-proposal",
+        "--selection-event",
+        &regress_source.event.event_id,
+        "--parent",
+        &good_child.genome_id,
+        "--hypothesis",
+        "Flip the single reference operation back.",
+    ])
+    else {
+        panic!("Forge proposal expected");
+    };
+    let worse_child = regress_proposal.payload.child.clone();
+    data(&[
+        "arena",
+        "evaluate",
+        "canary-e2e-regress-eval",
+        &good_child.genome_id,
+        &worse_child.genome_id,
+    ]);
+    let ResponseData::Selection {
+        selection: regress_selection,
+    } = data(&["arena", "select", "canary-e2e-regress-eval"])
+    else {
+        panic!("regressed child selection expected");
+    };
+    assert!(regress_selection.receipt.correctness_regressions() > 0);
+    data(&[
+        "genome",
+        "assess",
+        "canary-e2e-regress-assessment",
+        "--proposal",
+        "canary-e2e-regress-proposal",
+        "--selection-event",
+        &regress_selection.event.event_id,
+    ]);
+
+    // This evidence also cites a real, documented correctness drift.
+    let ResponseData::Drift { drift } = data(&[
+        "drift",
+        "record",
+        "canary-e2e-drift",
+        "--world",
+        &world_id,
+        "--kind",
+        "correctness",
+        "--evidence",
+        "canary-e2e-regress-eval",
+    ]) else {
+        panic!("drift record should return its payload");
+    };
+    assert_eq!(drift.payload.baseline_genome_id, good_child.genome_id);
+    assert_eq!(drift.payload.shifted_genome_id, worse_child.genome_id);
+
+    data(&[
+        "canary",
+        "start",
+        "canary-e2e-regressed",
+        "--world",
+        &world_id,
+        "--candidate",
+        &worse_child.genome_id,
+        "--assessment",
+        "canary-e2e-regress-assessment",
+    ]);
+    let aborted = data(&[
+        "canary",
+        "advance",
+        "canary-e2e-regressed",
+        "--evidence",
+        "canary-e2e-regress-eval",
+    ]);
+    let ResponseData::CanaryTransition {
+        transition: abort_transition,
+    } = aborted
+    else {
+        panic!("canary advance should return its transition even when it aborts");
+    };
+    assert_eq!(abort_transition.payload.kind, CanaryTransitionKind::Aborted);
+    assert_eq!(abort_transition.payload.stage, CanaryStage::Aborted);
+    assert!(
+        abort_transition
+            .payload
+            .evidence
+            .expect("abort evidence")
+            .regressed
+    );
+
+    // The regressed canary never touched the Champion.
+    let ResponseData::Champion { champion } = data(&["champion", "show", &world_id]) else {
+        panic!("Champion projection expected");
+    };
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(good_child.genome_id.as_str())
+    );
+
+    // Full replay of everything above verifies.
+    assert!(matches!(data(&["replay"]), ResponseData::Replay { .. }));
 
     daemon.stop();
 }
