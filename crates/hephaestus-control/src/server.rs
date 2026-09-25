@@ -7423,10 +7423,25 @@ fn default_evaluator_executable() -> Result<PathBuf, ControlError> {
     let directory = current
         .parent()
         .ok_or(ControlError::Protocol("daemon executable has no directory"))?;
-    Ok(directory.join(format!(
+    let sibling = directory.join(format!(
         "hephaestus-reference-evaluator{}",
         std::env::consts::EXE_SUFFIX
-    )))
+    ));
+    if sibling.exists() {
+        return Ok(sibling);
+    }
+    // Cargo places unit-test executables under `target/debug/deps`, while the
+    // installed daemon and evaluator are siblings under `bin` or `target/debug`.
+    if let Some(parent) = directory.parent() {
+        let cargo_sibling = parent.join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+        if cargo_sibling.exists() {
+            return Ok(cargo_sibling);
+        }
+    }
+    Ok(sibling)
 }
 
 fn default_reference_worker_executable() -> Result<PathBuf, ControlError> {
