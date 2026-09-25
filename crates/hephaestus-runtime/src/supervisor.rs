@@ -1104,13 +1104,23 @@ mod tests {
         let dropped_at = Instant::now();
         drop(runtime);
         assert!(dropped_at.elapsed() < Duration::from_secs(2));
-        assert!(
-            !Command::new("/bin/kill")
+        // The killed grandchild is reaped by init asynchronously, so allow a
+        // short window before requiring that it no longer exists.
+        let alive = || {
+            Command::new("/bin/kill")
                 .args(["-0", &child_pid])
                 .output()
                 .expect("probe child")
                 .status
                 .success()
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while alive() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            !alive(),
+            "dropping the supervisor must stop its process group"
         );
         sandbox.cleanup().expect("clean sandbox");
     }
