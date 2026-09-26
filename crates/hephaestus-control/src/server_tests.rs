@@ -17913,6 +17913,35 @@ fn auto_canary_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord
 /// Polls the reconciliation loop, the same way `evolve_drain_active_run`
 /// polls an evolution run, until the named drift's automatic adaptation
 /// reaches a terminal (`drift.adaptation_finished`) state.
+/// Every ledger event naming `drift_id`, plus the last few events overall,
+/// so a failed adaptation assertion shows which step ended it (an
+/// `Interrupted` finish otherwise hides the underlying error).
+fn drift_adaptation_ledger_trail(plane: &ControlPlane, drift_id: &str) -> String {
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("open canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay verified history");
+    let tail_start = history.len().saturating_sub(12);
+    history
+        .iter()
+        .enumerate()
+        .filter(|(index, event)| {
+            *index >= tail_start
+                || event.event_id.contains(drift_id)
+                || event.aggregate_id.contains(drift_id)
+        })
+        .map(|(_, event)| {
+            let payload = String::from_utf8_lossy(&event.payload);
+            let payload: String = payload.chars().take(400).collect();
+            format!("{} {} {payload}", event.event_type, event.event_id)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn drain_drift_adaptation(plane: &mut ControlPlane, drift_id: &str) -> DriftRecord {
     let deadline = Instant::now() + Duration::from_secs(180);
     loop {
@@ -18568,7 +18597,9 @@ fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
     let finished = drain_drift_adaptation(&mut reopened, "restart");
     assert_eq!(
         finished.adaptation.finish_reason,
-        Some(DriftAdaptationFinishReason::Promoted)
+        Some(DriftAdaptationFinishReason::Promoted),
+        "{}",
+        drift_adaptation_ledger_trail(&reopened, "restart")
     );
     let champion = champion_show(&mut reopened, &token, &world_id);
     assert_eq!(
