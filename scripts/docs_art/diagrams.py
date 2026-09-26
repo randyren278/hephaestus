@@ -679,6 +679,136 @@ def crate_map() -> str:
     c.text(40, y + 132, "Code only depends on its own layer or the layers below it, never on a layer above.", size=13.5, fill=BRIGHT)
     return c.svg()
 
+def node(c: Canvas, x: float, y: float, w: float, h: float, title: str, sub: str = "", *,
+         stroke: str = BORDER, width: float = 1) -> None:
+    """A labelled box: bold title and an optional wrapped subtitle."""
+    c.box(x, y, w, h, stroke=stroke, width=width, radius=10)
+    c.text(x + 14, y + 25, title, size=15, weight=700, fill=INK)
+    if sub:
+        c.paragraph(x + 14, y + 47, sub, w - 26, size=13)
+
+
+def chip(c: Canvas, x: float, y: float, label: str, *, color: str = GOLD) -> None:
+    """A small rounded tag, used for 'goes to another band' notes."""
+    w = len(label) * 7.2 + 20
+    c.box(x, y, w, 26, fill=RAISED, stroke=color, radius=13)
+    c.text(x + w / 2, y + 17.5, label, size=12.5, weight=700, fill=color, anchor="middle")
+
+
+def band(c: Canvas, y: float, h: float, number: str, title: str, icon: str) -> None:
+    c.box(24, y, 912, h, fill=RAISED, radius=14)
+    c.badge(52, y + 28, number, fill=GOLD)
+    c.text(76, y + 34, title, size=18, weight=700, fill=GOLD)
+    c.icon(icon, 880, y + 12, 36)
+
+
+def system_map() -> str:
+    desc = ("The full Hephaestus system in five parts. "
+            "1, you and the daemon: the operator CLI talks over an owner-only socket that checks a token and schema version 1, to hephaestusd, the single writer. Candidates asking to unfreeze are always refused; only the operator resumes evolution. "
+            "2, sealing Worlds and Genomes: versioned source files, stored artifacts, and the canonical vocabulary go through a fail-closed compiler that produces content-addressed Worlds and Genomes. Registration replay checks acyclic, same-World ancestry before the daemon trusts them. A child's permissions must be equal or narrower; a wider request is refused. "
+            "3, running an agent: a pinned run spec gets a private Git worktree in a sandbox, and one of three runners executes it: the offline reference runner, Codex, or Claude. An evidence-required wrapper records redacted traces, and the daemon signs the terminal run result. "
+            "4, measuring in the Arena: a trusted paired scheduler runs the parent and candidate as separate supervised processes; the Arena checks their signed results and asks a World-hashed isolated evaluator, which returns only totals, to score them. The World also supplies the canonical visible and sealed task manifests and the producer's public key. The Arena writes a verified evaluation event, which yields a candidate-safe visible summary and operator-only selection evidence that deterministic selection uses. "
+            "5, the record: every change follows a declared lifecycle into a hash-linked event, stored in SQLite and a BLAKE3 content-addressed file store. Verified replay rebuilds the daemon's state from them and must match exactly.")
+    c = Canvas(960, 1656, "The full Hephaestus system", desc)
+    c.heading("The whole system, in five parts", "Every arrow is a real hand-off in the code. Gold tags say where a result goes next.")
+
+    # 1. You and the daemon
+    y = 112
+    band(c, y, 206, "1", "You and the daemon", "operator")
+    node(c, 48, y + 58, 200, 78, "Operator CLI", "hephaestus, heph, and the consoles")
+    node(c, 300, y + 58, 250, 78, "Owner-only socket", "checks your token and schema v1")
+    node(c, 602, y + 58, 310, 78, "hephaestusd", "the single writer; rebuilds its state from the record on start", stroke=GOLD, width=2)
+    c.arrow([(248, y + 97), (296, y + 97)])
+    c.arrow([(550, y + 97), (598, y + 97)])
+    c.box(48, y + 150, 864, 40, fill=CARD, radius=8)
+    c.text(64, y + 175, "Unfreeze: a candidate asking is always refused. Only the operator can resume evolution.", size=13.5, fill=INK)
+
+    # 2. Sealing Worlds and Genomes
+    y = 336
+    band(c, y, 326, "2", "Sealing Worlds and Genomes", "genome")
+    node(c, 48, y + 58, 190, 78, "Source files", "versioned JSON, YAML, or Markdown")
+    node(c, 256, y + 58, 190, 78, "Stored files", "fingerprinted artifacts (CAS)")
+    node(c, 464, y + 58, 190, 78, "Vocabulary", "one canonical meaning per word")
+    node(c, 702, y + 58, 210, 78, "Fail-closed compiler", "anything unknown or unsafe is refused", stroke=EMBER, width=2)
+    c.arrow([(654, y + 97), (698, y + 97)])
+    for x in (143, 351, 559):
+        c.arrow([(x, y + 136), (x, y + 150), (680, y + 150), (680, y + 110), (698, y + 110)], head=False, color=BORDER, width=1.5)
+    node(c, 48, y + 184, 200, 78, "World", "content-addressed exam and rules")
+    node(c, 296, y + 184, 220, 78, "Genome", "content-addressed agent, under a World")
+    node(c, 564, y + 184, 348, 78, "Registration replay", "acyclic, same-World ancestry before the daemon trusts it")
+    c.arrow([(807, y + 136), (807, y + 166), (148, y + 166), (148, y + 180)])
+    c.arrow([(248, y + 223), (292, y + 223)])
+    c.arrow([(516, y + 223), (560, y + 223)])
+    chip(c, 700, y + 276, "trusted by hephaestusd (1)")
+    c.text(48, y + 294, "Child permissions: equal or narrower runs; wider is refused.", size=13.5, fill=BRIGHT)
+
+    # 3. Running an agent
+    y = 680
+    band(c, y, 316, "3", "Running an agent", "sandbox")
+    node(c, 48, y + 58, 200, 90, "Run spec", "Genome, task, commit, and budget, pinned first")
+    node(c, 296, y + 58, 220, 90, "Private worktree", "the pinned Git commit, inside a sandbox")
+    c.box(564, y + 58, 348, 90, radius=10)
+    c.text(578, y + 83, "One runner executes it", size=15, weight=700, fill=INK)
+    x = 578
+    for i, label in enumerate(("offline reference", "Codex", "Claude")):
+        chip(c, x, y + 104, label, color=EMBER if i == 0 else DIM)
+        x += len(label) * 7.2 + 20 + 10
+    c.arrow([(248, y + 103), (292, y + 103)])
+    c.arrow([(516, y + 103), (560, y + 103)])
+    node(c, 48, y + 184, 270, 78, "Evidence-required wrapper", "a run that can't record evidence is stopped")
+    node(c, 366, y + 184, 230, 78, "Redacted traces", "what happened, secrets scrubbed")
+    node(c, 644, y + 184, 268, 78, "Signed run result", "signed with the daemon's own key")
+    c.arrow([(700, y + 148), (700, y + 166), (183, y + 166), (183, y + 180)])
+    c.text(200, y + 161, "watches every run", size=12.5)
+    c.arrow([(830, y + 148), (830, y + 180)])
+    c.arrow([(318, y + 223), (362, y + 223)])
+    chip(c, 366, y + 276, "written to the record (5)")
+    chip(c, 644, y + 276, "to the Arena (4) and record (5)")
+
+    # 4. Measuring in the Arena
+    y = 1014
+    band(c, y, 400, "4", "Measuring in the Arena", "arena")
+    node(c, 48, y + 58, 210, 90, "Paired scheduler", "same tasks, seed, and budget for both")
+    node(c, 306, y + 58, 180, 40, "Parent process")
+    node(c, 306, y + 108, 180, 40, "Candidate process")
+    node(c, 534, y + 58, 190, 200, "Arena", "checks every signed result, then asks the judge to score them", stroke=GOLD, width=2)
+    node(c, 772, y + 58, 140, 200, "The judge", "an isolated evaluator, hashed by the World; agents never see it; returns only totals")
+    c.arrow([(258, y + 78), (302, y + 78)])
+    c.arrow([(258, y + 128), (302, y + 128)])
+    c.arrow([(486, y + 78), (530, y + 78)])
+    c.arrow([(486, y + 128), (530, y + 128)])
+    c.arrow([(724, y + 140), (768, y + 140)])
+    c.arrow([(768, y + 176), (728, y + 176)])
+    c.text(748, y + 128, "score", size=12, anchor="middle")
+    c.text(748, y + 196, "totals", size=12, anchor="middle")
+    node(c, 48, y + 172, 220, 78, "Visible and sealed tasks", "from the World; your view hides the answers")
+    node(c, 296, y + 172, 200, 78, "Producer's public key", "anchored in the World")
+    c.arrow([(496, y + 211), (530, y + 211)])
+    c.arrow([(158, y + 250), (158, y + 264), (515, y + 264), (515, y + 240), (530, y + 240)])
+    node(c, 48, y + 290, 250, 78, "Verified evaluation event", "written once, idempotent on retry")
+    node(c, 346, y + 290, 250, 78, "Candidate-safe summary", "visible results only")
+    node(c, 644, y + 290, 268, 78, "Operator-only evidence", "feeds deterministic selection")
+    c.arrow([(629, y + 258), (629, y + 276), (173, y + 276), (173, y + 286)])
+    c.arrow([(298, y + 329), (342, y + 329)])
+    c.arrow([(298, y + 352), (320, y + 352), (320, y + 384), (778, y + 384), (778, y + 372)])
+
+    # 5. The record
+    y = 1432
+    band(c, y, 196, "5", "The record", "ledger")
+    node(c, 48, y + 58, 180, 90, "Declared lifecycle", "only allowed state changes")
+    node(c, 272, y + 58, 190, 90, "Hash-linked event", "chained to the one before")
+    node(c, 506, y + 58, 170, 40, "SQLite (WAL)")
+    node(c, 506, y + 108, 170, 40, "BLAKE3 file store")
+    node(c, 720, y + 58, 192, 90, "Verified replay", "must match live state, or the daemon won't start", stroke=GOLD, width=2)
+    c.arrow([(228, y + 103), (268, y + 103)])
+    c.arrow([(462, y + 78), (502, y + 78)])
+    c.arrow([(462, y + 128), (502, y + 128)])
+    c.arrow([(676, y + 78), (716, y + 90)])
+    c.arrow([(676, y + 128), (716, y + 116)])
+    chip(c, 720, y + 158, "rebuilds hephaestusd (1)")
+    return c.svg()
+
+
 DIAGRAMS = {
     "how-it-works.svg": how_it_works,
     "glossary.svg": glossary_readme,
@@ -700,6 +830,7 @@ DIAGRAMS = {
     "threat-model.svg": threat_model,
     "constitution.svg": constitution,
     "crate-map.svg": crate_map,
+    "system-map.svg": system_map,
 }
 
 

@@ -10,65 +10,9 @@ The rest of this page is the precise reference, including the full system diagra
 
 The Rust workspace separates Laws and domain contracts, canonical evidence persistence, immutable Genome/World compilation, the local daemon boundary, capability-scoped runtimes, and the Experience Plane. New planes are added only with executable invariants.
 
-```mermaid
-flowchart TD
-    Candidate[Candidate Genome] --> Derive[Derive child capabilities]
-    Derive -->|subset| Run[Authorized run]
-    Derive -->|widening| Deny[Fail closed]
-    Candidate --> Unfreeze[Request unfreeze]
-    Unfreeze --> Deny
-    Operator[External operator] --> Unfreeze
-    Unfreeze -->|operator only| Resume[Resume evolution]
-    Fixture[Versioned domain fixture] --> Validate[Fail-closed validation]
-    Validate --> Vocabulary[Canonical vocabulary]
-    Vocabulary --> Lifecycle[Declared lifecycle]
-    Lifecycle --> Event[Hash-linked event]
-    Event --> SQLite[(SQLite WAL)]
-    Event --> CAS[BLAKE3 artifact CAS]
-    SQLite --> Replay[Verified replay]
-    CAS --> Replay
-    Source[Versioned JSON or YAML] --> Compile[Fail-closed compiler]
-    CAS --> Compile
-    Vocabulary --> Compile
-    Compile --> World[Content-addressed World]
-    World --> Genome[Content-addressed Genome]
-    World --> Registry[Trusted registration replay]
-    Genome --> Registry
-    Registry -->|acyclic, same-World ancestry| Daemon
-    Genome --> Derive
-    CLI[Operator CLI] -->|token plus schema v1| Socket[Owner-only Unix socket]
-    Socket --> Daemon[Single-writer daemon]
-    Daemon --> Event
-    Replay --> Daemon
-    Daemon --> Runtime[Provider-neutral runtime]
-    Runtime --> Recorded[Evidence-required runtime wrapper]
-    Recorded --> Experience[Redacted provenance-bound traces]
-    Experience --> Event
-    Event --> Arena[Runtime-provenance Arena]
-    World --> Arena
-    Daemon --> Signed[Signed terminal run results]
-    Signed --> Event
-    World --> Verifier[Producer public key]
-    Verifier --> Arena
-    World --> Manifests[Canonical visible and sealed manifests]
-    Manifests -->|operator task view without expectations| Daemon
-    Manifests --> Arena
-    Runtime --> Sandbox[Pinned private Git worktree]
-    Daemon --> Pair[Trusted paired scheduler]
-    Pair --> Parent[Supervised parent process]
-    Pair --> CandidateRun[Supervised candidate process]
-    Parent --> Arena
-    CandidateRun --> Arena
-    Pair --> Evaluator[World-hashed isolated evaluator]
-    Evaluator --> Arena
-    Arena --> EvalEvent[Verified evaluation event]
-    EvalEvent --> SafeSummary[Candidate-safe visible summary]
-    EvalEvent --> OperatorEvidence[Operator-only aggregate selection evidence]
-    OperatorEvidence -. pending .-> Selection[Deterministic selection]
-    Sandbox --> Codex[Codex driver]
-    Sandbox --> Claude[Claude driver]
-    Sandbox --> Reference[Offline reference runtime]
-```
+<p align="center">
+  <img src="assets/system-map.svg" width="100%" alt="The whole Hephaestus system in five parts. 1, you and the daemon: the operator CLI talks over an owner-only socket that checks your token and schema v1 to hephaestusd, the single writer; a candidate asking to unfreeze is always refused. 2, sealing Worlds and Genomes: source files, stored artifacts, and the vocabulary go through a fail-closed compiler into content-addressed Worlds and Genomes, and registration replay checks acyclic, same-World ancestry; child permissions must be equal or narrower. 3, running an agent: a pinned run spec gets a private worktree in a sandbox, one runner executes it (offline reference, Codex, or Claude), an evidence-required wrapper records redacted traces, and the daemon signs the run result. 4, measuring in the Arena: a paired scheduler runs parent and candidate processes, the Arena checks their signed results against the World's tasks and public key and asks the isolated judge, which returns only totals, to score them; it writes a verified evaluation event that yields a candidate-safe summary and operator-only evidence for deterministic selection. 5, the record: a declared lifecycle produces hash-linked events stored in SQLite and a BLAKE3 file store, and verified replay must match live state or the daemon won't start.">
+</p>
 
 ## Trust boundary
 
