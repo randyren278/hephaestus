@@ -43,8 +43,13 @@ pub fn render_answer(outcome: &Outcome, backend: &str, transcript: Option<&str>)
         }
         out.push('\n');
     }
+    let amendments_heading = if outcome.amendments_folded {
+        "Amendments folded into the answer"
+    } else {
+        "Amendments proposed in the last vote"
+    };
     let credits = [
-        ("Amendments proposed in the last vote", &outcome.amendments),
+        (amendments_heading, &outcome.amendments),
         ("Dissent", &outcome.dissent),
     ];
     for (heading, entries) in credits {
@@ -125,6 +130,13 @@ pub fn render_transcript(outcome: &Outcome) -> String {
             let _ = writeln!(out, "### Clerk's draft\n\n{}\n", draft.answer);
         } else {
             let _ = writeln!(out, "### The previous draft was ratified.\n");
+            if outcome.amendments_folded {
+                let _ = writeln!(
+                    out,
+                    "### Clerk's draft with amendments folded in\n\n{}\n",
+                    outcome.answer.answer
+                );
+            }
         }
     }
     out

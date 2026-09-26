@@ -174,6 +174,92 @@ esac
 }
 
 #[test]
+fn amendments_in_the_ratifying_round_are_folded_into_the_answer() {
+    let fixture = Fixture::new(
+        r#"printf '%s\n' "$input" >> "$(dirname "$0")/prompts.log"
+case "$task" in
+  roster) printf 'turing\nlaozi\nconfucius\n' ;;
+  opening) printf 'Opening from %s.\n' "$senator" ;;
+  draft) printf 'ANSWER:\nShip on Friday.\nAGREEMENT:\n- shared point\n' ;;
+  amend) printf 'ANSWER:\nShip on Friday, behind a feature flag.\n' ;;
+  deliberate)
+    case "$senator" in
+      laozi) printf 'VOTE: AMEND\nREASON: put it behind a feature flag\nPOSITION:\nFlag it.\n' ;;
+      *) printf 'VOTE: AGREE\nREASON: sound\nPOSITION:\nYes.\n' ;;
+    esac ;;
+esac
+"#,
+    );
+    let printed = stdout(&fixture.senate(&["ask", "Should we ship?", "--size", "S"]));
+
+    assert!(
+        printed.contains("consensus, ratified in round 2 of 2"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("## Answer\n\nShip on Friday, behind a feature flag."),
+        "{printed}"
+    );
+    // The clerk's fold reply listed no agreement, so the ratified draft's stands.
+    assert!(printed.contains("- shared point"));
+    assert!(printed.contains(
+        "## Amendments folded into the answer\n\n- *in the spirit of Laozi*: put it behind a feature flag"
+    ));
+    assert!(!printed.contains("Amendments proposed in the last vote"));
+
+    // The fold uses the ratifying round's unused clerk call: roster, 3
+    // openings, a draft, 3 votes, one amend = 9, within S-size's maximum of 9.
+    let calls = fixture.calls();
+    assert_eq!(calls.len(), 9, "{calls:?}");
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| call.starts_with("amend"))
+            .count(),
+        1
+    );
+    assert!(printed.contains("9 model calls"));
+
+    let prompts = fs::read_to_string(fixture.path("prompts.log")).expect("prompts logged");
+    assert!(prompts.contains("RATIFIED DRAFT:\nShip on Friday.\n"));
+    assert!(prompts.contains("- in the spirit of Laozi: put it behind a feature flag"));
+
+    let transcript = fixture.transcript();
+    assert!(transcript.contains("The previous draft was ratified."));
+    assert!(transcript.contains(
+        "### Clerk's draft with amendments folded in\n\nShip on Friday, behind a feature flag."
+    ));
+}
+
+#[test]
+fn a_failed_amendment_fold_keeps_the_ratified_draft_and_credits_the_amendment() {
+    let fixture = Fixture::new(
+        r#"if [ "$task" = amend ]; then echo 'rate limited' >&2; exit 3; fi
+case "$task" in
+  roster) printf 'turing\nlaozi\nconfucius\n' ;;
+  opening) printf 'Opening from %s.\n' "$senator" ;;
+  draft) printf 'ANSWER:\nShip on Friday.\n' ;;
+  deliberate)
+    case "$senator" in
+      laozi) printf 'VOTE: AMEND\nREASON: put it behind a feature flag\nPOSITION:\nFlag it.\n' ;;
+      *) printf 'VOTE: AGREE\nREASON: sound\nPOSITION:\nYes.\n' ;;
+    esac ;;
+esac
+"#,
+    );
+    let printed = stdout(&fixture.senate(&["ask", "Should we ship?", "--size", "S"]));
+    assert!(
+        printed.contains("## Answer\n\nShip on Friday.\n"),
+        "{printed}"
+    );
+    assert!(printed.contains(
+        "## Amendments proposed in the last vote\n\n- *in the spirit of Laozi*: put it behind a feature flag"
+    ));
+    assert!(!printed.contains("Amendments folded into the answer"));
+    assert!(!fixture.transcript().contains("amendments folded in"));
+}
+
+#[test]
 fn a_failed_senator_is_recorded_and_the_debate_continues() {
     let fixture = Fixture::new(
         r#"if [ "$task" = opening ] && [ "$senator" = laozi ]; then echo 'rate limited' >&2; exit 3; fi

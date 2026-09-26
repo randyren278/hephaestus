@@ -7,6 +7,9 @@
 //!    positions, votes AGREE/AMEND/DISSENT on the draft, and revises their
 //!    position. If no one dissents and a majority agree, the draft is
 //!    ratified and the debate stops. Otherwise the clerk redrafts.
+//!    If the ratifying round carried AMEND votes, the clerk folds those
+//!    amendments into the ratified draft (using the round's otherwise unused
+//!    clerk call), so the answer reflects them rather than only crediting them.
 //! 4. At the round cap the last draft stands unratified, and the final
 //!    round's dissent is reported, credited to the senator who raised it.
 //!
@@ -219,6 +222,8 @@ pub struct Outcome {
     pub ratified_in: Option<usize>,
     /// Amendments and dissent from the last vote, credited by seat.
     pub amendments: Vec<(usize, String)>,
+    /// True when the ratifying round's amendments were folded into `answer`.
+    pub amendments_folded: bool,
     pub dissent: Vec<(usize, String)>,
     pub calls: usize,
     pub wall: Duration,
@@ -343,16 +348,19 @@ impl<'backend> Senate<'backend> {
                 }
             }
             if ratifies(&round.votes) {
+                let folded = self.fold_amendments(question, &seats, &draft, &round.votes, number);
                 rounds.push(round);
-                return Ok(self.outcome(
+                let mut outcome = self.outcome(
                     question,
                     &roster,
                     roster_from_clerk,
                     rounds,
-                    draft,
+                    folded.clone().unwrap_or(draft),
                     Some(number),
                     started,
-                ));
+                );
+                outcome.amendments_folded = folded.is_some();
+                return Ok(outcome);
             }
             draft = self.draft(question, &seats, &latest, &round.votes, number)?;
             round.draft = Some(draft.clone());
@@ -399,6 +407,7 @@ impl<'backend> Senate<'backend> {
             answer,
             ratified_in,
             amendments,
+            amendments_folded: false,
             dissent,
             calls: self.calls.load(Ordering::SeqCst),
             wall: started.elapsed(),
@@ -430,6 +439,35 @@ impl<'backend> Senate<'backend> {
         self.call(&draft_prompt(question, seats, positions, votes, round))
             .map(|reply| parse_draft(&reply))
             .map_err(SenateError::Clerk)
+    }
+
+    /// Folds the ratifying round's amendments into the ratified draft. `None`
+    /// when there were no amendments, or when the clerk's call failed or gave
+    /// no answer: the ratified draft then stands and the amendments stay
+    /// credited but unfolded.
+    fn fold_amendments(
+        &self,
+        question: &str,
+        seats: &[&Persona],
+        ratified: &Draft,
+        votes: &[(Vote, String)],
+        round: usize,
+    ) -> Option<Draft> {
+        let (amendments, _) = credited(votes);
+        if amendments.is_empty() {
+            return None;
+        }
+        let reply = self
+            .call(&amend_prompt(question, seats, ratified, &amendments, round))
+            .ok()?;
+        let mut folded = parse_draft(&reply);
+        if folded.answer.is_empty() {
+            return None;
+        }
+        if folded.agreement.is_empty() {
+            folded.agreement.clone_from(&ratified.agreement);
+        }
+        Some(folded)
     }
 
     fn call(&self, prompt: &str) -> Result<String, String> {
@@ -585,6 +623,23 @@ fn draft_prompt(
     format!(
         "SENATE-TASK: draft\nROUND: {round}\nYou are the neutral clerk of a debating senate. Synthesize the strongest single answer to the question from the senators' positions: keep what survives scrutiny, resolve conflicts on the merits, and fold in requested amendments that improve it. If the question asks for a document or other artifact, the answer is that complete deliverable.\n\nQUESTION:\n{question}\n\nSENATORS' POSITIONS:\n{positions}{vote_block}Reply exactly in this format:\nANSWER:\n<the synthesized answer, complete and self-contained>\nAGREEMENT:\n- <one point every or nearly every senator accepts>\n- <...>\n",
         positions = positions_block(seats, positions, None),
+    )
+}
+
+fn amend_prompt(
+    question: &str,
+    seats: &[&Persona],
+    ratified: &Draft,
+    amendments: &[(usize, String)],
+    round: usize,
+) -> String {
+    let mut amendment_block = String::new();
+    for (seat, reason) in amendments {
+        let _ = writeln!(amendment_block, "- {}: {reason}", seats[*seat].label());
+    }
+    format!(
+        "SENATE-TASK: amend\nROUND: {round}\nYou are the neutral clerk of a debating senate. The senate ratified the draft below, and some senators signed it on condition of the amendments listed. Fold every amendment into the draft; change nothing else of substance. If the draft is a document or other artifact, reply with the complete amended deliverable.\n\nQUESTION:\n{question}\n\nRATIFIED DRAFT:\n{answer}\n\nAMENDMENTS:\n{amendment_block}\nReply exactly in this format:\nANSWER:\n<the amended answer, complete and self-contained>\nAGREEMENT:\n- <one point every or nearly every senator accepts>\n- <...>\n",
+        answer = ratified.answer,
     )
 }
 
