@@ -14664,11 +14664,22 @@ fn register_meta_strategy_ex(
 /// admitted; the daemon's own tick loop drives every lineage's paired
 /// strategy runs to completion.
 fn meta_drain(plane: &mut ControlPlane, meta_run_id: &str) -> MetaReceiptRecord {
-    let deadline = Instant::now() + Duration::from_secs(180);
+    // A meta-evaluation drives several full evolve runs (every lineage under
+    // every strategy), so it gets a larger hang guard than one evolve run;
+    // coverage-instrumented CI runs this well past 180s. The receipt check
+    // replays the whole ledger, so it runs at most every 250ms rather than
+    // after every tick.
+    let deadline = Instant::now() + Duration::from_secs(900);
+    let mut next_check = Instant::now();
     loop {
         plane
             .service_async_messages()
             .expect("advance the meta-evaluation reconciliation loop");
+        if Instant::now() < next_check {
+            thread::sleep(Duration::from_millis(2));
+            continue;
+        }
+        next_check = Instant::now() + Duration::from_millis(250);
         let history = plane
             .storage
             .as_ref()
