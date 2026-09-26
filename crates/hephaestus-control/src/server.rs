@@ -8464,12 +8464,12 @@ fn verify_selection_history_with(
     Ok(())
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+/// `invariant_event_references` already canonically validates the full
+/// envelope (schema version, identity fields, artifact-id shape); this only
+/// pulls `receipt_artifact_id` back out for the reference-level cross-check
+/// in `verify_invariant_history_with` (see `TECH_DEBT.md` TD-4).
+#[derive(Deserialize)]
 struct InvariantEventEnvelope {
-    schema_version: u16,
-    evaluation_id: String,
-    world_id: String,
     receipt_artifact_id: String,
 }
 
@@ -8514,15 +8514,6 @@ fn verify_invariant_history_with(
             serde_json::from_slice(&event.payload).map_err(|_| {
                 ControlError::Projection("canonical invariant event envelope is invalid".to_owned())
             })?;
-        if envelope.schema_version != 1
-            || envelope.evaluation_id != evaluation_id
-            || envelope.world_id != world_id
-            || envelope.receipt_artifact_id.trim().is_empty()
-        {
-            return Err(ControlError::Projection(
-                "canonical invariant event identity is invalid".to_owned(),
-            ));
-        }
         let world = registered.world(&world_id).ok_or_else(|| {
             ControlError::Projection("invariant World is not registered".to_owned())
         })?;
@@ -8544,13 +8535,12 @@ fn verify_invariant_history_with(
     Ok(())
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+/// `cluster_event_references` already canonically validates the full
+/// envelope (schema version, identity fields, artifact-id shape); this only
+/// pulls `analysis_artifact_id` back out for the reference-level cross-check
+/// in `verify_cluster_history` (see `TECH_DEBT.md` TD-4).
+#[derive(Deserialize)]
 struct ClusterEventEnvelope {
-    schema_version: u16,
-    analysis_id: String,
-    evaluation_id: String,
-    world_id: String,
     analysis_artifact_id: String,
 }
 
@@ -8571,7 +8561,7 @@ fn verify_cluster_history(
             || event.aggregate_id.starts_with(CLUSTER_EVENT_PREFIX)
     }) {
         let index = index.get_or_insert_with(|| EventIndex::build(history));
-        let (analysis_id, evaluation_id, world_id) =
+        let (_analysis_id, evaluation_id, world_id) =
             cluster_event_references(event).map_err(|_| {
                 ControlError::Projection("canonical cluster event envelope is invalid".to_owned())
             })?;
@@ -8579,16 +8569,6 @@ fn verify_cluster_history(
             serde_json::from_slice(&event.payload).map_err(|_| {
                 ControlError::Projection("canonical cluster event envelope is invalid".to_owned())
             })?;
-        if envelope.schema_version != 1
-            || envelope.analysis_id != analysis_id
-            || envelope.evaluation_id != evaluation_id
-            || envelope.world_id != world_id
-            || envelope.analysis_artifact_id.trim().is_empty()
-        {
-            return Err(ControlError::Projection(
-                "canonical cluster event identity is invalid".to_owned(),
-            ));
-        }
         let world = registered.world(&world_id).ok_or_else(|| {
             ControlError::Projection("cluster World is not registered".to_owned())
         })?;
