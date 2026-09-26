@@ -33,6 +33,26 @@ The macOS package builder also creates `dist/main.mjs`, a single-file runtime bu
 
 The compact status frame fits an 80×24 terminal; the lineage, Worlds, Genome-detail, Evidence & Costs, Gene Bank, Drift/Canary/Meta-eval, and authoring panels are also verified at 100×30. Narrower terminals omit the secondary status panel and decorative colosseum. Terminal control bytes are stripped from daemon-provided text.
 
+## Theme and motion
+
+Every color in this console comes from the hero's own palette — the same
+torch-lit colosseum, orange-crested Champion vs. graphite-crested challenger,
+hooded judge with a sealed scroll — via `src/theme.ts`; see
+[`docs/TUI_THEME.md`](../../docs/TUI_THEME.md) for the full palette table,
+role colors per screen, and the motion primitives in `src/motion.tsx` (a
+flickering home-screen torch, a lit trial-progress bar, an idle crest-clash
+animation while waiting on the daemon, a celebration burst when a candidate
+pulls ahead, a red flash on a canary abort, and so on). Everything animated
+is driven by one shared, ~10fps ticker that only runs while a real terminal
+is attached — piped output, CI logs, and the test suite all get the plain,
+final frame instead of a timer nobody can see tick.
+
+`src/theme.ts` resolves `truecolor` (`COLORTERM=truecolor`/`24bit`), a curated
+16-color `basic` fallback for a plain terminal, or `none` (plain text, no
+escape codes) when the process is not attached to a TTY or `NO_COLOR` is set
+(`FORCE_COLOR` can still force color back on). `NO_COLOR`/piped output never
+lose data — only decoration.
+
 This is roadmap item 9's current slice, extended with roadmap item 12's drift/canary read screens and item 13's meta-evaluation read screens. Still missing: a recorded demo video covering the new screens (see `docs/demo/`), and an MCP gateway/remote-worker activity view — the daemon's control protocol has no list command for MCP calls or remote-worker jobs (only `mcp_call` dispatch and `worker_credential_mint`/`remote_run_submit`/`remote_job_status` by known ID), so there is nothing to browse yet; a lookup-by-known-ID screen would add little over the existing `Inspect job by ID` action. The Markdown starter template's body is the deterministic reference runtime's `identity` instruction, editable to `ascii_uppercase` or extended once richer runtimes exist; the reference runtime's parser only accepts that exact fenced block, so free-form prose must live outside it until a richer runtime reads it.
 
 ## Development checks

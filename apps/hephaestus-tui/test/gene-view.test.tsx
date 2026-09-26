@@ -17,7 +17,7 @@ const contested: GeneSummary = {
 };
 
 test('GeneListPanel renders each Gene with its transfer tally and flags contradictions', () => {
-	const output = renderToString(<GeneListPanel genes={[summary, contested]} selected={0} height={10} />);
+	const output = renderToString(<GeneListPanel genes={[summary, contested]} selected={0} height={10} animate={false} />);
 	assert.match(output, /GENE BANK/);
 	assert.match(output, /2 lineages/);
 	assert.match(output, /CONTRADICTION/);
@@ -25,12 +25,12 @@ test('GeneListPanel renders each Gene with its transfer tally and flags contradi
 });
 
 test('GeneListPanel reports an empty Gene Bank explicitly', () => {
-	const output = renderToString(<GeneListPanel genes={[]} selected={0} height={10} />);
+	const output = renderToString(<GeneListPanel genes={[]} selected={0} height={10} animate={false} />);
 	assert.match(output, /No Genes extracted yet/);
 });
 
 test('GeneDetailPanel shows a loading state before the aggregate resolves', () => {
-	const output = renderToString(<GeneDetailPanel aggregate={undefined} height={10} />);
+	const output = renderToString(<GeneDetailPanel aggregate={undefined} height={10} animate={false} />);
 	assert.match(output, /Loading/);
 });
 
@@ -52,7 +52,7 @@ test('GeneDetailPanel renders origin, transfer trials, contradiction, and specia
 			event_id: 'event-4', sequence: 4,
 		}],
 	};
-	const output = renderToString(<GeneDetailPanel aggregate={aggregate} height={10} />);
+	const output = renderToString(<GeneDetailPanel aggregate={aggregate} height={10} animate={false} />);
 	assert.match(output, /genome-par/);
 	assert.match(output, /5\/3 trials/);
 	assert.match(output, /positive/);

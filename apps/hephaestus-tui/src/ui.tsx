@@ -10,6 +10,8 @@ import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js'
 import {GeneDetailPanel, GeneListPanel} from './gene-view.js';
 import {CanaryDetailPanel, CanaryListPanel, DriftDetailPanel, DriftListPanel} from './drift-canary-view.js';
 import {MetaEvaluationDetailPanel, MetaEvaluationListPanel, MetaStrategyDetailPanel, MetaStrategyListPanel} from './meta-view.js';
+import {CelebrationBurst, CrestClash, ProgressBar, TorchFlicker, Typewriter, type FrameOptions} from './motion.js';
+import {BANNER_CHAR_TOKEN, borderColorProps, colorProps, HOME_BANNER_ROWS, TOKEN_ROLE, TUI_BANNER, useTheme, type Role, type Theme} from './theme.js';
 import {safeText, type ApiResponse, type ArenaJobProgress, type Canary, type Champion, type Command, type DenialEntry, type Drift, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type MetaEvaluation, type MetaStrategy, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
 const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent'] as const;
@@ -48,12 +50,30 @@ function waitForPoll(ms: number, signal: AbortSignal): Promise<void> {
 	});
 }
 
-const arena = [
-	'       ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄',
-	'     ▄█  ▄▄  ▄▄  ▄▄  ▄▄  █▄',
-	'    █▀█  ██  ██  ██  ██  █▀█',
-	'   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀',
-];
+/**
+ * The home screen's torch-lit colosseum banner: four rows picked out of the
+ * hero's own `TUI_BANNER` pixel grid (see `theme.ts`), rendered as colored
+ * block glyphs — the same silhouette as `docs/assets/pixel/tui-banner.svg`,
+ * just cropped to the four lines the 80x24 layout budgets for it. The
+ * left-hand torch's flame pixel ('E') flickers through the champion's
+ * ember → ember-bright → gold cycle; the right-hand torch's pixel ('d',
+ * graphite) stays still, echoing the challenger's cold crest.
+ */
+function HomeBanner({theme, animate, frame}: {theme: Theme} & FrameOptions) {
+	return <>
+		{HOME_BANNER_ROWS.map((rowIndex, lineIndex) => {
+			const row = TUI_BANNER[rowIndex] ?? '';
+			return <Text key={lineIndex} wrap="truncate">
+				{Array.from(row).map((ch, col) => {
+					if (ch === 'E') return <TorchFlicker key={col} animate={animate} frame={frame} />;
+					const token = BANNER_CHAR_TOKEN[ch];
+					if (!token) return ' ';
+					return <Text key={col} {...colorProps(theme.color(TOKEN_ROLE[token]))}>█</Text>;
+				})}
+			</Text>;
+		})}
+	</>;
+}
 
 function messageFor(response: ApiResponse): string {
 	if (response.error) return `Daemon: ${safeText(response.error.code)} — ${safeText(response.error.message)}`;
@@ -72,28 +92,43 @@ function statusOf(data: ResponseData | undefined): string {
 	return data?.type === 'status' ? (data.frozen ? 'FROZEN' : 'RUNNING') : '—';
 }
 
-export function ArenaProgressPanel({job, stale, notice, compact = false}: {job?: ArenaJobProgress | undefined; stale: boolean; notice?: string; compact?: boolean}) {
-	if (!job) return <Box flexDirection="column" borderStyle="single" borderColor={stale ? 'red' : 'gray'} paddingX={1}>
-		<Text bold color="yellow">ARENA PROGRESS</Text>
-		<Text>{stale ? 'STALE · daemon unavailable' : safeText(notice ?? 'Enter an evaluation ID to inspect its durable progress.')}</Text>
-		<Text color="gray">The control API provides progress by known evaluation ID; it has no Arena job list.</Text>
+/** The phase of an Arena job maps to which lane is currently "lit": the parent/challenger's trials, the candidate/champion's trials, or the judge sealing the result. */
+function phaseRole(phase: ArenaJobProgress['phase']): Role {
+	if (phase === 'parent_trials') return 'challenger';
+	if (phase === 'candidate_trials') return 'champion';
+	if (phase === 'scoring' || phase === 'committing') return 'judge';
+	return 'muted';
+}
+
+export function ArenaProgressPanel({job, stale, notice, compact = false, animate, frame}: {job?: ArenaJobProgress | undefined; stale: boolean; notice?: string; compact?: boolean} & FrameOptions) {
+	const theme = useTheme();
+	if (!job) return <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color(stale ? 'danger' : 'border'))} paddingX={1}>
+		<Text bold {...colorProps(theme.color('judge'))}>ARENA PROGRESS</Text>
+		<Text {...colorProps(theme.color(stale ? 'danger' : 'ink'))}>{stale ? 'STALE · daemon unavailable' : safeText(notice ?? 'Enter an evaluation ID to inspect its durable progress.')}</Text>
+		{!stale && <Box marginTop={compact ? 0 : 1}><CrestClash animate={animate} frame={frame} /></Box>}
+		<Text {...colorProps(theme.color('muted'))}>The control API provides progress by known evaluation ID; it has no Arena job list.</Text>
 	</Box>;
 	const ratio = Math.max(0, Math.min(1, job.completed_trials / job.total_trials));
-	const filled = Math.round(ratio * 16);
-	return <Box flexDirection="column" borderStyle="single" borderColor={stale ? 'red' : 'gray'} paddingX={1}>
-		<Text bold color="yellow">ARENA / {safeText(job.evaluation_id)}</Text>
-		<Text color={stale ? 'red' : 'white'}>{stale ? 'STALE · ' : ''}{safeText(job.state.toUpperCase())} · {safeText(job.phase.replaceAll('_', ' ').toUpperCase())}</Text>
-		<Text>Trials {job.completed_trials}/{job.total_trials}  {`${'█'.repeat(filled)}${'·'.repeat(16 - filled)}`}</Text>
+	const role = phaseRole(job.phase);
+	const sealing = job.phase === 'scoring' || job.phase === 'committing';
+	const candidateFavored = job.evaluation !== undefined
+		&& job.evaluation.candidate_visible_correct > job.evaluation.parent_visible_correct;
+	return <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color(stale ? 'danger' : 'border'))} paddingX={1}>
+		<Text bold {...colorProps(theme.color('judge'))}>ARENA / {safeText(job.evaluation_id)}</Text>
+		<Text {...colorProps(theme.color(stale ? 'danger' : role))}>{stale ? 'STALE · ' : ''}{safeText(job.state.toUpperCase())} · {safeText(job.phase.replaceAll('_', ' ').toUpperCase())}{sealing ? ` ${theme.glyphs.seal}` : ''}</Text>
+		<Text>Trials {job.completed_trials}/{job.total_trials}  <ProgressBar ratio={ratio} width={16} color={theme.color(role)} highlightColor={theme.color('championBright')} trackColor={theme.color('muted')} animate={animate} frame={frame} /></Text>
 		{!compact && <>
-			<Text>Parent    {safeText(job.parent_genome_id)}</Text>
-			<Text>Candidate {safeText(job.candidate_genome_id)}</Text>
-			{job.evaluation && <Text>Visible score {job.evaluation.parent_visible_correct} → {job.evaluation.candidate_visible_correct} / {job.evaluation.visible_total}</Text>}
+			<Text {...colorProps(theme.color('challenger'))}>Parent    {safeText(job.parent_genome_id)}</Text>
+			<Text {...colorProps(theme.color('champion'))}>Candidate {safeText(job.candidate_genome_id)}</Text>
+			{job.evaluation && <Text>Visible score {job.evaluation.parent_visible_correct} → <Text {...colorProps(theme.color(candidateFavored ? 'improvement' : 'ink'))}>{job.evaluation.candidate_visible_correct}</Text> / {job.evaluation.visible_total}</Text>}
+			{candidateFavored && <CelebrationBurst active label="CANDIDATE AHEAD" animate={animate} frame={frame} />}
 		</>}
 	</Box>;
 }
 
 export function App({client: providedClient, pollMs = 1500}: Props) {
 	const {exit} = useApp();
+	const theme = useTheme();
 	const {columns = 80, rows = 24} = useWindowSize();
 	const [client] = useState(() => providedClient ?? new ControlClient());
 	const [selected, setSelected] = useState(0);
@@ -803,14 +838,16 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const genomeDetailHeight = Math.max(1, panelHeight - 8); // border(2) + 5 fixed fields + optional status line
 	const detail = genomes.find(genome => genome.genome_id === detailId);
 	const detailParent = detail ? genomes.find(genome => detail.parent_ids.includes(genome.genome_id)) : undefined;
+	const statusText = statusOf(status?.data);
+	const statusRole: Role = stale ? 'danger' : statusText === 'FROZEN' ? 'judge' : status ? 'success' : 'muted';
 	return <Box flexDirection="column" width={Math.max(1, columns)} height={Math.max(1, rows)} paddingX={1}>
 		<Box justifyContent="space-between">
-			<Text bold color="yellow">HEPHAESTUS <Text color="gray">/ OPERATOR</Text></Text>
-			<Text color={stale ? 'red' : statusOf(status?.data) === 'FROZEN' ? 'yellow' : status ? 'green' : 'gray'}>{stale ? '● STALE' : `● ${statusOf(status?.data)}`}</Text>
+			<Text bold><Typewriter text="HEPHAESTUS" color={theme.color('judge')} bold /> <Text {...colorProps(theme.color('challengerDim'))}>/ OPERATOR</Text></Text>
+			<Text {...colorProps(theme.color(statusRole))}>{stale ? '● STALE' : `● ${statusText}`}</Text>
 		</Box>
 		<Box marginTop={1} flexDirection="column">
-			{!compact && arena.map((line, index) => <Text key={index} color={index === 2 ? 'yellow' : 'gray'}>{line}</Text>)}
-			<Text bold color="white">  LOCAL CONTROL · SCHEMA 1 · OWNER SOCKET</Text>
+			{!compact && <HomeBanner theme={theme} />}
+			<Text bold {...colorProps(theme.color('ink'))}>  LOCAL CONTROL · SCHEMA 1 · OWNER SOCKET</Text>
 		</Box>
 		{lineageMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
 			{view === 'worlds' && <WorldList worlds={worlds} selected={worldIndex} height={worldListHeight} />}
@@ -819,9 +856,9 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				prompt={prompts[detail.genome_id]} parentPrompt={detailParent ? prompts[detailParent.genome_id] : ''} height={genomeDetailHeight} />}
 		</Box>}
 		{evidenceMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
-			{view === 'evidence-menu' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
-				<Text bold color="yellow">EVIDENCE &amp; COSTS</Text>
-				{EVIDENCE_MENU.map((label, index) => <Text key={label} color={evidenceMenuIndex === index ? 'yellow' : 'white'}>{evidenceMenuIndex === index ? '› ' : '  '}{label}</Text>)}
+			{view === 'evidence-menu' && <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+				<Text bold {...colorProps(theme.color('judge'))}>EVIDENCE &amp; COSTS</Text>
+				{EVIDENCE_MENU.map((label, index) => <Text key={label} {...colorProps(theme.color(evidenceMenuIndex === index ? 'champion' : 'inkDim'), evidenceMenuIndex === index)}>{evidenceMenuIndex === index ? `${theme.glyphs.caret} ` : '  '}{label}</Text>)}
 			</Box>}
 			{view === 'runs' && <RunsPanel runs={runs} selected={runIndex} height={panelHeight - 2} />}
 			{view === 'evidence' && <EvidencePanel evaluations={evaluations} selected={evaluationIndex} height={panelHeight - 2} />}
@@ -833,9 +870,9 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 			{view === 'gene-detail' && <GeneDetailPanel aggregate={geneDetail} height={panelHeight - 6} />}
 		</Box>}
 		{operateMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
-			{view === 'operate-menu' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
-				<Text bold color="yellow">DRIFT, CANARY &amp; META-EVAL</Text>
-				{OPERATE_MENU.map((label, index) => <Text key={label} color={operateMenuIndex === index ? 'yellow' : 'white'}>{operateMenuIndex === index ? '› ' : '  '}{label}</Text>)}
+			{view === 'operate-menu' && <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+				<Text bold {...colorProps(theme.color('judge'))}>DRIFT, CANARY &amp; META-EVAL</Text>
+				{OPERATE_MENU.map((label, index) => <Text key={label} {...colorProps(theme.color(operateMenuIndex === index ? 'champion' : 'inkDim'), operateMenuIndex === index)}>{operateMenuIndex === index ? `${theme.glyphs.caret} ` : '  '}{label}</Text>)}
 			</Box>}
 			{view === 'drifts' && <DriftListPanel drifts={drifts} selected={driftIndex} height={panelHeight - 2} />}
 			{view === 'drift-detail' && <DriftDetailPanel drift={drifts[driftIndex]} height={panelHeight - 2} />}
@@ -848,61 +885,61 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 		</Box>}
 		{authorMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">
 			{view === 'author-world' && <WorldList worlds={worlds} selected={worldIndex} height={worldListHeight} />}
-			{view === 'author-path' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
-				<Text bold color="yellow">AUTHOR MARKDOWN AGENT / {world ? safeText(world.name) : ''}</Text>
-				<Text color="gray">Markdown Genome source path (created with a starter template if missing):</Text>
+			{view === 'author-path' && <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+				<Text bold {...colorProps(theme.color('judge'))}>AUTHOR MARKDOWN AGENT / {world ? safeText(world.name) : ''}</Text>
+				<Text {...colorProps(theme.color('muted'))}>Markdown Genome source path (created with a starter template if missing):</Text>
 				<Text wrap="truncate">{authorPath}</Text>
 			</Box>}
-			{view === 'author-register' && <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
-				<Text bold color="yellow">REGISTER / {world ? safeText(world.name) : ''}</Text>
+			{view === 'author-register' && <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+				<Text bold {...colorProps(theme.color('judge'))}>REGISTER / {world ? safeText(world.name) : ''}</Text>
 				<Text wrap="truncate">Path   {safeText(authorPath)}</Text>
-				<Text wrap="truncate">Genome {authorGenome ? `${safeText(authorGenome.name)} ${shortId(authorGenome.genome_id)}` : 'not registered yet'}</Text>
-				<Text color="gray">{safeText(authorNotice)}</Text>
+				<Text wrap="truncate">Genome {authorGenome ? <Text {...colorProps(theme.color('champion'))}>{safeText(authorGenome.name)} {shortId(authorGenome.genome_id)}</Text> : 'not registered yet'}</Text>
+				<Text {...colorProps(theme.color('muted'))}>{safeText(authorNotice)}</Text>
 			</Box>}
 			{view === 'author-test-parent' && world && <LineagePanel world={world} rows={authorCandidates} champion={champion} selected={authorParentIndex} height={lineagePanelHeight} />}
 		</Box>}
 		{!lineageMode && !evidenceMode && !geneMode && !operateMode && !authorMode && <Box marginTop={0}>
 			<Box flexDirection="column" width={compact ? '100%' : '58%'}>
-				<Text color="gray">OPERATOR ACTIONS</Text>
-				{MENU.map((label, index) => <Text key={label} color={selected === index ? 'yellow' : 'white'}>{selected === index ? '› ' : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
+				<Text {...colorProps(theme.color('muted'))}>OPERATOR ACTIONS</Text>
+				{MENU.map((label, index) => <Text key={label} {...colorProps(theme.color(selected === index ? 'champion' : 'inkDim'), selected === index)}>{selected === index ? `${theme.glyphs.caret} ` : '  '}{label}{selected === index ? '  ‹' : ''}</Text>)}
 			</Box>
 			{!compact && (view === 'arena-progress'
 				? <Box flexDirection="column" width="42%"><ArenaProgressPanel job={arenaJob} stale={stale || arenaStale} notice={arenaNotice} /></Box>
-				: <Box flexDirection="column" width="42%" borderStyle="single" borderColor="gray" paddingX={1}>
-					<Text color="gray">CANONICAL STATUS</Text>
+				: <Box flexDirection="column" width="42%" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+					<Text {...colorProps(theme.color('muted'))}>CANONICAL STATUS</Text>
 					<Text>Active runs  {status?.data?.type === 'status' ? status.data.active_runs : '—'}</Text>
 					<Text>Genomes      {status?.data?.type === 'status' ? status.data.genome_count : '—'}</Text>
 					<Text>Ledger events {status?.data?.type === 'status' ? status.data.event_count : '—'}</Text>
 				</Box>)}
 		</Box>}
 		{compact && view === 'arena-progress' && <ArenaProgressPanel job={arenaJob} stale={stale || arenaStale} notice={arenaNotice} compact />}
-		{view !== 'home' && <Box marginTop={1} borderStyle="round" borderColor="yellow" paddingX={1}>
-			{view === 'job-id' && <Text>Job ID: {jobId}<Text color="gray">  (Enter {jobPromptAction} · Esc cancel)</Text></Text>}
-			{view === 'arena-id' && <Text>Evaluation ID: {arenaInput}<Text color="gray">  (Enter inspect · Esc back)</Text></Text>}
-			{view === 'arena-progress' && <Text color="gray">Arena progress is read-only · Esc back · R refresh</Text>}
-			{view === 'confirm-kill' && <Text color="yellow">Cancel job {safeText(jobId)}? Press Y to request, N/Esc to back out.</Text>}
-			{view === 'confirm-kill-all' && <Text color="red">Cancel ALL active work? Press Y to request, N/Esc to back out.</Text>}
-			{view === 'worlds' && <Text color="gray">Enter open lineage · Esc back</Text>}
-			{view === 'lineage' && <Text color="gray">Enter inspect Genome · B roll back Champion · R refresh · Esc Worlds</Text>}
-			{view === 'genome' && <Text color="gray">Prompt diff against the first registered parent · Esc back</Text>}
-			{view === 'rollback-reason' && <Text>Rollback reason: {reason}<Text color="gray">  (Enter confirm · Esc cancel)</Text></Text>}
-			{view === 'confirm-rollback' && <Text color="red">Restore the previous Champion and quarantine {shortId(champion?.champion_genome_id ?? '')}? Press Y to request, N/Esc to back out.</Text>}
-			{view === 'evidence-menu' && <Text color="gray">Enter open · Esc back</Text>}
-			{EVIDENCE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · R refresh · Esc back</Text>}
-			{view === 'genes' && <Text color="gray">Read-only · Enter inspect Gene · R refresh · Esc back</Text>}
-			{view === 'gene-detail' && <Text color="gray">Read-only · R refresh · Esc back</Text>}
-			{view === 'operate-menu' && <Text color="gray">Enter open · Esc back</Text>}
-			{OPERATE_LIST_VIEWS.includes(view) && <Text color="gray">Read-only · Enter inspect · R refresh · Esc back</Text>}
-			{(view === 'drift-detail' || view === 'canary-detail' || view === 'meta-strategy-detail' || view === 'meta-evaluation-detail') && <Text color="gray">Read-only · R refresh · Esc back</Text>}
-			{view === 'author-world' && <Text color="gray">Enter choose World · Esc back</Text>}
-			{view === 'author-path' && <Text>Path: {authorPath}<Text color="gray">  (Enter open $EDITOR · Esc back)</Text></Text>}
-			{view === 'author-register' && <Text color="gray">{authorGenome ? 'T test against a parent · Esc finish' : 'Enter register · Esc cancel'}</Text>}
-			{view === 'author-test-parent' && <Text color="gray">Enter test against selected parent/Champion · Esc back</Text>}
+		{view !== 'home' && <Box marginTop={1} borderStyle="round" {...borderColorProps(theme.color('judge'))} paddingX={1}>
+			{view === 'job-id' && <Text>Job ID: {jobId}<Text {...colorProps(theme.color('muted'))}>  (Enter {jobPromptAction} · Esc cancel)</Text></Text>}
+			{view === 'arena-id' && <Text>Evaluation ID: {arenaInput}<Text {...colorProps(theme.color('muted'))}>  (Enter inspect · Esc back)</Text></Text>}
+			{view === 'arena-progress' && <Text {...colorProps(theme.color('muted'))}>Arena progress is read-only · Esc back · R refresh</Text>}
+			{view === 'confirm-kill' && <Text {...colorProps(theme.color('judge'))}>Cancel job {safeText(jobId)}? Press Y to request, N/Esc to back out.</Text>}
+			{view === 'confirm-kill-all' && <Text {...colorProps(theme.color('danger'))}>Cancel ALL active work? Press Y to request, N/Esc to back out.</Text>}
+			{view === 'worlds' && <Text {...colorProps(theme.color('muted'))}>Enter open lineage · Esc back</Text>}
+			{view === 'lineage' && <Text {...colorProps(theme.color('muted'))}>Enter inspect Genome · B roll back Champion · R refresh · Esc Worlds</Text>}
+			{view === 'genome' && <Text {...colorProps(theme.color('muted'))}>Prompt diff against the first registered parent · Esc back</Text>}
+			{view === 'rollback-reason' && <Text>Rollback reason: {reason}<Text {...colorProps(theme.color('muted'))}>  (Enter confirm · Esc cancel)</Text></Text>}
+			{view === 'confirm-rollback' && <Text {...colorProps(theme.color('danger'))}>Restore the previous Champion and quarantine {shortId(champion?.champion_genome_id ?? '')}? Press Y to request, N/Esc to back out.</Text>}
+			{view === 'evidence-menu' && <Text {...colorProps(theme.color('muted'))}>Enter open · Esc back</Text>}
+			{EVIDENCE_LIST_VIEWS.includes(view) && <Text {...colorProps(theme.color('muted'))}>Read-only · R refresh · Esc back</Text>}
+			{view === 'genes' && <Text {...colorProps(theme.color('muted'))}>Read-only · Enter inspect Gene · R refresh · Esc back</Text>}
+			{view === 'gene-detail' && <Text {...colorProps(theme.color('muted'))}>Read-only · R refresh · Esc back</Text>}
+			{view === 'operate-menu' && <Text {...colorProps(theme.color('muted'))}>Enter open · Esc back</Text>}
+			{OPERATE_LIST_VIEWS.includes(view) && <Text {...colorProps(theme.color('muted'))}>Read-only · Enter inspect · R refresh · Esc back</Text>}
+			{(view === 'drift-detail' || view === 'canary-detail' || view === 'meta-strategy-detail' || view === 'meta-evaluation-detail') && <Text {...colorProps(theme.color('muted'))}>Read-only · R refresh · Esc back</Text>}
+			{view === 'author-world' && <Text {...colorProps(theme.color('muted'))}>Enter choose World · Esc back</Text>}
+			{view === 'author-path' && <Text>Path: {authorPath}<Text {...colorProps(theme.color('muted'))}>  (Enter open $EDITOR · Esc back)</Text></Text>}
+			{view === 'author-register' && <Text {...colorProps(theme.color('muted'))}>{authorGenome ? 'T test against a parent · Esc finish' : 'Enter register · Esc cancel'}</Text>}
+			{view === 'author-test-parent' && <Text {...colorProps(theme.color('muted'))}>Enter test against selected parent/Champion · Esc back</Text>}
 		</Box>}
 		<Box flexGrow={1} />
-		<Box borderStyle="single" borderColor="gray" paddingX={1}>
-			<Text wrap="truncate" color={busy ? 'yellow' : 'white'}>{notice}</Text>
+		<Box borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+			<Text wrap="truncate" {...colorProps(theme.color(busy ? 'judge' : 'ink'))}>{notice}</Text>
 		</Box>
-		<Text color="gray">↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || geneMode || operateMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
+		<Text {...colorProps(theme.color('muted'))}>↑↓/JK navigate · Enter select · {view === 'arena-progress' || EVIDENCE_LIST_VIEWS.includes(view) ? 'Esc back · R refresh' : lineageMode || evidenceMode || geneMode || operateMode || authorMode ? 'Esc back' : 'Y/N confirm'} · Q quit</Text>
 	</Box>;
 }
