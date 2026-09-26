@@ -176,6 +176,11 @@ enum CliCommand {
         #[arg(long)]
         tour: bool,
     },
+    /// Ask the Senate: runs the standalone `senate` CLI with these arguments.
+    Senate {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -768,7 +773,32 @@ fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
         CliCommand::Init { fixture, path } => {
             Some(initialize_fixture(fixture, path, arguments.json))
         }
+        CliCommand::Senate { args } => Some(launch_senate(args)),
         _ => None,
+    }
+}
+
+/// Delegates to the `senate` binary beside this one (else on `PATH`); the
+/// Senate needs no daemon, so nothing here touches the data directory.
+fn launch_senate(args: &[String]) -> ExitCode {
+    let sibling =
+        current_executable().with_file_name(format!("senate{}", std::env::consts::EXE_SUFFIX));
+    let program = if sibling.is_file() {
+        sibling
+    } else {
+        PathBuf::from("senate")
+    };
+    match ProcessCommand::new(&program).args(args).status() {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .map_or(ExitCode::FAILURE, ExitCode::from),
+        Err(error) => {
+            eprintln!(
+                "hephaestus: could not run `senate` ({error}); install it with scripts/install.sh --senate-only"
+            );
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -1428,6 +1458,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
         } => Command::RemoteJobStatus { job_id },
         CliCommand::Init { .. } => return Err("init is a local command"),
         CliCommand::Tui { .. } => return Err("tui is a local interactive command"),
+        CliCommand::Senate { .. } => return Err("senate is a local command"),
     })
 }
 
@@ -2896,6 +2927,17 @@ mod tests {
             matches!(arguments.command, super::CliCommand::Init { fixture, path }
             if fixture == "quickstart" && path.as_path() == Path::new("/tmp/quickstart"))
         );
+    }
+
+    #[test]
+    fn senate_passes_every_argument_through_to_the_senate_cli() {
+        let arguments =
+            Arguments::try_parse_from(["hephaestus", "senate", "ask", "why?", "--size", "XL"])
+                .expect("senate parses");
+        assert!(matches!(
+            arguments.command,
+            super::CliCommand::Senate { args } if args == ["ask", "why?", "--size", "XL"]
+        ));
     }
 
     #[test]

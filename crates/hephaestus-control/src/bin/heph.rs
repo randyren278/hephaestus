@@ -10,9 +10,14 @@
 //! daemon it starts still boots frozen exactly as it does launched by hand.
 //! An operator who prefers to drive each step themselves can do everything
 //! `heph` does with the ordinary CLI.
+//!
+//! On a first run from a terminal it first asks whether the user is just
+//! here for the Senate; a yes points them at the standalone `senate` CLI and
+//! starts nothing.
 
 use std::{
     env, fs,
+    io::{self, BufRead, IsTerminal, Write},
     path::{Path, PathBuf},
     process::{Command as ProcessCommand, ExitCode, Stdio},
     time::{Duration, Instant},
@@ -76,7 +81,35 @@ fn main() -> ExitCode {
     if matches!(arguments.command, Some(HephCommand::Stop)) {
         return run_stop(&data_dir);
     }
+    let first_run = !arguments.tour && !tour_marker_completed(&data_dir);
+    if first_run && io::stdin().is_terminal() && ask_senate_only() {
+        println!("{}", senate_hint(current_exe_dir().ok().as_deref()));
+        return ExitCode::SUCCESS;
+    }
     run_launch(&data_dir, arguments.tour, arguments.no_daemon)
+}
+
+/// The first-run question: someone who only wants the Senate should not have
+/// a daemon started on their behalf.
+fn ask_senate_only() -> bool {
+    eprint!("Just here for the Senate? It runs standalone, with no daemon or tour. [y/N] ");
+    let _ignored = io::stderr().flush();
+    let mut answer = String::new();
+    io::stdin().lock().read_line(&mut answer).is_ok() && is_yes(&answer)
+}
+
+fn is_yes(answer: &str) -> bool {
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+/// How to use the Senate from here, or how to install it if it is missing.
+fn senate_hint(exe_dir: Option<&Path>) -> String {
+    let installed = exe_dir.is_some_and(|dir| sibling_binary(dir, "senate").is_file());
+    if installed {
+        "The Senate needs no daemon. Ask it anything:\n  senate ask \"your question\" --size M\nSizes: S, M, L, XL. `senate personas` lists who can sit.".to_owned()
+    } else {
+        "`senate` is not installed beside heph. From a source checkout, run:\n  scripts/install.sh --senate-only".to_owned()
+    }
 }
 
 fn run_stop(data_dir: &Path) -> ExitCode {
@@ -307,8 +340,28 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Arguments, HephCommand, tour_marker_completed, tour_marker_path, wait_until_ready,
+        Arguments, HephCommand, is_yes, senate_hint, sibling_binary, tour_marker_completed,
+        tour_marker_path, wait_until_ready,
     };
+
+    #[test]
+    fn only_an_explicit_yes_chooses_the_senate() {
+        for answer in ["y\n", "Y", " yes \n", "YES"] {
+            assert!(is_yes(answer), "{answer:?}");
+        }
+        for answer in ["", "\n", "n", "no", "yep", "senate"] {
+            assert!(!is_yes(answer), "{answer:?}");
+        }
+    }
+
+    #[test]
+    fn senate_hint_points_at_the_installed_binary_or_the_installer() {
+        let directory = tempdir().expect("temporary directory");
+        assert!(senate_hint(Some(directory.path())).contains("--senate-only"));
+        assert!(senate_hint(None).contains("--senate-only"));
+        std::fs::write(sibling_binary(directory.path(), "senate"), b"").expect("fake senate");
+        assert!(senate_hint(Some(directory.path())).contains("senate ask"));
+    }
 
     #[test]
     fn default_invocation_starts_the_daemon_and_shows_no_forced_tour() {

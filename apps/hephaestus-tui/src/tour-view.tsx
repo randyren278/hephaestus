@@ -337,6 +337,7 @@ export function TourScreen({client, dataDir: dataDirProp, onExit, animate = true
 						lines: [
 							'Lineage & Champions, Evidence & Costs, Gene Bank, and Drift/Canary/Meta-eval are on the home menu.',
 							'Replay this tour any time with `heph --tour` (or `hephaestus tui --tour`).',
+							'Want a debated answer instead? `senate ask "your question" --size M` runs the Senate, no daemon needed.',
 							'More: docs/GETTING_STARTED.md',
 						],
 					};

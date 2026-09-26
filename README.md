@@ -35,6 +35,10 @@ in more detail.
 
 Prefer a macOS package? See [macOS installation](docs/MACOS_INSTALL.md).
 
+Just here for the Senate, a multi-perspective debate CLI? Run
+`scripts/install.sh --senate-only`, then `senate ask "your question" --size M`.
+See [the Senate](docs/SENATE.md).
+
 ## Quickstart
 
 Prerequisites: macOS, `git`, and a stable Rust toolchain (1.85+).
@@ -102,6 +106,7 @@ the operator is authorized to see.
 - [Constitution](docs/CONSTITUTION.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md) · [Hera Inheritance](docs/HERA_INHERITANCE.md) · [Iris Inheritance](docs/IRIS_INHERITANCE.md): concepts and lineage
 - [Lab cross-check](docs/LAB_CROSSCHECK.md): independent Python recompute of Rust selection and meta-evolution receipts
 - [macOS installation](docs/MACOS_INSTALL.md)
+- [The Senate](docs/SENATE.md): multi-perspective debate over your Claude Code or Codex subscription
 - Operator console: [TUI](apps/hephaestus-tui/README.md) · [Web](apps/hephaestus-web/README.md)
 - [Feature audit](AUDIT.md)
 

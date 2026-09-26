@@ -93,6 +93,7 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus job status <job-id>` | Inspect durable state and last recorded trace progress |
 | `hephaestus job kill <job-id>` | Request cancellation; confirm termination with `job status` |
 | `hephaestus tui` | Open the source-checkout Ink operator console (Node.js 22+ and `npm ci` required) |
+| `hephaestus senate <ARGS>...` | Run the standalone `senate` debate CLI with these arguments; no daemon needed (see [the Senate](SENATE.md)) |
 | `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
 | `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
 | `hephaestus arena invariants <id>` | Record aggregate reference-output invariant evidence; never promotes |
