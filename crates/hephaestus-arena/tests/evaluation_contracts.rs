@@ -15,14 +15,15 @@ use hephaestus_arena::{
     check_reference_output_invariants, evaluate_and_record, evaluate_and_record_scored,
     invariant_event_references, load_failure_clusters, load_operator_evaluation,
     load_reference_output_invariants, load_selection, prepare_evaluation, select_and_record,
-    verify_cluster_event, verify_reference_output_invariant_event, verify_selection_event,
+    selection_event_references, verify_cluster_event, verify_reference_output_invariant_event,
+    verify_selection_event, verify_selection_event_in,
 };
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultSigner,
 };
 use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactId, ArtifactStore, EventIndex, EventInput, StoredEvent};
 use hephaestus_runtime::{Budget, ExperimentContext, IsolationPolicy, RunSpec, WorkerLimits};
 use tempfile::TempDir;
 
@@ -3075,4 +3076,88 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn history_selection_verification_rejects_wrong_world_evidence_and_forged_receipts() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_fixture(&directory);
+    let world = fixture.world.clone();
+    let mut wrong_source: serde_json::Value =
+        serde_json::from_slice(world.canonical_json()).unwrap();
+    wrong_source["name"] = serde_json::json!("different-arena-world");
+    let wrong_world = compile_world(
+        &wrong_source.to_string(),
+        SourceFormat::Json,
+        &fixture.stores.artifacts,
+    )
+    .unwrap();
+    let operator = evaluate(fixture).unwrap();
+    let selected = select_and_record(
+        operator.into_stores(),
+        "evaluation-001",
+        &world,
+        1_788_000_123_999,
+    )
+    .unwrap();
+    let history = selected.into_stores().events.replay_verified().unwrap();
+    let artifacts = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    let position = history
+        .iter()
+        .position(|event| event.event_type == "selection.recorded")
+        .unwrap();
+    let original = history[position].clone();
+    verify_selection_event_in(&EventIndex::build(&history), &artifacts, &original, &world)
+        .expect("the genuine selection verifies against its own history");
+
+    // Route the selection event to another World: the envelope now matches
+    // the World passed in, but the trusted evaluation evidence does not.
+    let (_, world_id) = selection_event_references(&original).unwrap();
+    let mut rerouted = history.clone();
+    rerouted[position].payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&world_id, wrong_world.id())
+        .into_bytes();
+    let rerouted_event = rerouted[position].clone();
+    assert!(matches!(
+        verify_selection_event_in(
+            &EventIndex::build(&rerouted),
+            &artifacts,
+            &rerouted_event,
+            &wrong_world
+        ),
+        Err(ArenaError::SelectionWorldMismatch)
+    ));
+
+    // Point the event at a hash-valid, canonical receipt whose decision
+    // differs from the one recomputed from the trusted evidence.
+    let payload: serde_json::Value = serde_json::from_slice(&original.payload).unwrap();
+    let original_artifact = payload["receipt_artifact_id"].as_str().unwrap().to_owned();
+    let original_bytes = artifacts
+        .get(&ArtifactId::parse(original_artifact.clone()).unwrap())
+        .unwrap();
+    let mut forged: serde_json::Value = serde_json::from_slice(&original_bytes).unwrap();
+    let eligible = forged["metrics_eligible"].as_bool().unwrap();
+    forged["metrics_eligible"] = serde_json::json!(!eligible);
+    let forged: SelectionReceipt = serde_json::from_value(forged).unwrap();
+    let forged_artifact = artifacts
+        .put(&serde_json::to_vec(&forged).unwrap())
+        .unwrap()
+        .as_str()
+        .to_owned();
+    let mut forged_history = history.clone();
+    forged_history[position].payload = String::from_utf8(original.payload.clone())
+        .unwrap()
+        .replace(&original_artifact, &forged_artifact)
+        .into_bytes();
+    let forged_event = forged_history[position].clone();
+    assert!(matches!(
+        verify_selection_event_in(
+            &EventIndex::build(&forged_history),
+            &artifacts,
+            &forged_event,
+            &world
+        ),
+        Err(ArenaError::SelectionConflict(_))
+    ));
 }
