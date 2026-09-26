@@ -26,7 +26,7 @@ The baseline inventory below is historical. The progress and remaining-work sect
 | Mutation guard and ratchet | Yes; CI blocks on two named invariants | Yes; both local and remote runs killed every mutation | Baseline, apply/restore, and verdict paths are exercised operationally, not unit-tested | It is the guard; its own integrity is not yet independently mutated | Yes | Keep; harden as part of production tooling |
 | Documentation gate | Yes; CI checks README and architecture docs | Yes; local and remote runs passed | No direct unit tests | No | Yes | Keep; add claim/link regression fixtures when docs expand |
 | GitHub Actions CI | Yes; push and pull-request triggers | Yes; run `32648979874` passed both jobs | Proven by a real hosted run | Enforces the mutation ratchet after deterministic checks | Yes | Keep |
-| Master plan | Linked from the README; it is a specification, not executable behavior | Internally coherent, but almost all described product behavior is unimplemented | No executable acceptance mapping before this roadmap | No | Self-documenting | Keep as product source; implementation claims must remain separate |
+| Master plan | An internal specification kept outside the published tree since 2026-09-26; it is not executable behavior | Internally coherent, but almost all described product behavior is unimplemented | No executable acceptance mapping before this roadmap | No | Self-documenting | Keep as product source; implementation claims must remain separate |
 
 ## Progress since baseline
 
