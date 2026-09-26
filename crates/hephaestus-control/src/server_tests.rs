@@ -10632,6 +10632,84 @@ fn cluster_and_invariant_histories_reject_tampered_events() {
     }
 }
 
+/// TD-26: a durable `invariants.recorded` event that does not recompute from
+/// authenticated evaluation evidence (a fabricated event for an evaluation
+/// that never ran) must be caught the moment the daemon restarts, not only
+/// when an operator happens to call `verify_invariant_history` directly.
+/// This targets `open_with_backends`'s own call to
+/// `verify_invariant_history` at startup, distinct from
+/// `cluster_and_invariant_histories_reject_tampered_events` above, which only
+/// ever calls the verifier function in-process and never proves the daemon's
+/// own startup path invokes it.
+#[test]
+fn control_plane_restart_rejects_a_fabricated_invariant_event() {
+    let directory = tempdir().expect("invariant startup tamper fixture");
+    let (mut plane, parent, candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    complete_arena_test_job(
+        &mut plane,
+        "startup-invariant-evaluation",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let ResponseData::ArenaInvariants { invariants } = plane
+        .check_arena_invariants("startup-invariant-evaluation")
+        .expect("record invariant evidence")
+    else {
+        panic!("invariant check should return its receipt");
+    };
+    let world_id = invariants.receipt.world_id.clone();
+    // A syntactically valid, already-stored artifact id, but not the receipt
+    // this fabricated evaluation could ever have produced.
+    let unrelated_artifact_id = invariants.receipt.manifest_artifact_id.clone();
+
+    let data_dir = plane.data_dir.clone();
+    let repository = plane.source_repository.clone();
+    let evaluator = plane.evaluator_executable.clone();
+    let worker = plane.reference_worker_executable.clone();
+    drop(plane);
+
+    let mut tampered_plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open verified invariant history before fabrication");
+    let fake_evaluation_id = "startup-invariant-evaluation-never-ran";
+    let payload = format!(
+        "{{\"schema_version\":1,\"evaluation_id\":\"{fake_evaluation_id}\",\"world_id\":\"{world_id}\",\"receipt_artifact_id\":\"{unrelated_artifact_id}\"}}"
+    );
+    tampered_plane
+        .storage
+        .as_mut()
+        .expect("canonical ledger")
+        .ledger
+        .append(EventInput::new(
+            format!("arena:invariants:{fake_evaluation_id}:checked"),
+            format!("arena:invariants:{fake_evaluation_id}"),
+            "invariants.recorded",
+            "arena-plane",
+            timestamp_millis().expect("event timestamp"),
+            payload.into_bytes(),
+        ))
+        .expect("append well-formed fabricated invariant event");
+    drop(tampered_plane);
+
+    assert!(
+        matches!(
+            ControlPlane::open_with_repository_evaluator_and_reference_worker(
+                &data_dir,
+                &repository,
+                &evaluator,
+                &worker,
+            ),
+            Err(ControlError::Projection(_))
+        ),
+        "restart must reject an invariant event that does not recompute from real evidence"
+    );
+}
+
 #[test]
 fn evidence_run_list_marks_a_budget_exceeded_direct_run_failed() {
     let directory = tempdir().expect("daemon directory");
