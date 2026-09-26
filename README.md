@@ -380,6 +380,7 @@ scopes it to one crate while iterating.
 - [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): compiler contracts and source schemas
 - [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md)
 - [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
+- [Lab cross-check](docs/LAB_CROSSCHECK.md): independent Python recompute of Rust selection and meta-evolution receipts
 - [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md)
 - [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md)
 - [Evolution runs](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md)

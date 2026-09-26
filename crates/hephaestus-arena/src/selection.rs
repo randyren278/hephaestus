@@ -1126,3 +1126,165 @@ mod tests {
         ));
     }
 }
+
+/// Golden-fixture generation, cross-checked from
+/// `python/hephaestus_lab/crosscheck.py` (see `python/tests/test_crosscheck.py`).
+/// Run `HEPHAESTUS_WRITE_FIXTURES=1 cargo test -p hephaestus-arena
+/// selection::fixtures` once to (re)generate the checked-in JSON under
+/// `python/tests/fixtures/`; every other run asserts the freshly computed
+/// receipt is byte-identical to the existing fixture file, so the fixture is
+/// pinned from the Rust side and any drift fails `cargo test`.
+#[cfg(test)]
+mod fixtures {
+    use std::{env, fs, path::PathBuf};
+
+    use hephaestus_genome::{CompiledWorld, SourceFormat, compile_world};
+    use hephaestus_ledger::ArtifactStore;
+
+    use super::{ALGORITHM_V1, ALGORITHM_V2, SelectionReceipt, analyze};
+    use crate::{SelectionEvidence, fitness_evidence_for_test, outcome_histogram_for_test};
+
+    fn world(
+        minimum_delta_bps: i64,
+        maximum_regressions: u32,
+        confidence_bps: u16,
+        maximum_cost_microusd: u64,
+    ) -> CompiledWorld {
+        let temp = tempfile::tempdir().expect("temp dir for fixture artifact store");
+        let store = ArtifactStore::open(temp.path()).expect("fixture artifact store opens");
+        let source = format!(
+            r#"{{
+  "schema_version": 1,
+  "name": "selection-fixture-world",
+  "laws": {{
+    "candidate_network": false,
+    "candidate_evaluator_access": false,
+    "maximum_cost_microusd": {maximum_cost_microusd}
+  }},
+  "authority_ceiling": {{ "workspace_write": false, "network": false }},
+  "mutation_scope": ["harness"],
+  "promotion": {{
+    "minimum_delta_bps": {minimum_delta_bps},
+    "maximum_regressions": {maximum_regressions},
+    "confidence_bps": {confidence_bps}
+  }},
+  "objectives": ["correctness"],
+  "evaluator_artifacts": {{}}
+}}"#
+        );
+        compile_world(&source, SourceFormat::Json, &store).expect("fixture world compiles")
+    }
+
+    fn fixture_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../python/tests/fixtures")
+            .join(name)
+    }
+
+    /// Byte-compares `receipt` against the checked-in fixture `name`, or (if
+    /// `HEPHAESTUS_WRITE_FIXTURES=1`) writes it as the new fixture.
+    fn assert_or_write_fixture(name: &str, receipt: &SelectionReceipt) {
+        let path = fixture_path(name);
+        let actual = format!(
+            "{}\n",
+            serde_json::to_string_pretty(receipt).expect("receipt serializes")
+        );
+        if env::var("HEPHAESTUS_WRITE_FIXTURES").as_deref() == Ok("1") {
+            fs::write(&path, &actual).unwrap_or_else(|error| {
+                panic!("failed to write fixture {}: {error}", path.display())
+            });
+            return;
+        }
+        let expected = fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read fixture {}: {error}\nrun `HEPHAESTUS_WRITE_FIXTURES=1 cargo test -p hephaestus-arena selection::fixtures` to generate it",
+                path.display()
+            )
+        });
+        assert_eq!(
+            actual,
+            expected,
+            "fixture {} is stale; rerun with HEPHAESTUS_WRITE_FIXTURES=1 to regenerate",
+            path.display()
+        );
+    }
+
+    fn assert_both_algorithms(case: &str, evidence: &SelectionEvidence, world: &CompiledWorld) {
+        let v1 = analyze(evidence, world, ALGORITHM_V1).expect("v1 analyze succeeds");
+        assert_or_write_fixture(&format!("{case}_v1.json"), &v1);
+        let v2 = analyze(evidence, world, ALGORITHM_V2).expect("v2 analyze succeeds");
+        assert_or_write_fixture(&format!("{case}_v2.json"), &v2);
+    }
+
+    /// Candidate clearly dominates the parent on every dimension and clears
+    /// every gate under both algorithm identities: `metrics_eligible` is
+    /// `true` for both `selection_eligible_v1.json` and
+    /// `selection_eligible_v2.json`.
+    #[test]
+    fn fixture_eligible_candidate_dominates_and_clears_every_gate() {
+        let evidence = SelectionEvidence::for_test(
+            "evaluation-fixture-eligible",
+            "world-fixture-eligible",
+            42,
+            "genome-parent-eligible",
+            "genome-candidate-eligible",
+            outcome_histogram_for_test(1, 5, 12),
+            fitness_evidence_for_test(9, 17, 18, 180_000, 3_600),
+            fitness_evidence_for_test(15, 18, 18, 162_000, 3_200),
+        );
+        let world = world(1_000, 2, 9_500, 200_000);
+        assert_both_algorithms("selection_eligible", &evidence, &world);
+    }
+
+    /// Candidate correctness regresses hard enough to fail both the
+    /// confidence/effect-size gate and the Pareto gate: `metrics_eligible` is
+    /// `false` for both `selection_regression_v1.json` and
+    /// `selection_regression_v2.json`.
+    #[test]
+    fn fixture_regression_candidate_fails_confidence_and_pareto_gates() {
+        let evidence = SelectionEvidence::for_test(
+            "evaluation-fixture-regression",
+            "world-fixture-regression",
+            42,
+            "genome-parent-regression",
+            "genome-candidate-regression",
+            outcome_histogram_for_test(2, 1, 0),
+            fitness_evidence_for_test(2, 3, 3, 30_000, 600),
+            fitness_evidence_for_test(0, 3, 3, 30_000, 600),
+        );
+        let world = world(0, 0, 9_500, 100_000);
+        assert_both_algorithms("selection_regression", &evidence, &world);
+    }
+
+    /// Candidate is strictly cheaper and only 50ms slower than the parent's
+    /// 1000ms total latency, exactly at `latency_tolerance_millis(1000, 2)`.
+    /// `ALGORITHM_V1`'s strict rule counts any latency regression as a
+    /// dominance failure (`selection_latency_disagreement_v1.json`:
+    /// `candidate_pareto_dominates`/`metrics_eligible` both `false`);
+    /// `ALGORITHM_V2`'s tolerant rule treats it as tied and still finds the
+    /// candidate strictly cheaper (`selection_latency_disagreement_v2.json`:
+    /// both `true`). This is the one case where the two algorithm identities
+    /// disagree on the same recorded evidence.
+    #[test]
+    fn fixture_v1_and_v2_disagree_on_a_tolerable_latency_increase() {
+        let evidence = SelectionEvidence::for_test(
+            "evaluation-fixture-latency",
+            "world-fixture-latency",
+            1,
+            "genome-parent-latency",
+            "genome-candidate-latency",
+            outcome_histogram_for_test(0, 2, 0),
+            fitness_evidence_for_test(2, 2, 2, 100, 1_000),
+            fitness_evidence_for_test(2, 2, 2, 99, 1_050),
+        );
+        let world = world(-1, 0, 9_500, 100);
+        let v1 = analyze(&evidence, &world, ALGORITHM_V1).expect("v1 analyze succeeds");
+        let v2 = analyze(&evidence, &world, ALGORITHM_V2).expect("v2 analyze succeeds");
+        assert!(!v1.candidate_pareto_dominates());
+        assert!(!v1.metrics_eligible());
+        assert!(v2.candidate_pareto_dominates());
+        assert!(v2.metrics_eligible());
+        assert_or_write_fixture("selection_latency_disagreement_v1.json", &v1);
+        assert_or_write_fixture("selection_latency_disagreement_v2.json", &v2);
+    }
+}

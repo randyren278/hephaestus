@@ -682,6 +682,90 @@ impl SelectionEvidence {
     pub const fn candidate_fitness(&self) -> FitnessEvidence {
         self.candidate_fitness
     }
+
+    /// Test-only escape hatch: builds a [`SelectionEvidence`] with known
+    /// aggregate counts directly, bypassing the normal
+    /// [`OperatorEvaluation`]-only minting path. Exists only so
+    /// `selection::tests` can pin `analyze`'s output against fixed inputs
+    /// (for example, golden fixtures cross-checked from
+    /// `python/hephaestus_lab/crosscheck.py`) without running a full
+    /// evaluation pipeline. Never compiled outside `cfg(test)`.
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_test(
+        evaluation_id: &str,
+        world_id: &str,
+        seed: u64,
+        parent_genome_id: &str,
+        candidate_genome_id: &str,
+        correctness_outcomes: OutcomeHistogram,
+        parent_fitness: FitnessEvidence,
+        candidate_fitness: FitnessEvidence,
+    ) -> Self {
+        let visible_total = correctness_outcomes.regressions
+            + correctness_outcomes.unchanged
+            + correctness_outcomes.improvements;
+        Self {
+            schema_version: 1,
+            evaluation_id: evaluation_id.to_owned(),
+            evaluation_event_id: format!("arena:evaluation:{evaluation_id}:recorded"),
+            evaluation_event_hash: "0".repeat(64),
+            world_id: world_id.to_owned(),
+            seed,
+            environment_id: "environment-fixture".to_owned(),
+            evaluator_id: "evaluator-fixture".to_owned(),
+            budget: RunBudgetReceipt {
+                wall_millis: 10_000,
+                maximum_output_bytes: 1_048_576,
+                maximum_cost_microusd: 1_000_000,
+            },
+            parent_genome_id: parent_genome_id.to_owned(),
+            candidate_genome_id: candidate_genome_id.to_owned(),
+            visible_total,
+            sealed_total: 0,
+            parent_visible_correct: parent_fitness.correct_trials,
+            candidate_visible_correct: candidate_fitness.correct_trials,
+            parent_sealed_correct: 0,
+            candidate_sealed_correct: 0,
+            correctness_outcomes,
+            parent_fitness,
+            candidate_fitness,
+        }
+    }
+}
+
+/// Test-only constructor mirror for [`OutcomeHistogram`]; see
+/// [`SelectionEvidence::for_test`].
+#[cfg(test)]
+pub(crate) const fn outcome_histogram_for_test(
+    regressions: u32,
+    unchanged: u32,
+    improvements: u32,
+) -> OutcomeHistogram {
+    OutcomeHistogram {
+        regressions,
+        unchanged,
+        improvements,
+    }
+}
+
+/// Test-only constructor mirror for [`FitnessEvidence`]; see
+/// [`SelectionEvidence::for_test`].
+#[cfg(test)]
+pub(crate) const fn fitness_evidence_for_test(
+    correct_trials: u32,
+    reliable_trials: u32,
+    total_trials: u32,
+    total_cost_microusd: u64,
+    total_latency_millis: u64,
+) -> FitnessEvidence {
+    FitnessEvidence {
+        correct_trials,
+        reliable_trials,
+        total_trials,
+        total_cost_microusd,
+        total_latency_millis,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

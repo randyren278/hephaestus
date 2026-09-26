@@ -454,7 +454,8 @@ impl SplitMix64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{SplitMix64, paired_bootstrap};
+    use super::{BOOTSTRAP_ALGORITHM, RESAMPLES, SplitMix64, paired_bootstrap};
+    use crate::protocol::{MetaEvaluationPayload, MetaLineageOutcome};
 
     #[test]
     fn splitmix64_matches_reference_stream() {
@@ -484,5 +485,120 @@ mod tests {
     #[test]
     fn bootstrap_rejects_empty_deltas() {
         assert!(paired_bootstrap(&[], 0, 9_500).is_err());
+    }
+
+    /// Golden-fixture generation, cross-checked from
+    /// `python/hephaestus_lab/crosscheck.py` (see
+    /// `python/tests/test_crosscheck.py`). Run
+    /// `HEPHAESTUS_WRITE_FIXTURES=1 cargo test -p hephaestus-control
+    /// meta_evolve::tests::fixture_meta_evaluation_receipt_matches_the_checked_in_python_fixture`
+    /// once to (re)generate the checked-in fixture; every other run asserts
+    /// the freshly computed payload is byte-identical to it, so the fixture
+    /// is pinned from the Rust side and any drift fails `cargo test`.
+    ///
+    /// Unlike the Arena selection receipt, `descendant_cheaper_at_equal_quality`
+    /// is left `None` here: it depends on the two strategies' registered
+    /// `parent_strategy_id`, which lives in separate `meta_strategy.registered`
+    /// records this fixture does not include, so the Python cross-check
+    /// cannot (and does not attempt to) verify it — see
+    /// `crosscheck.crosscheck_meta`'s module docs.
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn fixture_meta_evaluation_receipt_matches_the_checked_in_python_fixture() {
+        let lineages = vec![
+            MetaLineageOutcome {
+                world_id: "world-fixture-lineage-1".to_owned(),
+                from_genome_id: "genome-fixture-lineage-1".to_owned(),
+                strategy_a_run_id: "run-a-1".to_owned(),
+                strategy_b_run_id: "run-b-1".to_owned(),
+                strategy_a_champion_genome_id: "champion-a-1".to_owned(),
+                strategy_b_champion_genome_id: "champion-b-1".to_owned(),
+                strategy_a_promotions: 2,
+                strategy_b_promotions: 3,
+                strategy_a_trials_consumed: 100,
+                strategy_b_trials_consumed: 90,
+            },
+            MetaLineageOutcome {
+                world_id: "world-fixture-lineage-2".to_owned(),
+                from_genome_id: "genome-fixture-lineage-2".to_owned(),
+                strategy_a_run_id: "run-a-2".to_owned(),
+                strategy_b_run_id: "run-b-2".to_owned(),
+                strategy_a_champion_genome_id: "champion-a-2".to_owned(),
+                strategy_b_champion_genome_id: "champion-b-2".to_owned(),
+                strategy_a_promotions: 1,
+                strategy_b_promotions: 1,
+                strategy_a_trials_consumed: 80,
+                strategy_b_trials_consumed: 85,
+            },
+            MetaLineageOutcome {
+                world_id: "world-fixture-lineage-3".to_owned(),
+                from_genome_id: "genome-fixture-lineage-3".to_owned(),
+                strategy_a_run_id: "run-a-3".to_owned(),
+                strategy_b_run_id: "run-b-3".to_owned(),
+                strategy_a_champion_genome_id: "champion-a-3".to_owned(),
+                strategy_b_champion_genome_id: "champion-b-3".to_owned(),
+                strategy_a_promotions: 0,
+                strategy_b_promotions: 2,
+                strategy_a_trials_consumed: 120,
+                strategy_b_trials_consumed: 100,
+            },
+        ];
+        let quality_deltas: Vec<i64> = lineages
+            .iter()
+            .map(|lineage| {
+                i64::from(lineage.strategy_b_promotions) - i64::from(lineage.strategy_a_promotions)
+            })
+            .collect();
+        let cost_deltas: Vec<i64> = lineages
+            .iter()
+            .map(|lineage| {
+                i64::try_from(lineage.strategy_b_trials_consumed).expect("fits i64")
+                    - i64::try_from(lineage.strategy_a_trials_consumed).expect("fits i64")
+            })
+            .collect();
+        let seed: u64 = 1_234;
+        let confidence_bps: u16 = 9_500;
+        let quality_delta =
+            paired_bootstrap(&quality_deltas, seed, confidence_bps).expect("quality bootstrap");
+        let cost_delta =
+            paired_bootstrap(&cost_deltas, seed, confidence_bps).expect("cost bootstrap");
+        let payload = MetaEvaluationPayload {
+            schema_version: 1,
+            meta_run_id: "meta-run-fixture-1".to_owned(),
+            strategy_a_id: "hephaestus:meta-strategy:fixture-a".to_owned(),
+            strategy_b_id: "hephaestus:meta-strategy:fixture-b".to_owned(),
+            confidence_bps,
+            bootstrap_seed: seed,
+            bootstrap_resamples: u32::try_from(RESAMPLES).expect("fits u32"),
+            algorithm: BOOTSTRAP_ALGORITHM.to_owned(),
+            lineages,
+            quality_delta,
+            cost_delta,
+            descendant_cheaper_at_equal_quality: None,
+        };
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../python/tests/fixtures/meta_evaluation_fixture.json");
+        let actual = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&payload).expect("payload serializes")
+        );
+        if std::env::var("HEPHAESTUS_WRITE_FIXTURES").as_deref() == Ok("1") {
+            std::fs::write(&path, &actual).unwrap_or_else(|error| {
+                panic!("failed to write fixture {}: {error}", path.display())
+            });
+            return;
+        }
+        let expected = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read fixture {}: {error}\nrun `HEPHAESTUS_WRITE_FIXTURES=1 cargo test -p hephaestus-control meta_evolve::tests::fixture_meta_evaluation_receipt_matches_the_checked_in_python_fixture` to generate it",
+                path.display()
+            )
+        });
+        assert_eq!(
+            actual,
+            expected,
+            "fixture {} is stale; rerun with HEPHAESTUS_WRITE_FIXTURES=1 to regenerate",
+            path.display()
+        );
     }
 }

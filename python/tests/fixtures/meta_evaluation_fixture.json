@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "meta_run_id": "meta-run-fixture-1",
+  "strategy_a_id": "hephaestus:meta-strategy:fixture-a",
+  "strategy_b_id": "hephaestus:meta-strategy:fixture-b",
+  "confidence_bps": 9500,
+  "bootstrap_seed": 1234,
+  "bootstrap_resamples": 10000,
+  "algorithm": "lineage-paired-histogram-bootstrap-v1",
+  "lineages": [
+    {
+      "world_id": "world-fixture-lineage-1",
+      "from_genome_id": "genome-fixture-lineage-1",
+      "strategy_a_run_id": "run-a-1",
+      "strategy_b_run_id": "run-b-1",
+      "strategy_a_champion_genome_id": "champion-a-1",
+      "strategy_b_champion_genome_id": "champion-b-1",
+      "strategy_a_promotions": 2,
+      "strategy_b_promotions": 3,
+      "strategy_a_trials_consumed": 100,
+      "strategy_b_trials_consumed": 90
+    },
+    {
+      "world_id": "world-fixture-lineage-2",
+      "from_genome_id": "genome-fixture-lineage-2",
+      "strategy_a_run_id": "run-a-2",
+      "strategy_b_run_id": "run-b-2",
+      "strategy_a_champion_genome_id": "champion-a-2",
+      "strategy_b_champion_genome_id": "champion-b-2",
+      "strategy_a_promotions": 1,
+      "strategy_b_promotions": 1,
+      "strategy_a_trials_consumed": 80,
+      "strategy_b_trials_consumed": 85
+    },
+    {
+      "world_id": "world-fixture-lineage-3",
+      "from_genome_id": "genome-fixture-lineage-3",
+      "strategy_a_run_id": "run-a-3",
+      "strategy_b_run_id": "run-b-3",
+      "strategy_a_champion_genome_id": "champion-a-3",
+      "strategy_b_champion_genome_id": "champion-b-3",
+      "strategy_a_promotions": 0,
+      "strategy_b_promotions": 2,
+      "strategy_a_trials_consumed": 120,
+      "strategy_b_trials_consumed": 100
+    }
+  ],
+  "quality_delta": {
+    "estimate_x10000": 10000,
+    "lower_x10000": 0,
+    "upper_x10000": 20000
+  },
+  "cost_delta": {
+    "estimate_x10000": -83334,
+    "lower_x10000": -200000,
+    "upper_x10000": 50000
+  },
+  "descendant_cheaper_at_equal_quality": null
+}
