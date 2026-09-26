@@ -332,6 +332,15 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Build workspace binaries for tests that spawn them
+        # Control and Arena tests spawn the reference worker, guardian, and
+        # evaluator from target/debug. Without them a run fails for a reason
+        # unrelated to the mutant, so the guard (run with --skip-baseline)
+        # would score a "KILLED" that proves nothing and miss a real survivor
+        # (control-candidate-process-not-supervised, TD-26).
+        if: matrix.scope != 'mutation-checks' && matrix.scope != 'python-statistics'
+        run: cargo build --workspace --bins --all-features
+
       - name: Break each invariant and require the suite to catch it
         # Swatinem/rust-cache sets CARGO_INCREMENTAL=0 for the whole workflow
         # (good for the main build, whose cache it saves once and never
