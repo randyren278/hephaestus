@@ -11567,6 +11567,351 @@ fn evolve_coding_bundled_world_completes_three_generations_from_the_example_fixt
     assert_eq!(run.trials_consumed, 6);
 }
 
+/// Roadmap item 10: "a sealed holdout shows statistically supported
+/// improvement within enforced budget." Reads the bundled
+/// `examples/gauntlet/sealed-holdout-improvement` fixture files exactly like
+/// `evolve_coding_bundled_world_completes_three_generations_from_the_example_fixture`
+/// does, registers the World and both Genomes, seeds the bad
+/// `poisoned_memory_trusting` Genome as generation zero's Champion, binds a
+/// minimal Evolver strategy, and starts a one-generation, budget-2
+/// strategy-bound `evolve` run. The candidate's paired evidence spans all 3
+/// visible plus 8 sealed poisoned-memory scenarios (distinct content per
+/// scenario): the bad operation fails every one and the fix
+/// (`provenance_checked_memory`) passes every one, so the run promotes the
+/// fix within budget, the child's selection receipt reports a
+/// zero-regression, 11-improvement histogram bootstrap whose lower
+/// confidence bound clears zero at the World's 95% confidence with
+/// `metrics_eligible=true`, the sealed subset alone (never shown to the
+/// candidate) moved from 0/8 to 8/8 correct, replay verifies, and an
+/// independent Python recompute of the exact same receipt agrees.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn sealed_holdout_improvement_is_statistically_supported_and_promoted_within_budget() {
+    let examples_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/gauntlet/sealed-holdout-improvement");
+    assert!(
+        examples_dir.is_dir(),
+        "bundled examples/gauntlet/sealed-holdout-improvement fixture is missing: {examples_dir:?}"
+    );
+
+    let directory = tempdir().expect("daemon directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(
+        repository.join("fixture.txt"),
+        b"Sealed holdout improvement fixture\n",
+    )
+    .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator_path = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator_path).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator_path,
+        &worker,
+    )
+    .expect("open sealed-holdout-improvement fixture");
+    let token = plane.token_hex.clone();
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "sealed-holdout-unfreeze",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+
+    let artifact_id_of = |response: ApiResponse| match response.data {
+        Some(ResponseData::Artifact { artifact_id, .. }) => artifact_id,
+        other => panic!("expected an Artifact response, got {other:?}"),
+    };
+    let visible_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-visible-manifest",
+        Command::ManifestPut {
+            path: examples_dir
+                .join("tasks/visible.json")
+                .display()
+                .to_string(),
+        },
+    ));
+    let sealed_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-sealed-manifest",
+        Command::ManifestPut {
+            path: examples_dir.join("tasks/sealed.json").display().to_string(),
+        },
+    ));
+    let evaluator_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-evaluator",
+        Command::ArtifactPut {
+            path: evaluator_path.display().to_string(),
+        },
+    ));
+    let Some(ResponseData::Verifier {
+        artifact_id: verifier_id,
+        ..
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-verifier",
+        Command::VerifierShow,
+    )
+    .data
+    else {
+        panic!("verifier show should succeed");
+    };
+    let invariants_id = artifact_id_of(dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-invariants",
+        Command::ArtifactPut {
+            path: examples_dir.join("invariants.json").display().to_string(),
+        },
+    ));
+
+    let world_template =
+        fs::read_to_string(examples_dir.join("world.template.json")).expect("read world template");
+    let world_json = world_template
+        .replace("__VISIBLE_MANIFEST__", &visible_id)
+        .replace("__SEALED_MANIFEST__", &sealed_id)
+        .replace("__EVALUATOR__", &evaluator_id)
+        .replace("__VERIFIER__", &verifier_id)
+        .replace("__INVARIANTS__", &invariants_id);
+    let world_path = directory
+        .path()
+        .join("sealed-holdout-improvement-world.json");
+    fs::write(&world_path, world_json).expect("write sealed-holdout-improvement World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("World registration should succeed");
+    };
+
+    let Some(ResponseData::Genome { genome: parent }) = dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-parent",
+        Command::GenomeRegister {
+            path: examples_dir.join("parent.md").display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("parent Genome registration should succeed");
+    };
+    let candidate_template =
+        fs::read_to_string(examples_dir.join("candidate.md")).expect("read candidate Genome");
+    let candidate_path = directory
+        .path()
+        .join("sealed-holdout-improvement-candidate.md");
+    fs::write(
+        &candidate_path,
+        candidate_template.replace("__PARENT_ID__", &parent.genome_id),
+    )
+    .expect("write sealed-holdout-improvement candidate Genome");
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "sealed-holdout-candidate",
+            Command::GenomeRegister {
+                path: candidate_path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .error
+        .is_none()
+    );
+
+    let strategy_id = register_test_strategy(
+        &mut plane,
+        &token,
+        &directory,
+        "sealed-holdout-improvement",
+        "fifo",
+        "none",
+    );
+
+    let run_id = "sealed-holdout-improvement";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "sealed-holdout-evolve-start",
+        evolve_start_command_with_strategy(
+            run_id,
+            &world.world_id,
+            &parent.genome_id,
+            1,
+            TRIALS_PER_GENERATION,
+            Some(&strategy_id),
+        ),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start failed: {:?}",
+        start.error
+    );
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::GenerationsExhausted)
+    );
+    assert_eq!(run.generations.len(), 1);
+    assert!(
+        run.trials_consumed <= TRIALS_PER_GENERATION,
+        "the run must finish within its enforced budget: consumed {} of {}",
+        run.trials_consumed,
+        TRIALS_PER_GENERATION
+    );
+
+    let generation = &run.generations[0].payload;
+    assert!(
+        generation.promoted,
+        "the fix should be discovered and promoted from its own visible+sealed evidence"
+    );
+    assert_eq!(generation.champion_after, generation.child_genome_id);
+    let promoted_operation = plane
+        .reference_instruction(&generation.child_genome_id)
+        .expect("promoted child should have a readable reference operation");
+    assert_eq!(
+        promoted_operation.map(ReferenceInstruction::operation_name),
+        Some("provenance_checked_memory"),
+        "the promoted child should carry the poisoned-memory fix"
+    );
+
+    // The child's selection receipt: paired evidence over all 3 visible plus
+    // 8 sealed tasks is a clean, zero-regression, 11-improvement histogram
+    // whose bootstrap lower bound clears the World's zero-delta policy at
+    // 95% confidence.
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(&generation.child_evaluation_id)
+        .expect("selection over the promoted child's evidence should succeed")
+    else {
+        panic!("select_arena_evaluation should return a Selection response");
+    };
+    assert_eq!(selection.receipt.correctness_regressions(), 0);
+    assert_eq!(selection.receipt.correctness_unchanged(), 0);
+    assert_eq!(
+        selection.receipt.correctness_improvements(),
+        11,
+        "3 visible + 8 sealed poisoned-memory scenarios should all register as improvements"
+    );
+    assert!(
+        selection.receipt.lower_bps() > 0,
+        "the bootstrap lower confidence bound should clear zero: {}",
+        selection.receipt.lower_bps()
+    );
+    assert!(selection.receipt.metrics_eligible());
+
+    // The sealed subset alone (never shown to the candidate during
+    // development) moved from 0 correct to all correct, without leaking any
+    // sealed task content into this assertion.
+    let arena_stores = plane
+        .open_arena_stores()
+        .expect("open Arena stores for a read-only operator scores check");
+    let operator = load_operator_evaluation(arena_stores, &generation.child_evaluation_id)
+        .expect("load the promoted child's operator evaluation");
+    let scores = operator.operator_scores();
+    assert_eq!(scores.visible_total, 3);
+    assert_eq!(scores.sealed_total, 8);
+    assert_eq!(scores.parent_visible_correct, 0);
+    assert_eq!(scores.candidate_visible_correct, 3);
+    assert_eq!(
+        scores.parent_sealed_correct, 0,
+        "the bad operation should fail every sealed task"
+    );
+    assert_eq!(
+        scores.candidate_sealed_correct, 8,
+        "the fix should pass every held-out sealed task"
+    );
+
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+
+    // Independent recompute: write the exact receipt to disk and check that
+    // hephaestus_lab.crosscheck agrees, exactly as a human operator's own
+    // audit would. This is part of the "statistically supported" claim, not
+    // decoration: the Rust bootstrap and Python's independent reimplementation
+    // must agree on the same recorded evidence.
+    let receipt_path = directory
+        .path()
+        .join("sealed-holdout-improvement-receipt.json");
+    fs::write(
+        &receipt_path,
+        serde_json::to_vec_pretty(&selection.receipt).expect("receipt serializes"),
+    )
+    .expect("write selection receipt for cross-check");
+    let python_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../python");
+    match ProcessCommand::new("python3")
+        .arg("-m")
+        .arg("hephaestus_lab.crosscheck")
+        .arg(&receipt_path)
+        .arg("--kind")
+        .arg("selection")
+        .env("PYTHONPATH", &python_dir)
+        .output()
+    {
+        Ok(output) => {
+            assert!(
+                output.status.success(),
+                "independent Python cross-check of the receipt should agree: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping independent Python cross-check: python3 is not available on this \
+                 machine ({error})"
+            );
+        }
+        Err(error) => panic!("failed to run python3 cross-check: {error}"),
+    }
+}
+
 #[test]
 fn evolve_respects_freeze_and_resumes_only_after_explicit_unfreeze() {
     let directory = tempdir().expect("daemon directory");

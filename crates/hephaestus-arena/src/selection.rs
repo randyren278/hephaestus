@@ -1287,4 +1287,32 @@ mod fixtures {
         assert_or_write_fixture("selection_latency_disagreement_v1.json", &v1);
         assert_or_write_fixture("selection_latency_disagreement_v2.json", &v2);
     }
+
+    /// Mirrors `examples/gauntlet/sealed-holdout-improvement/` (roadmap item
+    /// 10): 3 visible plus 8 sealed poisoned-memory scenarios where the
+    /// parent (`poisoned_memory_trusting`) fails every one and the candidate
+    /// (`provenance_checked_memory`) passes every one, so all 11 paired
+    /// outcomes are genuine improvements with zero regressions — a
+    /// statistically supported improvement on a sealed holdout the candidate
+    /// never saw during development. `selection_sealed_holdout_improvement_v1.json`
+    /// and `_v2.json` both report `metrics_eligible=true`, `lower_bps > 0`,
+    /// and `correctness_regressions=0`; see
+    /// `crates/hephaestus-control/src/server_tests.rs`'s
+    /// `sealed_holdout_improvement_is_statistically_supported_and_promoted_within_budget`
+    /// for the real end-to-end evolve run this golden fixture mirrors.
+    #[test]
+    fn fixture_sealed_holdout_improvement_shows_zero_regressions_across_visible_and_sealed_tasks() {
+        let evidence = SelectionEvidence::for_test(
+            "evaluation-fixture-sealed-holdout-improvement",
+            "world-fixture-sealed-holdout-improvement",
+            7,
+            "genome-parent-sealed-holdout-improvement",
+            "genome-candidate-sealed-holdout-improvement",
+            outcome_histogram_for_test(0, 0, 11),
+            fitness_evidence_for_test(0, 11, 11, 0, 1_100),
+            fitness_evidence_for_test(11, 11, 11, 0, 1_100),
+        );
+        let world = world(0, 0, 9_500, 1_000_000);
+        assert_both_algorithms("selection_sealed_holdout_improvement", &evidence, &world);
+    }
 }

@@ -148,6 +148,45 @@ invariants.json` step substituted into `__INVARIANTS__`. Then either:
   never promoting past generation zero's Champion. That outcome is itself the
   point: the sealed holdout is doing its job.
 
+## Statistically supported improvement on a sealed holdout: `sealed-holdout-improvement/`
+
+`sealed-holdout/` above proves the *regression* half of the sealed-holdout
+property: a candidate that looks like an improvement can fail on tasks it
+never saw. [`sealed-holdout-improvement/`](sealed-holdout-improvement/) proves
+the other half — the one roadmap item 10 actually asks for — that a genuine
+improvement can be *discovered and statistically supported* against a sealed
+holdout the candidate never saw during development, not just asserted.
+
+The fixture reuses the poisoned-memory pair from the table above: the
+`poisoned_memory_trusting` parent Genome is seeded as Champion, and 3 visible
+plus 8 sealed poisoned-memory scenarios (distinct memory content per
+scenario, none shared with `examples/gauntlet/poisoned-memory/`) are
+registered as the World's visible and sealed manifests. The bad operation
+fails every one of the 11 scenarios; `provenance_checked_memory` passes every
+one. `crates/hephaestus-control/src/server_tests.rs`'s
+`sealed_holdout_improvement_is_statistically_supported_and_promoted_within_budget`
+starts a one-generation, two-trial-budget strategy-bound `evolve` run from
+that Champion and asserts:
+
+- the run promotes the fix within its enforced budget (`trials_consumed <=
+  2`) and the promoted child carries `provenance_checked_memory`;
+- the child's selection receipt reports zero correctness regressions, zero
+  unchanged, and 11 improvements, with a bootstrap lower confidence bound
+  that clears zero at the World's 95% confidence and `metrics_eligible=true`;
+- reading the promoted child's operator evaluation directly, the *sealed*
+  subset alone moved from 0/8 to 8/8 correct — the improvement is real on
+  tasks the candidate never had visibility into, not just the visible set;
+- replay still verifies; and
+- an independent Python recompute
+  (`hephaestus_lab.crosscheck`, see [docs/LAB_CROSSCHECK.md](../../docs/LAB_CROSSCHECK.md))
+  of the exact same receipt agrees with the Rust bootstrap.
+
+This closes roadmap item 10's last gap: a measured, not asserted, statistically
+supported improvement on a sealed holdout, discovered by the unmodified
+Arena, selection, and invariant policy through the same mutation-catalog
+machinery described above — no new production code, only a fixture and a
+proof.
+
 ## The bundled `coding` World and `hephaestus evolve coding`
 
 [`coding/`](coding/) is the World `hephaestus evolve coding --budget <n>`
@@ -178,6 +217,9 @@ file's claims in the same commit. Until then, this directory's honest claims
 are exactly three: each named failure mode has a genuine deterministic proxy
 that Arena evaluation alone can reject/pass; a strategy-bound `evolve` run
 can discover each mode's fix on its own through Forge's closed 16-operation
-mutation catalog (not free-form prompt editing); and sealed-holdout evidence
+mutation catalog (not free-form prompt editing); sealed-holdout evidence
 catches a visible-only regression that a richer Gauntlet World will still
-need to catch.
+need to catch; and a genuine improvement discovered by a strategy-bound
+`evolve` run is statistically supported on a sealed holdout the candidate
+never saw, cross-checked by an independent Python recompute of the same
+receipt.
