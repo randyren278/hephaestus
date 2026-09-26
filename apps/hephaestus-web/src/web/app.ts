@@ -350,7 +350,7 @@ async function loadDriftCanary(): Promise<void> {
 		drifts.data?.type === 'drift_list'
 			? drifts.data.drifts.length === 0
 				? '<p class="notice">No drift recorded.</p>'
-				: `<table class="kv"><tr><th>Drift</th><th>World</th><th>Kind</th><th>Observed</th><th>Threshold</th></tr>${drifts.data.drifts
+				: `<table class="kv"><tr><th>Drift</th><th>World</th><th>Kind</th><th>Observed</th><th>Threshold</th><th>Adaptation</th></tr>${drifts.data.drifts
 						.map(
 							drift => `<tr>
           <td>${escapeHtml(shortId(drift.drift_id))}</td>
@@ -358,6 +358,13 @@ async function loadDriftCanary(): Promise<void> {
           <td>${escapeHtml(drift.kind)}</td>
           <td>${drift.observed_delta_bps}bps</td>
           <td>${drift.threshold_bps}bps</td>
+          <td>${escapeHtml(
+						!drift.adaptation.started
+							? 'none'
+							: drift.adaptation.finished
+								? (drift.adaptation.finish_reason ?? 'finished')
+								: `adapting (${drift.adaptation.canary_stage ?? 'started'})`,
+					)}</td>
         </tr>`,
 						)
 						.join('')}</table>`

@@ -8,9 +8,10 @@ use hephaestus_arena::verify_selection_event_in;
 use hephaestus_genome::RegisteredObjects;
 use hephaestus_ledger::{ArtifactBackend, EventInput, StoredEvent};
 
+use super::adaptation::adaptation_summary;
 use super::canary::{
     CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
-    RELIABILITY_REGRESSION_BPS, regression_deltas,
+    RELIABILITY_REGRESSION_BPS, canary_projection, regression_deltas,
 };
 use super::champion::champion_projection;
 use super::{ControlError, ExecuteError, OPERATOR_ACTOR, hex_encode, validate_job_id};
@@ -54,8 +55,17 @@ pub(super) fn decode_drift_record(event: &StoredEvent) -> Result<DriftRecordPayl
     Ok(payload)
 }
 
-pub(super) fn drift_record(payload: DriftRecordPayload, event: &StoredEvent) -> DriftRecord {
-    DriftRecord {
+/// Builds the operator-visible drift record, including its automatic
+/// adaptation status (roadmap item 12) reconstructed from `history`.
+pub(super) fn drift_record(
+    history: &[StoredEvent],
+    payload: DriftRecordPayload,
+    event: &StoredEvent,
+) -> Result<DriftRecord, ControlError> {
+    let canary_id = super::adaptation::adaptation_canary_id(&payload.drift_id);
+    let canary_stage = canary_projection(history, &canary_id)?.map(|canary| canary.stage);
+    let adaptation = adaptation_summary(history, &payload.drift_id, canary_stage)?;
+    Ok(DriftRecord {
         payload,
         event: DriftEventRecord {
             sequence: event.sequence,
@@ -63,7 +73,8 @@ pub(super) fn drift_record(payload: DriftRecordPayload, event: &StoredEvent) -> 
             aggregate_id: event.aggregate_id.clone(),
             event_hash: hex_encode(&event.hash),
         },
-    }
+        adaptation,
+    })
 }
 
 pub(super) fn drift_projection(
@@ -76,7 +87,7 @@ pub(super) fn drift_projection(
     {
         let payload = decode_drift_record(event)?;
         if payload.drift_id == drift_id {
-            return Ok(Some(drift_record(payload, event)));
+            return Ok(Some(drift_record(history, payload, event)?));
         }
     }
     Ok(None)
@@ -97,7 +108,7 @@ pub(super) fn drift_list(
             break;
         }
         let payload = decode_drift_record(event)?;
-        drifts.push(drift_record(payload, event));
+        drifts.push(drift_record(history, payload, event)?);
     }
     Ok(drifts)
 }
@@ -122,7 +133,9 @@ pub(super) fn existing_drift_record(
             "drift_id is already bound to different drift content".to_owned(),
         ));
     }
-    Ok(Some(drift_record(payload, event)))
+    Ok(Some(
+        drift_record(history, payload, event).map_err(|_| ExecuteError::Internal)?,
+    ))
 }
 
 /// Derives the only payload the policy admits for this drift request.

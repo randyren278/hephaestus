@@ -448,6 +448,66 @@ fn world_compilation_protects_laws_evaluators_and_comparability() {
     ));
 }
 
+/// `laws.auto_canary_on_drift` (roadmap item 12) is `#[serde(default,
+/// skip_serializing_if = "..")]`: an existing World source that never
+/// mentions it compiles to the exact same content-addressed identity as one
+/// that spells out `"auto_canary_on_drift":false`, and `true` both compiles
+/// to a different identity and round-trips through the evaluation policy.
+#[test]
+fn auto_canary_on_drift_law_is_absent_by_default_and_round_trips_when_set() {
+    let directory = tempdir().expect("temporary directory");
+    let store = ArtifactStore::open(directory.path()).expect("open artifact store");
+    let evaluator = store
+        .put(b"sealed evaluator")
+        .expect("store evaluator")
+        .as_str()
+        .to_owned();
+    let world_source = |laws_tail: &str| {
+        format!(
+            r#"{{"schema_version":1,"name":"code-v1","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":5000000{laws_tail}}},"authority_ceiling":{{"workspace_write":true,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":300,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness","cost","latency","reliability"],"evaluator_artifacts":{{"sealed":"{evaluator}"}}}}"#
+        )
+    };
+
+    let absent = compile_world(&world_source(""), SourceFormat::Json, &store)
+        .expect("compile World without the field");
+    let explicit_false = compile_world(
+        &world_source(r#","auto_canary_on_drift":false"#),
+        SourceFormat::Json,
+        &store,
+    )
+    .expect("compile World with the field explicitly false");
+    let explicit_true = compile_world(
+        &world_source(r#","auto_canary_on_drift":true"#),
+        SourceFormat::Json,
+        &store,
+    )
+    .expect("compile World with the field true");
+
+    assert!(!absent.evaluation_policy().auto_canary_on_drift());
+    assert!(!explicit_false.evaluation_policy().auto_canary_on_drift());
+    assert!(explicit_true.evaluation_policy().auto_canary_on_drift());
+
+    assert_eq!(
+        absent.id(),
+        explicit_false.id(),
+        "an absent Law and an explicit false must compile to the same World identity"
+    );
+    assert_eq!(
+        absent.canonical_json(),
+        explicit_false.canonical_json(),
+        "canonical JSON must be byte-identical so an existing World's identity never moves"
+    );
+    assert!(
+        !String::from_utf8_lossy(absent.canonical_json()).contains("auto_canary_on_drift"),
+        "the field must not appear in canonical JSON while it stays absent or false"
+    );
+    assert_ne!(
+        absent.id(),
+        explicit_true.id(),
+        "opting in must produce a different World identity"
+    );
+}
+
 #[test]
 fn compilers_reject_unknown_versions_fields_and_oversized_input() {
     let directory = tempdir().expect("temporary directory");

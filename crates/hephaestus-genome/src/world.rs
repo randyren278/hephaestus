@@ -31,6 +31,7 @@ pub struct WorldEvaluationPolicy {
     maximum_regressions: u32,
     confidence_bps: u16,
     allow_mixed_environments: bool,
+    auto_canary_on_drift: bool,
 }
 
 impl WorldEvaluationPolicy {
@@ -66,6 +67,16 @@ impl WorldEvaluationPolicy {
     #[must_use]
     pub const fn allow_mixed_environments(self) -> bool {
         self.allow_mixed_environments
+    }
+
+    /// Whether this World opts in to the daemon's automatic drift-to-canary
+    /// adaptation pipeline: a recorded `drift.recorded` event drives a Forge
+    /// proposal of the current Champion, a shadow evaluation, and a staged
+    /// canary, entirely from the daemon's own reconciliation loop. Defaults
+    /// to `false`: a World that never opted in keeps drift purely observational.
+    #[must_use]
+    pub const fn auto_canary_on_drift(self) -> bool {
+        self.auto_canary_on_drift
     }
 }
 
@@ -134,12 +145,20 @@ struct RawWorld {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 struct RawLaws {
     candidate_network: bool,
     candidate_evaluator_access: bool,
     maximum_cost_microusd: u64,
     #[serde(default)]
     allow_mixed_environments: bool,
+    /// Opts this World in to the daemon's automatic drift-to-canary
+    /// adaptation pipeline (roadmap item 12). Added after `allow_mixed_environments`
+    /// shipped; `skip_serializing_if` keeps an existing World's canonical
+    /// JSON — and therefore its content-addressed identity — byte-identical
+    /// while this stays absent or `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    auto_canary_on_drift: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -196,6 +215,7 @@ pub fn compile_world(
         maximum_regressions: raw.promotion.maximum_regressions,
         confidence_bps: raw.promotion.confidence_bps,
         allow_mixed_environments: raw.laws.allow_mixed_environments,
+        auto_canary_on_drift: raw.laws.auto_canary_on_drift,
     };
     Ok(CompiledWorld {
         id: content_id("world", &canonical_json),

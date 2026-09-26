@@ -14,9 +14,9 @@ use super::*;
 use crate::{
     ApiError, CanaryRecord, CanaryStage, CanaryTransitionKind, CanaryTransitionPayload,
     CanaryTransitionRecord, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
-    ChampionTransitionRecord, DriftKind, DriftRecord, DriftRecordPayload, GeneExtractedPayload,
-    GeneRecord, GeneTransferAppliedPayload, GeneTransferOutcome, GeneTransferRecordedPayload,
-    MetaLineageSpec,
+    ChampionTransitionRecord, DriftAdaptationFinishReason, DriftKind, DriftRecord,
+    DriftRecordPayload, GeneExtractedPayload, GeneRecord, GeneTransferAppliedPayload,
+    GeneTransferOutcome, GeneTransferRecordedPayload, MetaLineageSpec,
 };
 
 #[test]
@@ -12525,6 +12525,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion() {
+    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("canary live-check fixture");
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
@@ -12864,6 +12865,7 @@ fn assert_drift_error(result: Result<DriftRecord, ApiError>, message: &str) {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn drift_record_derives_from_verified_evidence_and_replays() {
+    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("drift fixture");
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
@@ -16016,6 +16018,7 @@ fn open_with_backends_on_jsonl_ledger_and_memory_artifacts_matches_sqlite_cas_de
 #[test]
 #[allow(clippy::too_many_lines)]
 fn remote_leased_arena_trial_matches_local_execution_and_is_idempotent_under_duplicate_delivery() {
+    let _reference_delay_slot = hold_reference_delay_slot();
     // TD-12's last item: a paired Arena evaluation admitted with the remote
     // opt-in leases every reference-role trial to a remote worker exactly
     // like the direct-run `worker.sock` path, and the daemon (never the
@@ -16259,4 +16262,871 @@ fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_l
         &parent.genome_id,
         &candidate.genome_id,
     );
+}
+
+// ---------------------------------------------------------------------------
+// Automatic drift-to-canary adaptation (roadmap item 12).
+// ---------------------------------------------------------------------------
+
+/// Per-trial delay injected to make a Genome genuinely slower in the
+/// 16-task auto-canary fixture. The single-task canary tests use 750 ms; here
+/// that would add 12 s to every paired evaluation. 250 ms still adds about
+/// 4 s per evaluation, far past the 20% latency regression threshold.
+const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
+
+/// Like `real_worker_arena_fixture_with_invariants`, but the registered World
+/// opts in to `laws.auto_canary_on_drift`, and both registered Genomes start
+/// on the `identity` reference operation against these uppercase-expecting
+/// tasks: exactly the misconfiguration `register_meta_lineage` uses for the
+/// Evolver's own recursive tests, so a Champion seeded on either one is
+/// genuinely fixed (not fabricated) by the Forge catalog's one supported
+/// mutation, the flip to `ascii_uppercase`.
+#[allow(clippy::too_many_lines)]
+fn auto_canary_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Arena evidence fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open auto-canary fixture");
+    let token = plane.token_hex.clone();
+
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    // Many small tasks, not one: a single-task pairing's wall-clock latency
+    // is dominated by per-trial process-spawn scheduling noise (the shared,
+    // multi-agent machine this suite runs on), which can swing well past
+    // the fixed 20% regression threshold in either direction on one trial.
+    // Aggregating over enough trials averages that noise out so a genuinely
+    // unregressed pairing reads as healthy deterministically enough for an
+    // unattended, non-retrying reconciliation loop to act on, exactly as it
+    // would in production.
+    let auto_canary_tasks = |visibility_word: &str| -> Vec<hephaestus_arena::TrustedTask> {
+        (0..8)
+            .map(|index| {
+                hephaestus_arena::TrustedTask::new(
+                    format!("{visibility_word}-task-{index}"),
+                    visibility_word,
+                    visibility_word.to_uppercase(),
+                )
+                .expect("auto-canary task")
+            })
+            .collect()
+    };
+    let visible = TrustedManifest::new(
+        "auto-canary-visible",
+        Visibility::Visible,
+        auto_canary_tasks("visible"),
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "auto-canary-sealed",
+        Visibility::Sealed,
+        auto_canary_tasks("sealed"),
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator_id = artifacts
+        .put(&fs::read(&evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    let invariant_id = artifacts
+        .put(CLEAN_INVARIANTS)
+        .expect("store invariant manifest");
+    drop(artifacts);
+
+    let world_path = directory.path().join("auto-canary-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"auto-canary","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0,"auto_canary_on_drift":true}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+            invariant_id.as_str(),
+        ),
+    )
+    .expect("write auto-canary World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "auto-canary-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("auto-canary World registration should succeed");
+    };
+    assert!(
+        plane
+            .state
+            .registered
+            .world(&world.world_id)
+            .expect("registered auto-canary World")
+            .compiled()
+            .evaluation_policy()
+            .auto_canary_on_drift(),
+        "the registered World must carry the opted-in Law"
+    );
+    let register_genome = |plane: &mut ControlPlane, token: &str, name: &str, parents: &str| {
+        let path = directory.path().join(format!("{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+            ),
+        )
+        .expect("write Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            name,
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("auto-canary Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(&mut plane, &token, "auto-canary-parent", "[]");
+    let candidate = register_genome(
+        &mut plane,
+        &token,
+        "auto-canary-candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+    );
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "auto-canary-unfreeze",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+    (plane, parent, candidate)
+}
+
+/// Polls the reconciliation loop, the same way `evolve_drain_active_run`
+/// polls an evolution run, until the named drift's automatic adaptation
+/// reaches a terminal (`drift.adaptation_finished`) state.
+fn drain_drift_adaptation(plane: &mut ControlPlane, drift_id: &str) -> DriftRecord {
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        plane
+            .service_async_messages()
+            .expect("advance the drift adaptation reconciliation loop");
+        let history = plane
+            .storage
+            .as_ref()
+            .expect("open canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("replay verified history");
+        let record = super::drift::drift_projection(&history, drift_id)
+            .expect("drift adaptation projection");
+        if let Some(record) = &record
+            && record.adaptation.finished
+        {
+            return record.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "drift adaptation did not finish: {:?}; active Arena job: {:?}",
+            record.map(|record| record.adaptation),
+            plane
+                .active_arena_job
+                .as_ref()
+                .map(|job| job.record.evaluation_id.clone())
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+}
+
+fn drift_adaptation_show(plane: &ControlPlane, drift_id: &str) -> DriftRecord {
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("open canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay verified history");
+    super::drift::drift_projection(&history, drift_id)
+        .expect("drift adaptation projection")
+        .expect("drift record exists")
+}
+
+fn adaptation_history_with_payload_edit(
+    history: &[StoredEvent],
+    event_id: &str,
+    edit: impl FnOnce(&mut crate::DriftAdaptationFinishedPayload),
+) -> Vec<StoredEvent> {
+    let mut tampered = history.to_vec();
+    let event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == event_id)
+        .expect("drift adaptation finished event exists");
+    let mut payload: crate::DriftAdaptationFinishedPayload =
+        serde_json::from_slice(&event.payload).expect("decode drift adaptation finished payload");
+    edit(&mut payload);
+    let canonical = serde_json::to_value(&payload).expect("canonicalize adaptation payload");
+    event.payload = serde_json::to_vec(&canonical).expect("encode adaptation payload");
+    tampered
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays() {
+    let _reference_delay_slot = hold_reference_delay_slot();
+    let directory = tempdir().expect("auto-canary fixture");
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    // Seed the Champion misconfigured: `identity` against these
+    // uppercase-expecting tasks, exactly the World the Forge catalog's one
+    // supported mutation (flip to `ascii_uppercase`) genuinely fixes.
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    // A sibling derived from `parent` (not from the Champion, so it cannot
+    // collide with the child the automatic adaptation itself will later
+    // derive from the Champion): genuinely improved to `ascii_uppercase`,
+    // then genuinely, deterministically slowed (see
+    // `canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion`)
+    // so a fresh paired evaluation against the Champion measures a real
+    // latency drift without depending on the tasks' correctness at all
+    // (the misconfigured Champion is already at the correctness floor, so
+    // no sibling can measure as further regressed on that axis).
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "trigger-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay(
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "trigger-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delay();
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    assert!(
+        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
+        "the injected delay should make the sibling measurably slower"
+    );
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "trigger-drift",
+        Command::DriftRecord {
+            drift_id: "trigger".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+    assert!(!recorded.adaptation.started);
+
+    let finished = drain_drift_adaptation(&mut plane, "trigger");
+    assert!(finished.adaptation.finished);
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Promoted)
+    );
+    assert_eq!(
+        finished.adaptation.canary_stage,
+        Some(CanaryStage::Completed)
+    );
+    let promoted_child = finished
+        .adaptation
+        .child_genome_id
+        .clone()
+        .expect("a promoted adaptation records its child Genome");
+    assert_ne!(
+        promoted_child, sibling.child,
+        "the adaptation must derive its own child from the Champion, not reuse the sibling"
+    );
+
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(promoted_child.as_str()),
+        "the automatic adaptation should have promoted its own child to Champion"
+    );
+    assert_ne!(
+        champion.champion_genome_id.as_deref(),
+        Some(candidate.genome_id.as_str()),
+        "the promoted child must differ from the misconfigured Champion it corrected"
+    );
+
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay after automatic promotion"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+fn auto_canary_on_drift_never_fires_when_the_law_is_off() {
+    let directory = tempdir().expect("drift fixture without the Law");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    // The exact recipe `drift_record_derives_from_verified_evidence_and_replays`
+    // uses for a genuine correctness drift, under a World that never opted
+    // in to `laws.auto_canary_on_drift`.
+    let improved = assessed_forge_child(
+        &mut plane,
+        "no-law-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = improved.world.clone();
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: improved.child.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+    let regressed = assessed_forge_child(
+        &mut plane,
+        "no-law-regress",
+        &initial_parent.genome_id,
+        &improved.child,
+        false,
+    );
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "no-law-drift",
+        Command::DriftRecord {
+            drift_id: "no-law-drift".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Correctness,
+            evidence_evaluation_id: regressed.evaluation.clone(),
+        },
+    )
+    .expect("record a genuine correctness drift");
+    assert!(!recorded.adaptation.started);
+
+    for tick in 0..20 {
+        plane
+            .service_async_messages()
+            .expect("service ticks with no opted-in World must stay quiet");
+        let shown = drift_adaptation_show(&plane, "no-law-drift");
+        assert!(
+            !shown.adaptation.started,
+            "tick {tick}: an adaptation must never start without the Law"
+        );
+    }
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay with an unadopted drift"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched() {
+    let _reference_delay_slot = hold_reference_delay_slot();
+    let directory = tempdir().expect("auto-canary abort fixture");
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "abort-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay(
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "abort-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delay();
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select the latency drift evidence");
+    drift_record_cmd(
+        &mut plane,
+        &token,
+        "abort-drift",
+        Command::DriftRecord {
+            drift_id: "abort".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+
+    // Drain until the automatic adaptation has proposed and started its own
+    // canary (the child Genome now exists), then genuinely, deterministically
+    // slow that exact child so every staged evaluation the pipeline submits
+    // against it measures a real regression: the very first stage aborts.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let child = loop {
+        plane
+            .service_async_messages()
+            .expect("advance the drift adaptation reconciliation loop");
+        let shown = drift_adaptation_show(&plane, "abort");
+        if let Some(child) = shown.adaptation.child_genome_id.clone() {
+            break child;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the automatic adaptation never proposed a child"
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
+    hephaestus_runtime::set_test_reference_delay(
+        child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+
+    let finished = drain_drift_adaptation(&mut plane, "abort");
+    hephaestus_runtime::clear_test_reference_delay();
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::CanaryAborted)
+    );
+    assert_eq!(finished.adaptation.canary_stage, Some(CanaryStage::Aborted));
+
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(candidate.genome_id.as_str()),
+        "an aborted adaptation must never touch the Champion"
+    );
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay after an aborted adaptation"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+fn auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze() {
+    let _reference_delay_slot = hold_reference_delay_slot();
+    let directory = tempdir().expect("auto-canary freeze fixture");
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "freeze-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay(
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "freeze-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delay();
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select the latency drift evidence");
+    drift_record_cmd(
+        &mut plane,
+        &token,
+        "freeze-drift",
+        Command::DriftRecord {
+            drift_id: "freeze".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-adaptation", Command::Freeze)
+            .error
+            .is_none()
+    );
+    for tick in 0..10 {
+        plane
+            .service_async_messages()
+            .expect("service ticks while frozen must stay quiet");
+        let shown = drift_adaptation_show(&plane, "freeze");
+        assert!(
+            !shown.adaptation.started,
+            "tick {tick}: freeze must halt advancement before it ever starts"
+        );
+    }
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-adaptation", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let finished = drain_drift_adaptation(&mut plane, "freeze");
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Promoted)
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
+    let _reference_delay_slot = hold_reference_delay_slot();
+    let directory = tempdir().expect("auto-canary forged fixture");
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "forge-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay(
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "forge-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delay();
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select the latency drift evidence");
+    drift_record_cmd(
+        &mut plane,
+        &token,
+        "forge-drift",
+        Command::DriftRecord {
+            drift_id: "forge".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let child = loop {
+        plane
+            .service_async_messages()
+            .expect("advance the drift adaptation reconciliation loop");
+        let shown = drift_adaptation_show(&plane, "forge");
+        if let Some(child) = shown.adaptation.child_genome_id.clone() {
+            break child;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the automatic adaptation never proposed a child"
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
+    hephaestus_runtime::set_test_reference_delay(
+        child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let finished = drain_drift_adaptation(&mut plane, "forge");
+    hephaestus_runtime::clear_test_reference_delay();
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::CanaryAborted)
+    );
+    let finished_event_id = finished
+        .adaptation
+        .finished_event
+        .expect("finished event")
+        .event_id;
+
+    let history = drift_history(&plane);
+    let canary_id = finished
+        .adaptation
+        .canary_id
+        .clone()
+        .expect("an aborted adaptation still names its canary");
+    let forged = adaptation_history_with_payload_edit(&history, &finished_event_id, |payload| {
+        payload.reason = crate::DriftAdaptationFinishReason::Promoted;
+        payload.final_canary_stage = Some(CanaryStage::Completed);
+        payload.promotion_transition_id =
+            Some(super::canary::canary_id_promotion_transition_id(&canary_id));
+    });
+    assert!(
+        super::adaptation::verify_drift_adaptation_history(&forged).is_err(),
+        "a finished event claiming a promotion that never happened must fail closed"
+    );
+
+    let connection =
+        rusqlite::Connection::open(plane.data_dir.join("events.sqlite3")).expect("open ledger");
+    let tampered_event = forged
+        .iter()
+        .find(|event| event.event_id == finished_event_id)
+        .expect("forged finished event exists");
+    let changed = connection
+        .execute(
+            "UPDATE events SET payload = ?1 WHERE event_id = ?2",
+            rusqlite::params![
+                tampered_event.payload.as_slice(),
+                finished_event_id.as_str()
+            ],
+        )
+        .expect("tamper with the recorded finished event");
+    assert_eq!(changed, 1);
+    drop(connection);
+    assert!(
+        plane.replay_response().is_err(),
+        "replay must reject a forged drift.adaptation_finished claiming a promotion that does not exist"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
+    let _reference_delay_slot = hold_reference_delay_slot();
+    let directory = tempdir().expect("auto-canary restart fixture");
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "restart-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay(
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "restart-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delay();
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select the latency drift evidence");
+    drift_record_cmd(
+        &mut plane,
+        &token,
+        "restart-drift",
+        Command::DriftRecord {
+            drift_id: "restart".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+
+    // Advance partway (through the started event, at minimum) without
+    // reaching a terminal state, then drop the daemon mid-pipeline.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        plane
+            .service_async_messages()
+            .expect("advance the drift adaptation reconciliation loop");
+        let shown = drift_adaptation_show(&plane, "restart");
+        assert!(!shown.adaptation.finished, "must not finish before restart");
+        if shown.adaptation.started {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the automatic adaptation never started"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    drop(plane);
+
+    let mut reopened = evolve_reopen_real_worker_fixture(&directory).expect("reopen mid-pipeline");
+    assert!(
+        matches!(reopened.replay_response(), Ok(ResponseData::Replay { .. })),
+        "reopening mid-pipeline must verify cleanly"
+    );
+    let finished = drain_drift_adaptation(&mut reopened, "restart");
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Promoted)
+    );
+    let champion = champion_show(&mut reopened, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        finished.adaptation.child_genome_id.as_deref(),
+    );
+    assert!(matches!(
+        reopened
+            .replay_response()
+            .expect("replay after resumed promotion"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+/// `hephaestus_runtime::set_test_reference_delay` is one process-wide slot, so
+/// tests that inject a worker delay (or share its fixtures) must not run in
+/// parallel: one test's clear would silently remove another's injected
+/// latency mid-evaluation.
+fn hold_reference_delay_slot() -> std::sync::MutexGuard<'static, ()> {
+    static SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SLOT.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }

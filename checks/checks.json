@@ -2544,6 +2544,20 @@
       "invariant": "A remote worker's SubmitResult (for a direct-run job or a leased Arena reference-role trial) is recorded only after its credential re-verifies; an invalid, expired, or revoked credential must be refused before any output is signed and appended.",
       "find": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                    return WorkerReply::Error {\n                        reason: reason.to_owned(),\n                    };\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {",
       "replace": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if false {\n                    if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                        return WorkerReply::Error {\n                            reason: reason.to_owned(),\n                        };\n                    }\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {"
+    },
+    {
+      "id": "drift-adaptation-starts-without-law-opt-in",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "The automatic drift-to-canary adaptation loop only picks up a drift whose World opted in via laws.auto_canary_on_drift; without the Law it must never start.",
+      "find": "            if world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }",
+      "replace": "            if false && world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }"
+    },
+    {
+      "id": "drift-adaptation-canary-abort-not-recorded-as-abort",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "An automatic adaptation whose staged canary aborts on a genuine regression must finish with reason CanaryAborted, not silently report Promoted.",
+      "find": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::CanaryAborted,\n                    Some(&canary_id),\n                );\n            }",
+      "replace": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::Promoted,\n                    Some(&canary_id),\n                );\n            }"
     }
   ]
 }

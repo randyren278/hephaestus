@@ -1456,6 +1456,121 @@ pub struct DriftRecord {
     pub payload: DriftRecordPayload,
     /// Canonical event metadata.
     pub event: DriftEventRecord,
+    /// Automatic drift-to-canary adaptation status, if any (roadmap item 12).
+    pub adaptation: DriftAdaptationSummary,
+}
+
+/// Why an automatic drift-to-canary adaptation (roadmap item 12) stopped.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DriftAdaptationFinishReason {
+    /// The Forge mutation catalog offered no supported mutation for the Champion.
+    NoCandidateMutation,
+    /// The staged canary aborted on a regression at one of its stages.
+    CanaryAborted,
+    /// The staged canary reached 100% and promoted its child Genome.
+    Promoted,
+    /// An unexpected failure interrupted the pipeline; a later reconciliation
+    /// tick or daemon restart may retry from the same durable state.
+    Interrupted,
+}
+
+/// Canonical payload of the one `drift.adaptation_started` event for a drift
+/// (roadmap item 12). Recorded once, by the daemon's own reconciliation loop,
+/// the first time a World whose Law opted in observes an unadapted drift.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftAdaptationStartedPayload {
+    /// Started payload schema.
+    pub schema_version: u16,
+    /// The triggering drift's idempotency key.
+    pub drift_id: String,
+    /// World the drift (and this adaptation) runs under.
+    pub world_id: String,
+    /// Exact triggering `drift.recorded` event identity.
+    pub drift_event_id: String,
+    /// Hash of the exact triggering drift event.
+    pub drift_event_hash: String,
+    /// The World's Champion at the moment this adaptation started.
+    pub champion_genome_id: String,
+    /// Deterministic Forge proposal identity this adaptation will use.
+    pub proposal_id: String,
+}
+
+/// Canonical payload of the one `drift.adaptation_finished` event for a drift
+/// (roadmap item 12). Cross-references the durable arena/selection/forge/canary
+/// events the pipeline already produced rather than repeating their content.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftAdaptationFinishedPayload {
+    /// Finished payload schema.
+    pub schema_version: u16,
+    /// The triggering drift's idempotency key.
+    pub drift_id: String,
+    /// World the drift (and this adaptation) runs under.
+    pub world_id: String,
+    /// Why the adaptation stopped.
+    pub reason: DriftAdaptationFinishReason,
+    /// Forge proposal identity, present unless the catalog offered no mutation.
+    pub proposal_id: Option<String>,
+    /// Proposed child Genome identity, present unless the catalog offered no mutation.
+    pub child_genome_id: Option<String>,
+    /// Shadow evaluation identity (Champion vs. child), present once submitted.
+    pub shadow_evaluation_id: Option<String>,
+    /// Forge assessment identity binding the shadow evaluation, present once assessed.
+    pub assessment_id: Option<String>,
+    /// Canary identity this adaptation drove, present once started.
+    pub canary_id: Option<String>,
+    /// The canary's stage when this adaptation finished.
+    pub final_canary_stage: Option<CanaryStage>,
+    /// Champion promotion transition identity, present only for `Promoted`.
+    pub promotion_transition_id: Option<String>,
+}
+
+/// Payload-free canonical ledger metadata for one `drift.adaptation_*` event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftAdaptationEventRecord {
+    /// Canonical global ledger sequence.
+    pub sequence: u64,
+    /// Deterministic idempotent event identity.
+    pub event_id: String,
+    /// Per-drift adaptation aggregate identity.
+    pub aggregate_id: String,
+    /// Event-chain hash.
+    pub event_hash: String,
+}
+
+/// Operator-visible summary of one drift's automatic adaptation, reconstructed
+/// from verified history. Absent (`started: false`) means the World's Law did
+/// not opt in, or the reconciliation loop has not reached this drift yet.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriftAdaptationSummary {
+    /// Whether a `drift.adaptation_started` event exists for this drift.
+    pub started: bool,
+    /// The started event's metadata, when `started`.
+    pub started_event: Option<DriftAdaptationEventRecord>,
+    /// The World's Champion when the adaptation started.
+    pub champion_genome_id: Option<String>,
+    /// Forge proposal identity this adaptation uses.
+    pub proposal_id: Option<String>,
+    /// Proposed child Genome identity, once the proposal exists.
+    pub child_genome_id: Option<String>,
+    /// Shadow evaluation identity, once submitted.
+    pub shadow_evaluation_id: Option<String>,
+    /// Forge assessment identity, once assessed.
+    pub assessment_id: Option<String>,
+    /// Canary identity this adaptation drives, once started.
+    pub canary_id: Option<String>,
+    /// The driven canary's current stage, once started.
+    pub canary_stage: Option<CanaryStage>,
+    /// Whether a `drift.adaptation_finished` event exists for this drift.
+    pub finished: bool,
+    /// The finished event's metadata, when `finished`.
+    pub finished_event: Option<DriftAdaptationEventRecord>,
+    /// Why the adaptation stopped, when `finished`.
+    pub finish_reason: Option<DriftAdaptationFinishReason>,
 }
 
 /// Staged rollout progress of one canary.

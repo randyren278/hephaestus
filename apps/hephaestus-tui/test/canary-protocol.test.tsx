@@ -12,7 +12,8 @@ function driftResponseText(overrides: Record<string, unknown> = {}): string {
 		...overrides,
 	};
 	const event = {sequence: 4, event_id: 'drift:drift-1:recorded', aggregate_id: 'drift:world-1', event_hash: 'b'.repeat(64)};
-	return `{"version":1,"request_id":"request","data":{"type":"drift","drift":${JSON.stringify({payload, event})}}}`;
+	const adaptation = {started: false, canary_id: null, canary_stage: null, finished: false, finish_reason: null};
+	return `{"version":1,"request_id":"request","data":{"type":"drift","drift":${JSON.stringify({payload, event, adaptation})}}}`;
 }
 
 function canaryTransitionResponseText(overrides: Record<string, unknown> = {}): string {
@@ -153,7 +154,8 @@ function driftRecord(): unknown {
 		threshold_bps: 500, observed_delta_bps: -10000,
 	};
 	const event = {sequence: 4, event_id: 'drift:drift-1:recorded', aggregate_id: 'drift:world-1', event_hash: 'b'.repeat(64)};
-	return {payload, event};
+	const adaptation = {started: false, canary_id: null, canary_stage: null, finished: false, finish_reason: null};
+	return {payload, event, adaptation};
 }
 
 function canaryRecord(): unknown {

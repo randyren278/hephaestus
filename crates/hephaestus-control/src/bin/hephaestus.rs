@@ -10,13 +10,13 @@ use std::{
 use clap::{Parser, Subcommand};
 use hephaestus_control::{
     API_VERSION, ApiResponse, ArenaJobProgress, CanaryRecord, CanaryTransitionRecord,
-    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind, DriftRecord,
-    EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, EvolutionRunState,
-    ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
-    GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord,
-    JobState, MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
-    MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
-    data_dir_from_environment,
+    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftAdaptationSummary,
+    DriftKind, DriftRecord, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord,
+    EvolutionRunState, ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord,
+    ForgeProposalRecord, GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord,
+    GenomeRecord, InvariantRecord, JobState, MetaBootstrapInterval, MetaLineageOutcome,
+    MetaLineageSpec, MetaReceiptRecord, MetaStrategyRecord, ResponseData, RunListEntry,
+    SelectionRecord, WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -1922,7 +1922,7 @@ fn champion_human(champion: &ChampionRecord) -> String {
 
 fn drift_human(drift: &DriftRecord) -> String {
     format!(
-        "drift={} world={} kind={:?} baseline={} shifted={} threshold_bps={} observed_delta_bps={} evidence={} event={} sequence={} hash={}",
+        "drift={} world={} kind={:?} baseline={} shifted={} threshold_bps={} observed_delta_bps={} evidence={} event={} sequence={} hash={} adaptation={}",
         drift.payload.drift_id,
         drift.payload.world_id,
         drift.payload.kind,
@@ -1934,7 +1934,21 @@ fn drift_human(drift: &DriftRecord) -> String {
         drift.event.event_id,
         drift.event.sequence,
         drift.event.event_hash,
+        drift_adaptation_human(&drift.adaptation),
     )
+}
+
+fn drift_adaptation_human(adaptation: &DriftAdaptationSummary) -> String {
+    if let Some(reason) = adaptation.finish_reason {
+        return format!("finished({reason:?})");
+    }
+    if adaptation.started {
+        return match &adaptation.canary_stage {
+            Some(stage) => format!("in_progress(canary={stage:?})"),
+            None => "in_progress".to_owned(),
+        };
+    }
+    "none".to_owned()
 }
 
 fn canary_transition_human(transition: &CanaryTransitionRecord) -> String {

@@ -94,6 +94,72 @@ live-check` is allowed while frozen, and is refused (not silently a no-op)
 when the evidence does not actually show a regression, so it cannot be used
 to force an unwarranted rollback.
 
+## Automatic drift-to-canary
+
+A World whose `laws.auto_canary_on_drift` opted in (see
+[WORLDS.md](WORLDS.md); default `false`, so an existing World's identity is
+unaffected until it explicitly sets it) has every `drift.recorded` event
+against it driven automatically, end to end, by the daemon's own
+reconciliation loop (`ControlPlane::advance_drift_adaptations`, called every
+`serve` tick alongside `advance_evolution`, never from a client connection).
+For the oldest unfinished drift in such a World, one durable step per tick:
+
+1. **Propose.** Forge proposes a mutation of the World's Champion at the
+   moment the drift fired, through the ordinary `propose_genome_from_source`
+   path (the same one `evolve` and `genome propose` use). If Forge's catalog
+   offers no supported mutation for the Champion, the pipeline records a
+   terminal `drift.adaptation_finished` with reason `no_candidate_mutation`
+   and stops; nothing else happens.
+2. **Shadow evaluation.** A paired Arena evaluation of the Champion against
+   the proposed child, selected and Forge-assessed exactly like a manual
+   `canary start`'s shadow evaluation.
+3. **Staged canary.** `canary start` binds that assessment, then the
+   pipeline submits one fresh paired evaluation per stage and calls the same
+   `canary advance` policy an operator would: healthy evidence advances
+   5% -> 25% -> 50% -> 100%; a regression at any stage **aborts** the canary
+   (the Champion is never touched) and the adaptation finishes with reason
+   `canary_aborted`; reaching 100% **completes** the canary through the
+   unchanged Champion `Promote` policy and the adaptation finishes with
+   reason `promoted`.
+4. **Budget.** The whole pipeline is bounded by a fixed, documented budget of
+   five paired evaluations (one shadow plus one per canary stage). It never
+   runs a sixth trial for the same drift.
+
+Every step is idempotent and driven solely from durable history — a daemon
+restart mid-pipeline resumes exactly where it left off, exactly like
+`evolve`. Freeze halts advancement (never clears an in-flight adaptation)
+the same way it halts `evolve` and manual canary advancement. One
+`drift.adaptation_started` event records the drift being adapted, the
+World, the Champion at that moment, and the chosen proposal; one
+`drift.adaptation_finished` event records why the pipeline stopped,
+cross-referencing the proposal, shadow evaluation, assessment, canary, and
+(when promoted) the Champion promotion transition it already produced,
+rather than repeating their content. `verify_drift_adaptation_history`
+recomputes and cross-checks every adaptation event against the history that
+precedes it on startup, `hephaestus replay`, and every projection refresh,
+and fails closed on a forged or out-of-order claim (for example, a
+`drift.adaptation_finished` claiming `promoted` when no matching
+`champion.transitioned` promotion exists in history). `drift show`/`drift
+list` surface the adaptation's live status (`started`, `canary_id`,
+`canary_stage`, `finished`, `finish_reason`) alongside the drift record
+itself; the TUI and web console render it next to each drift.
+
+The drift signal, the shadow evaluation, and every staged canary trial in
+this pipeline all run on the deterministic reference runtime in the
+in-process test suite (`crates/hephaestus-control/src/server_tests.rs`,
+`auto_canary_on_drift_*`): a genuine correctness regression is recorded as a
+drift, the reconciliation loop is drained (no client ever calls a
+canary/Forge/Arena command directly), and the pipeline is shown proposing,
+shadow-evaluating, staging through 5/25/50/100%, and promoting — or, for an
+injected regression at a stage, aborting with the Champion left untouched.
+Freeze-pause-then-resume and forged-claim rejection are also proven this
+way. What this does **not** demonstrate: an automatic promotion or abort
+driven by a real hosted-provider model's behavior, or a Forge mutation
+chosen from anything beyond the existing catalog's supported operations —
+the automatic trigger and staged rollout are real and tested, but the
+candidate they adapt is still the same reference-runtime mutation
+`evolve`'s unbound path proposes.
+
 ## Idempotency and identity
 
 - A drift record's idempotency key is `drift-id`; its event ID is
@@ -116,9 +182,10 @@ to force an unwarranted rollback.
 
 ## What this does not do
 
-- Drift records are observational; nothing automatically opens a canary from
-  one. An operator (or a future automated adaptation branch, out of scope
-  for this slice) chooses the candidate and starts the canary by hand.
+- Drift records are observational by default; nothing automatically opens a
+  canary from one unless the World's `laws.auto_canary_on_drift` opted in
+  (see "Automatic drift-to-canary" above). Without that opt-in, an operator
+  chooses the candidate and starts the canary by hand, exactly as before.
 - A live regression can only be demonstrated end-to-end with genuinely
   independent evidence when the reference runtime's own measurements can
   differ between two evaluations of the same Genome pair - true today only

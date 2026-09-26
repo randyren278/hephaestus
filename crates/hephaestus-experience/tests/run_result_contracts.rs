@@ -425,3 +425,33 @@ fn signature_cannot_be_copied_to_different_valid_claims() {
     second.payload = serde_json::to_vec(&second_value).unwrap();
     assert!(RunResultReceipt::parse_from_event(&second, &verifier).is_err());
 }
+
+#[test]
+fn a_verifier_that_already_authenticated_an_event_still_rejects_edited_copies() {
+    let verifier = signer().verifier();
+    let canonical = stored(receipt());
+    RunResultReceipt::parse_from_event(&canonical, &verifier).expect("warm the verifier");
+
+    let forgeries: [fn(&mut hephaestus_ledger::StoredEvent); 5] = [
+        |event: &mut hephaestus_ledger::StoredEvent| event.actor = "operator".to_owned(),
+        |event: &mut hephaestus_ledger::StoredEvent| event.event_id = "result:other".to_owned(),
+        |event: &mut hephaestus_ledger::StoredEvent| event.event_type = "run.started".to_owned(),
+        |event: &mut hephaestus_ledger::StoredEvent| event.timestamp_millis += 1,
+        |event: &mut hephaestus_ledger::StoredEvent| {
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&event.payload).expect("decode signed envelope");
+            value["claims"]["latency_millis"] = serde_json::json!(1);
+            event.payload = serde_json::to_vec(&value).expect("encode edited payload");
+        },
+    ];
+    for forge in forgeries {
+        // The edited copy keeps the canonical event's stored chain hash, so a
+        // cache keyed on that hash would wrongly accept it.
+        let mut event = canonical.clone();
+        forge(&mut event);
+        assert_eq!(event.hash, canonical.hash);
+        assert!(RunResultReceipt::parse_from_event(&event, &verifier).is_err());
+    }
+    RunResultReceipt::parse_from_event(&canonical, &verifier)
+        .expect("the canonical event still verifies");
+}

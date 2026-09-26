@@ -40,13 +40,13 @@ class MutationShardingTests(unittest.TestCase):
             if entry["file"].startswith("crates/hephaestus-control/")
         ]
         expected_ids = [entry["id"] for entry in control]
-        self.assertEqual(len(expected_ids), 97)
+        self.assertEqual(len(expected_ids), 99)
         self.assertEqual(len(set(expected_ids)), len(expected_ids))
 
         shards = [shard_entries(control, index, 5) for index in range(5)]
         sharded_ids = [entry["id"] for shard in shards for entry in shard]
 
-        self.assertEqual([len(shard) for shard in shards], [20, 20, 19, 19, 19])
+        self.assertEqual([len(shard) for shard in shards], [20, 20, 20, 20, 19])
         self.assertCountEqual(sharded_ids, expected_ids)
         self.assertEqual(len(sharded_ids), len(set(sharded_ids)))
         self.assertEqual(shards, [shard_entries(control, index, 5) for index in range(5)])

@@ -2,6 +2,8 @@ use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use hephaestus_ledger::{ArtifactId, EventInput, StoredEvent};
 use hephaestus_runtime::{CompletionReason, RunSpec};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::ExperienceError;
 
@@ -169,11 +171,24 @@ impl RunResultSigner {
 }
 
 /// Public-key trust anchor used to authenticate canonical runtime-result events.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// Remembers each event it has already authenticated, keyed by a digest of
+/// every event field it checks, so a daemon that re-derives its projection
+/// after each append does not re-verify every earlier Ed25519 signature.
+#[derive(Clone, Debug)]
 pub struct RunResultVerifier {
     key: VerifyingKey,
     key_id: String,
+    verified: Arc<Mutex<HashMap<[u8; 32], RunResultReceipt>>>,
 }
+
+impl PartialEq for RunResultVerifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.key_id == other.key_id
+    }
+}
+
+impl Eq for RunResultVerifier {}
 
 impl RunResultVerifier {
     /// Constructs a verifier from canonical Ed25519 public-key bytes.
@@ -189,7 +204,11 @@ impl RunResultVerifier {
 
     fn from_verifying_key(key: VerifyingKey) -> Self {
         let key_id = producer_key_id(&key.to_bytes());
-        Self { key, key_id }
+        Self {
+            key,
+            key_id,
+            verified: Arc::default(),
+        }
     }
 
     /// Returns the exact non-secret Ed25519 public key.
@@ -211,6 +230,27 @@ impl RunResultVerifier {
     /// Rejects oversized or malformed payloads, a different producer key, invalid claims,
     /// non-canonical event metadata, and invalid Ed25519 signatures.
     pub fn verify_event(&self, event: &StoredEvent) -> Result<RunResultReceipt, ExperienceError> {
+        let digest = verified_event_digest(event);
+        if let Some(receipt) = self
+            .verified
+            .lock()
+            .map_err(|_| ExperienceError::InvalidInput("run result verifier cache is poisoned"))?
+            .get(&digest)
+        {
+            return Ok(receipt.clone());
+        }
+        let receipt = self.verify_event_uncached(event)?;
+        self.verified
+            .lock()
+            .map_err(|_| ExperienceError::InvalidInput("run result verifier cache is poisoned"))?
+            .insert(digest, receipt.clone());
+        Ok(receipt)
+    }
+
+    fn verify_event_uncached(
+        &self,
+        event: &StoredEvent,
+    ) -> Result<RunResultReceipt, ExperienceError> {
         if event.payload.len() > MAX_RUN_RESULT_PAYLOAD_BYTES {
             return Err(ExperienceError::RecordTooLarge {
                 actual: event.payload.len(),
@@ -249,6 +289,26 @@ impl RunResultVerifier {
             .map_err(|_| ExperienceError::InvalidInput("run result signature is invalid"))?;
         Ok(envelope.claims)
     }
+}
+
+/// Digest of every event field `verify_event_uncached` reads. It is computed
+/// from the event's own bytes, never from its stored chain hash, so an event
+/// whose payload or metadata was edited misses the cache and is re-verified.
+fn verified_event_digest(event: &StoredEvent) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"hephaestus-run-result-verified-v1\0");
+    for field in [
+        event.event_type.as_bytes(),
+        event.actor.as_bytes(),
+        event.event_id.as_bytes(),
+        event.aggregate_id.as_bytes(),
+        event.payload.as_slice(),
+    ] {
+        hasher.update(&(field.len() as u64).to_be_bytes());
+        hasher.update(field);
+    }
+    hasher.update(&event.timestamp_millis.to_be_bytes());
+    *hasher.finalize().as_bytes()
 }
 
 impl RunResultReceipt {

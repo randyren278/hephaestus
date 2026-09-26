@@ -9,6 +9,7 @@ const drift: Drift = {
 	drift_id: 'drift-1', world_id: 'world-1', kind: 'latency', evidence_evaluation_id: 'eval-1',
 	selection_event_id: 'event-sel', baseline_genome_id: 'genome-base', shifted_genome_id: 'genome-shift',
 	threshold_bps: 500, observed_delta_bps: 750, event_id: 'event-1', sequence: 1,
+	adaptation: {started: false, canary_id: null, canary_stage: null, finished: false, finish_reason: null},
 };
 
 test('DriftListPanel renders each drift record with its kind and observed delta', () => {

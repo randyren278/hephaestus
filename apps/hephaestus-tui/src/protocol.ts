@@ -72,10 +72,16 @@ export type Champion = {
 	quarantined_genome_ids: string[]; transitions: ChampionTransition[];
 };
 export type DriftKind = 'latency' | 'cost' | 'correctness' | 'workload';
+export type DriftAdaptationFinishReason = 'no_candidate_mutation' | 'canary_aborted' | 'promoted' | 'interrupted';
+export type DriftAdaptation = {
+	started: boolean; canary_id: string | null; canary_stage: CanaryStage | null;
+	finished: boolean; finish_reason: DriftAdaptationFinishReason | null;
+};
 export type Drift = {
 	drift_id: string; world_id: string; kind: DriftKind; evidence_evaluation_id: string;
 	selection_event_id: string; baseline_genome_id: string; shifted_genome_id: string;
 	threshold_bps: number; observed_delta_bps: number; event_id: string; sequence: number;
+	adaptation: DriftAdaptation;
 };
 export type CanaryStage = 'pending' | 'stage5' | 'stage25' | 'stage50' | 'completed' | 'aborted';
 export type CanaryTransitionKind = 'started' | 'advanced' | 'aborted' | 'live_regression_detected';
@@ -324,6 +330,21 @@ function parseChampion(value: unknown): Champion | undefined {
 const DRIFT_KINDS: DriftKind[] = ['latency', 'cost', 'correctness', 'workload'];
 const CANARY_STAGES: CanaryStage[] = ['pending', 'stage5', 'stage25', 'stage50', 'completed', 'aborted'];
 const CANARY_TRANSITION_KINDS: CanaryTransitionKind[] = ['started', 'advanced', 'aborted', 'live_regression_detected'];
+const DRIFT_ADAPTATION_FINISH_REASONS: DriftAdaptationFinishReason[] = ['no_candidate_mutation', 'canary_aborted', 'promoted', 'interrupted'];
+
+function optionalEnum<T extends string>(value: unknown, members: T[]): value is T | null {
+	return value === null || (typeof value === 'string' && members.includes(value as T));
+}
+
+function parseDriftAdaptation(value: unknown): DriftAdaptation | undefined {
+	if (!record(value) || typeof value['started'] !== 'boolean' || typeof value['finished'] !== 'boolean'
+		|| !optionalIdentifier(value['canary_id']) || !optionalEnum(value['canary_stage'], CANARY_STAGES)
+		|| !optionalEnum(value['finish_reason'], DRIFT_ADAPTATION_FINISH_REASONS)) return undefined;
+	return {
+		started: value['started'], canary_id: value['canary_id'], canary_stage: value['canary_stage'] as CanaryStage | null,
+		finished: value['finished'], finish_reason: value['finish_reason'] as DriftAdaptationFinishReason | null,
+	};
+}
 
 function safeSignedInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isSafeInteger(value);
@@ -339,12 +360,14 @@ function parseDrift(value: unknown): Drift | undefined {
 		|| !identifier(payload['baseline_genome_id']) || !identifier(payload['shifted_genome_id'])
 		|| !boundedCount(payload['threshold_bps']) || !safeSignedInteger(payload['observed_delta_bps'])
 		|| !identifier(event['event_id']) || !safeInteger(event['sequence'])) return undefined;
+	const adaptation = parseDriftAdaptation(value['adaptation']);
+	if (adaptation === undefined) return undefined;
 	return {
 		drift_id: payload['drift_id'], world_id: payload['world_id'], kind: payload['kind'] as DriftKind,
 		evidence_evaluation_id: payload['evidence_evaluation_id'], selection_event_id: payload['selection_event_id'],
 		baseline_genome_id: payload['baseline_genome_id'], shifted_genome_id: payload['shifted_genome_id'],
 		threshold_bps: payload['threshold_bps'], observed_delta_bps: payload['observed_delta_bps'],
-		event_id: event['event_id'], sequence: event['sequence'],
+		event_id: event['event_id'], sequence: event['sequence'], adaptation,
 	};
 }
 

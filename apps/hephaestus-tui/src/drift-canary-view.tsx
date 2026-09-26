@@ -34,6 +34,14 @@ function StageRail({stage, theme}: {stage: CanaryStage; theme: Theme}) {
 	</Text>;
 }
 
+/** Short label for a drift's automatic adaptation status, or nothing when the World's Law never opted in. */
+function adaptationLabel(drift: Drift): string | undefined {
+	const adaptation = drift.adaptation;
+	if (!adaptation.started) return undefined;
+	if (!adaptation.finished) return adaptation.canary_stage ? `adapting (${adaptation.canary_stage})` : 'adapting';
+	return `adaptation: ${safeText(adaptation.finish_reason ?? 'finished')}`;
+}
+
 export function DriftListPanel({drifts, selected, height}: {drifts: Drift[]; selected: number; height: number}) {
 	const theme = useTheme();
 	const view = windowed(drifts, selected, height);
@@ -42,10 +50,12 @@ export function DriftListPanel({drifts, selected, height}: {drifts: Drift[]; sel
 		{drifts.length === 0 && <Text {...colorProps(theme.color('muted'))}>No drift recorded yet.</Text>}
 		{view.items.map((drift, index) => {
 			const active = view.offset + index === selected;
+			const label = adaptationLabel(drift);
 			return <Text key={drift.drift_id} wrap="truncate" {...colorProps(theme.color(active ? 'judge' : 'ink'))}>
 				{active ? theme.glyphs.caret + ' ' : '  '}<Text {...colorProps(theme.color('sealed'))}>{shortId(drift.drift_id)}</Text> <Text {...colorProps(theme.color('muted'))}>· {safeText(drift.kind)}</Text>{' '}
 				<Text {...colorProps(theme.color(drift.observed_delta_bps < 0 ? 'regression' : 'ink'))}>{drift.observed_delta_bps}bps</Text>{' '}
 				<Text {...colorProps(theme.color('muted'))}>(threshold {drift.threshold_bps}bps)</Text>
+				{label && <Text {...colorProps(theme.color(drift.adaptation.finish_reason === 'canary_aborted' ? 'danger' : 'muted'))}> · {label}</Text>}
 			</Text>;
 		})}
 	</Box>;
@@ -64,6 +74,13 @@ export function DriftDetailPanel({drift, height}: {drift: Drift | undefined; hei
 		<Text wrap="truncate">Baseline {shortId(drift.baseline_genome_id)} → Shifted {shortId(drift.shifted_genome_id)}</Text>
 		<Text wrap="truncate">Observed {drift.observed_delta_bps}bps <Text {...colorProps(theme.color('muted'))}>(threshold {drift.threshold_bps}bps)</Text></Text>
 		<Text wrap="truncate">Evidence {shortId(drift.evidence_evaluation_id)}</Text>
+		{drift.adaptation.started
+			? <Text wrap="truncate">Adaptation {drift.adaptation.canary_id ? shortId(drift.adaptation.canary_id) : '(proposing)'}{' '}
+				{drift.adaptation.finished
+					? <Text {...colorProps(theme.color(drift.adaptation.finish_reason === 'canary_aborted' ? 'danger' : 'improvement'))}>{safeText(drift.adaptation.finish_reason ?? 'finished')}</Text>
+					: <Text {...colorProps(theme.color('judge'))}>{safeText(drift.adaptation.canary_stage ?? 'started')}</Text>}
+			</Text>
+			: <Text {...colorProps(theme.color('muted'))}>No automatic adaptation for this drift.</Text>}
 		<Text {...colorProps(theme.color('muted'))}>Drift never directly replaces a Champion.</Text>
 	</Box>;
 }
