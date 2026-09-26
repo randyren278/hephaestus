@@ -1,5 +1,13 @@
 # Hephaestus Constitution
 
+**In short.** These are the eight rules that no agent, model, or feature may break. Everything else in Hephaestus can change over time, but only inside these lines.
+
+<p align="center">
+  <img src="assets/constitution.svg" width="100%" alt="The eight Laws in plain English. 1, a released Genome can never change. 2, a child never gets more permissions than its parent. 3, agents can't touch the rules, the judge, the record, the budget, or the controls. 4, a model may recommend a promotion but never perform one. 5, every accepted change is recorded and can be replayed. 6, results from different Worlds are never compared as if they were the same. 7, freeze and kill always stay with the human operator. 8, anything malformed or unsupported is refused.">
+</p>
+
+The rest of this page is the precise reference.
+
 Version 1 defines the trust rules that every runtime, storage backend, evaluator, and interface must obey. Product behavior may evolve only inside these boundaries.
 
 ## Purpose

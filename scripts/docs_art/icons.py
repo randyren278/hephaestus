@@ -1,0 +1,618 @@
+"""Hephaestus's pixel-art icon set: one hand-drawn 12x12 sprite per concept.
+
+Every term in docs/TERMINOLOGY.md has exactly one icon, drawn in the same
+palette and block-pixel voice as the README colosseum hero and
+scripts/pixel_art/generate.py. A concept keeps its icon in every diagram;
+no two concepts share one.
+"""
+from __future__ import annotations
+
+PALETTE = {
+    ".": None,
+    "b": "#10131a",  # bg
+    "c": "#1e2330",  # card
+    "i": "#e9e4d8",  # ink
+    "d": "#a2a7b5",  # ink-dim
+    "e": "#e8590c",  # ember
+    "E": "#ff8a3d",  # ember-bright
+    "g": "#f4c542",  # gold
+    "y": "#5b6270",  # graphite
+    "n": "#c0392b",  # danger
+    "o": "#3a3f4d",  # border
+    "s": "#c9a86a",  # sand
+    "w": "#8a6a3a",  # wood
+}
+
+ICONS: dict[str, list[str]] = {
+    # A recipe scroll, rolled at both ends and closed with an ember wax seal.
+    "genome": [
+        "............",
+        ".wwwwwwwwww.",
+        "wiiiiiiiiiiw",
+        ".idddddddi..",
+        ".iiiiiiiii..",
+        ".iddddddi...",
+        ".iiiiiiiii..",
+        ".iddddeee...",
+        ".iiiieEgEe..",
+        ".iiiieEEEe..",
+        "wiiiiieeeiiw",
+        ".wwwwwwwwww.",
+    ],
+    # A gladiator helmet with a graphite crest: a Genome, suited up and running.
+    "agent": [
+        "...yyyy.....",
+        "..yyyyyy....",
+        "....yyyy....",
+        "...dddddd...",
+        "..dddddddd..",
+        "..ddiiiidd..",
+        "..dbbbbbbd..",
+        "..dbdbbdbd..",
+        "..dddbbddd..",
+        "...ddbbdd...",
+        "....dddd....",
+        "............",
+    ],
+    # The colosseum facade: the whole venue and its rules.
+    "world": [
+        "............",
+        "..gggggggg..",
+        ".gyyyyyyyyg.",
+        ".yybyybyyby.",
+        ".ybbybbybby.",
+        ".yyyyyyyyyy.",
+        ".yybyybyyby.",
+        ".ybbybbybby.",
+        ".yyyyyyyyyy.",
+        "ssssssssssss",
+        "ssssssssssss",
+        "............",
+    ],
+    # A stone tablet with carved lines: rules nobody may change.
+    "law": [
+        "............",
+        "..yyy..yyy..",
+        ".ydddyydddy.",
+        ".ydbdyydbdy.",
+        ".ydddyydddy.",
+        ".ydbdyydbdy.",
+        ".ydddyydddy.",
+        ".ydbdyydbdy.",
+        ".ydddyydddy.",
+        ".yyyyyyyyyy.",
+        "..oooooooo..",
+        "............",
+    ],
+    # Crossed swords over the sand: the fair fight.
+    "arena": [
+        "i..........i",
+        ".i........i.",
+        "..i......i..",
+        "...i....i...",
+        "....i..i....",
+        ".....ii.....",
+        ".....ii.....",
+        "....g..g....",
+        "...ggw.wgg..",
+        "..w......w..",
+        "ssssssssssss",
+        "............",
+    ],
+    # The hooded judge from the hero art, holding the sealed scroll.
+    "evaluator": [
+        "....yyyy....",
+        "...yyyyyy...",
+        "..yyybbyyy..",
+        "..yybbbbyy..",
+        "..yybgbgyy..",
+        "..yyybbyyy..",
+        ".yyyyyyyyyy.",
+        ".yggggggggy.",
+        ".ygggegggy..",
+        ".yggggggggy.",
+        ".yyyyyyyyyy.",
+        "............",
+    ],
+    # A scorecard with a torn bottom edge and an ember tick.
+    "receipt": [
+        "............",
+        ".iiiiiiiiii.",
+        ".iddddddddi.",
+        ".iiiiiiiiii.",
+        ".iddddiiiii.",
+        ".iiiiiiiiEi.",
+        ".iiiiiiiEEi.",
+        ".iEiiiiEEii.",
+        ".iEEiiEEiii.",
+        ".iiEEEEiiii.",
+        ".iiiEEiiiii.",
+        ".i.i.i.i.i..",
+    ],
+    # A thick bound book chained shut along its spine.
+    "ledger": [
+        "............",
+        "..eeeeeeeee.",
+        ".geEEEEEEEe.",
+        ".geEgggggEe.",
+        ".ogEEEEEEEe.",
+        ".geEEEEEEEe.",
+        ".ogEEEEEEEe.",
+        ".geEEEEEEEe.",
+        ".ogeeeeeeee.",
+        ".giiiiiiiii.",
+        "..eeeeeeeee.",
+        "............",
+    ],
+    # A gold laurel wreath: the title.
+    "champion": [
+        "............",
+        "...g....g...",
+        "..gg....gg..",
+        ".gg......gg.",
+        ".g........g.",
+        "gg........gg",
+        ".g........g.",
+        ".gg......gg.",
+        "..gg....gg..",
+        "...gge.egg..",
+        ".....ee.....",
+        "....e..e....",
+    ],
+    # A snowflake: everything starts frozen.
+    "freeze": [
+        ".....i......",
+        "...i.i.i....",
+        "....iii.....",
+        ".i...i...i..",
+        "..i..i..i...",
+        "iiiiiiiiiii.",
+        "..i..i..i...",
+        ".i...i...i..",
+        "....iii.....",
+        "...i.i.i....",
+        ".....i......",
+        "............",
+    ],
+    # Hephaestus's anvil: the one place work gets done.
+    "daemon": [
+        "............",
+        "............",
+        "yyyyyyyyyy..",
+        ".ydddddddyyy",
+        "..yyyyyyyy..",
+        "....yyyy....",
+        "....yyyy....",
+        "...yyyyyy...",
+        "..yyyyyyyy..",
+        "..oooooooo..",
+        "............",
+        "............",
+    ],
+    # A spark-bolt: one hypothesized change.
+    "mutation": [
+        "......EE....",
+        ".....EE.....",
+        "....EE......",
+        "...EEg......",
+        "..EEEEEE....",
+        "......EE....",
+        ".....EE.....",
+        "....EE......",
+        "...Eg.......",
+        "..E.........",
+        ".g..........",
+        "............",
+    ],
+    # A sprout: a new Genome growing from its parent.
+    "descendant": [
+        "............",
+        "....EE......",
+        "...EEEE.EE..",
+        "....EE.EEEE.",
+        ".....e..EE..",
+        ".....e.e....",
+        "......e.....",
+        "......e.....",
+        "....wwwww...",
+        "...wwwwwww..",
+        "....wwwww...",
+        "............",
+    ],
+    # Stone steps: how many generations down.
+    "generation": [
+        "............",
+        "..........g.",
+        ".........yy.",
+        ".........yy.",
+        ".......yyyy.",
+        ".......yyyy.",
+        ".....yyyyyy.",
+        ".....yyyyyy.",
+        "...yyyyyyyy.",
+        "...yyyyyyyy.",
+        ".yyyyyyyyyy.",
+        "............",
+    ],
+    # A family tree: one gold ancestor, two children, a grandchild.
+    "lineage": [
+        "....gggg....",
+        "....gggg....",
+        ".....yy.....",
+        "..yyyyyyyy..",
+        "..y......y..",
+        ".eee....eee.",
+        ".eee....eee.",
+        "..........y.",
+        "..........y.",
+        "........eee.",
+        "........eee.",
+        "............",
+    ],
+    # The forge hammer mid-strike, throwing sparks.
+    "forge": [
+        "..g.....E...",
+        "E...yyyyy...",
+        "...yyyyyyy..",
+        "...yyyyyyy..",
+        "....yyyyy.g.",
+        ".....ww.....",
+        ".....ww.....",
+        "....ww......",
+        "....ww......",
+        "...ww.......",
+        "...ww.......",
+        "............",
+    ],
+    # A winners' podium with the title on the top step.
+    "promotion": [
+        ".....gg.....",
+        "....gggg....",
+        ".....gg.....",
+        "............",
+        "....iiii....",
+        "....iddi....",
+        "yyyyiddiyyyy",
+        "ydddiddidddy",
+        "ydddiddidddy",
+        "ydddiddidddy",
+        "oooooooooooo",
+        "............",
+    ],
+    # An hourglass inside a turning-back arrow: return to an earlier Champion.
+    "rollback": [
+        "..EEEEEEE...",
+        ".E.......E..",
+        "E..ddddd..E.",
+        "E...ggg...E.",
+        "E....g....E.",
+        "E....g....E.",
+        "E...ggg...E.",
+        "E..ddddd..E.",
+        "EEE......E..",
+        ".E...EEEE...",
+        "..E.........",
+        "............",
+    ],
+    # The repository's own gene helix.
+    "gene": [
+        "..e....y....",
+        "...e..y.....",
+        "....ey......",
+        "...y..e.....",
+        "..y....e....",
+        "..e....y....",
+        "...e..y.....",
+        "....ey......",
+        "...y..e.....",
+        "..y....e....",
+        "............",
+        "............",
+    ],
+    # A treasure chest of proven tricks.
+    "gene-bank": [
+        "............",
+        "..wwwwwwww..",
+        ".wggggggggw.",
+        ".wwwwwwwwww.",
+        ".weeeeeeeew.",
+        ".wwwwggwwww.",
+        ".wwwwgbwwww.",
+        ".wwwwwwwwww.",
+        ".wwwwwwwwww.",
+        ".oooooooooo.",
+        "............",
+        "............",
+    ],
+    # A key cut for exactly one lock: a specialist.
+    "species": [
+        "............",
+        "..gggg......",
+        ".gg..gg.....",
+        ".g....g.....",
+        ".gg..gg.....",
+        "..ggggggggg.",
+        ".........g..",
+        ".......g.g..",
+        ".......ggg..",
+        "............",
+        "............",
+        "............",
+    ],
+    # Wind-blown waves: the conditions have shifted.
+    "drift": [
+        "............",
+        "..dd........",
+        ".d..d..dd...",
+        ".....dd..d..",
+        "............",
+        "...ii.......",
+        "..i..i..ii..",
+        "......ii..i.",
+        "............",
+        ".dd.........",
+        "d..d..dd....",
+        "....dd..d...",
+    ],
+    # A canary in its cage: roll out to a few first.
+    "canary": [
+        ".....yy.....",
+        "....y..y....",
+        "...yyyyyy...",
+        "..y.y..y.y..",
+        "..y.ygg.yy..",
+        "..y.gggE.y..",
+        "..y.ggg..y..",
+        "..y..g...y..",
+        "..y.yyyy.y..",
+        "..yyyyyyyy..",
+        "..oooooooo..",
+        "............",
+    ],
+    # A padlocked crate: a run sealed off from everything else.
+    "sandbox": [
+        "....yyy.....",
+        "...y...y....",
+        "...y...y....",
+        ".wwwwwwwwww.",
+        ".wsswsswssw.",
+        ".wswgggwssw.",
+        ".wsswgwwssw.",
+        ".wsswsswssw.",
+        ".wwwwwwwwww.",
+        ".oooooooooo.",
+        "............",
+        "............",
+    ],
+    # The operator: a torch held high.
+    "operator": [
+        ".....E......",
+        "....EgE.....",
+        "....EgE.....",
+        ".....e......",
+        ".....w......",
+        ".....w......",
+        ".....w......",
+        "....iwi.....",
+        "....iii.....",
+        ".....w......",
+        ".....w......",
+        "............",
+    ],
+    # A Roman column: the Senate.
+    "senate": [
+        "gggggggggggg",
+        ".dddddddddd.",
+        "..iiiiiiii..",
+        "..i.i..i.i..",
+        "..i.i..i.i..",
+        "..i.i..i.i..",
+        "..i.i..i.i..",
+        "..i.i..i.i..",
+        "..iiiiiiii..",
+        ".dddddddddd.",
+        "yyyyyyyyyyyy",
+        "............",
+    ],
+}
+
+ICONS.update({
+    # The colosseum gate, open: the way in.
+    "gate": [
+        "..gggggggg..",
+        ".gyyyyyyyyg.",
+        ".yyyybbyyyy.",
+        ".yyybbbbyyy.",
+        ".yybbbbbbyy.",
+        ".yybbEEbbyy.",
+        ".yybEEEEbyy.",
+        ".yybbEEbbyy.",
+        ".yybbbbbbyy.",
+        ".yybbbbbbyy.",
+        "ssssssssssss",
+        "............",
+    ],
+    # A folded map with a route: where everything lives.
+    "map": [
+        "............",
+        ".ddiiddiidd.",
+        ".diiddiiddi.",
+        ".dEiddiiddi.",
+        ".dEEEdiiddi.",
+        ".diiEEiiddi.",
+        ".diidEEEddi.",
+        ".diiddiEEdi.",
+        ".diiddiigEi.",
+        ".ddiiddiidd.",
+        "............",
+        "............",
+    ],
+    # A pushpin: fixed before anything runs.
+    "pin": [
+        "....eeee....",
+        "...eEEEEe...",
+        "...eEEEEe...",
+        "....eEEe....",
+        "....eEEe....",
+        "..eeeeeeee..",
+        ".....dd.....",
+        ".....dd.....",
+        ".....dd.....",
+        "......d.....",
+        "......d.....",
+        "............",
+    ],
+    # An open eye: what the agent visibly did.
+    "observe": [
+        "............",
+        "............",
+        "....dddd....",
+        "..dd....dd..",
+        ".d..gggg..d.",
+        "d..ggbbgg..d",
+        "d..ggbbgg..d",
+        ".d..gggg..d.",
+        "..dd....dd..",
+        "....dddd....",
+        "............",
+        "............",
+    ],
+    # A line of text with a black redaction bar across the secret.
+    "redact": [
+        "............",
+        ".dddddddddd.",
+        "............",
+        ".ddbbbbbbdd.",
+        ".ddbbbbbbdd.",
+        "............",
+        ".dddd.ddddd.",
+        "............",
+        ".ddddbbbbbb.",
+        ".ddddbbbbbb.",
+        "............",
+        "............",
+    ],
+    # A fingerprint: stored and found by its own content.
+    "fingerprint": [
+        "...EEEEEE...",
+        "..E......E..",
+        ".E..EEEE..E.",
+        ".E.E....E.E.",
+        "E.E..EE..E.E",
+        "E.E.E..E.E.E",
+        "E.E.E..E.E.E",
+        "E.E.E.E..E..",
+        "..E.E.E.E...",
+        "..E...E.E...",
+        "....E...E...",
+        "............",
+    ],
+    # Balance scales: two strategies weighed fairly.
+    "scales": [
+        ".....gg.....",
+        ".gggggggggg.",
+        ".y...gg...y.",
+        ".y...gg...y.",
+        "yyy..gg..yyy",
+        "eee..gg..ddd",
+        ".....gg.....",
+        ".....gg.....",
+        ".....gg.....",
+        "...gggggg...",
+        "..oooooooo..",
+        "............",
+    ],
+    # A clipboard guest list: who may call which tool.
+    "guestlist": [
+        "....wwww....",
+        ".wwwgggwwww.",
+        ".wiiiiiiiiw.",
+        ".wiEidddiiw.",
+        ".wiiiiiiiiw.",
+        ".wiEidddiiw.",
+        ".wiiiiiiiiw.",
+        ".winiddddiw.",
+        ".wiiiiiiiiw.",
+        ".wiiiiiiiiw.",
+        ".wwwwwwwwww.",
+        "............",
+    ],
+    # A worker's pass on a lanyard: expiring, one owner.
+    "credential": [
+        ".....dd.....",
+        "....d..d....",
+        "...d....d...",
+        "..iiiiiiii..",
+        "..ieeeeeei..",
+        "..iiiiiiii..",
+        "..iggiddii..",
+        "..iggiiiii..",
+        "..iiiddddi..",
+        "..iiiiiiii..",
+        "............",
+        "............",
+    ],
+    # A distant outpost tent: work done on another machine.
+    "remote": [
+        ".....e......",
+        ".....ee.....",
+        ".....e......",
+        ".....y......",
+        "....yyy.....",
+        "...yyyyy....",
+        "..yyyEyyy...",
+        ".yyyEEEyyy..",
+        "yyyyEEEyyyy.",
+        "ssssssssssss",
+        "............",
+        "............",
+    ],
+    # A sealed envelope: tasks only the judge may open.
+    "envelope": [
+        "............",
+        "............",
+        "iiiiiiiiiiii",
+        "idiiiiiiiidi",
+        "iidiiiiiidii",
+        "iiidiiiidiii",
+        "iiiideediiii",
+        "iiiieEEeiiii",
+        "iiiiieeiiiii",
+        "iiiiiiiiiiii",
+        "............",
+        "............",
+    ],
+    # An unmarked parcel of unknown origin: outside input.
+    "parcel": [
+        "............",
+        "...wwwwww...",
+        "..wssssssw..",
+        ".wwwwwwwwww.",
+        ".wsssddsssw.",
+        ".wsssddsssw.",
+        ".wsssddsssw.",
+        ".wssssssssw.",
+        ".wsssssyssw.",
+        ".wwwwwwwwww.",
+        "............",
+        "............",
+    ],
+})
+
+
+def sprite(name: str, x: float, y: float, size: float) -> str:
+    """The named icon as an SVG group placed at (x, y), `size` px square."""
+    grid = ICONS[name]
+    cell = size / 12
+    rects = []
+    for row_index, row in enumerate(grid):
+        for column_index, key in enumerate(row):
+            color = PALETTE.get(key)
+            if color:
+                rects.append(
+                    f'<rect x="{column_index}" y="{row_index}" width="1.02" height="1.02" fill="{color}"/>'
+                )
+    return (
+        f'<g transform="translate({x:.2f} {y:.2f}) scale({cell:.4f})" '
+        f'shape-rendering="crispEdges">{"".join(rects)}</g>'
+    )

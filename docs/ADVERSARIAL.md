@@ -1,5 +1,8 @@
 # Adversarial coverage
 
+**In short.** This page lists the attacks Hephaestus is tested against, such as crashes, corrupted or tampered records, sandbox escapes, peeking at the judge, going over budget, and duplicate or half-finished promotions, and it points to the test that covers each one. It also says plainly which gaps remain.
+
+
 Roadmap item 15 asks for a named adversarial suite covering crash,
 corruption, hash-tamper, sandbox-escape, evaluator-leakage, budget-bypass,
 timeout, partial-promotion, duplicate-event, and rollback attempts. Most of

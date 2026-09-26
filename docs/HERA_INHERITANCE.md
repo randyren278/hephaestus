@@ -1,5 +1,8 @@
 # Hera Inheritance
 
+**In short.** From Hera, an earlier project, Hephaestus borrows one idea: what an agent learns should become small, sourced, checkable records rather than an ever-growing transcript.
+
+
 Hephaestus inherits Hera's evidence principle: experience becomes structured, provenance-aware knowledge rather than an ever-growing transcript.
 
 ## Preserved ideas

@@ -1,5 +1,13 @@
 # Worlds
 
+**In short.** A World is the exam an agent sits: its tasks, its rules, its limits, and the judge that scores it. All of that is sealed under one fingerprint, so changing any part makes a new World. Scores are only ever compared inside the same World, which is what keeps comparisons fair.
+
+<p align="center">
+  <img src="assets/world-anatomy.svg" width="100%" alt="A World bundles six parts under one fingerprint: Laws that no agent can change; a permission ceiling; the list of what the Forge may change, never Laws or the judge; the promotion bar; the goals; and the visible tasks, sealed tasks, judge program, and trusted key. Changing any part makes a new World, and scores are only compared inside the same World.">
+</p>
+
+The rest of this page is the precise reference.
+
 A World is the versioned root of evaluation semantics. Its content-derived identity includes Laws, the authority ceiling, mutation scope, promotion policy, objectives, and evaluator artifact references. Changing any normalized field creates a different World.
 
 ## Source schema

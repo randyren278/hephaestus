@@ -1,5 +1,8 @@
 # TUI theme and motion
 
+**In short.** This page explains how the terminal console looks and moves: the colosseum colour palette, which colour means what, and the small animations shared by every screen. It's mainly for people changing the console itself.
+
+
 The operator TUI (`apps/hephaestus-tui`) draws from the same palette as the
 README hero image and the pixel-art sprites: a torch-lit colosseum where an
 ORANGE-crested Champion faces a GRAPHITE-crested challenger under a

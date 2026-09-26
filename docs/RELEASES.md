@@ -1,5 +1,8 @@
 # Releases
 
+**In short.** Official macOS downloads are built by CI from a tagged version, then checksummed, signed, and given a build-provenance record, so you can check that what you downloaded is exactly what CI built. The commands to check a download are below.
+
+
 `.github/workflows/release.yml` builds and publishes signed macOS release
 archives. It runs only on a `v*` tag push, or on manual `workflow_dispatch`
 (which rehearses the full pipeline without publishing a GitHub Release — the

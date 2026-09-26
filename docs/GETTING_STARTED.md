@@ -15,7 +15,7 @@ assumes you're building from source.
 ## Prerequisites
 
 - macOS (candidate/reference execution needs a verified OS sandbox; only
-  Seatbelt is supported today — see [How it works](../README.md#how-it-works)).
+  Seatbelt is supported today — see [How it works](../README.md#under-the-hood)).
 - `git`.
 - A stable Rust toolchain, 1.85 or newer (`cargo --version`).
 - `npm`, to install the operator TUI's dependencies. No separate Node
@@ -80,6 +80,10 @@ instead of starting one, if you'd rather manage `hephaestusd` yourself.
 
 ## The first-run tour
 
+<p align="center">
+  <img src="assets/tour.svg" width="100%" alt="The six-step first-run tour. 1, welcome: what a Genome and a World are, and the promise that every claim carries a receipt. 2, your first World: registers the example World and a parent and changed child agent. 3, unfreeze and run: releases the brake and runs the parent once in a sandbox. 4, measure in the Arena: parent versus child on the same tasks, who won, by how much, and how sure. 5, prove it: rebuild everything from the record and check it matches live state. 6, done: where every screen lives, and how to replay the tour with heph --tour.">
+</p>
+
 The tour is six short, learn-by-doing steps against the real daemon. Every
 step shows its position (`Step n of 6`), a one-sentence reason it matters,
 and its live result — nothing is faked or pre-recorded:
@@ -125,7 +129,7 @@ inspection) instead of pretending to succeed.
 - [docs/STATUS.md](STATUS.md) — what's built today.
 - [apps/hephaestus-tui/README.md](../apps/hephaestus-tui/README.md) — the
   operator console's own screens, in more depth than the tour covers.
-- The [Quickstart](../README.md#quickstart) section of the README walks the
+- The [Quickstart](../README.md#try-it-in-five-minutes) section of the README walks the
   same registration → run → Arena → replay loop by hand, one `hephaestus`
   command at a time; `scripts/quickstart.sh` runs it end to end against a
   scratch daemon and proves the state survives a restart.

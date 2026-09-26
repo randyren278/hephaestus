@@ -1,5 +1,13 @@
 # Remote Workers
 
+**In short.** A remote worker lets another machine do some of the running. You give it an expiring pass; it borrows one approved job, runs it in the same kind of sandbox, and hands back the raw output. Only the daemon holds the signing key, so it checks, signs, and records the result itself. A misbehaving worker can at worst return a wrong answer for its one job; it can never forge a success.
+
+<p align="center">
+  <img src="assets/remote-workers.svg" width="100%" alt="Running jobs on another machine. 1, you mint an expiring pass whose secret is shown once and never stored. 2, the worker proves who it is and leases one approved job. 3, it runs the job in a sandbox and returns the raw output. 4, the daemon, the only holder of the signing key, checks, signs, and records it. A misbehaving worker can return a wrong answer for its one job, never a forged success.">
+</p>
+
+The rest of this page is the precise reference.
+
 Authenticated remote execution of two job kinds: a bounded direct
 reference run, and (as of this lane) one reference-role trial of a paired
 Arena evaluation admitted with the remote opt-in. The daemon remains the

@@ -1,5 +1,13 @@
 # MCP Gateway
 
+**In short.** The MCP gateway lets an AI assistant, such as a coding agent that speaks the Model Context Protocol, use Hephaestus. It goes through the same authenticated front door as you, with a guest list: 11 look-around tools are available by default, 4 tools that change things need an extra grant, and anything else is refused. The daemon still enforces every rule, and every call, allowed or refused, is written to the Ledger.
+
+<p align="center">
+  <img src="assets/mcp-gateway.svg" width="100%" alt="An AI assistant speaks MCP to the gateway. The gateway has a guest list: 11 read-only tools, 4 changing tools that need an extra grant, and everything else refused. Allowed calls go to hephaestusd, which still checks every rule. Every call, allowed or refused, is recorded in the Ledger.">
+</p>
+
+The rest of this page is the precise reference.
+
 `hephaestus-mcp-gateway` exposes a fixed, versioned set of Hephaestus
 capabilities to a Model Context Protocol (MCP) client (an agent) over the
 stdio transport. It never touches canonical storage: every tool call is

@@ -1,5 +1,8 @@
 # macOS package
 
+**In short.** This page covers the ready-made macOS package: one download with everything inside, including the terminal console and its own copy of Node.js, so you don't need Rust, npm, or a source checkout. If you're installing from source instead, see [Getting started](GETTING_STARTED.md).
+
+
 The packaging builder creates a relocatable, architecture-specific compressed tar archive for Apple Silicon (`arm64`) or Intel (`x86_64`). The package keeps `hephaestus`, the daemon, reference worker, evaluator, and process guardian together under `bin/`; the daemon and CLI resolve their helper binaries beside themselves. It also contains a bundled Ink TUI and a pinned Node.js 24.21.0 runtime. Running the installed CLI does not require a separate Node or npm installation.
 
 ## Build an archive

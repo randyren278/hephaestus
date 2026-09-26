@@ -1,5 +1,13 @@
 # Gene Bank: extraction, transfer, and speciation
 
+**In short.** When a change wins, Hephaestus can save it as a Gene and try the same change on other families of agents. Every trial is recorded as helped, no change, or hurt, and contradictions stay visible. Only a Gene that never hurts, helps in at least three families, and improves results by at least 3% on average earns a specialist species.
+
+<p align="center">
+  <img src="assets/gene-flow.svg" width="100%" alt="From one win to reusable knowledge. 1, a win: a child beat the Champion with at least three measured head-to-head trials. 2, extract a Gene with its evidence. 3, try it elsewhere: apply the change to a different family of agents and measure. 4, keep score in the Gene Bank: helped, no change, or hurt. 5, name a specialist species: no harm anywhere, wins in three or more families, and at least 3 percent better on average.">
+</p>
+
+The rest of this page is the precise reference.
+
 The Gene Bank turns one promoted, evidence-bound mutation into reusable
 intelligence: a Gene is extracted only from a Champion promotion that clears a
 deterministic minimum-evidence threshold, transferred onto other lineages

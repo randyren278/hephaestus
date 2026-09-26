@@ -1,5 +1,8 @@
 # Self-dogfooding
 
+**In short.** Hephaestus can be pointed at its own source code: a sandboxed agent proposes an improvement and Hephaestus tests it. The result is only ever a patch for a human to review and merge, and a test proves the agent's sandbox can't reach any credentials that could merge or release code.
+
+
 Roadmap item 15 asks for "a documented, runnable procedure + fixture where a
 sandboxed Hephaestus lineage proposes and validates an improvement to a
 Hephaestus source file... and the result is a branch/patch that a human must

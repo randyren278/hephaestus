@@ -1,5 +1,13 @@
 # Evolution runs
 
+**In short.** `hephaestus evolve` lets Hephaestus improve an agent on its own, one generation at a time. Each generation it checks the current Champion, proposes one change, tests the changed version against the Champion, and promotes it only if the evidence clears the World's bar. It never gains powers you couldn't use by hand, it stops at its budget, and freezing stops it immediately.
+
+<p align="center">
+  <img src="assets/evolution-loop.svg" width="100%" alt="One generation of hephaestus evolve. 1, measure first: the Champion runs against a fixed baseline. 2, propose: the Forge makes exactly one Mutation and writes down why. 3, test: child versus Champion in the Arena, plus basic checks. 4, decide: the child takes the title only if the evidence clears the World's bar, and stays on record either way. Each generation spends exactly two paired Arena evaluations.">
+</p>
+
+The rest of this page is the precise reference.
+
 `hephaestus evolve` runs unattended, budget-bounded evolution inside the daemon. It uses only the primitives an operator can already run by hand: paired Arena evaluation, selection, a Forge proposal, Forge assessment, reference-output invariants, and Champion promotion. It adds no new authority.
 
 ```sh

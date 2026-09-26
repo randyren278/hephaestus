@@ -1,5 +1,13 @@
 # Runtimes and Sandboxes
 
+**In short.** When an agent runs, everything about the run is fixed first: the exact agent, task, code version, and budget. It then runs in a private copy of the code, inside a macOS sandbox that only lets it write to its own folder and blocks the network unless the World allows it. Time and output are capped, and the daemon signs what happened. Today the runner that executes is a simple built-in test runner; runners for Claude Code and Codex exist but are opt-in.
+
+<p align="center">
+  <img src="assets/run-sandbox.svg" width="100%" alt="Four steps of every run. Pin everything: the exact Genome, World, task, code version, and budget. Lock it in: a private copy of the code in a macOS sandbox, writable only in its own folder, no network unless allowed. Run it: the built-in test runner today, with opt-in Claude Code and Codex runners. Sign the result: output and time are capped and the daemon signs what happened. A computer without a verified sandbox refuses to run agents at all.">
+</p>
+
+The rest of this page is the precise reference.
+
 `crates/hephaestus-runtime/` keeps provider mechanics outside Genome semantics. Every `RunSpec` binds a Genome, World, exact task input, source repository, resolved Git commit, explicit capabilities, non-zero wall and output budgets, and cost ceiling. An optional reference instruction is a separate immutable field; it never replaces or alters the task input or its BLAKE3 commitment. Arena runs derive the environment identity from the runtime version, instruction-language version, OS/architecture/isolation identity, and digest of the configured worker executable (or, for a provider-adapter role, the configured Codex/Claude executable's own digest instead — see "Hosted drivers" below). The worker accepts a bounded binary frame and implements only the strict `identity` and `ascii_uppercase` operations described in [GENOMES.md](GENOMES.md). It runs under `SupervisedRuntime` and the same wall/output limits. The revision is resolved once when the specification is created, so later branch movement cannot change the evaluated source. The sandbox manager creates a private detached worktree at that commit, a separate execution directory, and a non-cloneable 256-bit capability token bound to the run and an expiry.
 
 ```mermaid

@@ -1,5 +1,8 @@
 # Iris Inheritance
 
+**In short.** From Iris, an earlier project, Hephaestus borrows one idea: a model may suggest what to do, but plain, predictable code decides whether it is allowed.
+
+
 Hephaestus inherits Iris's authority principle: the model may propose intent, while deterministic infrastructure decides whether the action is allowed.
 
 ## Preserved ideas

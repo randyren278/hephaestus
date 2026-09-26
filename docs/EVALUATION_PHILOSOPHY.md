@@ -1,5 +1,8 @@
 # Evaluation Philosophy
 
+**In short.** A candidate is better only if it wins a fair, like-for-like comparison: the same tasks, conditions, and budget as its parent, scored by a judge it can't see. Correctness, reliability, cost, and speed are judged separately, a higher average never excuses breaking something basic, and every verdict comes with a receipt that lets anyone recheck it.
+
+
 ## Evidence before autonomy
 
 Evaluation exists to answer whether a candidate is better under a specific World, not whether it can produce a persuasive explanation. The optimizer is downstream of the objective and cannot modify it.

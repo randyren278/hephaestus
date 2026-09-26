@@ -1,5 +1,13 @@
 # Drift, shadow, and canary control
 
+**In short.** When conditions change (things get slower, costlier, or less correct, or the work itself changes), Hephaestus records that as drift. A replacement is tested quietly first, then rolled out in stages of 5%, 25%, and 50%, and the old Champion keeps the title throughout. If things get worse at any stage, the rollout aborts automatically. Only a healthy final stage crowns the new Champion, and a live check afterwards can still roll it back.
+
+<p align="center">
+  <img src="assets/canary-rollout.svg" width="100%" alt="Rolling out a new Champion one stage at a time. Something changed: drift is recorded. Shadow test: the candidate is tested next to the Champion with no real traffic. Rollout at 5, 25, and 50 percent, each needing fresh healthy evidence; 100 percent makes it the new Champion. Worse at any stage means an automatic abort, and the old Champion was never replaced. After 100 percent, a live check can still roll back.">
+</p>
+
+The rest of this page is the precise reference.
+
 Roadmap item 12: a living agent system must distinguish a poor agent from a
 changed environment, and must adapt without risking the current Champion.
 This slice adds three durable, replay-verified primitives on top of the

@@ -1,5 +1,13 @@
 # Genomes
 
+**In short.** A Genome is one exact version of an agent: its name, where it came from, which model runs it, what it may do, and its prompt. All of that is sealed under a fingerprint, so the same recipe always gets the same fingerprint and any change makes a new Genome. A child can never be given more permissions than its parents or its World.
+
+<p align="center">
+  <img src="assets/genome-anatomy.svg" width="100%" alt="A Genome bundles a name, parents, model, permissions, and prompt and files under one fingerprint. Permissions only ever shrink: the World sets a ceiling, a parent sits under it, and a child sits under every parent; a child that asks for more is refused.">
+</p>
+
+The rest of this page is the precise reference.
+
 A compiled Genome is an immutable, normalized agent specification. The compiler accepts schema version 1 as strict JSON or YAML, serializes the typed value to canonical compact JSON, and assigns `hephaestus:genome:<blake3>` from those exact bytes. Equivalent JSON and YAML therefore produce one identity. Markdown Genome files use the same schema in a strict YAML frontmatter block followed by a nonblank prompt body; the body bytes are stored in CAS as the reserved agent.prompt artifact and its address is included in the Genome identity.
 
 ## Source schema

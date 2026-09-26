@@ -1,5 +1,13 @@
 # Traces and Experience
 
+**In short.** While an agent runs, Hephaestus writes down what it visibly did: tool calls, files, tests, costs, and errors, but never hidden reasoning. Before anything is saved, secrets such as passwords and API keys are scrubbed out. Each record is then size-limited, stored under its own fingerprint, and noted in the Ledger with a short receipt.
+
+<p align="center">
+  <img src="assets/trace-pipeline.svg" width="100%" alt="From what an agent did to a safe record. Observe tool calls, files, tests, costs, and errors, never hidden reasoning. Scrub secrets such as passwords, API keys, and tokens. Cap each record's size and store it under its own fingerprint. Note it in the Ledger with a short receipt.">
+</p>
+
+The rest of this page is the precise reference.
+
 `crates/hephaestus-experience/` is the pre-persistence evidence boundary. Runtime observations arrive as structured fields, are redacted and bounded, then become canonical JSON artifacts in the BLAKE3 content-addressed store. The hash-linked event ledger receives only a compact receipt containing the artifact address and immutable run, Genome, and World provenance.
 
 ```mermaid

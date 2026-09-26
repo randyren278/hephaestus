@@ -1,8 +1,16 @@
 # CLI Reference
 
+**In short.** `hephaestus` is the command you type to drive everything: set up an exam, run agents, compare them, crown a winner, roll changes out safely, and check that the record is intact. Every command below goes through the background program `hephaestusd`, and most need it running first.
+
+<p align="center">
+  <img src="assets/cli-map.svg" width="100%" alt="Every hephaestus command grouped by job. Set up: world register, genome register, arena manifest, artifact put, verifier. Run once: run, submit, job status, job kill, evaluate. Compare: arena evaluate, arena select, arena invariants. Improve: forge analyze, genome propose, genome assess, evolve start. Crown: champion seed, promote, rollback, show. Roll out safely: drift record, canary start, advance, live-check. Reuse what works: gene extract, transfer, record, speciate. Stay in control: status, freeze and unfreeze, kill --all, replay, daemon stop.">
+</p>
+
+The rest of this page is the precise reference.
+
 Everything the `hephaestus` operator binary can do: the manual daily-use
 walkthrough, and the full command table. For the one-command scripted
-version, see the Quickstart in the [root README](../README.md#quickstart).
+version, see the Quickstart in the [root README](../README.md#try-it-in-five-minutes).
 
 ## Daily use
 

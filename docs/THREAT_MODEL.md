@@ -1,5 +1,13 @@
 # Threat Model
 
+**In short.** Hephaestus assumes the agents it tests are hostile and that the judge would leak its answers if it could. Only you and the daemon are trusted. Agents, their output, outside input, and remote workers are not. The judge and the sealed tasks are walled off from agents, and every stored file is re-checked against its fingerprint whenever it is read.
+
+<p align="center">
+  <img src="assets/threat-model.svg" width="100%" alt="Three zones. Trusted: you, the operator, the only one who can unfreeze, promote, or kill; the daemon, the only writer; and the Ledger, re-checked on every start. Untrusted: agents under test and their output; outside input such as repositories, tool results, and model text; and remote workers, which cannot sign. Walled off: the judge, which agents can never read; the sealed tasks; and stored files, checked by fingerprint on every read.">
+</p>
+
+The rest of this page is the precise reference.
+
 ## Assets
 
 Hephaestus protects canonical ledger history, Genome and World identity, sealed evaluators, artifact integrity, operator authority, credentials, budgets, promotion state, rollback state, and the confidentiality of candidate siblings.

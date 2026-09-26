@@ -1,5 +1,13 @@
 # Recursive evolution of the Evolver
 
+**In short.** There is more than one way to run evolution, for example how many generations to run and how to spend the budget. `hephaestus meta` puts two such strategies head to head: each runs a full evolve on the same families of agents, starting from exactly the same place, and Hephaestus records which found more improvements, which cost less, and how sure it is.
+
+<p align="center">
+  <img src="assets/meta-evolution.svg" width="100%" alt="Strategy A and Strategy B, each a choice of how many generations and how to spend the budget, both run a full evolve on the same agent families; between runs the Champion is reset so both start from the same place. The verdict says which found more improvements, which cost less, and how sure we are. Today only one kind of change exists, so most strategy settings cannot yet make a difference.">
+</p>
+
+The rest of this page is the precise reference.
+
 `hephaestus meta` compares two Evolver *strategies* — versioned,
 content-addressed configurations of the knobs that steer `hephaestus evolve`'s
 own admission policy — by running the existing, unmodified evolve engine once

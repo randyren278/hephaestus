@@ -1,5 +1,8 @@
 # Lab cross-check
 
+**In short.** A separate Python program re-does the maths behind Hephaestus's decisions, independently of the Rust code, and reports whether it agrees. It can't change anything; it exists to catch the main implementation quietly drifting from its own rules.
+
+
 `python/hephaestus_lab/crosscheck.py` is a second, independent implementation
 that reads a Rust-produced receipt and recomputes what it can from the
 receipt's own recorded evidence, to catch the Rust implementation drifting
