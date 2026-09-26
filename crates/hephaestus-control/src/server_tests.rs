@@ -14653,6 +14653,122 @@ fn meta_evaluate_shows_a_descendant_strategy_reaching_equal_champions_at_lower_c
     );
 }
 
+/// TD-22: a bundled `meta evaluate` scenario where `candidate_count` is the
+/// *only* knob that differs between the two compared strategies (same
+/// `mutation_prioritization`, `generation_count`, and `gene_selection`;
+/// `experiment_allocation` only widens to afford the extra candidate).
+/// Reuses the context-loss Gauntlet fixture from
+/// `evolve_candidate_count_two_evaluates_both_ranked_candidates_and_promotes_the_better_one`,
+/// where a `candidate_count == 2` strategy proposes both the family fix
+/// (`context_loss_aware`, rank 0) and the `sealed_incorrect_output`
+/// cluster's secondary exploratory suggestion (`ascii_uppercase`, rank 1),
+/// but the primary fix is still the one ever promoted. Spending the extra
+/// trial therefore changes strategy B's cost without changing either
+/// strategy's quality outcome (one promotion each, same fix) -- an
+/// end-to-end demonstration that more trials per generation on more
+/// candidates changes a lineage's cost relative to an otherwise-identical
+/// single-candidate strategy, without changing its outcome here.
+#[test]
+fn meta_evaluate_isolates_candidate_count_as_the_only_differing_knob() {
+    let directory = tempdir().expect("Gauntlet evolve fixture directory");
+    let (mut plane, parent, _candidate) = real_worker_gauntlet_fixture(
+        &directory,
+        "context-loss",
+        r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+        " the deploy key is banana",
+        "context_loss_naive",
+        "context_loss_aware",
+    );
+    let token = plane.token_hex.clone();
+    // A second, independent lineage of the same shape: a bootstrap
+    // comparison requires at least two held-out lineages, and lineages must
+    // have distinct Worlds.
+    let (world_2, parent_2, _candidate_2) = register_gauntlet_objects(
+        &mut plane,
+        &token,
+        &directory,
+        "context-loss-2",
+        r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+        " the deploy key is banana",
+        "context_loss_naive",
+        "context_loss_aware",
+    );
+    let strategy_a_id =
+        register_test_strategy(&mut plane, &token, &directory, "meta-cc-one", "fifo", "none");
+    let strategy_b_id = register_test_strategy_with_candidate_count(
+        &mut plane,
+        &token,
+        &directory,
+        "meta-cc-two",
+        "fifo",
+        "none",
+        2,
+    );
+    assert_ne!(
+        strategy_a_id, strategy_b_id,
+        "distinct candidate_count, distinct content-derived identity"
+    );
+
+    let evaluate = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-evaluate-candidate-count",
+        Command::MetaEvaluate {
+            meta_run_id: "meta-candidate-count".to_owned(),
+            strategy_a_id,
+            strategy_b_id,
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: parent.world_id.clone(),
+                    from_genome_id: parent.genome_id.clone(),
+                },
+                MetaLineageSpec {
+                    world_id: world_2.world_id.clone(),
+                    from_genome_id: parent_2.genome_id.clone(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 7,
+        },
+    );
+    assert!(
+        evaluate.error.is_none(),
+        "meta evaluate failed: {:?}",
+        evaluate.error
+    );
+    let Some(ResponseData::MetaEvaluation { receipt }) = evaluate.data else {
+        panic!("meta evaluate should return the recorded receipt");
+    };
+    assert_eq!(receipt.payload.lineages.len(), 2);
+
+    for lineage in &receipt.payload.lineages {
+        // Equal quality: both strategies promote the same genuine fix once.
+        assert_eq!(lineage.strategy_a_promotions, 1);
+        assert_eq!(lineage.strategy_b_promotions, 1);
+
+        // The only cost difference is the one extra candidate trial
+        // candidate_count == 2 affords and spends.
+        assert_eq!(
+            lineage.strategy_b_trials_consumed - lineage.strategy_a_trials_consumed,
+            1,
+            "candidate_count should be the only source of the cost delta"
+        );
+    }
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay accepts the candidate-count meta-evaluation");
+    assert!(
+        history
+            .iter()
+            .any(|event| event.event_type == META_EVALUATION_EVENT_TYPE)
+    );
+}
+
 // ---------------------------------------------------------------------
 // Gene Bank
 // ---------------------------------------------------------------------
