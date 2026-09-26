@@ -79,4 +79,3 @@ The authority, domain, compiler, Genome, World, registry, event-store, artifact-
 - `scripts/quickstart.sh` — builds and drives the complete loop against real binaries.
 - `checks/` — coverage, mutation, and documentation gates.
 - `.github/workflows/ci.yml` — deterministic and adversarial CI jobs.
-- `HEPHAESTUS_MASTER_PLAN.md` — product and engineering specification.
