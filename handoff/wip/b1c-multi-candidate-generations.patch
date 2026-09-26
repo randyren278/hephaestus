@@ -1,0 +1,336 @@
+# WIP patch: b1c-multi-candidate-generations
+# base commit: c8e3e3f (Format the mutation catalog merge)
+# committed-but-unmerged commits on the worktree branch, if any, are appended below the diff as 'git format-patch' output
+diff --git a/crates/hephaestus-arena/src/clusters.rs b/crates/hephaestus-arena/src/clusters.rs
+index a8ed216..d7ada25 100644
+--- a/crates/hephaestus-arena/src/clusters.rs
++++ b/crates/hephaestus-arena/src/clusters.rs
+@@ -119,6 +119,23 @@ pub struct FailureCluster {
+     pub hypothesis: String,
+     /// The single minimal supported mutation, when one exists.
+     pub suggested_mutation: Option<SuggestedMutation>,
++    /// A second, lower-priority mutation this cluster also supports, when
++    /// one exists (TD-17, roadmap items 10, 13). Today the only source is
++    /// `failure-cluster-v2`'s per-operation rule: a Gauntlet "bad" current
++    /// operation's cluster whose signature is exactly
++    /// `sealed_incorrect_output` also names the cross-family casing target
++    /// `ascii_uppercase` as a deterministic, always-representable
++    /// exploratory alternative. This exists because the primary rule names
++    /// the *same* family fix for every cluster of a given bad operation
++    /// (regardless of shape), so a `candidate_count > 1` strategy needs a
++    /// second, genuinely distinct, evidence-bound target to steer toward;
++    /// see `docs/EVOLUTION.md`. `failure-cluster-v1` and every other case
++    /// leave this `None`. This field was added after `schema_version` 1
++    /// shipped; it defaults to `None` (and is omitted from canonical bytes
++    /// when absent) so every previously recorded receipt still replays
++    /// byte-for-byte.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub secondary_suggested_mutation: Option<SuggestedMutation>,
+ }
+ 
+ /// Canonical aggregate receipt recomputed from authenticated candidate trial evidence.
+@@ -301,9 +318,11 @@ fn cluster_trials_for(
+         .into_iter()
+         .map(|(signature, (visible_count, sealed_count))| {
+             let total_count = visible_count.saturating_add(sealed_count);
+-            let (hypothesis, suggested_mutation) = match algorithm {
++            let (hypothesis, suggested_mutation, secondary_suggested_mutation) = match algorithm {
+                 ClusterAlgorithm::V1 => {
+-                    describe(signature, visible_count, sealed_count, total_count)
++                    let (hypothesis, suggested_mutation) =
++                        describe(signature, visible_count, sealed_count, total_count);
++                    (hypothesis, suggested_mutation, None)
+                 }
+                 ClusterAlgorithm::V2 => describe_v2(
+                     signature,
+@@ -320,6 +339,7 @@ fn cluster_trials_for(
+                 total_count,
+                 hypothesis,
+                 suggested_mutation,
++                secondary_suggested_mutation,
+             }
+         })
+         .collect()
+@@ -490,15 +510,34 @@ fn describe(
+ /// - If `current_operation` is absent or unrecognized, no cluster suggests a
+ ///   mutation (a safe default: no derivable operation to build a target
+ ///   from).
++/// TD-17: a Gauntlet bad operation's cluster whose signature is exactly
++/// `sealed_incorrect_output` also names this fixed, always-representable
++/// cross-family casing target as a secondary candidate. See
++/// [`FailureCluster::secondary_suggested_mutation`].
++const SECONDARY_EXPLORATORY_OPERATION: &str = "ascii_uppercase";
++
+ fn describe_v2(
+     signature: &'static str,
+     visible_count: u32,
+     sealed_count: u32,
+     total_count: u32,
+     current_operation: Option<&str>,
+-) -> (String, Option<SuggestedMutation>) {
++) -> (String, Option<SuggestedMutation>, Option<SuggestedMutation>) {
+     if let Some(current) = current_operation {
+         if let Some(fix) = mutation_family_fix_for(current) {
++            // Every cluster of a Gauntlet bad operation suggests the same
++            // family fix as its primary candidate (unchanged since v2
++            // shipped). The `sealed_incorrect_output` cluster additionally
++            // names a second, genuinely distinct, catalog-valid target
++            // (TD-17): without this, a `candidate_count > 1` strategy would
++            // never see more than one distinct suggested operation for a
++            // given bad operation, since the primary rule depends only on
++            // `current`, not on shape signature.
++            let secondary = (signature == "sealed_incorrect_output"
++                && current != SECONDARY_EXPLORATORY_OPERATION)
++                .then(|| SuggestedMutation::ReferenceOperation {
++                    operation_after: SECONDARY_EXPLORATORY_OPERATION.to_owned(),
++                });
+             return (
+                 format!(
+                     "The candidate's current reference operation ({current}) is a known \
+@@ -509,6 +548,7 @@ fn describe_v2(
+                 Some(SuggestedMutation::ReferenceOperation {
+                     operation_after: fix.to_owned(),
+                 }),
++                secondary,
+             );
+         }
+         if let Some(other) = mutation_casing_flip(current) {
+@@ -522,10 +562,11 @@ fn describe_v2(
+                     Some(SuggestedMutation::ReferenceOperation {
+                         operation_after: other.to_owned(),
+                     }),
++                    None,
+                 )
+             } else {
+                 let (hypothesis, _) = describe(signature, visible_count, sealed_count, total_count);
+-                (hypothesis, None)
++                (hypothesis, None, None)
+             };
+         }
+         // A Gauntlet family's "fix" operation: never propose a regression.
+@@ -536,10 +577,11 @@ fn describe_v2(
+                  regressing back to its paired bad operation."
+             ),
+             None,
++            None,
+         );
+     }
+     let (hypothesis, _) = describe(signature, visible_count, sealed_count, total_count);
+-    (hypothesis, None)
++    (hypothesis, None, None)
+ }
+ 
+ /// Checks authenticated candidate evidence and durably records one
+@@ -1195,6 +1237,7 @@ mod tests {
+                 total_count: 1,
+                 hypothesis: "expected hypothesis".to_owned(),
+                 suggested_mutation: Some(SuggestedMutation::ReferenceOperationFlip),
++                secondary_suggested_mutation: None,
+             }],
+         );
+         // The stored artifact recomputes to different cluster content under
+@@ -1209,6 +1252,7 @@ mod tests {
+                 total_count: 2,
+                 hypothesis: "different hypothesis".to_owned(),
+                 suggested_mutation: Some(SuggestedMutation::ReferenceOperationFlip),
++                secondary_suggested_mutation: None,
+             }],
+         );
+         let analysis_artifact_id = stores
+@@ -1302,6 +1346,48 @@ mod tests {
+         );
+     }
+ 
++    /// TD-17: the `sealed_incorrect_output` cluster of a Gauntlet bad
++    /// operation names a second, distinct, catalog-valid target in addition
++    /// to the family fix every cluster already suggests, so a
++    /// `candidate_count > 1` strategy can steer toward more than one
++    /// distinct operation even though the primary rule is shape-independent.
++    #[test]
++    fn v2_gauntlet_bad_operation_sealed_cluster_also_names_a_secondary_candidate() {
++        let sealed = [SealedTrial {
++            completion_reason: RunCompletionReason::Success,
++            output_matches: false,
++        }];
++        let clusters = cluster_trials_v2(&[], &sealed, Some("context_loss_naive"));
++        assert_eq!(clusters.len(), 1);
++        assert_eq!(clusters[0].signature, "sealed_incorrect_output");
++        assert_eq!(
++            clusters[0].suggested_mutation,
++            Some(SuggestedMutation::ReferenceOperation {
++                operation_after: "context_loss_aware".to_owned()
++            }),
++            "the primary suggestion is unchanged: still the family fix"
++        );
++        assert_eq!(
++            clusters[0].secondary_suggested_mutation,
++            Some(SuggestedMutation::ReferenceOperation {
++                operation_after: "ascii_uppercase".to_owned()
++            }),
++            "the sealed cluster also names a second, distinct candidate"
++        );
++    }
++
++    /// A visible-shape cluster of a Gauntlet bad operation never gets a
++    /// secondary suggestion (only the sealed cluster does): this keeps the
++    /// single-candidate ranked pick (the family fix) unambiguous regardless
++    /// of which cluster a strategy's prioritization considers first.
++    #[test]
++    fn v2_gauntlet_bad_operation_visible_cluster_has_no_secondary_candidate() {
++        let trials = vec![v2_trial("UNKNOWN")];
++        let clusters = cluster_trials_v2(&trials, &[], Some("context_loss_naive"));
++        assert_eq!(clusters.len(), 1);
++        assert_eq!(clusters[0].secondary_suggested_mutation, None);
++    }
++
+     #[test]
+     fn v2_gauntlet_fix_operation_never_suggests_a_regression() {
+         let trials = vec![v2_trial("some wrong output")];
+diff --git a/crates/hephaestus-control/src/evolve.rs b/crates/hephaestus-control/src/evolve.rs
+index 649a2e9..7bb31a3 100644
+--- a/crates/hephaestus-control/src/evolve.rs
++++ b/crates/hephaestus-control/src/evolve.rs
+@@ -25,9 +25,10 @@ use super::{
+     forge_assessment_event_id, forge_event_id, hex_encode, validate_job_id,
+ };
+ use crate::protocol::{
+-    ChampionTransitionKind, EvolutionCancelPayload, EvolutionEventRecord, EvolutionFinishReason,
+-    EvolutionFinishedPayload, EvolutionGenerationPayload, EvolutionGenerationRecord,
+-    EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload, ForgeAssessmentOutcome,
++    ChampionTransitionKind, EvolutionCancelPayload, EvolutionCandidateRecord, EvolutionEventRecord,
++    EvolutionFinishReason, EvolutionFinishedPayload, EvolutionGenerationPayload,
++    EvolutionGenerationRecord, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
++    ForgeAssessmentOutcome,
+ };
+ 
+ pub(super) const EVOLUTION_STARTED_TYPE: &str = "evolution.started";
+@@ -36,11 +37,33 @@ pub(super) const EVOLUTION_FINISHED_TYPE: &str = "evolution.finished";
+ pub(super) const EVOLUTION_CANCEL_TYPE: &str = "evolution.cancel_requested";
+ const EVOLUTION_PREFIX: &str = "evolution:";
+ 
+-/// Paired Arena evaluations (trials) exactly one generation consumes: a
+-/// diagnostic selection establishing the Champion as the mutated candidate,
+-/// plus a child-versus-Champion assessment evaluation.
++/// Minimum paired Arena evaluations (trials) any one generation can consume:
++/// a diagnostic selection establishing the Champion as the mutated
++/// candidate, plus at least one child-versus-Champion assessment
++/// evaluation. Used as the admission/budget floor (`EvolveStart.budget` and
++/// an `EvolverStrategyConfig.experiment_allocation` must allow at least
++/// this much). A generation's *actual* trial cost is `1 + candidates
++/// proposed` (TD-17, roadmap items 10, 13): with `candidate_count == 1` (or
++/// no bound strategy), that is always exactly this constant; with a
++/// strategy proposing more than one candidate, it can be higher, up to
++/// `1 + candidate_count`, bounded by the run's remaining budget.
+ pub(super) const TRIALS_PER_GENERATION: u64 = 2;
+ 
++/// The paired-trial cost `evolution_projection` charges one recorded
++/// generation: `1 + candidates.len()` when `candidates` is populated
++/// (TD-17's multi-candidate accounting), or the historical
++/// [`TRIALS_PER_GENERATION`] when it is empty -- covering both a genuinely
++/// historical (pre-TD-17) generation event and the byte-identical
++/// single-candidate case this lane still emits (see
++/// [`EvolutionGenerationPayload::candidates`]).
++fn generation_trial_count(payload: &EvolutionGenerationPayload) -> u64 {
++    if payload.candidates.is_empty() {
++        TRIALS_PER_GENERATION
++    } else {
++        1_u64.saturating_add(u64::try_from(payload.candidates.len()).unwrap_or(u64::MAX))
++    }
++}
++
+ pub(super) fn evolution_started_event_id(run_id: &str) -> String {
+     format!("{EVOLUTION_PREFIX}{run_id}:started")
+ }
+@@ -195,7 +218,9 @@ pub(super) fn evolution_projection(
+                 let run = record.as_mut().ok_or_else(|| {
+                     ControlError::Projection("evolution generation precedes its run".to_owned())
+                 })?;
+-                run.trials_consumed = run.trials_consumed.saturating_add(TRIALS_PER_GENERATION);
++                run.trials_consumed = run
++                    .trials_consumed
++                    .saturating_add(generation_trial_count(&payload));
+                 run.generations.push(EvolutionGenerationRecord {
+                     payload,
+                     event: event_record(event),
+@@ -211,6 +236,13 @@ pub(super) fn evolution_projection(
+                 })?;
+                 run.state = EvolutionRunState::Finished;
+                 run.finish_reason = Some(payload.reason);
++                // Trust the finished payload's own trials_consumed, which
++                // `verify_evolution_history` cross-checks against the sum of
++                // recorded generations: this is the only way a
++                // `NoCandidateMutation` finish's spent diagnostic-only trial
++                // (TD-17) is ever reflected here, since no generation event
++                // is recorded for it.
++                run.trials_consumed = payload.trials_consumed;
+                 run.finished_event = Some(event_record(event));
+             }
+             EVOLUTION_CANCEL_TYPE => {
+diff --git a/crates/hephaestus-control/src/lib.rs b/crates/hephaestus-control/src/lib.rs
+index db04902..848a878 100644
+--- a/crates/hephaestus-control/src/lib.rs
++++ b/crates/hephaestus-control/src/lib.rs
+@@ -16,9 +16,10 @@ pub use protocol::{
+     ChampionTransitionRecord, Command, DenialEntry, DenialKind, DriftEventRecord, DriftKind,
+     DriftRecord, DriftRecordPayload, EvaluationEventRecord, EvaluationForgeSummary,
+     EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
+-    EvolutionCancelPayload, EvolutionEventRecord, EvolutionFinishReason, EvolutionFinishedPayload,
+-    EvolutionGenerationPayload, EvolutionGenerationRecord, EvolutionRunRecord, EvolutionRunState,
+-    EvolutionStartedPayload, EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord,
++    EvolutionCancelPayload, EvolutionCandidateRecord, EvolutionEventRecord, EvolutionFinishReason,
++    EvolutionFinishedPayload, EvolutionGenerationPayload, EvolutionGenerationRecord,
++    EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload, EvolverStrategyConfig,
++    ForgeAnalysisBinding, ForgeAnalysisRecord,
+     ForgeAssessmentEventRecord, ForgeAssessmentOutcome, ForgeAssessmentPayload,
+     ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord,
+     GeneAggregateRecord, GeneContradictionPayload, GeneContradictionRecord, GeneEventRecord,
+diff --git a/crates/hephaestus-control/src/protocol.rs b/crates/hephaestus-control/src/protocol.rs
+index 13c0656..4c83e88 100644
+--- a/crates/hephaestus-control/src/protocol.rs
++++ b/crates/hephaestus-control/src/protocol.rs
+@@ -2010,6 +2010,45 @@ pub struct EvolutionGenerationPayload {
+     pub promoted: bool,
+     /// World Champion after this generation (equal to `champion_before` unless promoted).
+     pub champion_after: String,
++    /// Every candidate mutation proposed, evaluated, and ranked this
++    /// generation (TD-17, roadmap items 10, 13), in rank order (rank `0`
++    /// first). Empty (and omitted from canonical bytes) whenever exactly one
++    /// candidate was proposed -- the historical case, and every
++    /// strategy-less run -- so that generation's payload, and every field
++    /// above, stays byte-for-byte identical to a generation recorded before
++    /// this field existed: `proposal_id`, `child_genome_id`,
++    /// `child_evaluation_id`, and `assessment_id` above always describe the
++    /// promoted candidate, or the first (rank `0`) one when none was
++    /// promoted, whether or not `candidates` is populated. This field was
++    /// added after `schema_version` 1 shipped; it defaults to empty (and is
++    /// omitted from canonical bytes when empty) so every previously
++    /// recorded generation still replays byte-for-byte.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub candidates: Vec<EvolutionCandidateRecord>,
++}
++
++/// One candidate mutation proposed, evaluated, and ranked within a
++/// generation (TD-17, roadmap items 10, 13). Rank `0` is the highest
++/// priority a strategy's `mutation_prioritization` and `gene_selection`
++/// order would consider first; candidates are deduplicated by target
++/// operation before ranking, so ranks never tie.
++#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
++#[serde(deny_unknown_fields)]
++pub struct EvolutionCandidateRecord {
++    /// Zero-based rank within this generation; `0` is highest priority.
++    pub rank: u32,
++    /// Durable Forge proposal mutating `champion_before` toward this
++    /// candidate's distinct target operation.
++    pub proposal_id: String,
++    /// This candidate's proposed child Genome identity.
++    pub child_genome_id: String,
++    /// Paired evaluation identity of `champion_before` versus this
++    /// candidate's `child_genome_id`.
++    pub child_evaluation_id: String,
++    /// Evidence-only Forge assessment of this candidate against the Champion.
++    pub assessment_id: String,
++    /// This candidate's assessed outcome.
++    pub outcome: ForgeAssessmentOutcome,
+ }
+ 
+ /// Canonical payload of the one `evolution.finished` event for a run.

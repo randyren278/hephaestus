@@ -1,0 +1,2281 @@
+# WIP patch: b3-drift-to-canary
+# base commit: b3f2cd8 (Keep the roadmap out of the published tree)
+# committed-but-unmerged commits on the worktree branch, if any, are appended below the diff as 'git format-patch' output
+diff --git a/crates/hephaestus-control/src/adaptation.rs b/crates/hephaestus-control/src/adaptation.rs
+new file mode 100644
+index 0000000..2eff759
+--- /dev/null
++++ b/crates/hephaestus-control/src/adaptation.rs
+@@ -0,0 +1,426 @@
++//! Automatic drift-to-canary adaptation (roadmap item 12).
++//!
++//! For a World whose Law `auto_canary_on_drift` opted in, the daemon's own
++//! reconciliation loop (`ControlPlane::advance_drift_adaptations`, called
++//! every `serve` tick alongside `advance_evolution`, never from a client
++//! connection) drives an unadapted `drift.recorded` event through the
++//! ordinary Forge, Arena, and canary primitives: propose a mutation of the
++//! current Champion, run a shadow evaluation of it, and roll it out through
++//! the unchanged staged canary. One `drift.adaptation_started` event records
++//! the chosen branch; one `drift.adaptation_finished` event records why the
++//! pipeline stopped, cross-referencing the arena/selection/forge/canary
++//! events it already produced rather than repeating their content. Every
++//! step is idempotent and driven solely from durable history, so a daemon
++//! restart mid-pipeline resumes exactly where it left off, exactly like
++//! `evolve`.
++//!
++//! This module only derives, verifies, and projects the two event payloads;
++//! the stateful orchestration (submitting Arena work, proposing, assessing,
++//! and driving the canary) lives on `ControlPlane` in `server.rs`, exactly
++//! like `drift.rs` and `canary.rs` split from the same file.
++
++use hephaestus_ledger::{EventInput, StoredEvent};
++
++use super::{
++    ControlError, ExecuteError, OPERATOR_ACTOR, decode_forge_proposal, forge_assessment_event_id,
++    forge_event_id, hex_encode, validate_job_id,
++};
++use crate::protocol::{
++    CanaryStage, DriftAdaptationEventRecord, DriftAdaptationFinishReason,
++    DriftAdaptationFinishedPayload, DriftAdaptationStartedPayload, DriftAdaptationSummary,
++};
++
++pub(super) const DRIFT_ADAPTATION_STARTED_TYPE: &str = "drift.adaptation_started";
++pub(super) const DRIFT_ADAPTATION_FINISHED_TYPE: &str = "drift.adaptation_finished";
++// Deliberately distinct from `drift.rs`'s `"drift:"` and `canary.rs`'s
++// `"canary:"` aggregate prefixes: both those modules' own `is_*_event`
++// history scans fuzzy-match on aggregate/event ID prefix (not just event
++// type) as an extra fail-closed net, so an adaptation event whose IDs
++// happened to start with either prefix would wrongly be swept into their
++// scans and rejected as an undecodable drift/canary payload.
++const ADAPTATION_PREFIX: &str = "adaptation:";
++
++pub(super) fn adaptation_aggregate_id(drift_id: &str) -> String {
++    format!("{ADAPTATION_PREFIX}{drift_id}")
++}
++
++pub(super) fn adaptation_started_event_id(drift_id: &str) -> String {
++    format!("{ADAPTATION_PREFIX}{drift_id}:started")
++}
++
++pub(super) fn adaptation_finished_event_id(drift_id: &str) -> String {
++    format!("{ADAPTATION_PREFIX}{drift_id}:finished")
++}
++
++// The job-id-style identities below (proposal, evaluation, assessment, and
++// canary IDs) are, unlike the ledger event/aggregate IDs above, passed
++// straight into `validate_job_id` by `submit_arena_job`,
++// `propose_genome_from_source`, `assess_genome`, and `transition_canary`,
++// which allows only ASCII alphanumerics, `-`, `_`, and `.` — no colons.
++
++/// Deterministic Forge proposal identity for one drift's adaptation.
++pub(super) fn adaptation_proposal_id(drift_id: &str) -> String {
++    format!("adapt-{drift_id}-proposal")
++}
++
++/// Deterministic diagnostic evaluation identity: establishes the Champion as
++/// the verified selected candidate `propose_genome_from_source` requires,
++/// exactly the role `evolve`'s own diagnostic evaluation plays. Paired
++/// against the drift's own `shifted_genome_id` so no additional Genome needs
++/// registering.
++pub(super) fn adaptation_diagnostic_evaluation_id(drift_id: &str) -> String {
++    format!("adapt-{drift_id}-diagnostic")
++}
++
++/// Deterministic shadow evaluation identity: Champion versus the proposed child.
++pub(super) fn adaptation_shadow_evaluation_id(drift_id: &str) -> String {
++    format!("adapt-{drift_id}-shadow")
++}
++
++/// Deterministic Forge assessment identity binding the shadow evaluation.
++pub(super) fn adaptation_assessment_id(drift_id: &str) -> String {
++    format!("adapt-{drift_id}-assessment")
++}
++
++/// Deterministic canary identity this adaptation drives.
++pub(super) fn adaptation_canary_id(drift_id: &str) -> String {
++    format!("adapt-{drift_id}-canary")
++}
++
++/// Deterministic evaluation identity for one staged canary advance, indexed
++/// by how many advances this adaptation's canary has already recorded.
++pub(super) fn adaptation_stage_evaluation_id(drift_id: &str, stage_index: u32) -> String {
++    format!("adapt-{drift_id}-stage-{stage_index}")
++}
++
++fn is_adaptation_event(event: &StoredEvent) -> bool {
++    event.event_type == DRIFT_ADAPTATION_STARTED_TYPE
++        || event.event_type == DRIFT_ADAPTATION_FINISHED_TYPE
++}
++
++pub(super) fn decode_started(
++    event: &StoredEvent,
++) -> Result<DriftAdaptationStartedPayload, ControlError> {
++    let payload = serde_json::from_slice::<DriftAdaptationStartedPayload>(&event.payload)
++        .map_err(|_| ControlError::Projection("drift adaptation start payload is invalid".to_owned()))?;
++    let canonical_value = serde_json::to_value(&payload)?;
++    if serde_json::to_vec(&canonical_value)? != event.payload {
++        return Err(ControlError::Projection(
++            "drift adaptation start payload is not canonical".to_owned(),
++        ));
++    }
++    Ok(payload)
++}
++
++pub(super) fn decode_finished(
++    event: &StoredEvent,
++) -> Result<DriftAdaptationFinishedPayload, ControlError> {
++    let payload = serde_json::from_slice::<DriftAdaptationFinishedPayload>(&event.payload)
++        .map_err(|_| {
++            ControlError::Projection("drift adaptation finish payload is invalid".to_owned())
++        })?;
++    let canonical_value = serde_json::to_value(&payload)?;
++    if serde_json::to_vec(&canonical_value)? != event.payload {
++        return Err(ControlError::Projection(
++            "drift adaptation finish payload is not canonical".to_owned(),
++        ));
++    }
++    Ok(payload)
++}
++
++fn event_record(event: &StoredEvent) -> DriftAdaptationEventRecord {
++    DriftAdaptationEventRecord {
++        sequence: event.sequence,
++        event_id: event.event_id.clone(),
++        aggregate_id: event.aggregate_id.clone(),
++        event_hash: hex_encode(&event.hash),
++    }
++}
++
++/// Durable projection of one drift's adaptation, reconstructed from already
++/// hash-chain-verified history. Distinct from the operator-visible
++/// `DriftAdaptationSummary` only in also carrying the canary's live stage,
++/// which the caller resolves separately (`canary_projection`) since this
++/// module does not depend on `canary.rs`'s internals.
++#[derive(Clone, Debug, Default)]
++pub(super) struct AdaptationProjection {
++    pub(super) started: Option<DriftAdaptationStartedPayload>,
++    pub(super) started_event: Option<DriftAdaptationEventRecord>,
++    pub(super) finished: Option<DriftAdaptationFinishedPayload>,
++    pub(super) finished_event: Option<DriftAdaptationEventRecord>,
++}
++
++/// Reconstructs one drift's adaptation projection from verified history.
++pub(super) fn adaptation_projection(
++    history: &[StoredEvent],
++    drift_id: &str,
++) -> Result<AdaptationProjection, ControlError> {
++    let mut projection = AdaptationProjection::default();
++    for event in history {
++        match event.event_type.as_str() {
++            DRIFT_ADAPTATION_STARTED_TYPE => {
++                let payload = decode_started(event)?;
++                if payload.drift_id != drift_id {
++                    continue;
++                }
++                projection.started = Some(payload);
++                projection.started_event = Some(event_record(event));
++            }
++            DRIFT_ADAPTATION_FINISHED_TYPE => {
++                let payload = decode_finished(event)?;
++                if payload.drift_id != drift_id {
++                    continue;
++                }
++                projection.finished = Some(payload);
++                projection.finished_event = Some(event_record(event));
++            }
++            _ => {}
++        }
++    }
++    Ok(projection)
++}
++
++/// Read-side summary combining the adaptation projection with the driven
++/// canary's live stage (resolved by the caller, which alone knows how to
++/// call into `canary.rs`).
++pub(super) fn adaptation_summary(
++    history: &[StoredEvent],
++    drift_id: &str,
++    canary_stage: Option<CanaryStage>,
++) -> Result<DriftAdaptationSummary, ControlError> {
++    let projection = adaptation_projection(history, drift_id)?;
++
++    // Reads live, in-progress evidence directly from history by the same
++    // deterministic IDs the pipeline itself uses, rather than only what a
++    // `drift.adaptation_finished` event later cross-references: an operator
++    // watching an adaptation mid-flight sees real progress, not just
++    // "started".
++    let child_genome_id = projection
++        .started
++        .as_ref()
++        .and_then(|started| {
++            history
++                .iter()
++                .find(|event| event.event_id == forge_event_id(&started.proposal_id))
++        })
++        .and_then(|event| decode_forge_proposal(event).ok())
++        .map(|proposal| proposal.child.genome_id);
++    let shadow_evaluation_id = projection.started.as_ref().and_then(|_| {
++        let candidate_id = adaptation_shadow_evaluation_id(drift_id);
++        let selection_event_id = format!("arena:selection:{candidate_id}:selected");
++        history
++            .iter()
++            .any(|event| event.event_id == selection_event_id)
++            .then_some(candidate_id)
++    });
++    let assessment_id = projection.started.as_ref().and_then(|_| {
++        let candidate_id = adaptation_assessment_id(drift_id);
++        history
++            .iter()
++            .any(|event| event.event_id == forge_assessment_event_id(&candidate_id))
++            .then_some(candidate_id)
++    });
++
++    Ok(DriftAdaptationSummary {
++        started: projection.started.is_some(),
++        started_event: projection.started_event,
++        champion_genome_id: projection
++            .started
++            .as_ref()
++            .map(|started| started.champion_genome_id.clone()),
++        proposal_id: projection
++            .started
++            .as_ref()
++            .map(|started| started.proposal_id.clone()),
++        child_genome_id,
++        shadow_evaluation_id,
++        assessment_id,
++        canary_id: projection
++            .started
++            .as_ref()
++            .map(|started| adaptation_canary_id(&started.drift_id)),
++        canary_stage,
++        finished: projection.finished.is_some(),
++        finished_event: projection.finished_event,
++        finish_reason: projection.finished.as_ref().map(|finished| finished.reason),
++    })
++}
++
++pub(super) fn started_event_input(
++    payload: &DriftAdaptationStartedPayload,
++    timestamp: i64,
++) -> Result<EventInput, ExecuteError> {
++    let payload_value = serde_json::to_value(payload).map_err(|_| ExecuteError::Internal)?;
++    let payload_bytes = serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
++    Ok(EventInput::new(
++        adaptation_started_event_id(&payload.drift_id),
++        adaptation_aggregate_id(&payload.drift_id),
++        DRIFT_ADAPTATION_STARTED_TYPE,
++        OPERATOR_ACTOR,
++        timestamp,
++        payload_bytes,
++    ))
++}
++
++pub(super) fn finished_event_input(
++    payload: &DriftAdaptationFinishedPayload,
++    timestamp: i64,
++) -> Result<EventInput, ExecuteError> {
++    let payload_value = serde_json::to_value(payload).map_err(|_| ExecuteError::Internal)?;
++    let payload_bytes = serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
++    Ok(EventInput::new(
++        adaptation_finished_event_id(&payload.drift_id),
++        adaptation_aggregate_id(&payload.drift_id),
++        DRIFT_ADAPTATION_FINISHED_TYPE,
++        OPERATOR_ACTOR,
++        timestamp,
++        payload_bytes,
++    ))
++}
++
++/// Recomputes and cross-references every `drift.adaptation_*` event from the
++/// history that preceded it, exactly like `verify_evolution_history`: it
++/// checks identity, ordering, and that every cross-referenced event (the
++/// triggering drift, the Forge proposal and assessment, the canary, and any
++/// claimed Champion promotion) actually exists with matching content,
++/// without repeating the Arena/Forge/canary derivation those modules already
++/// verify. Fails closed on forged or out-of-order claims.
++#[allow(clippy::too_many_lines)]
++pub(super) fn verify_drift_adaptation_history(
++    history: &[StoredEvent],
++) -> Result<(), ControlError> {
++    let bad = || ControlError::Projection("drift adaptation history is invalid".to_owned());
++    let mut seen_started: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
++    let mut seen_finished: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
++    for (index, event) in history.iter().enumerate() {
++        if !is_adaptation_event(event) {
++            continue;
++        }
++        let prefix_ok = event.aggregate_id.starts_with(ADAPTATION_PREFIX) && event.actor == OPERATOR_ACTOR;
++        match event.event_type.as_str() {
++            DRIFT_ADAPTATION_STARTED_TYPE => {
++                let payload = decode_started(event)?;
++                if !prefix_ok
++                    || event.event_id != adaptation_started_event_id(&payload.drift_id)
++                    || event.aggregate_id != adaptation_aggregate_id(&payload.drift_id)
++                    || payload.schema_version != 1
++                    || validate_job_id(&payload.drift_id).is_err()
++                    || !seen_started.insert(payload.drift_id.clone())
++                {
++                    return Err(bad());
++                }
++                if payload.proposal_id != adaptation_proposal_id(&payload.drift_id) {
++                    return Err(bad());
++                }
++                // The triggering drift must already exist, in this same
++                // World, at or before this event.
++                let drift_event = history[..index]
++                    .iter()
++                    .find(|candidate| candidate.event_id == payload.drift_event_id)
++                    .ok_or_else(bad)?;
++                if drift_event.event_type != "drift.recorded"
++                    || hex_encode(&drift_event.hash) != payload.drift_event_hash
++                {
++                    return Err(bad());
++                }
++                let drift_payload = super::drift::decode_drift_record(drift_event)
++                    .map_err(|_| bad())?;
++                if drift_payload.drift_id != payload.drift_id
++                    || drift_payload.world_id != payload.world_id
++                {
++                    return Err(bad());
++                }
++            }
++            DRIFT_ADAPTATION_FINISHED_TYPE => {
++                let payload = decode_finished(event)?;
++                if !prefix_ok
++                    || event.event_id != adaptation_finished_event_id(&payload.drift_id)
++                    || event.aggregate_id != adaptation_aggregate_id(&payload.drift_id)
++                    || payload.schema_version != 1
++                    || !seen_started.contains(&payload.drift_id)
++                    || !seen_finished.insert(payload.drift_id.clone())
++                {
++                    return Err(bad());
++                }
++                let prior = adaptation_projection(&history[..index], &payload.drift_id)?;
++                let started = prior.started.ok_or_else(bad)?;
++                if started.world_id != payload.world_id {
++                    return Err(bad());
++                }
++                match payload.reason {
++                    DriftAdaptationFinishReason::NoCandidateMutation => {
++                        if payload.canary_id.is_some()
++                            || payload.final_canary_stage.is_some()
++                            || payload.promotion_transition_id.is_some()
++                        {
++                            return Err(bad());
++                        }
++                    }
++                    DriftAdaptationFinishReason::CanaryAborted => {
++                        let canary_id = payload.canary_id.as_ref().ok_or_else(bad)?;
++                        if *canary_id != adaptation_canary_id(&payload.drift_id)
++                            || payload.final_canary_stage != Some(CanaryStage::Aborted)
++                            || payload.promotion_transition_id.is_some()
++                        {
++                            return Err(bad());
++                        }
++                        let canary = super::canary::canary_projection(
++                            &history[..index],
++                            canary_id,
++                        )
++                        .map_err(|_| bad())?
++                        .ok_or_else(bad)?;
++                        if canary.stage != CanaryStage::Aborted {
++                            return Err(bad());
++                        }
++                    }
++                    DriftAdaptationFinishReason::Promoted => {
++                        let canary_id = payload.canary_id.as_ref().ok_or_else(bad)?;
++                        let promotion_transition_id =
++                            payload.promotion_transition_id.as_ref().ok_or_else(bad)?;
++                        if *canary_id != adaptation_canary_id(&payload.drift_id)
++                            || payload.final_canary_stage != Some(CanaryStage::Completed)
++                            || *promotion_transition_id
++                                != super::canary::canary_id_promotion_transition_id(canary_id)
++                        {
++                            return Err(bad());
++                        }
++                        let canary = super::canary::canary_projection(
++                            &history[..index],
++                            canary_id,
++                        )
++                        .map_err(|_| bad())?
++                        .ok_or_else(bad)?;
++                        if canary.stage != CanaryStage::Completed {
++                            return Err(bad());
++                        }
++                        let promotion_event_id =
++                            super::champion::champion_event_id(promotion_transition_id);
++                        let promoted = history[..index].iter().any(|candidate| {
++                            candidate.event_id == promotion_event_id
++                                && super::champion::decode_champion_transition(candidate)
++                                    .is_ok_and(|transition| {
++                                        transition.kind
++                                            == crate::protocol::ChampionTransitionKind::Promoted
++                                            && transition.champion_genome_id
++                                                == canary.candidate_genome_id
++                                    })
++                        });
++                        if !promoted {
++                            return Err(bad());
++                        }
++                    }
++                    DriftAdaptationFinishReason::Interrupted => {
++                        // Terminal, exactly like `EvolutionFinishReason::Interrupted`:
++                        // an unexpected failure (never a routine "an Arena
++                        // job is still in flight") ends this adaptation
++                        // rather than retrying it forever. No further
++                        // cross-referenced evidence is required or expected.
++                    }
++                }
++            }
++            _ => return Err(bad()),
++        }
++    }
++    Ok(())
++}
+diff --git a/crates/hephaestus-control/src/bin/hephaestus.rs b/crates/hephaestus-control/src/bin/hephaestus.rs
+index 20e447a..be24c8c 100644
+--- a/crates/hephaestus-control/src/bin/hephaestus.rs
++++ b/crates/hephaestus-control/src/bin/hephaestus.rs
+@@ -10,8 +10,9 @@ use std::{
+ use clap::{Parser, Subcommand};
+ use hephaestus_control::{
+     API_VERSION, ApiResponse, ArenaJobProgress, CanaryRecord, CanaryTransitionRecord,
+-    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftKind, DriftRecord,
+-    EvaluationListEntry, EvaluationRecord, EvolutionRunRecord, EvolutionRunState,
++    ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry,
++    DriftAdaptationSummary, DriftKind, DriftRecord, EvaluationListEntry, EvaluationRecord,
++    EvolutionRunRecord, EvolutionRunState,
+     ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord, ForgeProposalRecord,
+     GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord, GenomeRecord, InvariantRecord,
+     JobState, MetaBootstrapInterval, MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord,
+@@ -1898,7 +1899,7 @@ fn champion_human(champion: &ChampionRecord) -> String {
+ 
+ fn drift_human(drift: &DriftRecord) -> String {
+     format!(
+-        "drift={} world={} kind={:?} baseline={} shifted={} threshold_bps={} observed_delta_bps={} evidence={} event={} sequence={} hash={}",
++        "drift={} world={} kind={:?} baseline={} shifted={} threshold_bps={} observed_delta_bps={} evidence={} event={} sequence={} hash={} adaptation={}",
+         drift.payload.drift_id,
+         drift.payload.world_id,
+         drift.payload.kind,
+@@ -1910,9 +1911,23 @@ fn drift_human(drift: &DriftRecord) -> String {
+         drift.event.event_id,
+         drift.event.sequence,
+         drift.event.event_hash,
++        drift_adaptation_human(&drift.adaptation),
+     )
+ }
+ 
++fn drift_adaptation_human(adaptation: &DriftAdaptationSummary) -> String {
++    if let Some(reason) = adaptation.finish_reason {
++        return format!("finished({reason:?})");
++    }
++    if adaptation.started {
++        return match &adaptation.canary_stage {
++            Some(stage) => format!("in_progress(canary={stage:?})"),
++            None => "in_progress".to_owned(),
++        };
++    }
++    "none".to_owned()
++}
++
+ fn canary_transition_human(transition: &CanaryTransitionRecord) -> String {
+     format!(
+         "canary={} world={} kind={:?} stage={:?} candidate={} previous_champion={} event={} sequence={} hash={}",
+diff --git a/crates/hephaestus-control/src/drift.rs b/crates/hephaestus-control/src/drift.rs
+index 117e44d..4516a6a 100644
+--- a/crates/hephaestus-control/src/drift.rs
++++ b/crates/hephaestus-control/src/drift.rs
+@@ -8,9 +8,10 @@ use hephaestus_arena::verify_selection_event_in;
+ use hephaestus_genome::RegisteredObjects;
+ use hephaestus_ledger::{ArtifactStore, EventInput, StoredEvent};
+ 
++use super::adaptation::adaptation_summary;
+ use super::canary::{
+     CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
+-    RELIABILITY_REGRESSION_BPS, regression_deltas,
++    RELIABILITY_REGRESSION_BPS, canary_projection, regression_deltas,
+ };
+ use super::champion::champion_projection;
+ use super::{ControlError, ExecuteError, OPERATOR_ACTOR, hex_encode, validate_job_id};
+@@ -54,8 +55,17 @@ pub(super) fn decode_drift_record(event: &StoredEvent) -> Result<DriftRecordPayl
+     Ok(payload)
+ }
+ 
+-pub(super) fn drift_record(payload: DriftRecordPayload, event: &StoredEvent) -> DriftRecord {
+-    DriftRecord {
++/// Builds the operator-visible drift record, including its automatic
++/// adaptation status (roadmap item 12) reconstructed from `history`.
++pub(super) fn drift_record(
++    history: &[StoredEvent],
++    payload: DriftRecordPayload,
++    event: &StoredEvent,
++) -> Result<DriftRecord, ControlError> {
++    let canary_id = super::adaptation::adaptation_canary_id(&payload.drift_id);
++    let canary_stage = canary_projection(history, &canary_id)?.map(|canary| canary.stage);
++    let adaptation = adaptation_summary(history, &payload.drift_id, canary_stage)?;
++    Ok(DriftRecord {
+         payload,
+         event: DriftEventRecord {
+             sequence: event.sequence,
+@@ -63,7 +73,8 @@ pub(super) fn drift_record(payload: DriftRecordPayload, event: &StoredEvent) ->
+             aggregate_id: event.aggregate_id.clone(),
+             event_hash: hex_encode(&event.hash),
+         },
+-    }
++        adaptation,
++    })
+ }
+ 
+ pub(super) fn drift_projection(
+@@ -76,7 +87,7 @@ pub(super) fn drift_projection(
+     {
+         let payload = decode_drift_record(event)?;
+         if payload.drift_id == drift_id {
+-            return Ok(Some(drift_record(payload, event)));
++            return Ok(Some(drift_record(history, payload, event)?));
+         }
+     }
+     Ok(None)
+@@ -97,7 +108,7 @@ pub(super) fn drift_list(
+             break;
+         }
+         let payload = decode_drift_record(event)?;
+-        drifts.push(drift_record(payload, event));
++        drifts.push(drift_record(history, payload, event)?);
+     }
+     Ok(drifts)
+ }
+@@ -122,7 +133,9 @@ pub(super) fn existing_drift_record(
+             "drift_id is already bound to different drift content".to_owned(),
+         ));
+     }
+-    Ok(Some(drift_record(payload, event)))
++    Ok(Some(
++        drift_record(history, payload, event).map_err(|_| ExecuteError::Internal)?,
++    ))
+ }
+ 
+ /// Derives the only payload the policy admits for this drift request.
+diff --git a/crates/hephaestus-control/src/lib.rs b/crates/hephaestus-control/src/lib.rs
+index db04902..823cf9b 100644
+--- a/crates/hephaestus-control/src/lib.rs
++++ b/crates/hephaestus-control/src/lib.rs
+@@ -13,8 +13,10 @@ pub use protocol::{
+     CanaryEventRecord, CanaryEvidence, CanaryRecord, CanaryStage, CanaryTransitionKind,
+     CanaryTransitionPayload, CanaryTransitionRecord, ChampionEventRecord,
+     ChampionPromotionEvidence, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
+-    ChampionTransitionRecord, Command, DenialEntry, DenialKind, DriftEventRecord, DriftKind,
+-    DriftRecord, DriftRecordPayload, EvaluationEventRecord, EvaluationForgeSummary,
++    ChampionTransitionRecord, Command, DenialEntry, DenialKind, DriftAdaptationEventRecord,
++    DriftAdaptationFinishReason, DriftAdaptationFinishedPayload, DriftAdaptationStartedPayload,
++    DriftAdaptationSummary, DriftEventRecord, DriftKind, DriftRecord, DriftRecordPayload,
++    EvaluationEventRecord, EvaluationForgeSummary,
+     EvaluationInvariantSummary, EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary,
+     EvolutionCancelPayload, EvolutionEventRecord, EvolutionFinishReason, EvolutionFinishedPayload,
+     EvolutionGenerationPayload, EvolutionGenerationRecord, EvolutionRunRecord, EvolutionRunState,
+diff --git a/crates/hephaestus-control/src/protocol.rs b/crates/hephaestus-control/src/protocol.rs
+index 7e0e5b6..3d37864 100644
+--- a/crates/hephaestus-control/src/protocol.rs
++++ b/crates/hephaestus-control/src/protocol.rs
+@@ -1428,6 +1428,121 @@ pub struct DriftRecord {
+     pub payload: DriftRecordPayload,
+     /// Canonical event metadata.
+     pub event: DriftEventRecord,
++    /// Automatic drift-to-canary adaptation status, if any (roadmap item 12).
++    pub adaptation: DriftAdaptationSummary,
++}
++
++/// Why an automatic drift-to-canary adaptation (roadmap item 12) stopped.
++#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
++#[serde(rename_all = "snake_case")]
++pub enum DriftAdaptationFinishReason {
++    /// The Forge mutation catalog offered no supported mutation for the Champion.
++    NoCandidateMutation,
++    /// The staged canary aborted on a regression at one of its stages.
++    CanaryAborted,
++    /// The staged canary reached 100% and promoted its child Genome.
++    Promoted,
++    /// An unexpected failure interrupted the pipeline; a later reconciliation
++    /// tick or daemon restart may retry from the same durable state.
++    Interrupted,
++}
++
++/// Canonical payload of the one `drift.adaptation_started` event for a drift
++/// (roadmap item 12). Recorded once, by the daemon's own reconciliation loop,
++/// the first time a World whose Law opted in observes an unadapted drift.
++#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
++#[serde(deny_unknown_fields)]
++pub struct DriftAdaptationStartedPayload {
++    /// Started payload schema.
++    pub schema_version: u16,
++    /// The triggering drift's idempotency key.
++    pub drift_id: String,
++    /// World the drift (and this adaptation) runs under.
++    pub world_id: String,
++    /// Exact triggering `drift.recorded` event identity.
++    pub drift_event_id: String,
++    /// Hash of the exact triggering drift event.
++    pub drift_event_hash: String,
++    /// The World's Champion at the moment this adaptation started.
++    pub champion_genome_id: String,
++    /// Deterministic Forge proposal identity this adaptation will use.
++    pub proposal_id: String,
++}
++
++/// Canonical payload of the one `drift.adaptation_finished` event for a drift
++/// (roadmap item 12). Cross-references the durable arena/selection/forge/canary
++/// events the pipeline already produced rather than repeating their content.
++#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
++#[serde(deny_unknown_fields)]
++pub struct DriftAdaptationFinishedPayload {
++    /// Finished payload schema.
++    pub schema_version: u16,
++    /// The triggering drift's idempotency key.
++    pub drift_id: String,
++    /// World the drift (and this adaptation) runs under.
++    pub world_id: String,
++    /// Why the adaptation stopped.
++    pub reason: DriftAdaptationFinishReason,
++    /// Forge proposal identity, present unless the catalog offered no mutation.
++    pub proposal_id: Option<String>,
++    /// Proposed child Genome identity, present unless the catalog offered no mutation.
++    pub child_genome_id: Option<String>,
++    /// Shadow evaluation identity (Champion vs. child), present once submitted.
++    pub shadow_evaluation_id: Option<String>,
++    /// Forge assessment identity binding the shadow evaluation, present once assessed.
++    pub assessment_id: Option<String>,
++    /// Canary identity this adaptation drove, present once started.
++    pub canary_id: Option<String>,
++    /// The canary's stage when this adaptation finished.
++    pub final_canary_stage: Option<CanaryStage>,
++    /// Champion promotion transition identity, present only for `Promoted`.
++    pub promotion_transition_id: Option<String>,
++}
++
++/// Payload-free canonical ledger metadata for one `drift.adaptation_*` event.
++#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
++#[serde(deny_unknown_fields)]
++pub struct DriftAdaptationEventRecord {
++    /// Canonical global ledger sequence.
++    pub sequence: u64,
++    /// Deterministic idempotent event identity.
++    pub event_id: String,
++    /// Per-drift adaptation aggregate identity.
++    pub aggregate_id: String,
++    /// Event-chain hash.
++    pub event_hash: String,
++}
++
++/// Operator-visible summary of one drift's automatic adaptation, reconstructed
++/// from verified history. Absent (`started: false`) means the World's Law did
++/// not opt in, or the reconciliation loop has not reached this drift yet.
++#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
++#[serde(deny_unknown_fields)]
++pub struct DriftAdaptationSummary {
++    /// Whether a `drift.adaptation_started` event exists for this drift.
++    pub started: bool,
++    /// The started event's metadata, when `started`.
++    pub started_event: Option<DriftAdaptationEventRecord>,
++    /// The World's Champion when the adaptation started.
++    pub champion_genome_id: Option<String>,
++    /// Forge proposal identity this adaptation uses.
++    pub proposal_id: Option<String>,
++    /// Proposed child Genome identity, once the proposal exists.
++    pub child_genome_id: Option<String>,
++    /// Shadow evaluation identity, once submitted.
++    pub shadow_evaluation_id: Option<String>,
++    /// Forge assessment identity, once assessed.
++    pub assessment_id: Option<String>,
++    /// Canary identity this adaptation drives, once started.
++    pub canary_id: Option<String>,
++    /// The driven canary's current stage, once started.
++    pub canary_stage: Option<CanaryStage>,
++    /// Whether a `drift.adaptation_finished` event exists for this drift.
++    pub finished: bool,
++    /// The finished event's metadata, when `finished`.
++    pub finished_event: Option<DriftAdaptationEventRecord>,
++    /// Why the adaptation stopped, when `finished`.
++    pub finish_reason: Option<DriftAdaptationFinishReason>,
+ }
+ 
+ /// Staged rollout progress of one canary.
+diff --git a/crates/hephaestus-control/src/server.rs b/crates/hephaestus-control/src/server.rs
+index 3438099..53ccee5 100644
+--- a/crates/hephaestus-control/src/server.rs
++++ b/crates/hephaestus-control/src/server.rs
+@@ -57,8 +57,10 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
+ use crate::protocol::{ArenaJobPhase, ArenaJobProgress};
+ use crate::{
+     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind,
+-    ChampionTransitionPayload, Command, ControlError, DenialEntry, DenialKind, DriftKind,
+-    EvaluationEventRecord, EvaluationForgeSummary, EvaluationInvariantSummary, EvaluationListEntry,
++    ChampionTransitionPayload, Command, ControlError, DenialEntry, DenialKind,
++    DriftAdaptationFinishReason, DriftAdaptationFinishedPayload, DriftAdaptationStartedPayload,
++    DriftKind, EvaluationEventRecord, EvaluationForgeSummary, EvaluationInvariantSummary,
++    EvaluationListEntry,
+     EvaluationRecord, EvaluationSelectionSummary, EvolutionCancelPayload, EvolutionFinishReason,
+     EvolutionFinishedPayload, EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState,
+     EvolutionStartedPayload, EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord,
+@@ -740,6 +742,7 @@ impl ControlPlane {
+         verify_meta_evolution_history(&history)?;
+         verify_drift_history(&artifacts, &history, &registered)?;
+         verify_canary_history(&artifacts, &history, &registered)?;
++        verify_drift_adaptation_history(&history)?;
+         let has_run_results = history
+             .iter()
+             .any(|event| event.event_type == "run.result_recorded");
+@@ -1312,11 +1315,18 @@ impl ControlPlane {
+             )?)
+             .map_err(|_| ExecuteError::Internal)?;
+         self.refresh_projection()?;
++        let history = self
++            .storage
++            .as_ref()
++            .ok_or(ExecuteError::Internal)?
++            .ledger
++            .replay_verified()
++            .map_err(|_| ExecuteError::Internal)?;
+         Ok(ResponseData::Drift {
+             drift: Box::new(
+                 drift::decode_drift_record(&event)
+                     .ok()
+-                    .map(|decoded| drift::drift_record(decoded, &event))
++                    .and_then(|decoded| drift::drift_record(&history, decoded, &event).ok())
+                     .ok_or(ExecuteError::Internal)?,
+             ),
+         })
+@@ -2615,6 +2625,433 @@ impl ControlPlane {
+         self.refresh_projection()
+     }
+ 
++    /// Drives the automatic drift-to-canary adaptation pipeline (roadmap
++    /// item 12) forward by exactly one step, resuming from durable history
++    /// on every tick or restart, exactly like `advance_evolution`. Never
++    /// called from a client connection. A World only ever contributes a
++    /// drift here when its Law `auto_canary_on_drift` opted in.
++    fn advance_drift_adaptations(&mut self) {
++        if self.active_job.is_some() || self.active_arena_job.is_some() {
++            return;
++        }
++        let Some(storage) = self.storage.as_ref() else {
++            return;
++        };
++        let Ok(history) = storage.ledger.replay_verified() else {
++            return;
++        };
++        let Some(drift_id) = Self::next_drift_needing_adaptation(&history, &self.state.registered)
++        else {
++            return;
++        };
++        // Freeze halts advancement; it never clears an in-flight adaptation,
++        // exactly like `evolve` and canary staged advancement.
++        if self.state.freeze.is_frozen() {
++            return;
++        }
++        match self.advance_one_drift_adaptation(&drift_id) {
++            Ok(()) | Err(ExecuteError::Busy) => {}
++            Err(error) => {
++                eprintln!("DEBUG advance_one_drift_adaptation error: {error:?}");
++                let _ = self.finish_drift_adaptation(
++                    &drift_id,
++                    DriftAdaptationFinishReason::Interrupted,
++                    None,
++                );
++            }
++        }
++    }
++
++    /// The oldest `drift.recorded` event, in a World whose Law opted in, that
++    /// has no `drift.adaptation_finished` event yet (whether or not it has
++    /// started: an in-progress adaptation is picked again so it keeps moving).
++    fn next_drift_needing_adaptation(
++        history: &[StoredEvent],
++        registered: &RegisteredObjects,
++    ) -> Option<String> {
++        let mut finished: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
++        for event in history {
++            if event.event_type == adaptation::DRIFT_ADAPTATION_FINISHED_TYPE {
++                if let Ok(payload) = adaptation::decode_finished(event) {
++                    finished.insert(payload.drift_id);
++                }
++            }
++        }
++        for event in history {
++            if event.event_type != DRIFT_EVENT_TYPE {
++                continue;
++            }
++            let Ok(payload) = decode_drift_record(event) else {
++                continue;
++            };
++            if finished.contains(&payload.drift_id) {
++                continue;
++            }
++            let Some(world) = registered.world(&payload.world_id) else {
++                continue;
++            };
++            if world.compiled().evaluation_policy().auto_canary_on_drift() {
++                return Some(payload.drift_id);
++            }
++        }
++        None
++    }
++
++    /// Chooses the mutation Forge proposes for a drift-triggered adaptation
++    /// of the Champion. Exists as its own function so a later Forge mutation
++    /// catalog (selecting a mutation from failure clusters and the World's
++    /// mutation scope) can be substituted here without changing the
++    /// adaptation pipeline's control flow; today it is the same
++    /// identity/ascii_uppercase flip every other proposal path (`evolve`,
++    /// direct `genome propose`) performs. Read-only: never mutates anything.
++    fn choose_adaptation_mutation(
++        &self,
++        champion_genome_id: &str,
++        world_id: &str,
++    ) -> Result<bool, ExecuteError> {
++        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
++        match forge_prompt_mutation(
++            &storage.artifacts,
++            &self.state.registered,
++            champion_genome_id,
++            world_id,
++        ) {
++            Ok(_) => Ok(true),
++            Err(ExecuteError::Rejected(_) | ExecuteError::NotFound) => Ok(false),
++            Err(other) => Err(other),
++        }
++    }
++
++    /// Advances one drift's adaptation by exactly one durable step: submits
++    /// at most one fresh Arena job (returning `Ok(())` to wait for its
++    /// completion on a later tick), or appends at most one new event. Every
++    /// gate re-derives from `history`, so a daemon restart mid-pipeline
++    /// resumes idempotently.
++    #[allow(clippy::too_many_lines)]
++    fn advance_one_drift_adaptation(&mut self, drift_id: &str) -> Result<(), ExecuteError> {
++        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
++        let history = storage
++            .ledger
++            .replay_verified()
++            .map_err(|_| ExecuteError::Internal)?;
++        verify_drift_adaptation_history(&history).map_err(|_| ExecuteError::Internal)?;
++
++        let drift = drift::drift_projection(&history, drift_id)
++            .map_err(|_| ExecuteError::Internal)?
++            .ok_or(ExecuteError::Internal)?;
++        let projection =
++            adaptation_projection(&history, drift_id).map_err(|_| ExecuteError::Internal)?;
++
++        let Some(started) = projection.started.clone() else {
++            let champion = champion_projection(&history, &drift.payload.world_id)
++                .map_err(|_| ExecuteError::Internal)?;
++            let champion_genome_id = champion.champion_genome_id.ok_or(ExecuteError::Internal)?;
++            let payload = DriftAdaptationStartedPayload {
++                schema_version: 1,
++                drift_id: drift_id.to_owned(),
++                world_id: drift.payload.world_id.clone(),
++                drift_event_id: drift.event.event_id.clone(),
++                drift_event_hash: drift.event.event_hash.clone(),
++                champion_genome_id,
++                proposal_id: adaptation_proposal_id(drift_id),
++            };
++            let timestamp = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
++            let event = started_event_input(&payload, timestamp)?;
++            self.storage
++                .as_mut()
++                .ok_or(ExecuteError::Internal)?
++                .ledger
++                .append(event)
++                .map_err(|_| ExecuteError::Internal)?;
++            return self.refresh_projection();
++        };
++
++        if projection.finished.is_some() {
++            return Ok(());
++        }
++        eprintln!("DEBUG step: choose_mutation champion={}", started.champion_genome_id);
++
++        if !self.choose_adaptation_mutation(&started.champion_genome_id, &started.world_id)? {
++            return self.finish_drift_adaptation(
++                drift_id,
++                DriftAdaptationFinishReason::NoCandidateMutation,
++                None,
++            );
++        }
++
++        // Diagnostic evaluation: establishes the Champion as the verified
++        // selected candidate `propose_genome_from_source` requires, exactly
++        // the role `evolve`'s own diagnostic evaluation plays. Paired
++        // against this drift's own shifted Genome so nothing new needs
++        // registering.
++        eprintln!("DEBUG step: diagnostic");
++        let diagnostic_id = adaptation_diagnostic_evaluation_id(drift_id);
++        let selection_event_id = match self
++            .state
++            .arena_jobs
++            .get(&diagnostic_id)
++            .and_then(|job| job.terminal)
++        {
++            None => {
++                self.submit_arena_job(
++                    &diagnostic_id,
++                    &drift.payload.shifted_genome_id,
++                    &started.champion_genome_id,
++                )?;
++                return Ok(());
++            }
++            Some(JobTerminal::Succeeded) => {
++                let ResponseData::Selection { selection } =
++                    self.select_arena_evaluation(&diagnostic_id)?
++                else {
++                    return Err(ExecuteError::Internal);
++                };
++                selection.event.event_id.clone()
++            }
++            Some(_) => {
++                return Err(ExecuteError::Rejected(
++                    "diagnostic evaluation did not succeed".to_owned(),
++                ));
++            }
++        };
++        eprintln!("DEBUG step: propose");
++
++        // Forge proposal of the current Champion (the chosen adaptation
++        // branch), through the ordinary catalog.
++        let proposal_event = history
++            .iter()
++            .find(|event| event.event_id == forge_event_id(&started.proposal_id));
++        let child_genome_id = if let Some(event) = proposal_event {
++            decode_forge_proposal(event)
++                .map_err(|_| ExecuteError::Internal)?
++                .child
++                .genome_id
++        } else {
++            let hypothesis = format!(
++                "Drift adaptation for drift {drift_id} ({:?}): flip the reference operation of \
++                 Champion {} to address the recorded drift.",
++                drift.payload.kind, started.champion_genome_id
++            );
++            let ResponseData::ForgeProposal { proposal } = self.propose_genome_from_source(
++                &started.proposal_id,
++                &selection_event_id,
++                &started.champion_genome_id,
++                ForgeHypothesisSource::Operator(hypothesis),
++            )?
++            else {
++                return Err(ExecuteError::Internal);
++            };
++            proposal.payload.child.genome_id.clone()
++        };
++        eprintln!("DEBUG step: shadow child={child_genome_id}");
++
++        // Shadow evaluation: Champion versus the proposed child. This is the
++        // canary's shadow evaluation, exactly like a direct `canary start`.
++        let shadow_id = adaptation_shadow_evaluation_id(drift_id);
++        let shadow_selection_event_id = match self
++            .state
++            .arena_jobs
++            .get(&shadow_id)
++            .and_then(|job| job.terminal)
++        {
++            None => {
++                self.submit_arena_job(&shadow_id, &started.champion_genome_id, &child_genome_id)?;
++                return Ok(());
++            }
++            Some(JobTerminal::Succeeded) => {
++                let ResponseData::Selection { selection } =
++                    self.select_arena_evaluation(&shadow_id)?
++                else {
++                    return Err(ExecuteError::Internal);
++                };
++                self.check_arena_invariants(&shadow_id)?;
++                selection.event.event_id.clone()
++            }
++            Some(_) => {
++                return Err(ExecuteError::Rejected(
++                    "shadow evaluation did not succeed".to_owned(),
++                ));
++            }
++        };
++
++        eprintln!("DEBUG step: assess");
++        // Evidence-only Forge assessment; its outcome does not gate whether
++        // the canary starts, exactly like a direct `canary start`.
++        let assessment_id = adaptation_assessment_id(drift_id);
++        let assessment_exists = history
++            .iter()
++            .any(|event| event.event_id == forge_assessment_event_id(&assessment_id));
++        if !assessment_exists {
++            self.assess_genome(&assessment_id, &started.proposal_id, &shadow_selection_event_id)?;
++            return Ok(());
++        }
++
++        eprintln!("DEBUG step: canary");
++        // Start (or resume) the canary through the existing transition
++        // policy; never reimplemented here.
++        let canary_id = adaptation_canary_id(drift_id);
++        let canary = canary::canary_projection(&history, &canary_id)
++            .map_err(|_| ExecuteError::Internal)?;
++        let Some(canary) = canary else {
++            self.transition_canary(
++                &canary_id,
++                &CanaryRequest::Start {
++                    world_id: started.world_id.clone(),
++                    candidate_genome_id: child_genome_id.clone(),
++                    assessment_id: assessment_id.clone(),
++                },
++            )?;
++            return Ok(());
++        };
++
++        match canary.stage {
++            CanaryStage::Aborted => {
++                return self.finish_drift_adaptation(
++                    drift_id,
++                    DriftAdaptationFinishReason::CanaryAborted,
++                    Some(&canary_id),
++                );
++            }
++            CanaryStage::Completed => {
++                return self.finish_drift_adaptation(
++                    drift_id,
++                    DriftAdaptationFinishReason::Promoted,
++                    Some(&canary_id),
++                );
++            }
++            CanaryStage::Pending | CanaryStage::Stage5 | CanaryStage::Stage25 | CanaryStage::Stage50 => {}
++        }
++
++        // One fresh paired evaluation per staged advance, mirroring exactly
++        // what a direct `canary advance` needs as its evidence.
++        let stage_index = u32::try_from(
++            canary
++                .transitions
++                .iter()
++                .filter(|transition| {
++                    matches!(
++                        transition.payload.kind,
++                        CanaryTransitionKind::Advanced | CanaryTransitionKind::Aborted
++                    )
++                })
++                .count(),
++        )
++        .map_err(|_| ExecuteError::Internal)?;
++        let stage_eval_id = adaptation_stage_evaluation_id(drift_id, stage_index);
++        match self
++            .state
++            .arena_jobs
++            .get(&stage_eval_id)
++            .and_then(|job| job.terminal)
++        {
++            None => {
++                self.submit_arena_job(&stage_eval_id, &started.champion_genome_id, &child_genome_id)?;
++                Ok(())
++            }
++            Some(JobTerminal::Succeeded) => {
++                let ResponseData::Selection { selection } =
++                    self.select_arena_evaluation(&stage_eval_id)?
++                else {
++                    return Err(ExecuteError::Internal);
++                };
++                eprintln!(
++                    "DEBUG stage {stage_index} receipt: parent_lat={} candidate_lat={} parent_cost={} candidate_cost={} parent_correct={} candidate_correct={}",
++                    selection.receipt.parent_latency_millis(),
++                    selection.receipt.candidate_latency_millis(),
++                    selection.receipt.parent_cost_microusd(),
++                    selection.receipt.candidate_cost_microusd(),
++                    selection.receipt.parent_correctness_bps(),
++                    selection.receipt.candidate_correctness_bps(),
++                );
++                let response = self.transition_canary(
++                    &canary_id,
++                    &CanaryRequest::Advance {
++                        evidence_evaluation_id: stage_eval_id.clone(),
++                    },
++                )?;
++                if let ResponseData::CanaryTransition { transition } = &response {
++                    eprintln!(
++                        "DEBUG stage {stage_index} transition: kind={:?} stage={:?} reason={:?}",
++                        transition.payload.kind, transition.payload.stage, transition.payload.reason
++                    );
++                }
++                Ok(())
++            }
++            Some(_) => Err(ExecuteError::Rejected(
++                "stage evaluation did not succeed".to_owned(),
++            )),
++        }
++    }
++
++    /// Appends the terminal `drift.adaptation_finished` event for one drift,
++    /// cross-referencing whichever durable arena/selection/forge/canary
++    /// events this adaptation already produced.
++    fn finish_drift_adaptation(
++        &mut self,
++        drift_id: &str,
++        reason: DriftAdaptationFinishReason,
++        canary_id: Option<&str>,
++    ) -> Result<(), ExecuteError> {
++        let history = self
++            .storage
++            .as_ref()
++            .ok_or(ExecuteError::Internal)?
++            .ledger
++            .replay_verified()
++            .map_err(|_| ExecuteError::Internal)?;
++        let projection =
++            adaptation_projection(&history, drift_id).map_err(|_| ExecuteError::Internal)?;
++        let started = projection.started.ok_or(ExecuteError::Internal)?;
++
++        let has_proposal = reason != DriftAdaptationFinishReason::NoCandidateMutation;
++        let child_genome_id = if has_proposal {
++            history
++                .iter()
++                .find(|event| event.event_id == forge_event_id(&started.proposal_id))
++                .and_then(|event| decode_forge_proposal(event).ok())
++                .map(|proposal| proposal.child.genome_id)
++        } else {
++            None
++        };
++        let shadow_evaluation_id = has_proposal.then(|| adaptation_shadow_evaluation_id(drift_id));
++        let assessment_id = has_proposal.then(|| adaptation_assessment_id(drift_id));
++
++        let (final_canary_stage, promotion_transition_id) = match canary_id {
++            Some(canary_id) => {
++                let canary = canary::canary_projection(&history, canary_id)
++                    .map_err(|_| ExecuteError::Internal)?
++                    .ok_or(ExecuteError::Internal)?;
++                let promotion_transition_id = (reason == DriftAdaptationFinishReason::Promoted)
++                    .then(|| canary::canary_id_promotion_transition_id(canary_id));
++                (Some(canary.stage), promotion_transition_id)
++            }
++            None => (None, None),
++        };
++
++        let payload = DriftAdaptationFinishedPayload {
++            schema_version: 1,
++            drift_id: drift_id.to_owned(),
++            world_id: started.world_id.clone(),
++            reason,
++            proposal_id: has_proposal.then(|| started.proposal_id.clone()),
++            child_genome_id,
++            shadow_evaluation_id,
++            assessment_id,
++            canary_id: canary_id.map(str::to_owned),
++            final_canary_stage,
++            promotion_transition_id,
++        };
++        let timestamp = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
++        let event = finished_event_input(&payload, timestamp)?;
++        self.storage
++            .as_mut()
++            .ok_or(ExecuteError::Internal)?
++            .ledger
++            .append(event)
++            .map_err(|_| ExecuteError::Internal)?;
++        self.refresh_projection()
++    }
++
+     /// Recent direct runs and jobs, newest first, derived from `state.jobs` and verified
+     /// `run.result_recorded` history. Bounded and read-only; never storage-taking.
+     fn run_list(&self, limit: u32) -> Result<ResponseData, ExecuteError> {
+@@ -3851,6 +4288,7 @@ impl ControlPlane {
+         }
+         self.service_arena_message()?;
+         self.advance_evolution();
++        self.advance_drift_adaptations();
+         Ok(())
+     }
+ 
+@@ -4360,6 +4798,7 @@ impl ControlPlane {
+             .map_err(|_| ExecuteError::Internal)?;
+         verify_canary_history(&storage.artifacts, &history, &registered)
+             .map_err(|_| ExecuteError::Internal)?;
++        verify_drift_adaptation_history(&history).map_err(|_| ExecuteError::Internal)?;
+         verify_gene_bank_history(&storage.artifacts, &history, &registered)
+             .map_err(|_| ExecuteError::Internal)?;
+         let replayed = ControlState::from_events(
+@@ -5977,85 +6416,89 @@ impl ControlPlane {
+         let history = storage
+             .ledger
+             .replay_verified()
+-            .map_err(|_| ExecuteError::Internal)?;
++            .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
+-            .map_err(|_| ExecuteError::Internal)?;
++            .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_selection_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_forge_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_forge_assessment_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_invariant_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_cluster_history(&storage.artifacts, &history, &registered)
+-            .map_err(|_| ExecuteError::Internal)?;
++            .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_champion_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_gene_bank_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
+-        verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
+-        verify_meta_evolution_history(&history).map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
++        verify_evolution_history(&history, &registered).map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
++        verify_meta_evolution_history(&history).map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_drift_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_canary_history_with(
+             &storage.artifacts,
+             &history,
+             &registered,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
++        if let Err(error) = verify_drift_adaptation_history(&history) {
++            eprintln!("DEBUG verify_drift_adaptation_history error in refresh_projection: {error:?}");
++            return Err(ExecuteError::Internal);
++        }
+         let state = ControlState::from_events(
+             &history,
+             registered,
+             &self.operator_token,
+             &self.run_result_verifier,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         ControlState::verify_artifacts(&history, &storage.artifacts, &self.run_result_verifier)
+-            .map_err(|_| ExecuteError::Internal)?;
++            .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         verify_arena_evaluation_records_with(
+             &storage.artifacts,
+             &history,
+             &state,
+             &mut self.evidence_cache,
+         )
+-        .map_err(|_| ExecuteError::Internal)?;
++        .map_err(|error| { eprintln!("DEBUG refresh_projection step failed: {error:?}"); ExecuteError::Internal })?;
+         self.state = state;
+         Ok(())
+     }
+@@ -10044,8 +10487,8 @@ use meta_evolve::{
+ mod drift;
+ 
+ use drift::{
+-    drift_event_input, drift_record_payload, existing_drift_record, verify_drift_history,
+-    verify_drift_history_with,
++    DRIFT_EVENT_TYPE, decode_drift_record, drift_event_input, drift_record_payload,
++    existing_drift_record, verify_drift_history, verify_drift_history_with,
+ };
+ 
+ #[path = "canary.rs"]
+@@ -10055,3 +10498,13 @@ use canary::{
+     CanaryRequest, canary_transition_payload, existing_canary_transition, verify_canary_history,
+     verify_canary_history_with,
+ };
++
++#[path = "adaptation.rs"]
++mod adaptation;
++
++use adaptation::{
++    adaptation_assessment_id, adaptation_canary_id, adaptation_diagnostic_evaluation_id,
++    adaptation_proposal_id, adaptation_projection, adaptation_shadow_evaluation_id,
++    adaptation_stage_evaluation_id, finished_event_input, started_event_input,
++    verify_drift_adaptation_history,
++};
+diff --git a/crates/hephaestus-control/src/server_tests.rs b/crates/hephaestus-control/src/server_tests.rs
+index a2670eb..4cbcb92 100644
+--- a/crates/hephaestus-control/src/server_tests.rs
++++ b/crates/hephaestus-control/src/server_tests.rs
+@@ -14,9 +14,9 @@ use super::*;
+ use crate::{
+     ApiError, CanaryRecord, CanaryStage, CanaryTransitionKind, CanaryTransitionPayload,
+     CanaryTransitionRecord, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
+-    ChampionTransitionRecord, DriftKind, DriftRecord, DriftRecordPayload, GeneExtractedPayload,
+-    GeneRecord, GeneTransferAppliedPayload, GeneTransferOutcome, GeneTransferRecordedPayload,
+-    MetaLineageSpec,
++    ChampionTransitionRecord, DriftAdaptationFinishReason, DriftKind, DriftRecord,
++    DriftRecordPayload, GeneExtractedPayload, GeneRecord, GeneTransferAppliedPayload,
++    GeneTransferOutcome, GeneTransferRecordedPayload, MetaLineageSpec,
+ };
+ 
+ #[test]
+@@ -15152,3 +15152,800 @@ fn projection_refresh_rejects_a_ledger_row_tampered_after_a_prior_successful_ref
+         "an event whose ledger bytes changed after a prior successful refresh must fail the next refresh"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// Automatic drift-to-canary adaptation (roadmap item 12).
++// ---------------------------------------------------------------------------
++
++/// Like `real_worker_arena_fixture_with_invariants`, but the registered World
++/// opts in to `laws.auto_canary_on_drift`, and both registered Genomes start
++/// on the `identity` reference operation against these uppercase-expecting
++/// tasks: exactly the misconfiguration `register_meta_lineage` uses for the
++/// Evolver's own recursive tests, so a Champion seeded on either one is
++/// genuinely fixed (not fabricated) by the Forge catalog's one supported
++/// mutation, the flip to `ascii_uppercase`.
++fn auto_canary_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord, GenomeRecord) {
++    let data_dir = directory.path().join("data");
++    let repository = directory.path().join("repository");
++    fs::create_dir_all(&repository).expect("create source repository");
++    fixture_git(&repository, &["init", "-q"]);
++    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
++    fixture_git(
++        &repository,
++        &["config", "user.email", "hephaestus@example.invalid"],
++    );
++    fs::write(repository.join("fixture.txt"), b"Arena evidence fixture\n")
++        .expect("write source fixture");
++    fixture_git(&repository, &["add", "."]);
++    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
++
++    let bin_directory = env::current_exe()
++        .expect("test executable")
++        .parent()
++        .and_then(Path::parent)
++        .expect("Cargo binary directory")
++        .to_owned();
++    let cargo_evaluator = bin_directory.join(format!(
++        "hephaestus-reference-evaluator{}",
++        std::env::consts::EXE_SUFFIX
++    ));
++    let evaluator = directory.path().join("fixture-evaluator");
++    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
++    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
++        .expect("make evaluator executable");
++    let worker = bin_directory.join(format!(
++        "hephaestus-reference-worker{}",
++        std::env::consts::EXE_SUFFIX
++    ));
++    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
++        &data_dir,
++        &repository,
++        &evaluator,
++        &worker,
++    )
++    .expect("open auto-canary fixture");
++    let token = plane.token_hex.clone();
++
++    let artifacts =
++        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
++    // Many small tasks, not one: a single-task pairing's wall-clock latency
++    // is dominated by per-trial process-spawn scheduling noise (the shared,
++    // multi-agent machine this suite runs on), which can swing well past
++    // the fixed 20% regression threshold in either direction on one trial.
++    // Aggregating over enough trials averages that noise out so a genuinely
++    // unregressed pairing reads as healthy deterministically enough for an
++    // unattended, non-retrying reconciliation loop to act on, exactly as it
++    // would in production.
++    let auto_canary_tasks = |visibility_word: &str| -> Vec<hephaestus_arena::TrustedTask> {
++        (0..16)
++            .map(|index| {
++                hephaestus_arena::TrustedTask::new(
++                    format!("{visibility_word}-task-{index}"),
++                    visibility_word,
++                    visibility_word.to_uppercase(),
++                )
++                .expect("auto-canary task")
++            })
++            .collect()
++    };
++    let visible = TrustedManifest::new(
++        "auto-canary-visible",
++        Visibility::Visible,
++        auto_canary_tasks("visible"),
++    )
++    .expect("visible manifest");
++    let sealed = TrustedManifest::new(
++        "auto-canary-sealed",
++        Visibility::Sealed,
++        auto_canary_tasks("sealed"),
++    )
++    .expect("sealed manifest");
++    let visible_id = artifacts
++        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
++        .expect("store visible manifest");
++    let sealed_id = artifacts
++        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
++        .expect("store sealed manifest");
++    let evaluator_id = artifacts
++        .put(&fs::read(&evaluator).expect("read reference evaluator"))
++        .expect("store evaluator identity");
++    let verifier_id = artifacts
++        .put(&plane.run_result_verifier.public_key_bytes())
++        .expect("store result verifier");
++    let invariant_id = artifacts
++        .put(CLEAN_INVARIANTS)
++        .expect("store invariant manifest");
++    drop(artifacts);
++
++    let world_path = directory.path().join("auto-canary-world.json");
++    fs::write(
++        &world_path,
++        format!(
++            r#"{{"schema_version":1,"name":"auto-canary","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0,"auto_canary_on_drift":true}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
++            visible_id.as_str(),
++            sealed_id.as_str(),
++            evaluator_id.as_str(),
++            verifier_id.as_str(),
++            invariant_id.as_str(),
++        ),
++    )
++    .expect("write auto-canary World");
++    let Some(ResponseData::World { world }) = dispatch_call(
++        &mut plane,
++        &token,
++        "auto-canary-world",
++        Command::WorldRegister {
++            path: world_path.display().to_string(),
++        },
++    )
++    .data
++    else {
++        panic!("auto-canary World registration should succeed");
++    };
++    assert!(
++        plane
++            .state
++            .registered
++            .world(&world.world_id)
++            .expect("registered auto-canary World")
++            .compiled()
++            .evaluation_policy()
++            .auto_canary_on_drift(),
++        "the registered World must carry the opted-in Law"
++    );
++    let register_genome = |plane: &mut ControlPlane, token: &str, name: &str, parents: &str| {
++        let path = directory.path().join(format!("{name}.md"));
++        fs::write(
++            &path,
++            format!(
++                "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
++            ),
++        )
++        .expect("write Genome source");
++        let Some(ResponseData::Genome { genome }) = dispatch_call(
++            plane,
++            token,
++            name,
++            Command::GenomeRegister {
++                path: path.display().to_string(),
++                world_id: world.world_id.clone(),
++            },
++        )
++        .data
++        else {
++            panic!("auto-canary Genome registration should succeed");
++        };
++        genome
++    };
++    let parent = register_genome(&mut plane, &token, "auto-canary-parent", "[]");
++    let candidate = register_genome(
++        &mut plane,
++        &token,
++        "auto-canary-candidate",
++        &format!("[\"{}\"]", parent.genome_id),
++    );
++    assert!(
++        dispatch_call(&mut plane, &token, "auto-canary-unfreeze", Command::Unfreeze)
++            .error
++            .is_none()
++    );
++    (plane, parent, candidate)
++}
++
++/// Polls the reconciliation loop, the same way `evolve_drain_active_run`
++/// polls an evolution run, until the named drift's automatic adaptation
++/// reaches a terminal (`drift.adaptation_finished`) state.
++fn drain_drift_adaptation(plane: &mut ControlPlane, drift_id: &str) -> DriftRecord {
++    let deadline = Instant::now() + Duration::from_secs(180);
++    loop {
++        plane
++            .service_async_messages()
++            .expect("advance the drift adaptation reconciliation loop");
++        let history = plane
++            .storage
++            .as_ref()
++            .expect("open canonical storage")
++            .ledger
++            .replay_verified()
++            .expect("replay verified history");
++        if let Some(record) = super::drift::drift_projection(&history, drift_id)
++            .expect("drift adaptation projection")
++            && record.adaptation.finished
++        {
++            return record;
++        }
++        assert!(Instant::now() < deadline, "drift adaptation did not finish");
++        thread::sleep(Duration::from_millis(2));
++    }
++}
++
++fn drift_adaptation_show(plane: &ControlPlane, drift_id: &str) -> DriftRecord {
++    let history = plane
++        .storage
++        .as_ref()
++        .expect("open canonical storage")
++        .ledger
++        .replay_verified()
++        .expect("replay verified history");
++    super::drift::drift_projection(&history, drift_id)
++        .expect("drift adaptation projection")
++        .expect("drift record exists")
++}
++
++fn adaptation_history_with_payload_edit(
++    history: &[StoredEvent],
++    event_id: &str,
++    edit: impl FnOnce(&mut crate::DriftAdaptationFinishedPayload),
++) -> Vec<StoredEvent> {
++    let mut tampered = history.to_vec();
++    let event = tampered
++        .iter_mut()
++        .find(|event| event.event_id == event_id)
++        .expect("drift adaptation finished event exists");
++    let mut payload: crate::DriftAdaptationFinishedPayload =
++        serde_json::from_slice(&event.payload).expect("decode drift adaptation finished payload");
++    edit(&mut payload);
++    let canonical = serde_json::to_value(&payload).expect("canonicalize adaptation payload");
++    event.payload = serde_json::to_vec(&canonical).expect("encode adaptation payload");
++    tampered
++}
++
++#[test]
++#[allow(clippy::too_many_lines)]
++fn auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays() {
++    let directory = tempdir().expect("auto-canary fixture");
++    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
++    let token = plane.token_hex.clone();
++    let world_id = parent.world_id.clone();
++
++    // Seed the Champion misconfigured: `identity` against these
++    // uppercase-expecting tasks, exactly the World the Forge catalog's one
++    // supported mutation (flip to `ascii_uppercase`) genuinely fixes.
++    champion_transition(
++        &mut plane,
++        &token,
++        "seed",
++        Command::ChampionSeed {
++            transition_id: "seed".to_owned(),
++            world_id: world_id.clone(),
++            genome_id: candidate.genome_id.clone(),
++            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
++        },
++    )
++    .expect("seed Champion");
++
++    // A sibling derived from `parent` (not from the Champion, so it cannot
++    // collide with the child the automatic adaptation itself will later
++    // derive from the Champion): genuinely improved to `ascii_uppercase`,
++    // then genuinely, deterministically slowed (see
++    // `canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion`)
++    // so a fresh paired evaluation against the Champion measures a real
++    // latency drift without depending on the tasks' correctness at all
++    // (the misconfigured Champion is already at the correctness floor, so
++    // no sibling can measure as further regressed on that axis).
++    let sibling = assessed_forge_child(
++        &mut plane,
++        "trigger-improve",
++        &candidate.genome_id,
++        &parent.genome_id,
++        true,
++    );
++    hephaestus_runtime::set_test_reference_delay(sibling.child.clone(), 750);
++    let drift_evidence_id = "trigger-evidence";
++    complete_arena_test_job(
++        &mut plane,
++        drift_evidence_id,
++        &candidate.genome_id,
++        &sibling.child,
++    );
++    hephaestus_runtime::clear_test_reference_delay();
++    let ResponseData::Selection { selection } = plane
++        .select_arena_evaluation(drift_evidence_id)
++        .expect("select genuine latency drift evidence")
++    else {
++        panic!("selection should return its receipt");
++    };
++    assert!(
++        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
++        "the injected delay should make the sibling measurably slower"
++    );
++
++    let recorded = drift_record_cmd(
++        &mut plane,
++        &token,
++        "trigger-drift",
++        Command::DriftRecord {
++            drift_id: "trigger".to_owned(),
++            world_id: world_id.clone(),
++            kind: DriftKind::Latency,
++            evidence_evaluation_id: drift_evidence_id.to_owned(),
++        },
++    )
++    .expect("record a genuine latency drift against the misconfigured Champion");
++    assert!(!recorded.adaptation.started);
++
++    let finished = drain_drift_adaptation(&mut plane, "trigger");
++    assert!(finished.adaptation.finished);
++    assert_eq!(
++        finished.adaptation.finish_reason,
++        Some(DriftAdaptationFinishReason::Promoted)
++    );
++    assert_eq!(
++        finished.adaptation.canary_stage,
++        Some(CanaryStage::Completed)
++    );
++    let promoted_child = finished
++        .adaptation
++        .child_genome_id
++        .clone()
++        .expect("a promoted adaptation records its child Genome");
++    assert_ne!(
++        promoted_child, sibling.child,
++        "the adaptation must derive its own child from the Champion, not reuse the sibling"
++    );
++
++    let champion = champion_show(&mut plane, &token, &world_id);
++    assert_eq!(
++        champion.champion_genome_id.as_deref(),
++        Some(promoted_child.as_str()),
++        "the automatic adaptation should have promoted its own child to Champion"
++    );
++    assert_ne!(
++        champion.champion_genome_id.as_deref(),
++        Some(candidate.genome_id.as_str()),
++        "the promoted child must differ from the misconfigured Champion it corrected"
++    );
++
++    assert!(matches!(
++        plane
++            .replay_response()
++            .expect("replay after automatic promotion"),
++        ResponseData::Replay { .. }
++    ));
++}
++
++#[test]
++fn auto_canary_on_drift_never_fires_when_the_law_is_off() {
++    let directory = tempdir().expect("drift fixture without the Law");
++    let (mut plane, initial_parent, initial_candidate) =
++        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
++    let token = plane.token_hex.clone();
++
++    // The exact recipe `drift_record_derives_from_verified_evidence_and_replays`
++    // uses for a genuine correctness drift, under a World that never opted
++    // in to `laws.auto_canary_on_drift`.
++    let improved = assessed_forge_child(
++        &mut plane,
++        "no-law-improve",
++        &initial_parent.genome_id,
++        &initial_candidate.genome_id,
++        true,
++    );
++    let world_id = improved.world.clone();
++    champion_transition(
++        &mut plane,
++        &token,
++        "seed",
++        Command::ChampionSeed {
++            transition_id: "seed".to_owned(),
++            world_id: world_id.clone(),
++            genome_id: improved.child.clone(),
++            reason: "Bootstrap the reference lineage.".to_owned(),
++        },
++    )
++    .expect("seed Champion");
++    let regressed = assessed_forge_child(
++        &mut plane,
++        "no-law-regress",
++        &initial_parent.genome_id,
++        &improved.child,
++        false,
++    );
++    let recorded = drift_record_cmd(
++        &mut plane,
++        &token,
++        "no-law-drift",
++        Command::DriftRecord {
++            drift_id: "no-law-drift".to_owned(),
++            world_id: world_id.clone(),
++            kind: DriftKind::Correctness,
++            evidence_evaluation_id: regressed.evaluation.clone(),
++        },
++    )
++    .expect("record a genuine correctness drift");
++    assert!(!recorded.adaptation.started);
++
++    for tick in 0..20 {
++        plane
++            .service_async_messages()
++            .expect("service ticks with no opted-in World must stay quiet");
++        let shown = drift_adaptation_show(&plane, "no-law-drift");
++        assert!(
++            !shown.adaptation.started,
++            "tick {tick}: an adaptation must never start without the Law"
++        );
++    }
++    assert!(matches!(
++        plane
++            .replay_response()
++            .expect("replay with an unadopted drift"),
++        ResponseData::Replay { .. }
++    ));
++}
++
++#[test]
++#[allow(clippy::too_many_lines)]
++fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched()
++ {
++    let directory = tempdir().expect("auto-canary abort fixture");
++    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
++    let token = plane.token_hex.clone();
++    let world_id = parent.world_id.clone();
++
++    champion_transition(
++        &mut plane,
++        &token,
++        "seed",
++        Command::ChampionSeed {
++            transition_id: "seed".to_owned(),
++            world_id: world_id.clone(),
++            genome_id: candidate.genome_id.clone(),
++            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
++        },
++    )
++    .expect("seed Champion");
++
++    let sibling = assessed_forge_child(
++        &mut plane,
++        "abort-improve",
++        &candidate.genome_id,
++        &parent.genome_id,
++        true,
++    );
++    hephaestus_runtime::set_test_reference_delay(sibling.child.clone(), 750);
++    let drift_evidence_id = "abort-evidence";
++    complete_arena_test_job(
++        &mut plane,
++        drift_evidence_id,
++        &candidate.genome_id,
++        &sibling.child,
++    );
++    hephaestus_runtime::clear_test_reference_delay();
++    drift_record_cmd(
++        &mut plane,
++        &token,
++        "abort-drift",
++        Command::DriftRecord {
++            drift_id: "abort".to_owned(),
++            world_id: world_id.clone(),
++            kind: DriftKind::Latency,
++            evidence_evaluation_id: drift_evidence_id.to_owned(),
++        },
++    )
++    .expect("record a genuine latency drift against the misconfigured Champion");
++
++    // Drain until the automatic adaptation has proposed and started its own
++    // canary (the child Genome now exists), then genuinely, deterministically
++    // slow that exact child so every staged evaluation the pipeline submits
++    // against it measures a real regression: the very first stage aborts.
++    let deadline = Instant::now() + Duration::from_secs(60);
++    let child = loop {
++        plane
++            .service_async_messages()
++            .expect("advance the drift adaptation reconciliation loop");
++        let shown = drift_adaptation_show(&plane, "abort");
++        if let Some(child) = shown.adaptation.child_genome_id.clone() {
++            break child;
++        }
++        assert!(
++            Instant::now() < deadline,
++            "the automatic adaptation never proposed a child"
++        );
++        thread::sleep(Duration::from_millis(2));
++    };
++    hephaestus_runtime::set_test_reference_delay(child.clone(), 750);
++
++    let finished = drain_drift_adaptation(&mut plane, "abort");
++    hephaestus_runtime::clear_test_reference_delay();
++    assert_eq!(
++        finished.adaptation.finish_reason,
++        Some(DriftAdaptationFinishReason::CanaryAborted)
++    );
++    assert_eq!(
++        finished.adaptation.canary_stage,
++        Some(CanaryStage::Aborted)
++    );
++
++    let champion = champion_show(&mut plane, &token, &world_id);
++    assert_eq!(
++        champion.champion_genome_id.as_deref(),
++        Some(candidate.genome_id.as_str()),
++        "an aborted adaptation must never touch the Champion"
++    );
++    assert!(matches!(
++        plane
++            .replay_response()
++            .expect("replay after an aborted adaptation"),
++        ResponseData::Replay { .. }
++    ));
++}
++
++#[test]
++fn auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze() {
++    let directory = tempdir().expect("auto-canary freeze fixture");
++    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
++    let token = plane.token_hex.clone();
++    let world_id = parent.world_id.clone();
++
++    champion_transition(
++        &mut plane,
++        &token,
++        "seed",
++        Command::ChampionSeed {
++            transition_id: "seed".to_owned(),
++            world_id: world_id.clone(),
++            genome_id: candidate.genome_id.clone(),
++            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
++        },
++    )
++    .expect("seed Champion");
++    let sibling = assessed_forge_child(
++        &mut plane,
++        "freeze-improve",
++        &candidate.genome_id,
++        &parent.genome_id,
++        true,
++    );
++    hephaestus_runtime::set_test_reference_delay(sibling.child.clone(), 750);
++    let drift_evidence_id = "freeze-evidence";
++    complete_arena_test_job(
++        &mut plane,
++        drift_evidence_id,
++        &candidate.genome_id,
++        &sibling.child,
++    );
++    hephaestus_runtime::clear_test_reference_delay();
++    drift_record_cmd(
++        &mut plane,
++        &token,
++        "freeze-drift",
++        Command::DriftRecord {
++            drift_id: "freeze".to_owned(),
++            world_id: world_id.clone(),
++            kind: DriftKind::Latency,
++            evidence_evaluation_id: drift_evidence_id.to_owned(),
++        },
++    )
++    .expect("record a genuine latency drift against the misconfigured Champion");
++
++    assert!(
++        dispatch_call(&mut plane, &token, "freeze-adaptation", Command::Freeze)
++            .error
++            .is_none()
++    );
++    for tick in 0..10 {
++        plane
++            .service_async_messages()
++            .expect("service ticks while frozen must stay quiet");
++        let shown = drift_adaptation_show(&plane, "freeze");
++        assert!(
++            !shown.adaptation.started,
++            "tick {tick}: freeze must halt advancement before it ever starts"
++        );
++    }
++    assert!(
++        dispatch_call(&mut plane, &token, "unfreeze-adaptation", Command::Unfreeze)
++            .error
++            .is_none()
++    );
++
++    let finished = drain_drift_adaptation(&mut plane, "freeze");
++    assert_eq!(
++        finished.adaptation.finish_reason,
++        Some(DriftAdaptationFinishReason::Promoted)
++    );
++}
++
++#[test]
++fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
++    let directory = tempdir().expect("auto-canary forged fixture");
++    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
++    let token = plane.token_hex.clone();
++    let world_id = parent.world_id.clone();
++
++    champion_transition(
++        &mut plane,
++        &token,
++        "seed",
++        Command::ChampionSeed {
++            transition_id: "seed".to_owned(),
++            world_id: world_id.clone(),
++            genome_id: candidate.genome_id.clone(),
++            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
++        },
++    )
++    .expect("seed Champion");
++    let sibling = assessed_forge_child(
++        &mut plane,
++        "forge-improve",
++        &candidate.genome_id,
++        &parent.genome_id,
++        true,
++    );
++    hephaestus_runtime::set_test_reference_delay(sibling.child.clone(), 750);
++    let drift_evidence_id = "forge-evidence";
++    complete_arena_test_job(
++        &mut plane,
++        drift_evidence_id,
++        &candidate.genome_id,
++        &sibling.child,
++    );
++    hephaestus_runtime::clear_test_reference_delay();
++    drift_record_cmd(
++        &mut plane,
++        &token,
++        "forge-drift",
++        Command::DriftRecord {
++            drift_id: "forge".to_owned(),
++            world_id: world_id.clone(),
++            kind: DriftKind::Latency,
++            evidence_evaluation_id: drift_evidence_id.to_owned(),
++        },
++    )
++    .expect("record a genuine latency drift against the misconfigured Champion");
++
++    let deadline = Instant::now() + Duration::from_secs(60);
++    let child = loop {
++        plane
++            .service_async_messages()
++            .expect("advance the drift adaptation reconciliation loop");
++        let shown = drift_adaptation_show(&plane, "forge");
++        if let Some(child) = shown.adaptation.child_genome_id.clone() {
++            break child;
++        }
++        assert!(
++            Instant::now() < deadline,
++            "the automatic adaptation never proposed a child"
++        );
++        thread::sleep(Duration::from_millis(2));
++    };
++    hephaestus_runtime::set_test_reference_delay(child.clone(), 750);
++    let finished = drain_drift_adaptation(&mut plane, "forge");
++    hephaestus_runtime::clear_test_reference_delay();
++    assert_eq!(
++        finished.adaptation.finish_reason,
++        Some(DriftAdaptationFinishReason::CanaryAborted)
++    );
++    let finished_event_id = finished.adaptation.finished_event.expect("finished event").event_id;
++
++    let history = drift_history(&plane);
++    let canary_id = finished
++        .adaptation
++        .canary_id
++        .clone()
++        .expect("an aborted adaptation still names its canary");
++    let forged = adaptation_history_with_payload_edit(&history, &finished_event_id, |payload| {
++        payload.reason = crate::DriftAdaptationFinishReason::Promoted;
++        payload.final_canary_stage = Some(CanaryStage::Completed);
++        payload.promotion_transition_id =
++            Some(super::canary::canary_id_promotion_transition_id(&canary_id));
++    });
++    assert!(
++        super::adaptation::verify_drift_adaptation_history(&forged).is_err(),
++        "a finished event claiming a promotion that never happened must fail closed"
++    );
++
++    let connection =
++        rusqlite::Connection::open(plane.data_dir.join("events.sqlite3")).expect("open ledger");
++    let tampered_event = forged
++        .iter()
++        .find(|event| event.event_id == finished_event_id)
++        .expect("forged finished event exists");
++    let changed = connection
++        .execute(
++            "UPDATE events SET payload = ?1 WHERE event_id = ?2",
++            rusqlite::params![tampered_event.payload.as_slice(), finished_event_id.as_str()],
++        )
++        .expect("tamper with the recorded finished event");
++    assert_eq!(changed, 1);
++    drop(connection);
++    assert!(
++        plane.replay_response().is_err(),
++        "replay must reject a forged drift.adaptation_finished claiming a promotion that does not exist"
++    );
++}
++
++#[test]
++#[allow(clippy::too_many_lines)]
++fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
++    let directory = tempdir().expect("auto-canary restart fixture");
++    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
++    let token = plane.token_hex.clone();
++    let world_id = parent.world_id.clone();
++
++    champion_transition(
++        &mut plane,
++        &token,
++        "seed",
++        Command::ChampionSeed {
++            transition_id: "seed".to_owned(),
++            world_id: world_id.clone(),
++            genome_id: candidate.genome_id.clone(),
++            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
++        },
++    )
++    .expect("seed Champion");
++    let sibling = assessed_forge_child(
++        &mut plane,
++        "restart-improve",
++        &candidate.genome_id,
++        &parent.genome_id,
++        true,
++    );
++    hephaestus_runtime::set_test_reference_delay(sibling.child.clone(), 750);
++    let drift_evidence_id = "restart-evidence";
++    complete_arena_test_job(
++        &mut plane,
++        drift_evidence_id,
++        &candidate.genome_id,
++        &sibling.child,
++    );
++    hephaestus_runtime::clear_test_reference_delay();
++    drift_record_cmd(
++        &mut plane,
++        &token,
++        "restart-drift",
++        Command::DriftRecord {
++            drift_id: "restart".to_owned(),
++            world_id: world_id.clone(),
++            kind: DriftKind::Latency,
++            evidence_evaluation_id: drift_evidence_id.to_owned(),
++        },
++    )
++    .expect("record a genuine latency drift against the misconfigured Champion");
++
++    // Advance partway (through the started event, at minimum) without
++    // reaching a terminal state, then drop the daemon mid-pipeline.
++    let deadline = Instant::now() + Duration::from_secs(60);
++    loop {
++        plane
++            .service_async_messages()
++            .expect("advance the drift adaptation reconciliation loop");
++        let shown = drift_adaptation_show(&plane, "restart");
++        assert!(!shown.adaptation.finished, "must not finish before restart");
++        if shown.adaptation.started {
++            break;
++        }
++        assert!(
++            Instant::now() < deadline,
++            "the automatic adaptation never started"
++        );
++        thread::sleep(Duration::from_millis(2));
++    }
++    drop(plane);
++
++    let mut reopened = evolve_reopen_real_worker_fixture(&directory).expect("reopen mid-pipeline");
++    assert!(
++        matches!(
++            reopened.replay_response(),
++            Ok(ResponseData::Replay { .. })
++        ),
++        "reopening mid-pipeline must verify cleanly"
++    );
++    let finished = drain_drift_adaptation(&mut reopened, "restart");
++    assert_eq!(
++        finished.adaptation.finish_reason,
++        Some(DriftAdaptationFinishReason::Promoted)
++    );
++    let champion = champion_show(&mut reopened, &token, &world_id);
++    assert_eq!(
++        champion.champion_genome_id.as_deref(),
++        finished.adaptation.child_genome_id.as_deref(),
++    );
++    assert!(matches!(
++        reopened
++            .replay_response()
++            .expect("replay after resumed promotion"),
++        ResponseData::Replay { .. }
++    ));
++}
+diff --git a/crates/hephaestus-genome/src/world.rs b/crates/hephaestus-genome/src/world.rs
+index c277bfd..084f553 100644
+--- a/crates/hephaestus-genome/src/world.rs
++++ b/crates/hephaestus-genome/src/world.rs
+@@ -31,6 +31,7 @@ pub struct WorldEvaluationPolicy {
+     maximum_regressions: u32,
+     confidence_bps: u16,
+     allow_mixed_environments: bool,
++    auto_canary_on_drift: bool,
+ }
+ 
+ impl WorldEvaluationPolicy {
+@@ -67,6 +68,16 @@ impl WorldEvaluationPolicy {
+     pub const fn allow_mixed_environments(self) -> bool {
+         self.allow_mixed_environments
+     }
++
++    /// Whether this World opts in to the daemon's automatic drift-to-canary
++    /// adaptation pipeline: a recorded `drift.recorded` event drives a Forge
++    /// proposal of the current Champion, a shadow evaluation, and a staged
++    /// canary, entirely from the daemon's own reconciliation loop. Defaults
++    /// to `false`: a World that never opted in keeps drift purely observational.
++    #[must_use]
++    pub const fn auto_canary_on_drift(self) -> bool {
++        self.auto_canary_on_drift
++    }
+ }
+ 
+ impl CompiledWorld {
+@@ -140,6 +151,13 @@ struct RawLaws {
+     maximum_cost_microusd: u64,
+     #[serde(default)]
+     allow_mixed_environments: bool,
++    /// Opts this World in to the daemon's automatic drift-to-canary
++    /// adaptation pipeline (roadmap item 12). Added after `allow_mixed_environments`
++    /// shipped; `skip_serializing_if` keeps an existing World's canonical
++    /// JSON — and therefore its content-addressed identity — byte-identical
++    /// while this stays absent or `false`.
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    auto_canary_on_drift: bool,
+ }
+ 
+ #[derive(Clone, Debug, Deserialize, Serialize)]
+@@ -196,6 +214,7 @@ pub fn compile_world(
+         maximum_regressions: raw.promotion.maximum_regressions,
+         confidence_bps: raw.promotion.confidence_bps,
+         allow_mixed_environments: raw.laws.allow_mixed_environments,
++        auto_canary_on_drift: raw.laws.auto_canary_on_drift,
+     };
+     Ok(CompiledWorld {
+         id: content_id("world", &canonical_json),
+diff --git a/crates/hephaestus-genome/tests/compiler_contracts.rs b/crates/hephaestus-genome/tests/compiler_contracts.rs
+index 468b3c0..efb6cd0 100644
+--- a/crates/hephaestus-genome/tests/compiler_contracts.rs
++++ b/crates/hephaestus-genome/tests/compiler_contracts.rs
+@@ -448,6 +448,66 @@ fn world_compilation_protects_laws_evaluators_and_comparability() {
+     ));
+ }
+ 
++/// `laws.auto_canary_on_drift` (roadmap item 12) is `#[serde(default,
++/// skip_serializing_if = "..")]`: an existing World source that never
++/// mentions it compiles to the exact same content-addressed identity as one
++/// that spells out `"auto_canary_on_drift":false`, and `true` both compiles
++/// to a different identity and round-trips through the evaluation policy.
++#[test]
++fn auto_canary_on_drift_law_is_absent_by_default_and_round_trips_when_set() {
++    let directory = tempdir().expect("temporary directory");
++    let store = ArtifactStore::open(directory.path()).expect("open artifact store");
++    let evaluator = store
++        .put(b"sealed evaluator")
++        .expect("store evaluator")
++        .as_str()
++        .to_owned();
++    let world_source = |laws_tail: &str| {
++        format!(
++            r#"{{"schema_version":1,"name":"code-v1","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":5000000{laws_tail}}},"authority_ceiling":{{"workspace_write":true,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":300,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness","cost","latency","reliability"],"evaluator_artifacts":{{"sealed":"{evaluator}"}}}}"#
++        )
++    };
++
++    let absent = compile_world(&world_source(""), SourceFormat::Json, &store)
++        .expect("compile World without the field");
++    let explicit_false = compile_world(
++        &world_source(r#","auto_canary_on_drift":false"#),
++        SourceFormat::Json,
++        &store,
++    )
++    .expect("compile World with the field explicitly false");
++    let explicit_true = compile_world(
++        &world_source(r#","auto_canary_on_drift":true"#),
++        SourceFormat::Json,
++        &store,
++    )
++    .expect("compile World with the field true");
++
++    assert!(!absent.evaluation_policy().auto_canary_on_drift());
++    assert!(!explicit_false.evaluation_policy().auto_canary_on_drift());
++    assert!(explicit_true.evaluation_policy().auto_canary_on_drift());
++
++    assert_eq!(
++        absent.id(),
++        explicit_false.id(),
++        "an absent Law and an explicit false must compile to the same World identity"
++    );
++    assert_eq!(
++        absent.canonical_json(),
++        explicit_false.canonical_json(),
++        "canonical JSON must be byte-identical so an existing World's identity never moves"
++    );
++    assert!(
++        !String::from_utf8_lossy(absent.canonical_json()).contains("auto_canary_on_drift"),
++        "the field must not appear in canonical JSON while it stays absent or false"
++    );
++    assert_ne!(
++        absent.id(),
++        explicit_true.id(),
++        "opting in must produce a different World identity"
++    );
++}
++
+ #[test]
+ fn compilers_reject_unknown_versions_fields_and_oversized_input() {
+     let directory = tempdir().expect("temporary directory");
+diff --git a/docs/WORLDS.md b/docs/WORLDS.md
+index 697c282..27138cc 100644
+--- a/docs/WORLDS.md
++++ b/docs/WORLDS.md
+@@ -28,7 +28,7 @@ A World is the versioned root of evaluation semantics. Its content-derived ident
+ 
+ | Field | Meaning |
+ |---|---|
+-| `laws` | Non-evolvable physics. `candidate_evaluator_access` must be `false`; `maximum_cost_microusd` caps every run's declared budget; `allow_mixed_environments` (optional, defaults `false`) permits a paired Arena trial to compare a parent and candidate running under two distinct execution environments (for example, a reference-worker parent against a provider-adapter candidate) — see [RUNTIMES.md](RUNTIMES.md). |
++| `laws` | Non-evolvable physics. `candidate_evaluator_access` must be `false`; `maximum_cost_microusd` caps every run's declared budget; `allow_mixed_environments` (optional, defaults `false`) permits a paired Arena trial to compare a parent and candidate running under two distinct execution environments (for example, a reference-worker parent against a provider-adapter candidate) — see [RUNTIMES.md](RUNTIMES.md); `auto_canary_on_drift` (optional, defaults `false`) opts this World in to the daemon's automatic drift-to-canary adaptation pipeline — see [CANARY.md](CANARY.md#automatic-drift-to-canary). |
+ | `authority_ceiling` | The widest capabilities any Genome in this World may request. |
+ | `mutation_scope` | Which targets the Forge may later change. Only `harness` compiles; `law` and `evaluator` are refused. |
+ | `promotion` | Deterministic policy for the future selection engine; `confidence_bps` must lie in 1–10000. |

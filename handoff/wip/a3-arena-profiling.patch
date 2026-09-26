@@ -1,0 +1,77 @@
+# WIP patch: a3-arena-profiling
+# base commit: cbbcea1 (Drop the icon row from the README hero)
+# committed-but-unmerged commits on the worktree branch, if any, are appended below the diff as 'git format-patch' output
+diff --git a/TECH_DEBT.md b/TECH_DEBT.md
+index 062d44e..0139a0d 100644
+--- a/TECH_DEBT.md
++++ b/TECH_DEBT.md
+@@ -19,4 +19,4 @@ Debt deliberately deferred so roadmap functionality can land first. Each entry s
+ | TD-13 | Storage backends | `hephaestus-ledger`'s `EventLedger` and `ArtifactBackend` traits now have two implementors each — `EventStore` (SQLite) and `FileEventLedger` (append-only JSONL) for `EventLedger`; `ArtifactStore` (filesystem CAS) and `MemoryArtifactBackend` (in-process) for `ArtifactBackend` — and a shared, backend-agnostic contract suite (`crates/hephaestus-ledger/src/contract.rs`) passes against all four. `ControlPlane` still calls the concrete `EventStore`/`ArtifactStore` types directly instead of the traits. | Migrating every call site would have conflicted with the other lanes. | Route `ControlPlane` storage through `EventLedger`/`ArtifactBackend` instead of the concrete types; no second backend or contract suite work remains. |
+ | TD-14 | Meta-evolution | `hephaestus meta evaluate` blocks its connection until every lineage run finishes, with no progress polling. `mutation_prioritization`, `candidate_count`, and `gene_selection` are recorded but have no effect, because Forge proposes only the reference-operation flip. There is no TUI screen, daemon E2E test, mutation entry, or coverage run for `crates/hephaestus-control/src/meta_evolve.rs`. | Owner speed directive; the missing knobs depend on a richer mutation engine. | Make meta evaluation an async job with status polling, wire the strategy knobs into Forge once it has more than one mutation, and add a TUI screen plus E2E and mutation coverage. |
+ | TD-15 | Provider Arena | Provider Genomes in `submit` and `arena evaluate` are proven offline against fake CLIs in-process only, with no daemon E2E, mutation entries, or coverage run. The reference worker is still pinned for every Arena admission, including all-provider pairs. | Owner speed directive. | Add a daemon E2E for a mixed pair, add mutation entries for `allow_mixed_environments` and the `provider-v1` identity checks, and pin the reference worker only when a role needs it. |
+-| TD-16 | Replay verification | **Partially closed in this lane; `EvidenceCache` is kept.** `hephaestus-arena` gained history-borrowing `_in` verification entry points (`load_operator_evaluation_in`, `verify_selection_event_in`, `verify_reference_output_invariant_event_in`, `verify_cluster_event_in`, `load_recorded_evaluation_in`, backed by a new `hephaestus_ledger::EventIndex`) that verify against a caller-supplied, already hash-chain-verified history and the daemon's already-open artifact store instead of reopening stores and replaying the ledger per event, so a *full* verification pass (a cache miss, daemon startup, or explicit `replay`) is now linear in history size instead of quadratic. Measurement showed that removing `EvidenceCache` outright made `meta_evaluate_shows_a_descendant_strategy_reaching_equal_champions_at_lower_cost` alone take over 600 s (versus ~370 s for the entire 123-test control suite beforehand), because `refresh_projection` runs many times as history grows and summing a linear pass over each of those refreshes is still quadratic in the total event count. `EvidenceCache` was therefore kept, now layered on top of the cheaper linear verifiers, so a warm refresh still skips already-verified events at O(1) per event and a cold path (a new event, startup, or `replay`) is linear rather than quadratic. The original limitation is unchanged: an artifact blob in the CAS tampered with after its event was cached is not re-detected until the cache is cleared (daemon restart or `replay`); the ledger hash chain itself is still independently re-verified on every refresh via `EventLedger::replay_verified()`, so a rewritten ledger row is always caught immediately. | Before this lane, every refresh (cache hit or not) reopened `EvaluationStores` and replayed the ledger multiple times per evidence event, so even a cache *miss* cost grew superlinearly with history: a refresh took 1.3 s at 139 events, and meta-evaluation runs spun for minutes. | Remaining: close the CAS-tamper detection gap without reintroducing the quadratic blowup — e.g. invalidate a cached entry when its artifact content hash last-verified digest is cheap to recheck, or periodically force a bounded number of cache entries to fully re-verify each refresh. |
++| TD-16 | Replay verification | **Partially closed in this lane; `EvidenceCache` is kept.** `hephaestus-arena` gained history-borrowing `_in` verification entry points (`load_operator_evaluation_in`, `verify_selection_event_in`, `verify_reference_output_invariant_event_in`, `verify_cluster_event_in`, `load_recorded_evaluation_in`, backed by a new `hephaestus_ledger::EventIndex`) that verify against a caller-supplied, already hash-chain-verified history and the daemon's already-open artifact store instead of reopening stores and replaying the ledger per event, so a *full* verification pass (a cache miss, daemon startup, or explicit `replay`) is now linear in history size instead of quadratic. Measurement showed that removing `EvidenceCache` outright made `meta_evaluate_shows_a_descendant_strategy_reaching_equal_champions_at_lower_cost` alone take over 600 s (versus ~370 s for the entire 123-test control suite beforehand), because `refresh_projection` runs many times as history grows and summing a linear pass over each of those refreshes is still quadratic in the total event count. `EvidenceCache` was therefore kept, now layered on top of the cheaper linear verifiers, so a warm refresh still skips already-verified events at O(1) per event and a cold path (a new event, startup, or `replay`) is linear rather than quadratic. The original limitation is unchanged: an artifact blob in the CAS tampered with after its event was cached is not re-detected until the cache is cleared (daemon restart or `replay`); the ledger hash chain itself is still independently re-verified on every refresh via `EventLedger::replay_verified()`, so a rewritten ledger row is always caught immediately. **Further reduced in a later lane (Arena job pipeline speed-up):** `refresh_projection`'s per-call cost was already linear thanks to the above, but `service_async_messages`'s evidence loop still called it once per `ensure_capacity`/trace request from an active Arena trial — several per trial (`ensure_capacity`, `LifecycleStarted`, the completion trace) — so a full replay-and-reverify still ran several times per trial instead of once. The evidence loop now only durably persists the trace (the executor is acknowledged immediately, unchanged) and sets `arena_evidence_dirty`; `service_arena_message` flushes the deferred refresh exactly once, right before it handles the next Arena worker message, so every trial's evidence is still fully re-verified, just once per trial instead of once per trace. `self.state` itself was never stale in between, since every append site already applies its own event with `ControlState::apply` directly; only the batch of expensive re-verification passes (`EventLedger::replay_verified`, every `verify_*_history` call, `ControlState::from_events`) was deferred and coalesced. The direct (non-Arena) async job path is unchanged and still refreshes once per evidence event, since it was out of scope for that lane. Measured on `forge_assessment_records_verified_child_selection_and_replays` (two paired jobs, 8 trials total): `refresh_projection` calls dropped from 33 to 17, with per-call cost still growing with history size (roughly 30 ms to 250 ms across the run), confirming call count, not per-call cost, was the remaining lever. | Before this lane, every refresh (cache hit or not) reopened `EvaluationStores` and replayed the ledger multiple times per evidence event, so even a cache *miss* cost grew superlinearly with history: a refresh took 1.3 s at 139 events, and meta-evaluation runs spun for minutes. Later, even with the linear verifiers above, an Arena job's evidence loop still called `refresh_projection` several times per trial instead of once, so its cost was still counted (and paid) more often than the pipeline needed. | Remaining: close the CAS-tamper detection gap without reintroducing the quadratic blowup — e.g. invalidate a cached entry when its artifact content hash last-verified digest is cheap to recheck, or periodically force a bounded number of cache entries to fully re-verify each refresh. Also consider extending the same per-step batching to the direct (non-Arena) async job's evidence loop, and to admission/registration commands that each still call `refresh_projection` once even when appending several events in a row. |
+diff --git a/crates/hephaestus-control/src/server.rs b/crates/hephaestus-control/src/server.rs
+index 3438099..47d9b08 100644
+--- a/crates/hephaestus-control/src/server.rs
++++ b/crates/hephaestus-control/src/server.rs
+@@ -231,6 +231,11 @@ pub struct ControlPlane {
+     active_arena_job: Option<ActiveArenaJob>,
+     arena_message_receiver: Option<mpsc::Receiver<ArenaWorkerMessage>>,
+     arena_message_sender: Option<mpsc::SyncSender<ArenaWorkerMessage>>,
++    // Set when an Arena trial's evidence (ensure_capacity/trace) has been
++    // durably persisted but the expensive full projection refresh has been
++    // deferred; batched into one refresh per trial (at the next Arena
++    // message) instead of one per evidence event. See TD-16.
++    arena_evidence_dirty: bool,
+     // Ephemeral, non-canonical: which remote job a lease currently claims and
+     // when that lease was granted. Never survives a restart; a lease that a
+     // worker never returns simply becomes eligible for another worker after
+@@ -805,6 +810,7 @@ impl ControlPlane {
+             active_arena_job: None,
+             arena_message_receiver: None,
+             arena_message_sender: None,
++            arena_evidence_dirty: false,
+             remote_leases: HashMap::new(),
+         })
+     }
+@@ -3814,10 +3820,22 @@ impl ControlPlane {
+                 if let Some(active) = &self.active_arena_job {
+                     active.cancel.store(true, Ordering::Release);
+                 }
+-            } else {
++            } else if valid_direct {
+                 self.refresh_projection().map_err(|_| {
+                     ControlError::Projection("evidence projection failed".to_owned())
+                 })?;
++            } else {
++                // Arena trial evidence (ensure_capacity/trace): the append is
++                // already durable and acknowledged above. A paired evaluation
++                // appends several of these in a row for one trial, and a full
++                // refresh replays the whole ledger and re-verifies every
++                // history, so doing it once per trace made refresh_projection
++                // the dominant cost of an Arena job (see TD-16). Defer it and
++                // batch it into one refresh per trial, flushed at the next
++                // Arena worker message in `service_arena_message`; every
++                // verifier still runs, just once per trial instead of once
++                // per trace.
++                self.arena_evidence_dirty = true;
+             }
+         }
+         if let Some(receiver) = &self.job_result_receiver {
+@@ -3907,6 +3925,15 @@ impl ControlPlane {
+                 return Ok(());
+             }
+         };
++        // Flush any Arena trial evidence refresh deferred in the loop above:
++        // by the time this trial's (or the batch's) worker message has
++        // arrived, its evidence was already durably appended, so one refresh
++        // here re-verifies everything appended since the last flush.
++        if self.arena_evidence_dirty {
++            self.arena_evidence_dirty = false;
++            self.refresh_projection()
++                .map_err(|_| ControlError::Projection("evidence projection failed".to_owned()))?;
++        }
+         match message {
+             ArenaWorkerMessage::Trial {
+                 job_id,

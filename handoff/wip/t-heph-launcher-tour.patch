@@ -1,0 +1,1724 @@
+# WIP patch: t-heph-launcher-tour
+# base commit: 3aeb23a (Note that the master plan lives outside the published tree)
+# committed-but-unmerged commits on the worktree branch, if any, are appended below the diff as 'git format-patch' output
+diff --git a/apps/hephaestus-tui/scripts/pty_tour.py b/apps/hephaestus-tui/scripts/pty_tour.py
+new file mode 100644
+index 0000000..ac41c7b
+--- /dev/null
++++ b/apps/hephaestus-tui/scripts/pty_tour.py
+@@ -0,0 +1,144 @@
++#!/usr/bin/env python3
++"""Drive the real first-run product tour through a PTY end to end.
++
++Arguments: <heph-binary> <data-dir>
++
++Launches `heph --data-dir <data-dir> --tour` with nothing pre-existing at
++that data directory: `heph` must auto-bootstrap the quickstart fixture,
++start `hephaestusd` itself, wait for it to become ready, and then open the
++real operator TUI already showing the forced tour. Steps through Welcome,
++Lineage (must genuinely register the bundled World/Genomes), Unfreeze & run
++and Arena (host-dependent: accepted either way, since a host with no
++verified OS sandbox refuses candidate execution by design), Replay (must
++show a sealed match), and Done, then quits from the home menu it returns to.
++"""
++
++import fcntl
++import os
++import pty
++import re
++import select
++import struct
++import subprocess
++import sys
++import termios
++import time
++
++ANSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
++LAUNCH_TIMEOUT_SECONDS = 45
++
++
++def main() -> int:
++    heph_binary, data_dir = sys.argv[1:3]
++    master, slave = pty.openpty()
++    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
++    terminal_before = termios.tcgetattr(slave)
++    env = os.environ.copy()
++    env["CI"] = "false"
++    env.update({"COLUMNS": "80", "LINES": "24"})
++    # `heph` forwards its own environment to the TUI it spawns, so the tour's
++    # own (separate) evaluator lookup can find the same binary heph gave the
++    # daemon, even though this is an unbundled dev/test checkout.
++    bin_dir = os.path.dirname(os.path.abspath(heph_binary))
++    env["HEPHAESTUS_EVALUATOR"] = os.path.join(bin_dir, "hephaestus-reference-evaluator")
++    child = subprocess.Popen(
++        [heph_binary, "--data-dir", data_dir, "--tour"],
++        env=env, stdin=slave, stdout=slave, stderr=slave, close_fds=True,
++    )
++    output = bytearray()
++    stage = "launch"
++
++    def visible() -> str:
++        return ANSI.sub(b"", bytes(output)).decode("utf-8", errors="replace")
++
++    def pump(timeout: float) -> None:
++        ready, _, _ = select.select([master], [], [], timeout)
++        if ready:
++            try:
++                output.extend(os.read(master, 65536))
++            except OSError:
++                pass
++
++    def until(needle: str, timeout: float, after: int = 0) -> bool:
++        deadline = time.monotonic() + timeout
++        while time.monotonic() < deadline:
++            if needle in visible()[after:]:
++                return True
++            pump(0.1)
++        return needle in visible()[after:]
++
++    def mark() -> int:
++        pump(0.2)
++        return len(visible())
++
++    def press(keys: bytes, quiet: float = 0.2) -> None:
++        os.write(master, keys)
++        pump(quiet)
++
++    try:
++        if not until("Step 1 of 6", LAUNCH_TIMEOUT_SECONDS) or not until("Welcome to Hephaestus", 2):
++            raise RuntimeError("tour did not open on the Welcome step")
++        stage = "lineage"
++        start = mark()
++        press(b"\r")
++        if not until("Step 2 of 6", 5, start):
++            raise RuntimeError("tour did not advance to the Lineage step")
++        if not until("Registered World", 30, start):
++            raise RuntimeError("tour did not register the bundled quickstart World and Genomes")
++        stage = "unfreeze_run"
++        start = mark()
++        press(b"\r")
++        if not until("Step 3 of 6", 5, start) or not until("Ledgered:", 15, start):
++            raise RuntimeError("tour did not unfreeze and attempt the parent run")
++        stage = "arena"
++        start = mark()
++        press(b"\r")
++        if not until("Step 4 of 6", 5, start):
++            raise RuntimeError("tour did not advance to the Arena step")
++        # Host-dependent: a verified OS sandbox lets this actually measure;
++        # without one it is refused by design. Either way the step settles.
++        time.sleep(2)
++        pump(0.5)
++        stage = "replay"
++        start = mark()
++        press(b"\r")
++        if not until("Step 5 of 6", 5, start) or not until("sealed —", 15, start):
++            raise RuntimeError("tour did not prove a sealed replay match")
++        stage = "done"
++        start = mark()
++        press(b"\r")
++        if not until("Step 6 of 6", 5, start) or not until("how to see this tour again", 3, start):
++            raise RuntimeError("tour did not reach the Done step")
++        stage = "finish-to-home"
++        start = mark()
++        press(b"\r")
++        if not until("OPERATOR ACTIONS", 5, start):
++            raise RuntimeError("tour completion did not return to the home menu")
++        stage = "quit"
++        press(b"q")
++        deadline = time.monotonic() + 10
++        while child.poll() is None and time.monotonic() < deadline:
++            pump(0.1)
++        if child.poll() is None:
++            raise RuntimeError("heph did not exit after q")
++        if child.returncode != 0:
++            raise RuntimeError(f"heph exited with status {child.returncode}")
++        if termios.tcgetattr(slave) != terminal_before:
++            raise RuntimeError("TUI did not restore terminal settings on exit")
++
++        print("PTY 80x24: the first-run tour registered a real World/Genomes, ran, measured, and sealed a replay through a real daemon heph started itself.")
++        return 0
++    except Exception as error:  # report concise failure evidence
++        print(f"PTY tour failed during {stage}: {error}", file=sys.stderr)
++        print(visible()[-3000:], file=sys.stderr)
++        if child.poll() is None:
++            child.kill()
++        child.wait()
++        return 1
++    finally:
++        os.close(master)
++        os.close(slave)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/apps/hephaestus-tui/src/main.tsx b/apps/hephaestus-tui/src/main.tsx
+index 19c1949..1a05398 100644
+--- a/apps/hephaestus-tui/src/main.tsx
++++ b/apps/hephaestus-tui/src/main.tsx
+@@ -1,8 +1,15 @@
+ import React from 'react';
+ import {render} from 'ink';
+ import {App} from './ui.js';
++import {readTourMarker, resolveDataDir} from './tour.js';
++
++// `--tour`/`--first-run` force the product tour to (re)play; otherwise it
++// shows itself once, the first time this data directory has never completed
++// one (see `tour.ts`'s marker file), and never again unless replayed.
++const requestedTour = process.argv.includes('--tour') || process.argv.includes('--first-run');
++const forceTour = requestedTour || !readTourMarker(resolveDataDir()).completed;
+ 
+ // The operator console is always interactive on a real terminal, even when a
+ // `CI` variable is exported; Ink would otherwise draw only the final frame.
+-const {waitUntilExit} = render(<App />, {exitOnCtrlC: true, interactive: Boolean(process.stdout.isTTY)});
++const {waitUntilExit} = render(<App forceTour={forceTour} />, {exitOnCtrlC: true, interactive: Boolean(process.stdout.isTTY)});
+ await waitUntilExit();
+diff --git a/apps/hephaestus-tui/src/protocol.ts b/apps/hephaestus-tui/src/protocol.ts
+index 19eb550..0f63ea5 100644
+--- a/apps/hephaestus-tui/src/protocol.ts
++++ b/apps/hephaestus-tui/src/protocol.ts
+@@ -9,6 +9,12 @@ export type Command =
+ 	| {command: 'genome_show'; genome_id: string}
+ 	| {command: 'genome_register'; path: string; world_id: string}
+ 	| {command: 'world_list'}
++	| {command: 'world_register'; path: string}
++	| {command: 'manifest_put'; path: string}
++	| {command: 'artifact_put'; path: string}
++	| {command: 'verifier_show'}
++	| {command: 'run_submit'; job_id: string; genome_id: string}
++	| {command: 'replay'}
+ 	| {command: 'genome_prompt'; genome_id: string}
+ 	| {command: 'champion_show'; world_id: string}
+ 	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string}
+@@ -194,6 +200,10 @@ export type ResponseData =
+ 	| {type: 'genome'; genome: Genome}
+ 	| {type: 'genomes'; genomes: Genome[]}
+ 	| {type: 'worlds'; worlds: World[]}
++	| {type: 'world'; world: World}
++	| {type: 'artifact'; artifact_id: string; bytes: number}
++	| {type: 'verifier'; artifact_id: string; public_key_hex: string}
++	| {type: 'replay'; event_count: number; frozen: boolean; active_runs: number; projection_hash: string}
+ 	| {type: 'genome_prompt'; genome_id: string; prompt: string}
+ 	| {type: 'champion'; champion: Champion}
+ 	| {type: 'champion_transition'; transition: ChampionTransition}
+@@ -811,6 +821,20 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
+ 			if (worlds.some(world => world === undefined)) break;
+ 			return {version: 1, request_id: expectedRequestId, data: {type: 'worlds', worlds: worlds as World[]}};
+ 		}
++		case 'world': {
++			const world = parseWorld(data['world']);
++			if (!world) break;
++			return {version: 1, request_id: expectedRequestId, data: {type: 'world', world}};
++		}
++		case 'artifact':
++			if (!identifier(data['artifact_id']) || !boundedCount(data['bytes'])) break;
++			return {version: 1, request_id: expectedRequestId, data: {type: 'artifact', artifact_id: data['artifact_id'], bytes: data['bytes']}};
++		case 'verifier':
++			if (!identifier(data['artifact_id']) || !boundedString(data['public_key_hex'], 128) || !/^[0-9a-f]+$/.test(data['public_key_hex'])) break;
++			return {version: 1, request_id: expectedRequestId, data: {type: 'verifier', artifact_id: data['artifact_id'], public_key_hex: data['public_key_hex']}};
++		case 'replay':
++			if (typeof data['frozen'] !== 'boolean' || !safeInteger(data['event_count']) || !safeInteger(data['active_runs']) || !identifier(data['projection_hash'])) break;
++			return {version: 1, request_id: expectedRequestId, data: {type: 'replay', event_count: data['event_count'], frozen: data['frozen'], active_runs: data['active_runs'], projection_hash: data['projection_hash']}};
+ 		case 'genome_prompt':
+ 			if (!identifier(data['genome_id']) || typeof data['prompt'] !== 'string' || data['prompt'].length > MAX_FRAME_BYTES) break;
+ 			return {version: 1, request_id: expectedRequestId, data: {type: 'genome_prompt', genome_id: data['genome_id'], prompt: data['prompt']}};
+diff --git a/apps/hephaestus-tui/src/tour-view.tsx b/apps/hephaestus-tui/src/tour-view.tsx
+new file mode 100644
+index 0000000..1a81bc2
+--- /dev/null
++++ b/apps/hephaestus-tui/src/tour-view.tsx
+@@ -0,0 +1,380 @@
++import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
++import {dirname, join} from 'node:path';
++import {fileURLToPath} from 'node:url';
++import React, {useEffect, useRef, useState} from 'react';
++import {Box, Text, useInput} from 'ink';
++import {
++	INTRO_FRAME_COUNT, INTRO_FRAME_MS, TOUR_STEPS, TOUR_STEP_COUNT, TOUR_THEME,
++	applyTourInput, arenaLights, celebrationBanner, controlsLine, introTorchGlyph, progressBar,
++	quickstartFixtureAvailable, quickstartFixturePaths, renderCandidateTemplate,
++	renderWorldTemplate, replaySeal, resolveDataDir, stepProgressLabel, writeTourMarker,
++} from './tour.js';
++import {safeText, type ApiResponse, type ArenaJobProgress, type Command, type EvaluationListEntry} from './protocol.js';
++
++export type TourClient = {request: (command: Command, signal?: AbortSignal) => Promise<ApiResponse>};
++
++export type TourScreenProps = {
++	client: TourClient;
++	dataDir?: string;
++	onExit: () => void;
++	/** false renders one static frame with no timers; used by deterministic tests. */
++	animate?: boolean;
++	/** Starting step, for tests. */
++	initialStep?: number;
++};
++
++export type Phase = 'idle' | 'running' | 'done' | 'error' | 'unavailable';
++export type StepResult = {phase: Phase; lines: string[]; canRetry: boolean};
++
++const idleResult: StepResult = {phase: 'idle', lines: [], canRetry: false};
++
++/** Best-effort evaluator binary path: an explicit override, or the packaged
++ * layout's `bin/hephaestus-reference-evaluator` relative to this bundle.
++ * Undefined in an unbundled dev checkout, where the tour degrades honestly. */
++export function resolveEvaluatorPath(): string | undefined {
++	const override = process.env['HEPHAESTUS_EVALUATOR'];
++	if (override && existsSync(override)) return override;
++	try {
++		const here = dirname(fileURLToPath(import.meta.url));
++		const candidate = join(here, '../../../bin/hephaestus-reference-evaluator');
++		if (existsSync(candidate)) return candidate;
++	} catch {
++		// Not resolvable from a source-checkout dev session; that is fine.
++	}
++	return undefined;
++}
++
++/** Runs a bootstrap step against the real daemon: registers (or reuses) the
++ * bundled quickstart World and its parent/candidate Genomes. */
++export async function registerLineage(client: TourClient, dataDir: string): Promise<StepResult> {
++	const existingWorlds = await client.request({command: 'world_list'});
++	if (existingWorlds.data?.type === 'worlds' && existingWorlds.data.worlds.length > 0) {
++		const world = existingWorlds.data.worlds[0]!;
++		const genomes = await client.request({command: 'genome_list'});
++		const names = genomes.data?.type === 'genomes' ? genomes.data.genomes.map(genome => `${genome.name} ${genome.genome_id.slice(0, 12)}`) : [];
++		return {
++			phase: 'done',
++			canRetry: false,
++			lines: [
++				`Reusing already-registered World ${safeText(world.name)} (${world.world_id.slice(0, 12)}…)`,
++				...names.map(name => `  Genome ${name}`),
++			],
++		};
++	}
++	const paths = quickstartFixturePaths(dataDir);
++	if (!quickstartFixtureAvailable(paths)) {
++		return {
++			phase: 'unavailable',
++			canRetry: true,
++			lines: [
++				`No bundled quickstart fixture at ${paths.dir}.`,
++				'Run `hephaestus init --fixture quickstart <dir>` first (heph does this automatically), then retry.',
++			],
++		};
++	}
++	const evaluator = resolveEvaluatorPath();
++	if (!evaluator) {
++		return {
++			phase: 'unavailable',
++			canRetry: true,
++			lines: [
++				'Could not locate the bundled reference-evaluator binary from this session.',
++				'Registering a World needs it; run this tour through `heph` or a packaged install, or register manually with `hephaestus world register`.',
++			],
++		};
++	}
++	const visible = await client.request({command: 'manifest_put', path: paths.visibleTasks});
++	const sealed = await client.request({command: 'manifest_put', path: paths.sealedTasks});
++	const evaluatorArtifact = await client.request({command: 'artifact_put', path: evaluator});
++	const verifier = await client.request({command: 'verifier_show'});
++	for (const response of [visible, sealed, evaluatorArtifact, verifier]) {
++		if (response.error) return {phase: 'error', canRetry: true, lines: [`${response.error.code}: ${response.error.message}`]};
++	}
++	const visibleId = visible.data?.type === 'artifact' ? visible.data.artifact_id : '';
++	const sealedId = sealed.data?.type === 'artifact' ? sealed.data.artifact_id : '';
++	const evaluatorId = evaluatorArtifact.data?.type === 'artifact' ? evaluatorArtifact.data.artifact_id : '';
++	const verifierId = verifier.data?.type === 'verifier' ? verifier.data.artifact_id : '';
++	const workDirectory = join(dataDir, 'tour', 'work');
++	mkdirSync(workDirectory, {recursive: true});
++	const worldSource = renderWorldTemplate(readFileSync(paths.worldTemplate, 'utf8'), {
++		visible: visibleId, sealed: sealedId, evaluator: evaluatorId, verifier: verifierId,
++	});
++	const worldPath = join(workDirectory, 'world.json');
++	writeFileSync(worldPath, worldSource);
++	const worldResponse = await client.request({command: 'world_register', path: worldPath});
++	if (worldResponse.error || worldResponse.data?.type !== 'world') {
++		return {phase: 'error', canRetry: true, lines: [worldResponse.error ? `${worldResponse.error.code}: ${worldResponse.error.message}` : 'World registration returned an unexpected response.']};
++	}
++	const worldId = worldResponse.data.world.world_id;
++	const parentResponse = await client.request({command: 'genome_register', path: paths.parentGenome, world_id: worldId});
++	if (parentResponse.error || parentResponse.data?.type !== 'genome') {
++		return {phase: 'error', canRetry: true, lines: [parentResponse.error ? `${parentResponse.error.code}: ${parentResponse.error.message}` : 'Parent Genome registration returned an unexpected response.']};
++	}
++	const parentId = parentResponse.data.genome.genome_id;
++	const candidateSource = renderCandidateTemplate(readFileSync(paths.candidateTemplate, 'utf8'), parentId);
++	const candidatePath = join(workDirectory, 'candidate.md');
++	writeFileSync(candidatePath, candidateSource);
++	const candidateResponse = await client.request({command: 'genome_register', path: candidatePath, world_id: worldId});
++	if (candidateResponse.error || candidateResponse.data?.type !== 'genome') {
++		return {phase: 'error', canRetry: true, lines: [candidateResponse.error ? `${candidateResponse.error.code}: ${candidateResponse.error.message}` : 'Candidate Genome registration returned an unexpected response.']};
++	}
++	const candidateId = candidateResponse.data.genome.genome_id;
++	return {
++		phase: 'done',
++		canRetry: false,
++		lines: [
++			`Registered World ${worldResponse.data.world.name} (${worldId.slice(0, 12)}…)`,
++			`Registered parent Genome ${parentResponse.data.genome.name} (${parentId.slice(0, 12)}…)`,
++			`Registered candidate Genome ${candidateResponse.data.genome.name} (${candidateId.slice(0, 12)}…)`,
++		],
++	};
++}
++
++export async function unfreezeAndRun(client: TourClient, worldId: string | undefined, parentGenomeId: string | undefined): Promise<StepResult> {
++	if (!worldId || !parentGenomeId) {
++		return {phase: 'unavailable', canRetry: false, lines: ['No registered World/Genome from the previous step; nothing to run yet.']};
++	}
++	const unfreeze = await client.request({command: 'unfreeze'});
++	if (unfreeze.error) return {phase: 'error', canRetry: true, lines: [`${unfreeze.error.code}: ${unfreeze.error.message}`]};
++	const acknowledgement = unfreeze.data?.type === 'acknowledged'
++		? `Ledgered: evolution ${unfreeze.data.frozen ? 'remains frozen' : 'unfrozen'}.`
++		: 'Unfreeze acknowledged.';
++	const jobId = `tour-run-${parentGenomeId.slice(0, 12)}`;
++	const submitted = await client.request({command: 'run_submit', job_id: jobId, genome_id: parentGenomeId});
++	if (submitted.error) {
++		return {
++			phase: 'unavailable',
++			canRetry: true,
++			lines: [
++				acknowledgement,
++				`Run refused: ${submitted.error.code}: ${submitted.error.message}`,
++				'On a host with no verified OS sandbox (no macOS Seatbelt), candidate/reference execution is refused by design.',
++				'What is still real: registration, replay, and inspection above and below.',
++			],
++		};
++	}
++	let terminal: ApiResponse | undefined = submitted;
++	for (let attempt = 0; attempt < 100; attempt += 1) {
++		if (terminal?.data?.type === 'job' && ['succeeded', 'failed', 'interrupted'].includes(terminal.data.job.state)) break;
++		await new Promise(resolve => setTimeout(resolve, 100));
++		terminal = await client.request({command: 'job_status', job_id: jobId});
++	}
++	const job = terminal?.data?.type === 'job' ? terminal.data.job : undefined;
++	if (!job) return {phase: 'error', canRetry: true, lines: [acknowledgement, 'Run did not reach a terminal state in time.']};
++	return {
++		phase: job.state === 'succeeded' ? 'done' : 'error',
++		canRetry: job.state !== 'succeeded',
++		lines: [
++			acknowledgement,
++			`Run ${job.run_id} · ${job.state}${job.terminal ? ` (${job.terminal})` : ''}`,
++			`Source revision ${job.source_revision.slice(0, 12)}… · ${terminal?.data?.type === 'job' ? terminal.data.progress.trace_events : 0} trace events`,
++		],
++	};
++}
++
++export async function measureInArena(client: TourClient, worldId: string | undefined, parentGenomeId: string | undefined, candidateGenomeId: string | undefined, onProgress: (job: ArenaJobProgress) => void): Promise<StepResult & {evaluationId?: string}> {
++	if (!worldId || !parentGenomeId || !candidateGenomeId) {
++		return {phase: 'unavailable', canRetry: false, lines: ['No registered World/Genomes from the lineage step; nothing to measure yet.']};
++	}
++	const evaluationId = `tour-${parentGenomeId.slice(0, 8)}-${candidateGenomeId.slice(0, 8)}`;
++	const started = await client.request({command: 'evaluate_pair', evaluation_id: evaluationId, parent_genome_id: parentGenomeId, candidate_genome_id: candidateGenomeId});
++	if (started.error) {
++		return {
++			phase: 'unavailable',
++			canRetry: true,
++			lines: [
++				`Arena refused: ${started.error.code}: ${started.error.message}`,
++				'This needs the same OS sandbox as a direct run; on a host without one, measurement is refused by design.',
++			],
++		};
++	}
++	let latest = started;
++	for (let attempt = 0; attempt < 200; attempt += 1) {
++		if (latest.data?.type === 'arena_job') {
++			onProgress(latest.data.job);
++			if (!['admitted', 'running', 'cancellation_requested'].includes(latest.data.job.state)) break;
++		}
++		await new Promise(resolve => setTimeout(resolve, 100));
++		latest = await client.request({command: 'job_status', job_id: evaluationId});
++	}
++	const job = latest.data?.type === 'arena_job' ? latest.data.job : undefined;
++	if (!job || job.state !== 'succeeded' || !job.evaluation) {
++		return {phase: 'error', canRetry: true, lines: [`Arena evaluation did not reach a visible score (state: ${job?.state ?? 'unknown'}).`]};
++	}
++	const list = await client.request({command: 'evaluation_list', limit: 50});
++	const entry: EvaluationListEntry | undefined = list.data?.type === 'evaluation_list'
++		? list.data.evaluations.find(candidate => candidate.evaluation.evaluation_id === evaluationId)
++		: undefined;
++	const lines = [
++		`Visible score: parent ${job.evaluation.parent_visible_correct}/${job.evaluation.visible_total} → candidate ${job.evaluation.candidate_visible_correct}/${job.evaluation.visible_total}`,
++		'Sealed tasks are never shown here — only visible-task correctness and this aggregate ever leave the Arena.',
++	];
++	if (entry?.selection) {
++		const selection = entry.selection;
++		lines.push(
++			`Correctness delta ${selection.estimate_bps} bps (95% CI ${selection.lower_bps}..${selection.upper_bps} bps)`,
++			`Eligible for promotion: ${selection.promotion_eligible ? 'yes' : 'no'} (metrics ${selection.metrics_eligible ? 'pass' : 'fail'}, invariants ${selection.invariant_gate_verified ? 'verified' : 'unverified'})`,
++			celebrationBanner(selection.promotion_eligible),
++		);
++	} else {
++		lines.push('No selection receipt yet for this evaluation; run `hephaestus arena select` to compute one.');
++	}
++	return {phase: 'done', canRetry: false, lines, evaluationId};
++}
++
++export async function proveReplay(client: TourClient): Promise<StepResult> {
++	const status = await client.request({command: 'status'});
++	const replay = await client.request({command: 'replay'});
++	if (replay.error) return {phase: 'error', canRetry: true, lines: [`${replay.error.code}: ${replay.error.message}`]};
++	if (status.data?.type !== 'status' || replay.data?.type !== 'replay') {
++		return {phase: 'error', canRetry: true, lines: ['Unexpected response shape from status/replay.']};
++	}
++	const matches = status.data.event_count === replay.data.event_count
++		&& status.data.frozen === replay.data.frozen
++		&& status.data.active_runs === replay.data.active_runs;
++	return {
++		phase: 'done',
++		canRetry: false,
++		lines: [
++			`Replayed ${replay.data.event_count} events · frozen=${replay.data.frozen} · active_runs=${replay.data.active_runs}`,
++			`Projection ${replay.data.projection_hash.slice(0, 16)}…`,
++			replaySeal(matches),
++			'Freeze/kill controls: `hephaestus freeze` and `hephaestus kill --all` from the home menu.',
++		],
++	};
++}
++
++/** A short torch flicker between the two crests; stops after
++ * `INTRO_FRAME_COUNT` frames (well under 1.5s) or immediately when
++ * `animate` is false, so tests and non-interactive terminals never spin. */
++function IntroAnimation({animate}: {animate: boolean}) {
++	const [frame, setFrame] = useState(0);
++	useEffect(() => {
++		if (!animate) return;
++		if (frame >= INTRO_FRAME_COUNT - 1) return;
++		const timer = setTimeout(() => setFrame(value => value + 1), INTRO_FRAME_MS);
++		return () => clearTimeout(timer);
++	}, [animate, frame]);
++	return <Box>
++		<Text color={TOUR_THEME.graphite} bold> CHALLENGER </Text>
++		<Text color={TOUR_THEME.torch}> {introTorchGlyph(frame)} </Text>
++		<Text color={TOUR_THEME.torch} bold> CHAMPION </Text>
++	</Box>;
++}
++
++function ArenaLightsLine({job}: {job: ArenaJobProgress | undefined}) {
++	if (!job) return <Text color="gray">Waiting for the Arena to admit trials…</Text>;
++	return <Text>
++		<Text color={TOUR_THEME.graphite}>parent</Text>{' vs '}<Text color={TOUR_THEME.torch}>candidate</Text>{'  '}
++		{arenaLights(job.completed_trials, job.total_trials)} {job.completed_trials}/{job.total_trials}
++	</Text>;
++}
++
++/**
++ * First-run product tour: six short, learn-by-doing steps against the real
++ * daemon (Welcome, Lineage, Unfreeze & run, Arena, Replay, Done). Every step
++ * shows `Step n of N`, a one-sentence why, its live result, and the
++ * Next/Back/Skip/Quit controls; on a host that refuses candidate execution it
++ * says so plainly instead of pretending.
++ */
++export function TourScreen({client, dataDir: dataDirProp, onExit, animate = true, initialStep = 0}: TourScreenProps) {
++	const dataDir = dataDirProp ?? resolveDataDir();
++	const [step, setStep] = useState(Math.max(0, Math.min(TOUR_STEP_COUNT - 1, initialStep)));
++	const [results, setResults] = useState<Record<number, StepResult>>({});
++	const context = useRef<{worldId?: string; parentGenomeId?: string; candidateGenomeId?: string; evaluationId?: string}>({});
++	const [arenaJob, setArenaJob] = useState<ArenaJobProgress>();
++	const running = useRef(false);
++
++	const runCurrentStep = React.useCallback(async () => {
++		if (running.current) return;
++		running.current = true;
++		setResults(previous => ({...previous, [step]: {phase: 'running', lines: [], canRetry: false}}));
++		try {
++			let result: StepResult;
++			switch (TOUR_STEPS[step]?.id) {
++				case 'welcome':
++					result = {phase: 'done', canRetry: false, lines: ['Every claim below is backed by a receipt in the canonical event ledger.']};
++					break;
++				case 'lineage': {
++					result = await registerLineage(client, dataDir);
++					if (result.phase === 'done') {
++						const worlds = await client.request({command: 'world_list'});
++						const genomes = await client.request({command: 'genome_list'});
++						if (worlds.data?.type === 'worlds' && worlds.data.worlds[0]) context.current.worldId = worlds.data.worlds[0].world_id;
++						if (genomes.data?.type === 'genomes') {
++							const parent = genomes.data.genomes.find(genome => genome.parent_ids.length === 0);
++							const candidate = genomes.data.genomes.find(genome => genome.parent_ids.length > 0);
++							if (parent) context.current.parentGenomeId = parent.genome_id;
++							if (candidate) context.current.candidateGenomeId = candidate.genome_id;
++						}
++					}
++					break;
++				}
++				case 'unfreeze_run':
++					result = await unfreezeAndRun(client, context.current.worldId, context.current.parentGenomeId);
++					break;
++				case 'arena': {
++					const arenaResult = await measureInArena(client, context.current.worldId, context.current.parentGenomeId, context.current.candidateGenomeId, setArenaJob);
++					if (arenaResult.evaluationId) context.current.evaluationId = arenaResult.evaluationId;
++					result = arenaResult;
++					break;
++				}
++				case 'replay':
++					result = await proveReplay(client);
++					break;
++				default:
++					result = {
++						phase: 'done',
++						canRetry: false,
++						lines: [
++							'Lineage & Champions, Evidence & Costs, Gene Bank, and Drift/Canary/Meta-eval are on the home menu.',
++							'Replay this tour any time with `heph --tour` (or `hephaestus tui --tour`).',
++							'More: docs/GETTING_STARTED.md',
++						],
++					};
++			}
++			setResults(previous => ({...previous, [step]: result}));
++		} finally {
++			running.current = false;
++		}
++	}, [client, dataDir, step]);
++
++	useEffect(() => {
++		if (!results[step]) void runCurrentStep();
++	}, [step, results, runCurrentStep]);
++
++	const finish = (completed: boolean) => {
++		writeTourMarker(dataDir, {completed});
++		onExit();
++	};
++
++	useInput((input, key) => {
++		if (running.current) return;
++		const outcome = applyTourInput(step, input, key);
++		if (outcome.retry) { setResults(previous => { const next = {...previous}; delete next[step]; return next; }); return; }
++		if (outcome.finished === 'quit') { finish(false); return; }
++		if (outcome.finished === 'skipped' || outcome.finished === 'completed') { finish(true); return; }
++		if (outcome.step !== step) setStep(outcome.step);
++	});
++
++	const current = TOUR_STEPS[step];
++	const result = results[step] ?? idleResult;
++	return <Box flexDirection="column" borderStyle="round" borderColor={TOUR_THEME.night} paddingX={1}>
++		<Box justifyContent="space-between">
++			<Text bold color={TOUR_THEME.torch}>{stepProgressLabel(step)}</Text>
++			<Text color="gray">{progressBar(step)}</Text>
++		</Box>
++		{step === 0 && <Box marginY={1}><IntroAnimation animate={animate} /></Box>}
++		<Text bold>{current?.title}</Text>
++		<Text color="gray">{current?.why}</Text>
++		<Box marginTop={1} flexDirection="column">
++			{result.phase === 'running' && <Text color={TOUR_THEME.torch}>Working…</Text>}
++			{TOUR_STEPS[step]?.id === 'arena' && result.phase !== 'done' && <ArenaLightsLine job={arenaJob} />}
++			{result.lines.map((line, index) => <Text key={index}>{line}</Text>)}
++			{result.phase === 'error' && <Text color={TOUR_THEME.warn}>Something went wrong; press r to retry.</Text>}
++		</Box>
++		<Box marginTop={1}>
++			<Text color="gray">{controlsLine()}{result.canRetry ? '   [r] Retry' : ''}</Text>
++		</Box>
++	</Box>;
++}
+diff --git a/apps/hephaestus-tui/src/tour.ts b/apps/hephaestus-tui/src/tour.ts
+new file mode 100644
+index 0000000..1d86ba4
+--- /dev/null
++++ b/apps/hephaestus-tui/src/tour.ts
+@@ -0,0 +1,199 @@
++import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
++import {homedir} from 'node:os';
++import {join} from 'node:path';
++
++/**
++ * Torch-lit colosseum palette shared with the README hero: deep night blues
++ * and graphite for the challenger, torch orange and warm sand for the
++ * Champion, green for a sealed/verified receipt. Ink's `<Text color>` accepts
++ * these names directly. Shared theme lands in `src/theme.ts` once the
++ * app-wide theme module exists (another lane is building it); this is the
++ * tour's own local copy until then.
++ */
++export const TOUR_THEME = {
++	torch: 'yellow',
++	graphite: 'gray',
++	sand: 'white',
++	night: 'blue',
++	seal: 'green',
++	warn: 'red',
++} as const;
++
++export type TourStepId = 'welcome' | 'lineage' | 'unfreeze_run' | 'arena' | 'replay' | 'done';
++
++export const TOUR_STEPS: ReadonlyArray<{id: TourStepId; title: string; why: string}> = [
++	{
++		id: 'welcome',
++		title: 'Welcome to Hephaestus',
++		why: 'Agents are content-addressed Genomes measured inside Worlds; every claim here carries a receipt.',
++	},
++	{
++		id: 'lineage',
++		title: 'Your first World and Genomes',
++		why: 'Everything Hephaestus measures starts from one registered World and the Genomes compiled under it.',
++	},
++	{
++		id: 'unfreeze_run',
++		title: 'Unfreeze and run',
++		why: 'The daemon starts frozen by design; only an explicit operator action lifts that.',
++	},
++	{
++		id: 'arena',
++		title: 'Measure in the Arena',
++		why: 'A candidate earns trust by beating the parent on the same tasks, not by claiming to.',
++	},
++	{
++		id: 'replay',
++		title: 'Prove it',
++		why: 'Every action above is canonical history; replay recomputes live state and must match it exactly.',
++	},
++	{
++		id: 'done',
++		title: 'Done',
++		why: 'Where each screen lives, and how to see this tour again.',
++	},
++];
++
++export const TOUR_STEP_COUNT = TOUR_STEPS.length;
++
++/** `Step n of N`, the progress affordance every step shows. */
++export function stepProgressLabel(stepIndex: number, total = TOUR_STEP_COUNT): string {
++	return `Step ${Math.min(total, stepIndex + 1)} of ${total}`;
++}
++
++/** A fixed-width filled/unfilled progress bar for `stepIndex` (0-based). */
++export function progressBar(stepIndex: number, total = TOUR_STEP_COUNT, width = 24): string {
++	const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, (stepIndex + 1) / total));
++	const filled = Math.round(ratio * width);
++	return `${'█'.repeat(filled)}${'·'.repeat(Math.max(0, width - filled))}`;
++}
++
++const CONTROL_HINT = '[Enter] Next   [b] Back   [s] Skip tour   [q] Quit';
++
++/** The always-visible controls line (Enter/Back/Skip/Quit affordances). */
++export function controlsLine(): string {
++	return CONTROL_HINT;
++}
++
++export type TourInputOutcome = {step: number; finished: 'completed' | 'skipped' | 'quit' | null; retry: boolean};
++
++/**
++ * Pure step-transition logic for the tour's Enter/Back/Skip/Quit/Retry
++ * controls, kept separate from `TourScreen` so it is unit-testable without
++ * rendering Ink. `key` mirrors the subset of Ink's `useInput` key flags used.
++ */
++export function applyTourInput(step: number, input: string, key: {return?: boolean; escape?: boolean}, total = TOUR_STEP_COUNT): TourInputOutcome {
++	if (input === 'q' || input === 'Q' || key.escape) return {step, finished: 'quit', retry: false};
++	if (input === 's' || input === 'S') return {step, finished: 'skipped', retry: false};
++	if (input === 'r' || input === 'R') return {step, finished: null, retry: true};
++	if (key.return) {
++		if (step >= total - 1) return {step, finished: 'completed', retry: false};
++		return {step: Math.min(total - 1, step + 1), finished: null, retry: false};
++	}
++	if (input === 'b' || input === 'B') return {step: Math.max(0, step - 1), finished: null, retry: false};
++	return {step, finished: null, retry: false};
++}
++
++/** Resolves the daemon data directory the same way `ControlClient` does. */
++export function resolveDataDir(explicit?: string): string {
++	return explicit ?? process.env['HEPHAESTUS_HOME'] ?? join(homedir(), '.hephaestus');
++}
++
++export type TourMarker = {completed: boolean};
++
++export function tourMarkerPath(dataDir: string): string {
++	return join(dataDir, 'tui', 'tour.json');
++}
++
++/** Reads the durable first-run marker; absent or malformed reads as not completed. */
++export function readTourMarker(dataDir: string): TourMarker {
++	try {
++		const parsed = JSON.parse(readFileSync(tourMarkerPath(dataDir), 'utf8')) as unknown;
++		if (parsed && typeof parsed === 'object' && typeof (parsed as {completed?: unknown}).completed === 'boolean') {
++			return {completed: (parsed as {completed: boolean}).completed};
++		}
++	} catch {
++		// Absent or malformed: the tour has not been completed.
++	}
++	return {completed: false};
++}
++
++/** Persists the first-run marker; failures are swallowed (never blocks the tour). */
++export function writeTourMarker(dataDir: string, marker: TourMarker): void {
++	try {
++		const directory = join(dataDir, 'tui');
++		mkdirSync(directory, {recursive: true});
++		writeFileSync(join(directory, 'tour.json'), JSON.stringify(marker), {mode: 0o600});
++	} catch {
++		// Best-effort only; a lost marker just means the tour offers again.
++	}
++}
++
++export type QuickstartFixturePaths = {
++	dir: string;
++	worldTemplate: string;
++	parentGenome: string;
++	candidateTemplate: string;
++	visibleTasks: string;
++	sealedTasks: string;
++};
++
++/** Where `heph`/`hephaestus init --fixture quickstart` puts the bundled fixture. */
++export function quickstartFixturePaths(dataDir: string): QuickstartFixturePaths {
++	const dir = join(dataDir, 'quickstart');
++	return {
++		dir,
++		worldTemplate: join(dir, 'world.template.json'),
++		parentGenome: join(dir, 'agent.md'),
++		candidateTemplate: join(dir, 'candidate.md'),
++		visibleTasks: join(dir, 'tasks/visible.json'),
++		sealedTasks: join(dir, 'tasks/sealed.json'),
++	};
++}
++
++/** True only when every fixture file the tour needs is actually on disk. */
++export function quickstartFixtureAvailable(paths: QuickstartFixturePaths): boolean {
++	return [paths.worldTemplate, paths.parentGenome, paths.candidateTemplate, paths.visibleTasks, paths.sealedTasks]
++		.every(path => existsSync(path));
++}
++
++export function renderWorldTemplate(template: string, ids: {visible: string; sealed: string; evaluator: string; verifier: string}): string {
++	return template
++		.split('__VISIBLE_MANIFEST__').join(ids.visible)
++		.split('__SEALED_MANIFEST__').join(ids.sealed)
++		.split('__EVALUATOR__').join(ids.evaluator)
++		.split('__VERIFIER__').join(ids.verifier);
++}
++
++export function renderCandidateTemplate(template: string, parentGenomeId: string): string {
++	return template.split('__PARENT_ID__').join(parentGenomeId);
++}
++
++/** A short torch-flame flicker, capped well under 1.5s per loop. */
++export const INTRO_FRAME_COUNT = 4;
++export const INTRO_FRAME_MS = 300;
++const TORCH_FLAMES = ['^', '~', '^', '*'] as const;
++
++export function introTorchGlyph(frame: number): string {
++	const index = ((frame % TORCH_FLAMES.length) + TORCH_FLAMES.length) % TORCH_FLAMES.length;
++	return TORCH_FLAMES[index] ?? TORCH_FLAMES[0];
++}
++
++/** Lit (torch/graphite) vs unlit dots for `completed` of `total` Arena trials. */
++export function arenaLights(completed: number, total: number): string {
++	const safeTotal = Math.max(1, Math.trunc(total));
++	const lit = Math.max(0, Math.min(safeTotal, Math.trunc(completed)));
++	return `${'●'.repeat(lit)}${'○'.repeat(safeTotal - lit)}`;
++}
++
++export function celebrationBanner(eligible: boolean): string {
++	return eligible
++		? '*** The candidate is eligible for promotion! ***'
++		: 'Recorded — not (yet) eligible for promotion under this World\'s policy.';
++}
++
++export function replaySeal(matches: boolean): string {
++	return matches
++		? 'sealed — replayed state matches live state, byte for byte.'
++		: 'unsealed — replayed state diverged from live state.';
++}
+diff --git a/apps/hephaestus-tui/src/ui.tsx b/apps/hephaestus-tui/src/ui.tsx
+index 2502a61..c8a62d0 100644
+--- a/apps/hephaestus-tui/src/ui.tsx
++++ b/apps/hephaestus-tui/src/ui.tsx
+@@ -10,9 +10,10 @@ import {GenomeDetail, LineagePanel, WorldList, shortId} from './lineage-view.js'
+ import {GeneDetailPanel, GeneListPanel} from './gene-view.js';
+ import {CanaryDetailPanel, CanaryListPanel, DriftDetailPanel, DriftListPanel} from './drift-canary-view.js';
+ import {MetaEvaluationDetailPanel, MetaEvaluationListPanel, MetaStrategyDetailPanel, MetaStrategyListPanel} from './meta-view.js';
++import {TourScreen} from './tour-view.js';
+ import {safeText, type ApiResponse, type ArenaJobProgress, type Canary, type Champion, type Command, type DenialEntry, type Drift, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type MetaEvaluation, type MetaStrategy, type ResponseData, type RunListEntry, type World} from './protocol.js';
+ 
+-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent'] as const;
++const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent', 'Take the tour'] as const;
+ const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
+ const OPERATE_MENU = ['Drift records', 'Canaries', 'Evolver strategies', 'Meta-evaluations'] as const;
+ type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
+@@ -21,7 +22,8 @@ type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' |
+ 	| 'genes' | 'gene-detail'
+ 	| 'operate-menu' | 'drifts' | 'drift-detail' | 'canaries' | 'canary-detail'
+ 	| 'meta-strategies' | 'meta-strategy-detail' | 'meta-evaluations' | 'meta-evaluation-detail'
+-	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent';
++	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent'
++	| 'tour';
+ const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
+ const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
+ const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
+@@ -31,7 +33,7 @@ const OPERATE_VIEWS: View[] = ['operate-menu', ...OPERATE_LIST_VIEWS, 'drift-det
+ const AUTHOR_VIEWS: View[] = ['author-world', 'author-path', 'author-register', 'author-test-parent'];
+ const LIST_LIMIT = 200;
+ type TuiClient = Pick<ControlClient, 'request'>;
+-type Props = {client?: TuiClient; pollMs?: number};
++type Props = {client?: TuiClient; pollMs?: number; forceTour?: boolean};
+ 
+ function waitForPoll(ms: number, signal: AbortSignal): Promise<void> {
+ 	if (signal.aborted) return Promise.reject(new Error('daemon request aborted'));
+@@ -92,12 +94,12 @@ export function ArenaProgressPanel({job, stale, notice, compact = false}: {job?:
+ 	</Box>;
+ }
+ 
+-export function App({client: providedClient, pollMs = 1500}: Props) {
++export function App({client: providedClient, pollMs = 1500, forceTour = false}: Props) {
+ 	const {exit} = useApp();
+ 	const {columns = 80, rows = 24} = useWindowSize();
+ 	const [client] = useState(() => providedClient ?? new ControlClient());
+ 	const [selected, setSelected] = useState(0);
+-	const [view, setView] = useState<View>('home');
++	const [view, setView] = useState<View>(forceTour ? 'tour' : 'home');
+ 	const [jobId, setJobId] = useState('');
+ 	const [jobPromptAction, setJobPromptAction] = useState<'inspect' | 'cancel'>('inspect');
+ 	const [arenaInput, setArenaInput] = useState('');
+@@ -469,6 +471,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
+ 	};
+ 
+ 	useInput((input, key) => {
++		if (view === 'tour') return; // TourScreen owns its own input while active.
+ 		if (view === 'home' && input.toLowerCase().includes('q')) { quit(); return; }
+ 		if (view === 'job-id') {
+ 			if (key.escape) { setView('home'); return; }
+@@ -780,6 +783,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
+ 				case 9: setGeneIndex(0); setGeneDetail(undefined); setView('genes'); void loadGenes(); break;
+ 				case 10: setOperateMenuIndex(0); setView('operate-menu'); break;
+ 				case 11: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
++				case 12: setView('tour'); break;
+ 			}
+ 		}
+ 	});
+@@ -803,12 +807,15 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
+ 	const genomeDetailHeight = Math.max(1, panelHeight - 8); // border(2) + 5 fixed fields + optional status line
+ 	const detail = genomes.find(genome => genome.genome_id === detailId);
+ 	const detailParent = detail ? genomes.find(genome => detail.parent_ids.includes(genome.genome_id)) : undefined;
++	if (view === 'tour') {
++		return <TourScreen client={client} onExit={() => { setView('home'); void refresh(); }} />;
++	}
+ 	return <Box flexDirection="column" width={Math.max(1, columns)} height={Math.max(1, rows)} paddingX={1}>
+ 		<Box justifyContent="space-between">
+ 			<Text bold color="yellow">HEPHAESTUS <Text color="gray">/ OPERATOR</Text></Text>
+ 			<Text color={stale ? 'red' : statusOf(status?.data) === 'FROZEN' ? 'yellow' : status ? 'green' : 'gray'}>{stale ? '● STALE' : `● ${statusOf(status?.data)}`}</Text>
+ 		</Box>
+-		<Box marginTop={1} flexDirection="column">
++		<Box marginTop={0} flexDirection="column">
+ 			{!compact && arena.map((line, index) => <Text key={index} color={index === 2 ? 'yellow' : 'gray'}>{line}</Text>)}
+ 			<Text bold color="white">  LOCAL CONTROL · SCHEMA 1 · OWNER SOCKET</Text>
+ 		</Box>
+diff --git a/apps/hephaestus-tui/test/tour.test.tsx b/apps/hephaestus-tui/test/tour.test.tsx
+new file mode 100644
+index 0000000..16e514b
+--- /dev/null
++++ b/apps/hephaestus-tui/test/tour.test.tsx
+@@ -0,0 +1,332 @@
++import React from 'react';
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {mkdtemp, mkdir, rm, writeFile, readFile} from 'node:fs/promises';
++import {tmpdir} from 'node:os';
++import {join} from 'node:path';
++import {renderToString} from 'ink';
++import {
++	TOUR_STEP_COUNT, applyTourInput, arenaLights, celebrationBanner, controlsLine,
++	introTorchGlyph, progressBar, quickstartFixtureAvailable, quickstartFixturePaths,
++	readTourMarker, renderCandidateTemplate, renderWorldTemplate, replaySeal,
++	stepProgressLabel, writeTourMarker,
++} from '../src/tour.js';
++import {
++	TourScreen, measureInArena, proveReplay, registerLineage, unfreezeAndRun,
++	type TourClient,
++} from '../src/tour-view.js';
++import type {ApiResponse, Command, ResponseData} from '../src/protocol.js';
++
++// --- pure helpers -----------------------------------------------------------
++
++test('stepProgressLabel and progressBar report bounded, monotonic progress', () => {
++	assert.equal(stepProgressLabel(0, 6), 'Step 1 of 6');
++	assert.equal(stepProgressLabel(5, 6), 'Step 6 of 6');
++	const bars = [0, 1, 2, 3, 4, 5].map(step => progressBar(step, 6, 12));
++	for (const bar of bars) assert.equal(bar.length, 12);
++	// Every later step fills at least as many segments as the one before.
++	const filledCounts = bars.map(bar => bar.split('').filter(char => char === '█').length);
++	for (let index = 1; index < filledCounts.length; index += 1) {
++		assert.ok(filledCounts[index]! >= filledCounts[index - 1]!);
++	}
++	assert.equal(filledCounts.at(-1), 12);
++});
++
++test('controlsLine always names Next, Back, Skip, and Quit', () => {
++	const line = controlsLine();
++	assert.match(line, /Next/);
++	assert.match(line, /Back/);
++	assert.match(line, /Skip/);
++	assert.match(line, /Quit/);
++});
++
++test('introTorchGlyph cycles deterministically and never throws on negative frames', () => {
++	const frames = [0, 1, 2, 3, 4].map(introTorchGlyph);
++	assert.equal(frames[0], frames[4]);
++	assert.equal(typeof introTorchGlyph(-1), 'string');
++});
++
++test('arenaLights lights exactly the completed trials, clamped to total', () => {
++	assert.equal(arenaLights(0, 2), '○○');
++	assert.equal(arenaLights(1, 2), '●○');
++	assert.equal(arenaLights(2, 2), '●●');
++	assert.equal(arenaLights(5, 2), '●●');
++	assert.equal(arenaLights(-1, 2), '○○');
++});
++
++test('celebrationBanner and replaySeal state the honest outcome plainly', () => {
++	assert.match(celebrationBanner(true), /eligible for promotion!/);
++	assert.match(celebrationBanner(false), /not \(yet\) eligible/);
++	assert.match(replaySeal(true), /sealed/);
++	assert.match(replaySeal(false), /unsealed/);
++});
++
++test('renderWorldTemplate and renderCandidateTemplate substitute every placeholder', () => {
++	const world = renderWorldTemplate('{"a":"__VISIBLE_MANIFEST__","b":"__SEALED_MANIFEST__","c":"__EVALUATOR__","d":"__VERIFIER__"}', {
++		visible: 'v1', sealed: 's1', evaluator: 'e1', verifier: 'k1',
++	});
++	assert.equal(world, '{"a":"v1","b":"s1","c":"e1","d":"k1"}');
++	assert.equal(renderCandidateTemplate('parents: ["__PARENT_ID__"]', 'genome-123'), 'parents: ["genome-123"]');
++});
++
++test('the first-run marker reads as incomplete until the tour writes it', async () => {
++	const dataDir = await mkdtemp(join(tmpdir(), 'hephaestus-tour-'));
++	try {
++		assert.equal(readTourMarker(dataDir).completed, false);
++		writeTourMarker(dataDir, {completed: true});
++		assert.equal(readTourMarker(dataDir).completed, true);
++		writeTourMarker(dataDir, {completed: false});
++		assert.equal(readTourMarker(dataDir).completed, false);
++	} finally {
++		await rm(dataDir, {recursive: true, force: true});
++	}
++});
++
++test('a malformed marker file reads as incomplete rather than throwing', async () => {
++	const dataDir = await mkdtemp(join(tmpdir(), 'hephaestus-tour-'));
++	try {
++		await mkdir(join(dataDir, 'tui'), {recursive: true});
++		await writeFile(join(dataDir, 'tui', 'tour.json'), 'not json');
++		assert.equal(readTourMarker(dataDir).completed, false);
++	} finally {
++		await rm(dataDir, {recursive: true, force: true});
++	}
++});
++
++test('quickstartFixtureAvailable is false until every fixture file exists', async () => {
++	const dataDir = await mkdtemp(join(tmpdir(), 'hephaestus-tour-'));
++	try {
++		const paths = quickstartFixturePaths(dataDir);
++		assert.equal(quickstartFixtureAvailable(paths), false);
++		await mkdir(join(dataDir, 'quickstart', 'tasks'), {recursive: true});
++		await writeFile(paths.worldTemplate, '{}');
++		await writeFile(paths.parentGenome, '---\n---\n');
++		await writeFile(paths.candidateTemplate, '---\n---\n');
++		assert.equal(quickstartFixtureAvailable(paths), false);
++		await writeFile(paths.visibleTasks, '[]');
++		await writeFile(paths.sealedTasks, '[]');
++		assert.equal(quickstartFixtureAvailable(paths), true);
++	} finally {
++		await rm(dataDir, {recursive: true, force: true});
++	}
++});
++
++// --- applyTourInput state machine ------------------------------------------
++
++test('applyTourInput advances, retreats, and clamps at both ends', () => {
++	assert.deepEqual(applyTourInput(0, '', {return: true}), {step: 1, finished: null, retry: false});
++	assert.deepEqual(applyTourInput(0, '', {}), {step: 0, finished: null, retry: false});
++	assert.deepEqual(applyTourInput(0, 'b', {}), {step: 0, finished: null, retry: false});
++	assert.deepEqual(applyTourInput(2, 'b', {}), {step: 1, finished: null, retry: false});
++	assert.deepEqual(applyTourInput(TOUR_STEP_COUNT - 1, '', {return: true}), {step: TOUR_STEP_COUNT - 1, finished: 'completed', retry: false});
++});
++
++test('applyTourInput reports skip, quit, and retry without moving the step', () => {
++	assert.deepEqual(applyTourInput(2, 's', {}), {step: 2, finished: 'skipped', retry: false});
++	assert.deepEqual(applyTourInput(2, 'q', {}), {step: 2, finished: 'quit', retry: false});
++	assert.deepEqual(applyTourInput(2, '', {escape: true}), {step: 2, finished: 'quit', retry: false});
++	assert.deepEqual(applyTourInput(2, 'r', {}), {step: 2, finished: null, retry: true});
++});
++
++// --- scripted fake-daemon steps ---------------------------------------------
++
++function fakeClient(handlers: Partial<Record<Command['command'], (command: Command) => ApiResponse>>): TourClient {
++	return {
++		async request(command) {
++			const handler = handlers[command.command];
++			if (!handler) throw new Error(`unscripted command: ${command.command}`);
++			return handler(command);
++		},
++	};
++}
++
++function ok(data: ResponseData): ApiResponse {
++	return {version: 1, request_id: 'r', data};
++}
++
++function err(message = 'canonical operation failed'): ApiResponse {
++	return {version: 1, request_id: 'r', error: {code: 'internal', message}};
++}
++
++test('registerLineage reuses an already-registered World and its Genomes', async () => {
++	const client = fakeClient({
++		world_list: () => ok({type: 'worlds', worlds: [{world_id: 'world-1', name: 'quickstart-world', artifact_id: 'a1'}]}),
++		genome_list: () => ok({
++			type: 'genomes',
++			genomes: [
++				{genome_id: 'parent-1', name: 'quickstart-parent', world_id: 'world-1', artifact_id: 'a2', parent_ids: []},
++				{genome_id: 'candidate-1', name: 'quickstart-candidate', world_id: 'world-1', artifact_id: 'a3', parent_ids: ['parent-1']},
++			],
++		}),
++	});
++	const result = await registerLineage(client, '/nonexistent-data-dir');
++	assert.equal(result.phase, 'done');
++	assert.match(result.lines.join('\n'), /Reusing already-registered World/);
++});
++
++test('registerLineage explains plainly when no bundled fixture exists yet', async () => {
++	const dataDir = await mkdtemp(join(tmpdir(), 'hephaestus-tour-'));
++	try {
++		const client = fakeClient({world_list: () => ok({type: 'worlds', worlds: []})});
++		const result = await registerLineage(client, dataDir);
++		assert.equal(result.phase, 'unavailable');
++		assert.match(result.lines.join('\n'), /No bundled quickstart fixture/);
++		assert.equal(result.canRetry, true);
++	} finally {
++		await rm(dataDir, {recursive: true, force: true});
++	}
++});
++
++test('registerLineage registers a fresh World and both Genomes from the bundled fixture', async () => {
++	const dataDir = await mkdtemp(join(tmpdir(), 'hephaestus-tour-'));
++	const evaluator = join(dataDir, 'fake-evaluator');
++	const previousOverride = process.env['HEPHAESTUS_EVALUATOR'];
++	try {
++		const paths = quickstartFixturePaths(dataDir);
++		await mkdir(join(dataDir, 'quickstart', 'tasks'), {recursive: true});
++		await writeFile(paths.worldTemplate, '{"evaluator":"__EVALUATOR__","verifier":"__VERIFIER__","visible":"__VISIBLE_MANIFEST__","sealed":"__SEALED_MANIFEST__"}');
++		await writeFile(paths.parentGenome, '---\nname: quickstart-parent\nparents: []\n---\n');
++		await writeFile(paths.candidateTemplate, '---\nname: quickstart-candidate\nparents: ["__PARENT_ID__"]\n---\n');
++		await writeFile(paths.visibleTasks, '[]');
++		await writeFile(paths.sealedTasks, '[]');
++		await writeFile(evaluator, '#!/bin/sh\n');
++		process.env['HEPHAESTUS_EVALUATOR'] = evaluator;
++
++		const client = fakeClient({
++			world_list: () => ok({type: 'worlds', worlds: []}),
++			manifest_put: () => ok({type: 'artifact', artifact_id: 'manifest-id', bytes: 2}),
++			artifact_put: () => ok({type: 'artifact', artifact_id: 'evaluator-id', bytes: 4}),
++			verifier_show: () => ok({type: 'verifier', artifact_id: 'verifier-id', public_key_hex: 'ab'.repeat(32)}),
++			world_register: () => ok({type: 'world', world: {world_id: 'world-9', name: 'quickstart-world', artifact_id: 'wa'}}),
++			genome_register: command => {
++				const registered = command as Extract<Command, {command: 'genome_register'}>;
++				const isCandidate = registered.path.endsWith('candidate.md');
++				return ok({
++					type: 'genome',
++					genome: {
++						genome_id: isCandidate ? 'candidate-9' : 'parent-9',
++						name: isCandidate ? 'quickstart-candidate' : 'quickstart-parent',
++						world_id: registered.world_id,
++						artifact_id: 'ga',
++						parent_ids: isCandidate ? ['parent-9'] : [],
++					},
++				});
++			},
++		});
++
++		const result = await registerLineage(client, dataDir);
++		assert.equal(result.phase, 'done');
++		assert.match(result.lines.join('\n'), /Registered World quickstart-world/);
++		assert.match(result.lines.join('\n'), /Registered parent Genome/);
++		assert.match(result.lines.join('\n'), /Registered candidate Genome/);
++
++		const candidateWork = await readFile(join(dataDir, 'tour', 'work', 'candidate.md'), 'utf8');
++		assert.match(candidateWork, /parents: \["parent-9"\]/);
++		const worldWork = await readFile(join(dataDir, 'tour', 'work', 'world.json'), 'utf8');
++		assert.match(worldWork, /evaluator-id/);
++		assert.match(worldWork, /verifier-id/);
++	} finally {
++		if (previousOverride === undefined) delete process.env['HEPHAESTUS_EVALUATOR'];
++		else process.env['HEPHAESTUS_EVALUATOR'] = previousOverride;
++		await rm(dataDir, {recursive: true, force: true});
++	}
++});
++
++test('unfreezeAndRun says so plainly when the run is refused (no OS sandbox)', async () => {
++	const client = fakeClient({
++		unfreeze: () => ok({type: 'acknowledged', frozen: false, killed_runs: 0}),
++		run_submit: () => err('canonical operation failed'),
++	});
++	const result = await unfreezeAndRun(client, 'world-1', 'parent-1');
++	assert.equal(result.phase, 'unavailable');
++	assert.match(result.lines.join('\n'), /no verified OS sandbox/);
++	assert.match(result.lines.join('\n'), /registration, replay, and inspection/);
++});
++
++test('unfreezeAndRun reports a successful terminal run', async () => {
++	const client = fakeClient({
++		unfreeze: () => ok({type: 'acknowledged', frozen: false, killed_runs: 0}),
++		run_submit: () => ok({
++			type: 'job',
++			job: {
++				job_id: 'tour-run', genome_id: 'parent-1', run_id: 'run-1', source_revision: 'abcdef123456',
++				world_id: 'world-1', task_id: '', input_commitment: '', seed: 0, environment_id: 'env',
++				budget: {}, state: 'succeeded', terminal: 'succeeded',
++			},
++			progress: {trace_events: 3, last_event_sequence: 9, last_phase: null},
++		}),
++	});
++	const result = await unfreezeAndRun(client, 'world-1', 'parent-1');
++	assert.equal(result.phase, 'done');
++	assert.match(result.lines.join('\n'), /run-1/);
++});
++
++test('measureInArena surfaces the visible score, eligibility, and CI from a scripted evaluation', async () => {
++	const evaluation = {parent_visible_correct: 0, candidate_visible_correct: 1, visible_total: 1};
++	const client = fakeClient({
++		evaluate_pair: () => ok({
++			type: 'arena_job',
++			job: {evaluation_id: 'eval-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2, evaluation},
++		}),
++		job_status: () => ok({
++			type: 'arena_job',
++			job: {evaluation_id: 'eval-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2, evaluation},
++		}),
++		evaluation_list: () => ok({
++			type: 'evaluation_list',
++			evaluations: [{
++				evaluation: {evaluation_id: 'tour-parent-1-candidat', world_id: 'world-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', ...evaluation},
++				selection: {
++					metrics_eligible: true, estimate_bps: 5000, lower_bps: 100, upper_bps: 9000,
++					parent_cost_microusd: 0, candidate_cost_microusd: 0, parent_latency_millis: 1, candidate_latency_millis: 1,
++					invariant_gate_verified: true, promotion_eligible: false,
++				},
++				invariants: null, forge_assessment: null, champion_transition_ids: [],
++			}],
++		}),
++	});
++	const result = await measureInArena(client, 'world-1', 'parent-1', 'candidate-1', () => {});
++	assert.equal(result.phase, 'done');
++	const text = result.lines.join('\n');
++	assert.match(text, /parent 0\/1 → candidate 1\/1/);
++	assert.match(text, /Correctness delta 5000 bps/);
++	assert.match(text, /Eligible for promotion: no/);
++	assert.match(text, /Sealed tasks are never shown/);
++});
++
++test('proveReplay seals a matching replay and flags a divergent one', async () => {
++	const matching = fakeClient({
++		status: () => ok({type: 'status', frozen: false, active_runs: 0, event_count: 7, genome_count: 2}),
++		replay: () => ok({type: 'replay', event_count: 7, frozen: false, active_runs: 0, projection_hash: 'h'.repeat(32)}),
++	});
++	const matchResult = await proveReplay(matching);
++	assert.equal(matchResult.phase, 'done');
++	assert.match(matchResult.lines.join('\n'), /sealed —/);
++
++	const divergent = fakeClient({
++		status: () => ok({type: 'status', frozen: false, active_runs: 0, event_count: 8, genome_count: 2}),
++		replay: () => ok({type: 'replay', event_count: 7, frozen: false, active_runs: 0, projection_hash: 'h'.repeat(32)}),
++	});
++	const divergentResult = await proveReplay(divergent);
++	assert.match(divergentResult.lines.join('\n'), /unsealed/);
++});
++
++// --- rendering ---------------------------------------------------------------
++
++test('TourScreen renders the welcome step with progress, why, and controls', () => {
++	const client = fakeClient({});
++	const rendered = renderToString(<TourScreen client={client} dataDir="/nonexistent" onExit={() => {}} animate={false} />);
++	assert.match(rendered, /Step 1 of 6/);
++	assert.match(rendered, /Welcome to Hephaestus/);
++	assert.match(rendered, /CHALLENGER/);
++	assert.match(rendered, /CHAMPION/);
++	assert.match(rendered, /Skip tour/);
++});
++
++test('TourScreen can jump straight to the Done step, fully progressed', () => {
++	const client = fakeClient({});
++	const rendered = renderToString(<TourScreen client={client} dataDir="/nonexistent" onExit={() => {}} animate={false} initialStep={5} />);
++	assert.match(rendered, /Step 6 of 6/);
++	assert.match(rendered, /Done/);
++	assert.match(rendered, /how to see this tour again/);
++});
+diff --git a/crates/hephaestus-control/src/bin/heph.rs b/crates/hephaestus-control/src/bin/heph.rs
+new file mode 100644
+index 0000000..9e5c7bb
+--- /dev/null
++++ b/crates/hephaestus-control/src/bin/heph.rs
+@@ -0,0 +1,386 @@
++//! `heph`: the convenience launcher for a fresh Hephaestus install.
++//!
++//! It starts the local daemon if one is not already serving the configured
++//! data directory, waits (bounded) for it to become ready, and then opens the
++//! real operator TUI exactly as `hephaestus tui` does — forcing the first-run
++//! tour when this data directory has never completed one. `heph` holds no
++//! authority of its own: every action it takes is one of the ordinary
++//! `hephaestus` subcommands (spawning `hephaestusd`, running
++//! `hephaestus init --fixture quickstart`, running `hephaestus tui`), and the
++//! daemon it starts still boots frozen exactly as it does launched by hand.
++//! An operator who prefers to drive each step themselves can do everything
++//! `heph` does with the ordinary CLI.
++
++use std::{
++    env, fs,
++    path::{Path, PathBuf},
++    process::{Command as ProcessCommand, ExitCode, Stdio},
++    time::{Duration, Instant},
++};
++
++use clap::{Parser, Subcommand};
++use hephaestus_control::{Client, Command, data_dir_from_environment};
++use serde::{Deserialize, Serialize};
++
++/// Bounded wait for a freshly spawned daemon to start answering requests.
++const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(20);
++/// Poll interval while waiting for the daemon socket to come up.
++const DAEMON_READY_POLL: Duration = Duration::from_millis(20);
++
++#[derive(Parser)]
++#[command(
++    name = "heph",
++    about = "Launch Hephaestus: start the daemon if needed, then open the operator tour",
++    version
++)]
++struct Arguments {
++    /// Canonical daemon data directory (defaults like `hephaestus`).
++    #[arg(long)]
++    data_dir: Option<PathBuf>,
++    /// Force the first-run tour to play even if it was already completed.
++    #[arg(long)]
++    tour: bool,
++    /// Never start a daemon; fail if one is not already running.
++    #[arg(long = "no-daemon")]
++    no_daemon: bool,
++    #[command(subcommand)]
++    command: Option<HephCommand>,
++}
++
++#[derive(Subcommand)]
++enum HephCommand {
++    /// Stop the daemon serving this data directory.
++    Stop,
++}
++
++/// Durable first-run marker shared with the TUI at `<data_dir>/tui/tour.json`.
++#[derive(Debug, Default, Deserialize, Serialize)]
++struct TourMarker {
++    #[serde(default)]
++    completed: bool,
++}
++
++fn main() -> ExitCode {
++    let arguments = Arguments::parse();
++    let data_dir = match arguments
++        .data_dir
++        .clone()
++        .map_or_else(data_dir_from_environment, Ok)
++    {
++        Ok(path) => path,
++        Err(error) => {
++            eprintln!("heph: {error}");
++            return ExitCode::FAILURE;
++        }
++    };
++    if matches!(arguments.command, Some(HephCommand::Stop)) {
++        return run_stop(&data_dir);
++    }
++    run_launch(&data_dir, arguments.tour, arguments.no_daemon)
++}
++
++fn run_stop(data_dir: &Path) -> ExitCode {
++    match Client::new(data_dir.to_path_buf()).request(Command::DaemonStop) {
++        Ok(response) if response.error.is_none() => {
++            println!("heph: daemon stopped");
++            let _ignored = fs::remove_file(data_dir.join("heph.pid"));
++            ExitCode::SUCCESS
++        }
++        Ok(response) => {
++            let error = response.error.expect("checked above");
++            eprintln!("heph: {:?}: {}", error.code, error.message);
++            ExitCode::FAILURE
++        }
++        Err(error) => {
++            eprintln!("heph: {error}");
++            ExitCode::FAILURE
++        }
++    }
++}
++
++fn run_launch(data_dir: &Path, force_tour: bool, no_daemon: bool) -> ExitCode {
++    if !daemon_reachable(data_dir) {
++        if no_daemon {
++            eprintln!(
++                "heph: no daemon is running for {}; omit --no-daemon to start one automatically",
++                data_dir.display()
++            );
++            return ExitCode::FAILURE;
++        }
++        if let Err(error) = start_daemon(data_dir) {
++            eprintln!("heph: {error}");
++            return ExitCode::FAILURE;
++        }
++        let client = Client::new(data_dir.to_path_buf());
++        if !wait_until_ready(DAEMON_READY_TIMEOUT, || {
++            client.request(Command::Status).is_ok()
++        }) {
++            eprintln!(
++                "heph: hephaestusd did not become ready within {DAEMON_READY_TIMEOUT:?}; see {}",
++                data_dir.join("logs/hephaestusd.log").display()
++            );
++            return ExitCode::FAILURE;
++        }
++    }
++    let show_tour = force_tour || !tour_marker_completed(data_dir);
++    run_tui(data_dir, show_tour)
++}
++
++fn daemon_reachable(data_dir: &Path) -> bool {
++    Client::new(data_dir.to_path_buf())
++        .request(Command::Status)
++        .is_ok()
++}
++
++/// Polls `probe` until it reports readiness or `timeout` elapses. Kept
++/// generic over the probe so the bounded-wait behavior is unit-testable
++/// without a real daemon socket.
++fn wait_until_ready(timeout: Duration, mut probe: impl FnMut() -> bool) -> bool {
++    let deadline = Instant::now() + timeout;
++    loop {
++        if probe() {
++            return true;
++        }
++        if Instant::now() >= deadline {
++            return false;
++        }
++        std::thread::sleep(DAEMON_READY_POLL);
++    }
++}
++
++fn tour_marker_path(data_dir: &Path) -> PathBuf {
++    data_dir.join("tui").join("tour.json")
++}
++
++fn tour_marker_completed(data_dir: &Path) -> bool {
++    fs::read_to_string(tour_marker_path(data_dir))
++        .ok()
++        .and_then(|text| serde_json::from_str::<TourMarker>(&text).ok())
++        .is_some_and(|marker| marker.completed)
++}
++
++fn current_exe_dir() -> Result<PathBuf, String> {
++    let exe = env::current_exe()
++        .map_err(|error| format!("could not resolve heph's own executable path: {error}"))?;
++    let exe = exe.canonicalize().unwrap_or(exe);
++    exe.parent()
++        .map(Path::to_path_buf)
++        .ok_or_else(|| "heph executable has no parent directory".to_owned())
++}
++
++fn sibling_binary(exe_dir: &Path, name: &str) -> PathBuf {
++    exe_dir.join(format!("{name}{}", env::consts::EXE_SUFFIX))
++}
++
++fn start_daemon(data_dir: &Path) -> Result<(), String> {
++    fs::create_dir_all(data_dir)
++        .map_err(|error| format!("could not create data directory: {error}"))?;
++    let log_dir = data_dir.join("logs");
++    fs::create_dir_all(&log_dir)
++        .map_err(|error| format!("could not create log directory: {error}"))?;
++    let exe_dir = current_exe_dir()?;
++    let hephaestusd = sibling_binary(&exe_dir, "hephaestusd");
++    if !hephaestusd.is_file() {
++        return Err(format!(
++            "hephaestusd was not found beside heph (expected {})",
++            hephaestusd.display()
++        ));
++    }
++    let hephaestus_cli = sibling_binary(&exe_dir, "hephaestus");
++    let source_repository = resolve_source_repository(data_dir, &hephaestus_cli)?;
++    let evaluator = sibling_binary(&exe_dir, "hephaestus-reference-evaluator");
++
++    let log_path = log_dir.join("hephaestusd.log");
++    let log_out = fs::OpenOptions::new()
++        .create(true)
++        .append(true)
++        .open(&log_path)
++        .map_err(|error| format!("could not open daemon log {}: {error}", log_path.display()))?;
++    let log_err = log_out
++        .try_clone()
++        .map_err(|error| format!("could not duplicate daemon log handle: {error}"))?;
++
++    let mut command = ProcessCommand::new(&hephaestusd);
++    command
++        .arg("--data-dir")
++        .arg(data_dir)
++        .arg("--source-repository")
++        .arg(&source_repository);
++    if evaluator.is_file() {
++        command.arg("--evaluator-executable").arg(&evaluator);
++    }
++    command
++        .stdin(Stdio::null())
++        .stdout(Stdio::from(log_out))
++        .stderr(Stdio::from(log_err));
++    // Detach hephaestusd into its own process group so it outlives `heph`
++    // (and is not signaled along with it by the shell's job control); this is
++    // the strongest detachment available without `unsafe` code, which this
++    // workspace forbids.
++    detach_process_group(&mut command);
++    let child = command
++        .spawn()
++        .map_err(|error| format!("could not start hephaestusd: {error}"))?;
++    let _ignored = fs::write(data_dir.join("heph.pid"), child.id().to_string());
++    Ok(())
++}
++
++#[cfg(unix)]
++fn detach_process_group(command: &mut ProcessCommand) {
++    use std::os::unix::process::CommandExt;
++    command.process_group(0);
++}
++
++#[cfg(not(unix))]
++fn detach_process_group(_command: &mut ProcessCommand) {}
++
++/// Resolves the Git repository the daemon should inventory: an explicit
++/// override, a fixture this data directory already bootstrapped, or (failing
++/// both) a freshly installed quickstart fixture — through the exact same
++/// code path as `hephaestus init --fixture quickstart`.
++fn resolve_source_repository(data_dir: &Path, hephaestus_cli: &Path) -> Result<PathBuf, String> {
++    if let Some(configured) = env::var_os("HEPHAESTUS_SOURCE_REPOSITORY") {
++        return Ok(PathBuf::from(configured));
++    }
++    let quickstart_repository = data_dir.join("quickstart").join("repository");
++    if quickstart_repository.join(".git").is_dir() {
++        return Ok(quickstart_repository);
++    }
++    if !hephaestus_cli.is_file() {
++        return Err(format!(
++            "hephaestus was not found beside heph (expected {}); cannot bootstrap the quickstart fixture",
++            hephaestus_cli.display()
++        ));
++    }
++    let quickstart_dir = data_dir.join("quickstart");
++    let status = ProcessCommand::new(hephaestus_cli)
++        .arg("init")
++        .arg("--fixture")
++        .arg("quickstart")
++        .arg(&quickstart_dir)
++        .status()
++        .map_err(|error| format!("could not run `hephaestus init`: {error}"))?;
++    if !status.success() {
++        return Err("`hephaestus init --fixture quickstart` failed".to_owned());
++    }
++    Ok(quickstart_dir.join("repository"))
++}
++
++fn run_tui(data_dir: &Path, show_tour: bool) -> ExitCode {
++    let exe_dir = match current_exe_dir() {
++        Ok(dir) => dir,
++        Err(error) => {
++            eprintln!("heph: {error}");
++            return ExitCode::FAILURE;
++        }
++    };
++    let hephaestus_cli = sibling_binary(&exe_dir, "hephaestus");
++    if !hephaestus_cli.is_file() {
++        eprintln!(
++            "heph: hephaestus was not found beside heph (expected {})",
++            hephaestus_cli.display()
++        );
++        return ExitCode::FAILURE;
++    }
++    let mut command = ProcessCommand::new(&hephaestus_cli);
++    command.arg("--data-dir").arg(data_dir).arg("tui");
++    if show_tour {
++        command.arg("--tour");
++    }
++    match command.status() {
++        Ok(status) => status
++            .code()
++            .and_then(|code| u8::try_from(code).ok())
++            .map_or(ExitCode::FAILURE, ExitCode::from),
++        Err(error) => {
++            eprintln!("heph: could not start the operator TUI: {error}");
++            ExitCode::FAILURE
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use std::time::Instant;
++
++    use clap::Parser;
++    use tempfile::tempdir;
++
++    use super::{Arguments, HephCommand, tour_marker_completed, tour_marker_path, wait_until_ready};
++
++    #[test]
++    fn default_invocation_starts_the_daemon_and_shows_no_forced_tour() {
++        let arguments = Arguments::try_parse_from(["heph"]).expect("heph parses with no flags");
++        assert!(!arguments.tour);
++        assert!(!arguments.no_daemon);
++        assert!(arguments.command.is_none());
++    }
++
++    #[test]
++    fn tour_and_no_daemon_flags_parse() {
++        let arguments = Arguments::try_parse_from(["heph", "--tour", "--no-daemon"])
++            .expect("flags parse");
++        assert!(arguments.tour);
++        assert!(arguments.no_daemon);
++    }
++
++    #[test]
++    fn stop_subcommand_parses() {
++        let arguments = Arguments::try_parse_from(["heph", "stop"]).expect("stop parses");
++        assert!(matches!(arguments.command, Some(HephCommand::Stop)));
++    }
++
++    #[test]
++    fn data_dir_flag_parses_as_a_path() {
++        let arguments = Arguments::try_parse_from(["heph", "--data-dir", "/tmp/example"])
++            .expect("data-dir parses");
++        assert_eq!(
++            arguments.data_dir.as_deref(),
++            Some(std::path::Path::new("/tmp/example"))
++        );
++    }
++
++    #[test]
++    fn tour_marker_is_incomplete_when_the_file_is_absent() {
++        let directory = tempdir().expect("temporary directory");
++        assert!(!tour_marker_completed(directory.path()));
++    }
++
++    #[test]
++    fn tour_marker_is_incomplete_when_the_file_is_malformed() {
++        let directory = tempdir().expect("temporary directory");
++        std::fs::create_dir_all(tour_marker_path(directory.path()).parent().unwrap())
++            .expect("create tui directory");
++        std::fs::write(tour_marker_path(directory.path()), b"not json").expect("write marker");
++        assert!(!tour_marker_completed(directory.path()));
++    }
++
++    #[test]
++    fn tour_marker_is_complete_once_the_tui_writes_it() {
++        let directory = tempdir().expect("temporary directory");
++        let marker_path = tour_marker_path(directory.path());
++        std::fs::create_dir_all(marker_path.parent().unwrap()).expect("create tui directory");
++        std::fs::write(&marker_path, br#"{"completed":true}"#).expect("write marker");
++        assert!(tour_marker_completed(directory.path()));
++    }
++
++    #[test]
++    fn wait_until_ready_succeeds_once_the_probe_reports_ready() {
++        let mut attempts = 0;
++        let ready = wait_until_ready(std::time::Duration::from_secs(1), || {
++            attempts += 1;
++            attempts >= 3
++        });
++        assert!(ready);
++        assert_eq!(attempts, 3);
++    }
++
++    #[test]
++    fn wait_until_ready_times_out_when_the_probe_never_succeeds() {
++        let started = Instant::now();
++        let timeout = std::time::Duration::from_millis(80);
++        let ready = wait_until_ready(timeout, || false);
++        assert!(!ready);
++        assert!(started.elapsed() >= timeout);
++    }
++}
+diff --git a/crates/hephaestus-control/src/bin/hephaestus.rs b/crates/hephaestus-control/src/bin/hephaestus.rs
+index 20e447a..7b97d87 100644
+--- a/crates/hephaestus-control/src/bin/hephaestus.rs
++++ b/crates/hephaestus-control/src/bin/hephaestus.rs
+@@ -171,7 +171,11 @@ enum CliCommand {
+         path: PathBuf,
+     },
+     /// Open the local interactive terminal operator interface.
+-    Tui,
++    Tui {
++        /// Force the first-run tour to play even if it was already completed.
++        #[arg(long)]
++        tour: bool,
++    },
+ }
+ 
+ #[derive(Subcommand)]
+@@ -747,11 +751,11 @@ fn main() -> ExitCode {
+ 
+ fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
+     match &arguments.command {
+-        CliCommand::Tui if arguments.json => {
++        CliCommand::Tui { .. } if arguments.json => {
+             eprintln!("hephaestus: --json does not apply to the interactive TUI");
+             Some(ExitCode::FAILURE)
+         }
+-        CliCommand::Tui => Some(launch_tui(arguments.data_dir.clone())),
++        CliCommand::Tui { tour } => Some(launch_tui(arguments.data_dir.clone(), *tour)),
+         CliCommand::Init { fixture, path } => {
+             Some(initialize_fixture(fixture, path, arguments.json))
+         }
+@@ -759,10 +763,13 @@ fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
+     }
+ }
+ 
+-fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
++fn launch_tui(data_dir: Option<PathBuf>, tour: bool) -> ExitCode {
+     let mut command = if let Some((node, entrypoint)) = packaged_tui_paths(&current_executable()) {
+         let mut command = ProcessCommand::new(node);
+         command.arg(entrypoint);
++        if tour {
++            command.arg("--tour");
++        }
+         command
+     } else {
+         let package = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+@@ -777,6 +784,9 @@ fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
+         };
+         let mut command = ProcessCommand::new("npm");
+         command.arg("--prefix").arg(package).args(["run", "start"]);
++        if tour {
++            command.arg("--").arg("--tour");
++        }
+         command
+     };
+     if let Some(data_dir) =
+@@ -1405,7 +1415,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
+             command: WorkerCommand::Status { job_id },
+         } => Command::RemoteJobStatus { job_id },
+         CliCommand::Init { .. } => return Err("init is a local command"),
+-        CliCommand::Tui => return Err("tui is a local interactive command"),
++        CliCommand::Tui { .. } => return Err("tui is a local interactive command"),
+     })
+ }
+ 
+@@ -2807,6 +2817,19 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn tui_cli_defaults_to_no_forced_tour_and_accepts_the_flag() {
++        let plain = Arguments::try_parse_from(["hephaestus", "tui"]).expect("tui parses");
++        assert!(matches!(
++            plain.command,
++            super::CliCommand::Tui { tour: false }
++        ));
++
++        let forced =
++            Arguments::try_parse_from(["hephaestus", "tui", "--tour"]).expect("tui --tour parses");
++        assert!(matches!(forced.command, super::CliCommand::Tui { tour: true }));
++    }
++
+     #[test]
+     fn packaged_tui_paths_follow_the_relocated_executable() {
+         let nonce = SystemTime::now()
+diff --git a/crates/hephaestus-control/tests/control_plane_e2e.rs b/crates/hephaestus-control/tests/control_plane_e2e.rs
+index 49cba5b..c7c8806 100644
+--- a/crates/hephaestus-control/tests/control_plane_e2e.rs
++++ b/crates/hephaestus-control/tests/control_plane_e2e.rs
+@@ -34,6 +34,7 @@ use tempfile::tempdir;
+ const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
+ const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
+ const REFERENCE_EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
++const HEPH: &str = env!("CARGO_BIN_EXE_heph");
+ const REFERENCE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-reference-worker");
+ const PROCESS_GUARDIAN: &str = env!("CARGO_BIN_EXE_hephaestus-process-guardian");
+ const MCP_GATEWAY: &str = env!("CARGO_BIN_EXE_hephaestus-mcp-gateway");
