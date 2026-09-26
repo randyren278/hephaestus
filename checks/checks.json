@@ -298,7 +298,7 @@
     },
     {
       "id": "forged-control-actor-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/control_state.rs",
       "invariant": "Replayed control events must originate at the canonical operator aggregate and actor.",
       "find": "            if event.aggregate_id != CONTROL_AGGREGATE || event.actor != OPERATOR_ACTOR {",
       "replace": "            if false && (event.aggregate_id != CONTROL_AGGREGATE || event.actor != OPERATOR_ACTOR) {",
@@ -306,7 +306,7 @@
     },
     {
       "id": "control-command-event-mismatch-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/control_state.rs",
       "invariant": "A replayed control event type must match its audited typed command.",
       "find": "                if event_type(&recorded.command) != event.event_type {",
       "replace": "                if false && event_type(&recorded.command) != event.event_type {",
@@ -314,7 +314,7 @@
     },
     {
       "id": "persistent-freeze-event-ignored",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/control_state.rs",
       "invariant": "A canonical freeze remains engaged across process restart and replay.",
       "find": "            \"control.freeze\" => self.freeze = FreezeState::frozen(operator_token),",
       "replace": "            \"control.freeze\" => {}",
@@ -322,7 +322,7 @@
     },
     {
       "id": "operator-unfreeze-event-ignored",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/control_state.rs",
       "invariant": "An authenticated operator unfreeze is durable across restart.",
       "find": "            \"control.unfreeze\" => self\n                .freeze\n                .unfreeze(operator_token)\n                .map_err(|_| ControlError::Projection(\"operator proof rejected\".to_owned()))?,",
       "replace": "            \"control.unfreeze\" => {}",
@@ -384,7 +384,7 @@
     },
     {
       "id": "trace-completion-projection-ignored",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/control_state.rs",
       "invariant": "Canonical terminal trace evidence removes the run from the daemon active projection.",
       "find": "                    TraceKind::LifecycleCompleted => {\n                        self.active_runs.remove(receipt.provenance.run_id());\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }",
       "replace": "                    TraceKind::LifecycleCompleted => {\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }",
@@ -1142,7 +1142,7 @@
     },
     {
       "id": "control-evaluation-environment-arch-forgotten",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_records.rs",
       "invariant": "The runtime-owned environment fingerprint binds the host architecture.",
       "find": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        std::env::consts::ARCH",
       "replace": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        \"unknown-arch\"",
@@ -1166,7 +1166,7 @@
     },
     {
       "id": "control-evaluation-cost-ceiling-unbounded",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_records.rs",
       "invariant": "The daemon rejects an evaluation cost ceiling above its bounded protocol limit before creating a sandbox.",
       "find": "        || maximum_cost_microusd > MAX_EVALUATION_COST_MICROUSD",
       "replace": "",
@@ -2045,7 +2045,7 @@
     },
     {
       "id": "async-job-terminal-success-unbound-to-signed-result",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/control_state.rs",
       "invariant": "A succeeded async job must be backed by its exact signed successful result and completed lifecycle trace.",
       "find": "                        receipt_matches\n                            && self.completed_runs.contains(&record.run_id)\n                            && signed_result.is_some_and(|receipt| {\n                                receipt.completion_reason == RunCompletionReason::Success\n                            })",
       "replace": "                        true",
