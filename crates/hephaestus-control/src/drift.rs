@@ -220,7 +220,7 @@ pub(super) fn drift_record_payload(
 
 /// Recomputes every drift record from the history that preceded it.
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_drift_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],

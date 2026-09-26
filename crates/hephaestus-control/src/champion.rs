@@ -416,7 +416,7 @@ fn rollback_payload(
 
 /// Recomputes every Champion transition from the history that preceded it.
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_champion_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],

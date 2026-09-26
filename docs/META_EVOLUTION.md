@@ -210,7 +210,7 @@ replaying the ledger once per evidence event; a daemon step now verifies a
 new or changed event once against the history it already replayed for that
 refresh (an already-verified event is skipped via a per-process cache), so a
 cold verification pass stays linear in history size instead of growing
-quadratically with it (see TECH_DEBT.md TD-16).
+quadratically with it (see docs/dev/TECH_DEBT.md TD-16).
 
 A genuinely smarter search policy now exists for all three knobs: Forge reads
 `mutation_prioritization` to choose which failure cluster to mutate first,

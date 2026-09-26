@@ -82,10 +82,10 @@ cluster's secondary suggestion when the primary rule alone cannot supply a
 second distinct target — see `docs/EVOLUTION.md`), evaluates each against
 the Champion, and promotes the highest-ranked `metrics_passed` one
 (`EvolverStrategyConfig.candidate_count` above `1` is now actionable —
-`TECH_DEBT.md` TD-17 is closed). What is still missing is a bundled
+`docs/dev/TECH_DEBT.md` TD-17 is closed). What is still missing is a bundled
 `meta evaluate` scenario that isolates `candidate_count` as the only
 differing knob between two compared strategies, so no end-to-end run yet
-demonstrates the efficiency difference this makes possible (`TECH_DEBT.md`
+demonstrates the efficiency difference this makes possible (`docs/dev/TECH_DEBT.md`
 TD-22). The catalog is a closed table of these exact 16 operations, not
 free-form prompt editing: Forge
 cannot propose, and the reference runtime cannot execute, any operation

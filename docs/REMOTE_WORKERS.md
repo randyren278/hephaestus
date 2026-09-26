@@ -215,4 +215,4 @@ did not.
   workers — trials are leased strictly one at a time, in admitted order.
 - No CI job or measured coverage yet for `hephaestus-mcp-gateway` or
   `hephaestus-remote-worker`, including the new Arena-trial-lease code
-  paths (`TECH_DEBT.md` TD-19).
+  paths (`docs/dev/TECH_DEBT.md` TD-19).

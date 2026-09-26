@@ -449,7 +449,7 @@ pub struct ControlPlane {
     /// loop's per-event [`EvidenceRecorder`] reconstructions via
     /// [`EvidenceRecorder::from_stores_with_run_counts`]/`into_stores_with_run_counts`
     /// so retention enforcement stays O(1) per event instead of replaying the whole
-    /// ledger to recount every time (see `TECH_DEBT.md` TD-20). Seeded once from the
+    /// ledger to recount every time (see `docs/dev/TECH_DEBT.md` TD-20). Seeded once from the
     /// startup replay; kept current by every evidence request the writer loop persists.
     evidence_run_record_counts: BTreeMap<String, usize>,
 }

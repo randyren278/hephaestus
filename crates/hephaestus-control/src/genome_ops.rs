@@ -427,7 +427,7 @@ impl ControlPlane {
     /// `storage.artifacts`, instead of reopening the event store and
     /// re-replaying the ledger once per evidence event: even a fully cold
     /// verification pass is linear in history size, not quadratic (see
-    /// `TECH_DEBT.md` TD-16). `self.evidence_cache` additionally skips
+    /// `docs/dev/TECH_DEBT.md` TD-16). `self.evidence_cache` additionally skips
     /// events this process has already verified in an earlier refresh, so
     /// the total cost of many refreshes over a growing history stays linear
     /// in the number of *new* events rather than the square of history

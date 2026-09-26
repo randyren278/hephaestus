@@ -677,7 +677,7 @@ pub(super) fn rollback_payload_hash_placeholder() -> String {
 /// including cross-referencing the separate Champion transition event a
 /// completion or live regression must have also appended. `artifacts` is the
 /// daemon's already-open artifact store, reused for every event instead of
-/// reopening it (see `TECH_DEBT.md` TD-16).
+/// reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_canary_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],

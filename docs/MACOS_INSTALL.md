@@ -56,4 +56,4 @@ This is host security policy, not project code, so it cannot be fixed here. Two 
 - Add your terminal application under **System Settings -> Privacy & Security -> Developer Tools**. This exempts binaries launched *directly* by that terminal, but does not cover a binary spawned by a supervising process (for example, an agent or IDE task runner) that itself is not the terminal in that list.
 - Run heavy suites (`cargo test --workspace`, mutation shards) from a Developer Tools-exempted terminal, or on Linux/CI, where this scan does not apply.
 
-Tracked as TD-24 in `TECH_DEBT.md`: accepted as a host policy limitation, not fixed.
+Tracked as TD-24 in `docs/dev/TECH_DEBT.md`: accepted as a host policy limitation, not fixed.

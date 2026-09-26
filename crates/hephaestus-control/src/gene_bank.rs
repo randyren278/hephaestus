@@ -904,7 +904,7 @@ pub(super) fn gene_summaries(history: &[StoredEvent]) -> Result<Vec<GeneSummary>
 /// Recomputes every Gene Bank event from the history that preceded it,
 /// exactly like [`super::champion::verify_champion_history`]. `artifacts` is
 /// the daemon's already-open artifact store, reused for every event instead
-/// of reopening it (see `TECH_DEBT.md` TD-16).
+/// of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 #[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history(
     artifacts: &dyn ArtifactBackend,

@@ -213,7 +213,7 @@ pub(super) fn evaluation_record_from_recorded(
 /// first via `EventLedger::replay_verified()`, so a rewritten ledger prefix
 /// changes every later event's hash and misses the cache. Startup, `replay`,
 /// and every direct verifier call use a fresh, empty cache and verify
-/// everything. See `TECH_DEBT.md` TD-16: unlike before this cache existed,
+/// everything. See `docs/dev/TECH_DEBT.md` TD-16: unlike before this cache existed,
 /// a cache hit no longer implies reopening stores or replaying the ledger —
 /// [`load_operator_evaluation_in`] and its siblings verify a cache *miss*
 /// against the already-replayed `history` in one pass, so a cold cache (a
@@ -258,7 +258,7 @@ impl EvidenceCache {
 /// Verifies every succeeded Arena job's terminal summary against the trusted
 /// evaluation evidence in `history`, using the daemon's already-open
 /// `artifacts` store and the already-replayed `history` instead of reopening
-/// stores per job (see `TECH_DEBT.md` TD-16).
+/// stores per job (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_arena_evaluation_records(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
@@ -316,7 +316,7 @@ fn arena_record_cache_key(
 }
 
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_forge_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
@@ -598,7 +598,7 @@ pub(super) fn decode_forge_proposal(
 }
 
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_forge_assessment_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
@@ -1338,7 +1338,7 @@ pub(super) fn mutate_reference_instruction_document(
 }
 
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_selection_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
@@ -1390,14 +1390,14 @@ pub(super) fn verify_selection_history_with(
 /// `invariant_event_references` already canonically validates the full
 /// envelope (schema version, identity fields, artifact-id shape); this only
 /// pulls `receipt_artifact_id` back out for the reference-level cross-check
-/// in `verify_invariant_history_with` (see `TECH_DEBT.md` TD-4).
+/// in `verify_invariant_history_with` (see `docs/dev/TECH_DEBT.md` TD-4).
 #[derive(Deserialize)]
 pub(super) struct InvariantEventEnvelope {
     receipt_artifact_id: String,
 }
 
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_invariant_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
@@ -1461,14 +1461,14 @@ pub(super) fn verify_invariant_history_with(
 /// `cluster_event_references` already canonically validates the full
 /// envelope (schema version, identity fields, artifact-id shape); this only
 /// pulls `analysis_artifact_id` back out for the reference-level cross-check
-/// in `verify_cluster_history` (see `TECH_DEBT.md` TD-4).
+/// in `verify_cluster_history` (see `docs/dev/TECH_DEBT.md` TD-4).
 #[derive(Deserialize)]
 pub(super) struct ClusterEventEnvelope {
     analysis_artifact_id: String,
 }
 
 /// `artifacts` is the daemon's already-open artifact store, reused for every
-/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
+/// event instead of reopening it (see `docs/dev/TECH_DEBT.md` TD-16).
 pub(super) fn verify_cluster_history(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],

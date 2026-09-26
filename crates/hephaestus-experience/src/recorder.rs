@@ -52,7 +52,7 @@ pub struct EvidenceRecorder {
     /// Per-run count of already-recorded trace/experience records, seeded by one
     /// full replay at construction and kept current by every successful append
     /// this (sole-writer) recorder makes. `ensure_capacity`/`record_trace_reserving`
-    /// read this instead of replaying the whole ledger per call (see `TECH_DEBT.md`
+    /// read this instead of replaying the whole ledger per call (see `docs/dev/TECH_DEBT.md`
     /// TD-20): since this recorder is the only writer for its ledger handle's
     /// lifetime, an append it makes is the only thing that can change a run's count.
     run_record_counts: BTreeMap<String, usize>,
@@ -116,7 +116,7 @@ impl EvidenceRecorder {
     /// A caller that reconstructs a recorder around the same long-lived ledger handle
     /// once per trace event (the durable writer loop) would otherwise pay a full ledger
     /// replay per event just to reseed a count every construction already has cached
-    /// (see `TECH_DEBT.md` TD-20); this constructor lets it thread that cache through
+    /// (see `docs/dev/TECH_DEBT.md` TD-20); this constructor lets it thread that cache through
     /// instead, alongside [`Self::into_stores_with_run_counts`].
     #[must_use]
     pub fn from_stores_with_run_counts(
@@ -367,7 +367,7 @@ impl EvidenceRecorder {
 ///
 /// Used to seed [`EvidenceRecorder::from_stores_with_run_counts`]'s incremental
 /// retention-limit cache from one full replay, instead of every trace record
-/// repeating this scan over the whole ledger (see `TECH_DEBT.md` TD-20).
+/// repeating this scan over the whole ledger (see `docs/dev/TECH_DEBT.md` TD-20).
 #[must_use]
 pub fn count_records_per_run(history: &[StoredEvent]) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
