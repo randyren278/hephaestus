@@ -39,7 +39,7 @@ tested, and only the good ones are kept.
 ## The words you'll see
 
 <p align="center">
-  <img src="docs/assets/glossary.svg" width="100%" alt="Ten words in plain English. Genome: like a recipe card sealed in plastic; one exact version of an agent, and changing anything makes a new one. World: like the exam plus the exam-hall rules; the tasks, limits, judge, and rules. Law: like a rule written on the wall; a World rule no agent can change. Arena: like the exam hall; two Genomes, identical tasks, separate sandboxes. Evaluator: like a judge behind a curtain; scores every run, and agents never see it or the answers. Ledger: like a notebook with glued-in pages; the permanent record, chained so edits show. Receipt: like a signed scorecard; proof of what ran, what it scored, and why. Champion: like the title holder; the version trusted as best for a World until a challenger wins fairly. Freeze: like an emergency brake, on by default; only you can release it. Daemon: like the referee's office; hephaestusd does the work and is the only writer to the Ledger.">
+  <img src="docs/assets/glossary.svg" width="100%" alt="Ten words in plain English, each with its own pixel icon. Genome: like a recipe card sealed in plastic; one exact version of an agent, and any change makes a new one. World: like the exam and the exam-hall rules. Law: like a rule carved in stone; a World rule no agent can change. Arena: like the exam hall; identical tasks, separate sandboxes. Evaluator: like a judge behind a curtain; agents never see it or the answers. Ledger: like a notebook with glued-in pages; the permanent, chained record. Receipt: like a signed scorecard. Champion: like the title holder. Freeze: like an emergency brake, on by default. Daemon: like the smith at the anvil; hephaestusd does the work and is the only writer to the Ledger.">
 </p>
 
 More terms, such as Forge, Gene, Lineage, Drift, and Canary, are in
@@ -174,18 +174,9 @@ The threat model, including how to check all of this yourself, is in
 
 ## Under the hood
 
-```mermaid
-flowchart LR
-    you["You<br/>heph, CLI, or console"] --> daemon["hephaestusd<br/>the only writer"]
-    daemon --> arena{"Arena"}
-    arena --> old["Old version<br/>in a sandbox"]
-    arena --> new["New version<br/>in a sandbox"]
-    old --> judge["Sealed judge"]
-    new --> judge
-    judge -- "signed scores" --> daemon
-    daemon --> ledger[("Ledger<br/>chained record")]
-    ledger -- "replay must match" --> you
-```
+<p align="center">
+  <img src="docs/assets/under-the-hood.svg" width="100%" alt="Under the hood. You ask through heph, the CLI, or a console. hephaestusd, the only program that writes the record, runs the old and new versions in the Arena, each in its own locked sandbox. The sealed judge scores both runs and sends the scores back to hephaestusd, which signs them and writes them to the Ledger. Replaying the Ledger must match the live state.">
+</p>
 
 There is one writer, one record, and a sandbox for every agent run. The
 [architecture guide](docs/ARCHITECTURE.md) has the full diagram and the crate
