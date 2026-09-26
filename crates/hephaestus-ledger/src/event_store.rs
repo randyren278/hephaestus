@@ -5,17 +5,18 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::LedgerError;
 
-const GENESIS_HASH: [u8; 32] = [0; 32];
+/// Hash preceding the first canonical event, shared by every [`crate::EventLedger`] backend.
+pub(crate) const GENESIS_HASH: [u8; 32] = [0; 32];
 
 /// Caller-supplied event data before canonical sequencing and hashing.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventInput {
-    event_id: String,
-    aggregate_id: String,
-    event_type: String,
-    actor: String,
-    timestamp_millis: i64,
-    payload: Vec<u8>,
+    pub(crate) event_id: String,
+    pub(crate) aggregate_id: String,
+    pub(crate) event_type: String,
+    pub(crate) actor: String,
+    pub(crate) timestamp_millis: i64,
+    pub(crate) payload: Vec<u8>,
 }
 
 impl EventInput {
@@ -176,7 +177,12 @@ impl EventStore {
     }
 }
 
-fn validate_input(input: &EventInput) -> Result<(), LedgerError> {
+/// Validates required canonical fields, shared by every [`crate::EventLedger`] backend.
+///
+/// # Errors
+///
+/// Returns [`LedgerError::EmptyEventField`] for a blank required field.
+pub(crate) fn validate_input(input: &EventInput) -> Result<(), LedgerError> {
     for (name, value) in [
         ("event_id", input.event_id.as_str()),
         ("aggregate_id", input.aggregate_id.as_str()),
@@ -304,7 +310,11 @@ fn hash_from_bytes(bytes: &[u8]) -> Result<[u8; 32], LedgerError> {
         .map_err(|_| LedgerError::InvalidHashLength(bytes.len()))
 }
 
-fn hash_event(sequence: u64, input: &EventInput, previous_hash: &[u8; 32]) -> [u8; 32] {
+/// Computes the canonical BLAKE3 event hash, shared by every [`crate::EventLedger`] backend.
+///
+/// Every backend must call this exact function so that identical inputs produce an
+/// identical hash chain regardless of which backend stored them.
+pub(crate) fn hash_event(sequence: u64, input: &EventInput, previous_hash: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"hephaestus-event-v1\0");
     hasher.update(&sequence.to_be_bytes());

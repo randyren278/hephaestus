@@ -2474,6 +2474,34 @@
       "invariant": "Speciation refuses a domain with fewer than the deterministic minimum count of distinct positive recipient lineages.",
       "find": "    if lineages.len() < SPECIATION_MIN_LINEAGES {",
       "replace": "    if false {"
+    },
+    {
+      "id": "jsonl-chain-link-ignored",
+      "file": "crates/hephaestus-ledger/src/file_event_store.rs",
+      "invariant": "Every JSONL-backed canonical event links to the verified hash of its immediate predecessor.",
+      "find": "        if event.previous_hash != expected_previous_hash {\n            return Err(LedgerError::PreviousHashMismatch {\n                sequence: event.sequence,\n            });\n        }",
+      "replace": "        if false && event.previous_hash != expected_previous_hash {\n            return Err(LedgerError::PreviousHashMismatch {\n                sequence: event.sequence,\n            });\n        }"
+    },
+    {
+      "id": "jsonl-duplicate-event-id-accepted",
+      "file": "crates/hephaestus-ledger/src/file_event_store.rs",
+      "invariant": "An event identifier can appear only once in the JSONL ledger's canonical history.",
+      "find": "        if self.event_ids.contains(&input.event_id) {\n            return Err(LedgerError::DuplicateEventId(input.event_id));\n        }",
+      "replace": "        if false && self.event_ids.contains(&input.event_id) {\n            return Err(LedgerError::DuplicateEventId(input.event_id));\n        }"
+    },
+    {
+      "id": "jsonl-torn-tail-not-repaired",
+      "file": "crates/hephaestus-ledger/src/file_event_store.rs",
+      "invariant": "A torn trailing write detected on open is truncated away so the next append starts from an unambiguous tail.",
+      "find": "        if !torn.is_empty() {\n            repair_truncate(&path, committed_len)?;\n        }",
+      "replace": "        if false && !torn.is_empty() {\n            repair_truncate(&path, committed_len)?;\n        }"
+    },
+    {
+      "id": "memory-artifact-substitution-accepted",
+      "file": "crates/hephaestus-ledger/src/memory_artifact_store.rs",
+      "invariant": "The in-memory artifact backend's reads fail when bytes do not match the requested content address.",
+      "find": "        if actual != *id {\n            return Err(LedgerError::ArtifactHashMismatch {\n                expected: id.as_str().to_owned(),\n                actual: actual.as_str().to_owned(),\n            });\n        }",
+      "replace": "        if false && actual != *id {\n            return Err(LedgerError::ArtifactHashMismatch {\n                expected: id.as_str().to_owned(),\n                actual: actual.as_str().to_owned(),\n            });\n        }"
     }
   ]
 }

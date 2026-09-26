@@ -10,7 +10,7 @@ use crate::LedgerError;
 static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Canonical lowercase BLAKE3 content address.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ArtifactId(String);
 
 impl ArtifactId {

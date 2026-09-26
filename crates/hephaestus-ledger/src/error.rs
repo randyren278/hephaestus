@@ -41,6 +41,13 @@ pub enum LedgerError {
         /// Address computed from the bytes on disk.
         actual: String,
     },
+    /// No artifact is stored at the requested content address.
+    ArtifactNotFound(String),
+    /// A durable event record could not be decoded from its serialized form.
+    ///
+    /// This is distinct from a torn trailing write, which a crash-safe
+    /// [`crate::EventLedger`] backend drops silently instead of reporting.
+    MalformedRecord(String),
 }
 
 impl fmt::Display for LedgerError {
