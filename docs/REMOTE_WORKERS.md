@@ -128,6 +128,10 @@ hephaestus-remote-worker --data-dir "$HEPHAESTUS_HOME" \
 (`--token` may also come from `HEPHAESTUS_WORKER_TOKEN`.) Pass `--once` to
 attempt a single lease and exit — used by scripted tests.
 
+## Testing
+
+Besides the in-process tests in `crates/hephaestus-control/src/server_tests.rs`, `crates/hephaestus-control/tests/control_plane_e2e.rs`'s `remote_worker_binary_round_trips_duplicates_and_fails_closed_on_bad_credentials` spawns the real `hephaestus-remote-worker` binary against a real daemon and drives a full lease/result round trip, a hand-replayed duplicate delivery, an expired credential, a revoked credential, and a malformed/oversized worker.sock message end to end.
+
 ## Storage backend abstraction
 
 `hephaestus-ledger::{EventLedger, ArtifactBackend}`

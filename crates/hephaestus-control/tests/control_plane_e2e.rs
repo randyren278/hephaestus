@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::Shutdown,
     os::unix::{fs::PermissionsExt, net::UnixStream},
     path::{Path, PathBuf},
@@ -16,8 +16,8 @@ use hephaestus_arena::{
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind, Command,
     ControlError, ControlPlane, DenialKind, ForgeAssessmentOutcome, GeneTransferOutcome,
-    GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, ResponseData, RunCompletionReason,
-    WorldRecord,
+    GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, McpDecision, RemoteCompletion,
+    RemoteJobState, ResponseData, RunCompletionReason, WorkerReply, WorkerRequest, WorldRecord,
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client};
@@ -36,6 +36,8 @@ const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
 const REFERENCE_EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
 const REFERENCE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-reference-worker");
 const PROCESS_GUARDIAN: &str = env!("CARGO_BIN_EXE_hephaestus-process-guardian");
+const MCP_GATEWAY: &str = env!("CARGO_BIN_EXE_hephaestus-mcp-gateway");
+const REMOTE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-remote-worker");
 
 #[test]
 #[allow(clippy::too_many_lines)]
@@ -446,6 +448,608 @@ impl Daemon {
         self.child.kill().expect("stop daemon");
         self.child.wait().expect("wait for daemon");
     }
+}
+
+// ---------------------------------------------------------------------
+// MCP gateway: a real `hephaestus-mcp-gateway` process, spawned with piped
+// stdio, driven with newline-delimited JSON-RPC 2.0 against a real daemon
+// (roadmap item 14 / TD-12). Complements the in-process ledgering tests in
+// `crates/hephaestus-control/src/server_tests.rs`
+// (`gateway_mcp_call_denied_is_ledgered_without_dispatch`,
+// `gateway_mcp_call_allowed_routes_through_ordinary_command`,
+// `gateway_mcp_call_rejects_nested_mcp_call`) by proving the stdio framing
+// itself: `initialize`, that a notification produces no response line,
+// `tools/list`, an allowed and a denied `tools/call`, a malformed line, and
+// an unknown method, then a clean exit.
+// ---------------------------------------------------------------------
+
+fn send_json_line(stdin: &mut impl Write, value: &serde_json::Value) {
+    let mut line = serde_json::to_string(value).expect("encode JSON-RPC line");
+    line.push('\n');
+    stdin
+        .write_all(line.as_bytes())
+        .expect("write JSON-RPC line");
+    stdin.flush().expect("flush JSON-RPC line");
+}
+
+fn read_json_line(reader: &mut impl BufRead) -> serde_json::Value {
+    let mut line = String::new();
+    let bytes_read = reader
+        .read_line(&mut line)
+        .expect("read JSON-RPC response line");
+    assert!(
+        bytes_read > 0,
+        "gateway closed stdout before sending a response"
+    );
+    serde_json::from_str(line.trim_end()).expect("decode JSON-RPC response line")
+}
+
+/// The ledgered shape of an `mcp.call` (or any other) audited event's
+/// payload: only the wrapped `Command` matters for these assertions.
+#[derive(serde::Deserialize)]
+struct RecordedForTest {
+    command: Command,
+}
+
+const MCP_TOOL_NAMES: &[&str] = &[
+    "status",
+    "world_list",
+    "world_show",
+    "genome_list",
+    "genome_show",
+    "champion_show",
+    "gene_list",
+    "gene_show",
+    "run_list",
+    "evaluation_list",
+    "denial_list",
+    "arena_evaluate",
+    "arena_select",
+    "genome_propose",
+    "genome_assess",
+];
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn mcp_gateway_speaks_json_rpc_framing_over_stdio_against_a_real_daemon() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let daemon = Daemon::start(&data_dir);
+
+    let policy_path = directory.path().join("policy.json");
+    fs::write(
+        &policy_path,
+        serde_json::json!({
+            "client_id": "gateway-e2e-agent",
+            "allow": ["status"],
+            "grants": []
+        })
+        .to_string(),
+    )
+    .expect("write MCP gateway capability policy");
+
+    let mut child = ProcessCommand::new(MCP_GATEWAY)
+        .arg("--data-dir")
+        .arg(&data_dir)
+        .arg("--policy")
+        .arg(&policy_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start MCP gateway");
+    let mut stdin = child.stdin.take().expect("gateway stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("gateway stdout"));
+
+    send_json_line(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+    );
+    let initialize = read_json_line(&mut stdout);
+    assert_eq!(initialize["id"], 1);
+    assert_eq!(initialize["result"]["protocolVersion"], "2025-06-18");
+    assert_eq!(
+        initialize["result"]["serverInfo"]["name"],
+        "hephaestus-mcp-gateway"
+    );
+    assert!(
+        initialize["result"]["capabilities"]["tools"].is_object(),
+        "initialize declares the tools capability"
+    );
+
+    // A notification produces no response line at all: the very next line
+    // read off stdout must be the following request's response, not
+    // anything to do with this notification.
+    send_json_line(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+    );
+    send_json_line(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+    );
+    let tools_list = read_json_line(&mut stdout);
+    assert_eq!(tools_list["id"], 2);
+    let tools = tools_list["result"]["tools"]
+        .as_array()
+        .expect("tools/list returns an array");
+    assert_eq!(tools.len(), MCP_TOOL_NAMES.len());
+    for name in MCP_TOOL_NAMES {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == *name)
+            .unwrap_or_else(|| panic!("tools/list is missing '{name}'"));
+        assert!(
+            tool["inputSchema"].is_object(),
+            "tool '{name}' declares an inputSchema"
+        );
+    }
+
+    send_json_line(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "status", "arguments": {}}
+        }),
+    );
+    let allowed_call = read_json_line(&mut stdout);
+    assert_eq!(allowed_call["id"], 3);
+    assert_eq!(allowed_call["result"]["isError"], false);
+    assert_eq!(allowed_call["result"]["content"][0]["type"], "text");
+    assert!(
+        !allowed_call["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text content")
+            .is_empty()
+    );
+
+    // `world_list` is not in this client's `allow` list.
+    send_json_line(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": {"name": "world_list", "arguments": {}}
+        }),
+    );
+    let denied_call = read_json_line(&mut stdout);
+    assert_eq!(denied_call["id"], 4);
+    assert_eq!(denied_call["result"]["isError"], true);
+
+    // A malformed JSON-RPC line gets a JSON-RPC parse-error object and does
+    // not bring the gateway down.
+    stdin
+        .write_all(b"{ this is not json\n")
+        .expect("write malformed line");
+    stdin.flush().expect("flush malformed line");
+    let parse_error = read_json_line(&mut stdout);
+    assert_eq!(parse_error["error"]["code"], -32700);
+
+    // An unknown method gets a JSON-RPC method-not-found error, with the
+    // request's own id preserved, and the gateway still keeps running.
+    send_json_line(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc": "2.0", "id": 5, "method": "not/a/real/method", "params": {}}),
+    );
+    let unknown_method = read_json_line(&mut stdout);
+    assert_eq!(unknown_method["id"], 5);
+    assert_eq!(unknown_method["error"]["code"], -32601);
+
+    drop(stdin);
+    let status = child.wait().expect("gateway process exits");
+    assert!(
+        status.success(),
+        "gateway should exit cleanly once stdin closes: {status:?}"
+    );
+
+    let history = EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open events store")
+        .replay_verified()
+        .expect("verify history after driving the MCP gateway");
+    let mcp_calls: Vec<Command> = history
+        .iter()
+        .filter(|event| event.event_type == "mcp.call")
+        .map(|event| {
+            serde_json::from_slice::<RecordedForTest>(&event.payload)
+                .expect("decode mcp.call payload")
+                .command
+        })
+        .collect();
+    assert_eq!(
+        mcp_calls.len(),
+        2,
+        "exactly one mcp.call ledger event per tools/call"
+    );
+    let allowed = mcp_calls
+        .iter()
+        .find(|command| matches!(command, Command::McpCall { tool, .. } if tool == "status"))
+        .expect("the allowed call is ledgered");
+    match allowed {
+        Command::McpCall {
+            client_id,
+            decision,
+            ..
+        } => {
+            assert_eq!(client_id, "gateway-e2e-agent");
+            assert!(matches!(decision, McpDecision::Allowed { .. }));
+        }
+        other => panic!("unexpected command for the allowed call: {other:?}"),
+    }
+    let denied = mcp_calls
+        .iter()
+        .find(|command| matches!(command, Command::McpCall { tool, .. } if tool == "world_list"))
+        .expect("the denied call is ledgered");
+    assert!(matches!(
+        denied,
+        Command::McpCall {
+            decision: McpDecision::Denied { .. },
+            ..
+        }
+    ));
+
+    daemon.stop();
+}
+
+// ---------------------------------------------------------------------
+// Remote workers: a real `hephaestus-remote-worker` process, authenticated
+// over the real daemon's `worker.sock`, driven end to end (roadmap item 14
+// / TD-12): a lease/result round trip against the CLI's `worker
+// credential-mint`/`submit`/`status`, a hand-replayed duplicate delivery
+// over a raw `UnixStream` (mirroring `hephaestus-remote-worker`'s own
+// framing), an expired credential, a revoked credential, and a raw
+// malformed/oversized message. Complements the in-process
+// `worker_lease_and_result_round_trip_signs_and_records_the_output`,
+// `worker_expired_credential_fails_closed`, and
+// `worker_revoked_credential_fails_closed` tests in
+// `crates/hephaestus-control/src/server_tests.rs`.
+// ---------------------------------------------------------------------
+
+/// Mirrors the private `REMOTE_REFERENCE_PROMPT` constant in
+/// `crates/hephaestus-control/src/server.rs`: the fixed prompt every remote
+/// direct reference run transforms, framed through the Genome's `identity`
+/// reference operation below.
+const REMOTE_WORKER_E2E_PROMPT: &str =
+    "Inventory the isolated repository without modifying it or using the network.";
+
+fn register_identity_reference_genome(
+    data_dir: &Path,
+    directory: &Path,
+    label: &str,
+) -> (WorldRecord, GenomeRecord) {
+    let world_path = directory.join(format!("{label}-world.json"));
+    fs::write(
+        &world_path,
+        r#"{"schema_version":1,"name":"remote-worker-e2e-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#,
+    )
+    .expect("write World source");
+    let world = match response(&cli(
+        data_dir,
+        &["world", "register", world_path.to_str().expect("utf8 path")],
+    ))
+    .data
+    .expect("World registration succeeds")
+    {
+        ResponseData::World { world } => world,
+        other => panic!("unexpected World registration response: {other:?}"),
+    };
+    let genome_path = directory.join(format!("{label}-genome.md"));
+    fs::write(
+        &genome_path,
+        format!(
+            "---\nschema_version: 1\nname: {label}-agent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+        ),
+    )
+    .expect("write Genome source");
+    let genome = match response(&cli(
+        data_dir,
+        &[
+            "genome",
+            "register",
+            genome_path.to_str().expect("utf8 path"),
+            "--world",
+            &world.world_id,
+        ],
+    ))
+    .data
+    .expect("Genome registration succeeds")
+    {
+        ResponseData::Genome { genome } => genome,
+        other => panic!("unexpected Genome registration response: {other:?}"),
+    };
+    (world, genome)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// Sends raw bytes to `worker.sock` exactly the way
+/// `hephaestus-remote-worker`'s own `send_worker_request` frames a message
+/// (write, shut down the write half, read the reply to EOF), so a hand-built
+/// duplicate delivery or a malformed payload is indistinguishable, on the
+/// wire, from the real binary.
+fn send_worker_bytes(socket_path: &Path, bytes: &[u8]) -> WorkerReply {
+    let mut stream = UnixStream::connect(socket_path).expect("connect worker.sock");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("set worker.sock read timeout");
+    stream.write_all(bytes).expect("write worker.sock request");
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("shut down worker.sock write half");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("read worker.sock reply");
+    serde_json::from_slice(&response).expect("decode worker.sock reply")
+}
+
+fn send_worker_request(socket_path: &Path, request: &WorkerRequest) -> WorkerReply {
+    let encoded = serde_json::to_vec(request).expect("encode WorkerRequest");
+    send_worker_bytes(socket_path, &encoded)
+}
+
+fn run_remote_worker_once(data_dir: &Path, worker_id: &str, token: &str) -> Output {
+    ProcessCommand::new(REMOTE_WORKER)
+        .arg("--data-dir")
+        .arg(data_dir)
+        .arg("--worker-id")
+        .arg(worker_id)
+        .arg("--token")
+        .arg(token)
+        .arg("--once")
+        .output()
+        .expect("run hephaestus-remote-worker")
+}
+
+fn signed_result_event_count(data_dir: &Path) -> usize {
+    EventStore::open(data_dir.join("events.sqlite3"))
+        .expect("open events store")
+        .replay_verified()
+        .expect("verify history")
+        .iter()
+        .filter(|event| event.event_type == "run.result_recorded")
+        .count()
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn remote_worker_binary_round_trips_duplicates_and_fails_closed_on_bad_credentials() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let daemon = Daemon::start(&data_dir);
+    let worker_socket = data_dir.join("worker.sock");
+
+    let (_, genome) = register_identity_reference_genome(&data_dir, directory.path(), "remote");
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+
+    // (a) mint a credential, submit a direct reference run, run the real
+    // worker binary once, and confirm the daemon-signed output equals the
+    // reference transform of the fixed remote prompt.
+    let worker_token = match response(&cli(
+        &data_dir,
+        &[
+            "worker",
+            "credential-mint",
+            "worker-e2e",
+            "--ttl-seconds",
+            "3600",
+        ],
+    ))
+    .data
+    .expect("credential mint succeeds")
+    {
+        ResponseData::WorkerCredential { token, .. } => token,
+        other => panic!("unexpected credential-mint response: {other:?}"),
+    };
+
+    match response(&cli(
+        &data_dir,
+        &["worker", "submit", "remote-job-1", &genome.genome_id],
+    ))
+    .data
+    .expect("submit succeeds")
+    {
+        ResponseData::RemoteJob { state, .. } => assert_eq!(state, RemoteJobState::Pending),
+        other => panic!("unexpected submit response: {other:?}"),
+    }
+
+    let first_run = run_remote_worker_once(&data_dir, "worker-e2e", &worker_token);
+    assert!(
+        first_run.status.success(),
+        "worker binary failed: {}",
+        String::from_utf8_lossy(&first_run.stderr)
+    );
+
+    let stdout_artifact_id = match response(&cli(&data_dir, &["worker", "status", "remote-job-1"]))
+        .data
+        .expect("status succeeds")
+    {
+        ResponseData::RemoteJob {
+            state,
+            completion_reason,
+            stdout_artifact_id,
+            ..
+        } => {
+            assert_eq!(state, RemoteJobState::Succeeded);
+            assert_eq!(completion_reason, Some(RunCompletionReason::Success));
+            stdout_artifact_id.expect("a succeeded job has a stdout artifact")
+        }
+        other => panic!("unexpected status response: {other:?}"),
+    };
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open artifact store");
+    let output = artifacts
+        .get(&ArtifactId::parse(stdout_artifact_id).expect("parse artifact id"))
+        .expect("read signed output from the CAS");
+    assert_eq!(
+        output,
+        REMOTE_WORKER_E2E_PROMPT.as_bytes(),
+        "the identity reference operation returns the prompt unchanged"
+    );
+    assert_eq!(signed_result_event_count(&data_dir), 1);
+
+    // (b) replay the exact same `SubmitResult` message over `worker.sock`
+    // by hand, twice: the daemon acknowledges idempotently and the ledger
+    // gains no second signed result.
+    let output_hex = hex_encode(&output);
+    let duplicate_submission = WorkerRequest::SubmitResult {
+        worker_id: "worker-e2e".to_owned(),
+        token: worker_token.clone(),
+        job_id: "remote-job-1".to_owned(),
+        output_hex,
+        completion: RemoteCompletion::Success,
+    };
+    for attempt in 0..2 {
+        let outcome = send_worker_request(&worker_socket, &duplicate_submission);
+        assert!(
+            matches!(&outcome, WorkerReply::ResultAccepted { job_id } if job_id == "remote-job-1"),
+            "replay {attempt} should be accepted idempotently: {outcome:?}"
+        );
+    }
+    assert_eq!(
+        signed_result_event_count(&data_dir),
+        1,
+        "duplicate delivery must not append a second signed result"
+    );
+
+    // Run the worker binary a second time: there is no pending work left.
+    let second_run = run_remote_worker_once(&data_dir, "worker-e2e", &worker_token);
+    assert!(
+        second_run.status.success(),
+        "a worker finding no work still exits successfully: {}",
+        String::from_utf8_lossy(&second_run.stderr)
+    );
+    assert_eq!(
+        signed_result_event_count(&data_dir),
+        1,
+        "no pending job remains, so the second run must not sign another result"
+    );
+
+    // (c) an expired credential fails closed before leasing: the job stays
+    // pending and nothing is recorded.
+    let expiring_token = match response(&cli(
+        &data_dir,
+        &[
+            "worker",
+            "credential-mint",
+            "worker-expiring",
+            "--ttl-seconds",
+            "1",
+        ],
+    ))
+    .data
+    .expect("expiring credential mint succeeds")
+    {
+        ResponseData::WorkerCredential { token, .. } => token,
+        other => panic!("unexpected credential-mint response: {other:?}"),
+    };
+    assert!(
+        response(&cli(
+            &data_dir,
+            &["worker", "submit", "remote-job-expiring", &genome.genome_id],
+        ))
+        .error
+        .is_none()
+    );
+    thread::sleep(Duration::from_millis(1_100));
+    let expired_run = run_remote_worker_once(&data_dir, "worker-expiring", &expiring_token);
+    assert!(
+        !expired_run.status.success(),
+        "an expired credential must fail closed"
+    );
+    match response(&cli(
+        &data_dir,
+        &["worker", "status", "remote-job-expiring"],
+    ))
+    .data
+    .expect("status succeeds")
+    {
+        ResponseData::RemoteJob { state, .. } => assert_eq!(
+            state,
+            RemoteJobState::Pending,
+            "nothing was leased or recorded for the expired credential"
+        ),
+        other => panic!("unexpected status response: {other:?}"),
+    }
+
+    // (d) a revoked credential fails closed the same way, for a job that
+    // would otherwise have been leasable.
+    let (revoked_credential_id, revoked_token) = match response(&cli(
+        &data_dir,
+        &[
+            "worker",
+            "credential-mint",
+            "worker-revoked",
+            "--ttl-seconds",
+            "3600",
+        ],
+    ))
+    .data
+    .expect("revoked-to-be credential mint succeeds")
+    {
+        ResponseData::WorkerCredential {
+            credential_id,
+            token,
+            ..
+        } => (credential_id, token),
+        other => panic!("unexpected credential-mint response: {other:?}"),
+    };
+    assert!(
+        response(&cli(
+            &data_dir,
+            &["worker", "submit", "remote-job-revoked", &genome.genome_id],
+        ))
+        .error
+        .is_none()
+    );
+    assert!(
+        cli(
+            &data_dir,
+            &["worker", "credential-revoke", &revoked_credential_id],
+        )
+        .status
+        .success()
+    );
+    let revoked_run = run_remote_worker_once(&data_dir, "worker-revoked", &revoked_token);
+    assert!(
+        !revoked_run.status.success(),
+        "a revoked credential must fail closed"
+    );
+    match response(&cli(&data_dir, &["worker", "status", "remote-job-revoked"]))
+        .data
+        .expect("status succeeds")
+    {
+        ResponseData::RemoteJob { state, .. } => assert_eq!(
+            state,
+            RemoteJobState::Pending,
+            "nothing was leased or recorded for the revoked credential"
+        ),
+        other => panic!("unexpected status response: {other:?}"),
+    }
+
+    // (e) a raw, malformed or oversized message on `worker.sock` is refused
+    // with a `WorkerReply::Error`, and the daemon stays healthy.
+    let malformed = send_worker_bytes(&worker_socket, b"{ this is not a valid worker request");
+    assert!(matches!(malformed, WorkerReply::Error { .. }));
+    // `MAX_WORKER_MESSAGE_BYTES` in `crates/hephaestus-control/src/server.rs`
+    // is 2 MiB; the daemon reads at most that limit plus one byte before
+    // deciding a message is oversized. Send exactly that many bytes (not
+    // more) so the daemon consumes every byte we write: any bytes left
+    // unread when it then closes the connection would make the kernel send
+    // a connection reset instead of the reply this test reads.
+    let oversized = vec![b'a'; (2 * 1024 * 1024) + 1];
+    let oversized_reply = send_worker_bytes(&worker_socket, &oversized);
+    assert!(matches!(oversized_reply, WorkerReply::Error { .. }));
+    assert!(
+        cli(&data_dir, &["status"]).status.success(),
+        "the daemon stays healthy after malformed worker.sock traffic"
+    );
+
+    daemon.stop();
 }
 
 #[test]

@@ -125,6 +125,10 @@ daemon's operator.token from the data directory exactly as the CLI does
 (`crates/hephaestus-control/src/client.rs`), so it must run as the same
 owner as the daemon.
 
+## Testing
+
+Besides the in-process ledgering tests in `crates/hephaestus-control/src/server_tests.rs`, `crates/hephaestus-control/tests/control_plane_e2e.rs`'s `mcp_gateway_speaks_json_rpc_framing_over_stdio_against_a_real_daemon` spawns the real `hephaestus-mcp-gateway` binary against a real daemon and drives its stdio JSON-RPC framing end to end.
+
 ## Not in this slice
 
 - No `resources` or `prompts` MCP capabilities — only `tools`.

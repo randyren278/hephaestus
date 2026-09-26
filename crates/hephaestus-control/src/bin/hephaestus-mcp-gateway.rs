@@ -390,9 +390,24 @@ fn main() -> io::Result<()> {
         if trimmed.is_empty() {
             continue;
         }
-        let request: RpcRequest = match serde_json::from_str(trimmed) {
-            Ok(request) => request,
-            Err(_) => continue,
+        let Ok(request) = serde_json::from_str::<RpcRequest>(trimmed) else {
+            // Per JSON-RPC 2.0, a line that cannot even be parsed into a
+            // request still gets an error response (id is unknowable, so it
+            // is `null`), rather than being silently dropped; this keeps
+            // the gateway a well-behaved JSON-RPC peer for a client that
+            // mis-frames one message.
+            let envelope = RpcResponse {
+                jsonrpc: "2.0",
+                id: Value::Null,
+                result: None,
+                error: Some(RpcError {
+                    code: -32700,
+                    message: "parse error".to_owned(),
+                }),
+            };
+            writeln!(stdout, "{}", serde_json::to_string(&envelope)?)?;
+            stdout.flush()?;
+            continue;
         };
         let _ = request.jsonrpc;
         if request.method == "notifications/initialized" || request.id.is_none() {
