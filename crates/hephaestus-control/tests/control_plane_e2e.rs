@@ -398,6 +398,7 @@ impl Daemon {
             worker_source,
             timeout_millis,
             None,
+            None,
         )
     }
 
@@ -414,6 +415,25 @@ impl Daemon {
             Path::new(REFERENCE_WORKER),
             None,
             Some(baseline_delay_millis),
+            None,
+        )
+    }
+
+    /// TD-15: starts a daemon pointed at a fake `claude` provider CLI (via
+    /// `HEPHAESTUS_CLAUDE_EXECUTABLE`), so a mixed reference/provider Arena
+    /// pair can be driven end to end without a real, billed provider CLI.
+    fn start_with_claude_executable(
+        data_dir: &Path,
+        source_repository: &Path,
+        claude_executable: &Path,
+    ) -> Self {
+        Self::start_with_options(
+            data_dir,
+            source_repository,
+            Path::new(REFERENCE_WORKER),
+            None,
+            None,
+            Some(claude_executable),
         )
     }
 
@@ -423,6 +443,7 @@ impl Daemon {
         worker_source: &Path,
         timeout_millis: Option<u64>,
         baseline_delay_millis: Option<u64>,
+        claude_executable: Option<&Path>,
     ) -> Self {
         fs::create_dir_all(data_dir).expect("create daemon data directory");
         let evaluator = data_dir.join("reference-evaluator");
@@ -457,6 +478,9 @@ impl Daemon {
                 "HEPHAESTUS_TEST_REFERENCE_BASELINE_DELAY_MILLIS",
                 baseline_delay_millis.to_string(),
             );
+        }
+        if let Some(claude_executable) = claude_executable {
+            command.env("HEPHAESTUS_CLAUDE_EXECUTABLE", claude_executable);
         }
         let mut child = command.spawn().expect("start daemon");
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -6185,6 +6209,11 @@ fn first_word(text: &str) -> String {
         .to_owned()
 }
 
+fn write_script(path: &Path, contents: &str) {
+    fs::write(path, contents).expect("write fake provider script");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).expect("mark script executable");
+}
+
 fn error_body(output: &Output) -> hephaestus_control::ApiError {
     assert!(!output.status.success(), "CLI unexpectedly succeeded");
     serde_json::from_slice::<ApiResponse>(&output.stdout)
@@ -6863,6 +6892,172 @@ fn evolve_coding_completes_three_generations_through_the_real_daemon_and_cli() {
     };
     assert_eq!(replayed.state, EvolutionRunState::Finished);
     assert_eq!(replayed.generations.len(), 3);
+
+    assert!(response(&cli(&data_dir, &["replay"])).error.is_none());
+    daemon.stop();
+}
+
+/// TD-15: a mixed reference/provider Arena pair (a reference-role parent
+/// paired against a Claude-provider candidate) proven end to end through a
+/// real daemon and the CLI, against a fake `claude` CLI script (never a real,
+/// billed provider) reached through `HEPHAESTUS_CLAUDE_EXECUTABLE` -- the
+/// same mechanism `hephaestusd` uses to locate a real provider CLI in
+/// production. Complements the in-process
+/// `arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_
+/// candidate_selects_and_replays` unit test in `server_tests.rs`, which
+/// exercises the same mixed-pair admission shape directly against a
+/// `ControlPlane` with no daemon process, CLI, or `HEPHAESTUS_CLAUDE_EXECUTABLE`
+/// resolution in between.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn arena_mixed_reference_and_provider_pair_completes_through_the_real_daemon_and_cli() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir_all(&repository).expect("create source repository");
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"mixed Arena e2e fixture\n")
+        .expect("write source fixture");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "fixture"]);
+
+    let fake_claude = directory.path().join("fake-claude");
+    write_script(
+        &fake_claude,
+        "#!/bin/sh\n\
+cat >/dev/null\n\
+echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"CANDIDATE\",\"total_cost_usd\":0.001}'\n",
+    );
+
+    let daemon = Daemon::start_with_claude_executable(&data_dir, &repository, &fake_claude);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+
+    let work_dir = directory.path().join("work");
+    fs::create_dir_all(&work_dir).expect("create work directory");
+    let visible_path = work_dir.join("visible.json");
+    fs::write(
+        &visible_path,
+        r#"{"schema_version":1,"manifest_id":"mixed-e2e-visible","visibility":"visible","tasks":[{"task_id":"visible-task","input":"parent","expected_output":"PARENT"}]}"#,
+    )
+    .expect("write visible manifest");
+    let sealed_path = work_dir.join("sealed.json");
+    fs::write(
+        &sealed_path,
+        r#"{"schema_version":1,"manifest_id":"mixed-e2e-sealed","visibility":"sealed","tasks":[{"task_id":"sealed-task","input":"parent","expected_output":"PARENT"}]}"#,
+    )
+    .expect("write sealed manifest");
+
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        visible_path.to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&["arena", "manifest", sealed_path.to_str().unwrap()]));
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier = first_word(&text(&["verifier"]));
+
+    let world_path = work_dir.join("mixed-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"mixed-e2e","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000,"allow_mixed_environments":true}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{visible}","arena.sealed_manifest":"{sealed}","arena.evaluator":"{evaluator}","arena.runtime_verifier":"{verifier}"}}}}"#
+        ),
+    )
+    .expect("write mixed World");
+    let Some(ResponseData::World { world }) = response(&cli(
+        &data_dir,
+        &["world", "register", world_path.to_str().unwrap()],
+    ))
+    .data
+    else {
+        panic!("mixed World registration should succeed");
+    };
+
+    let parent_path = work_dir.join("mixed-parent.md");
+    fs::write(
+        &parent_path,
+        "---\nschema_version: 1\nname: mixed-parent\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n",
+    )
+    .expect("write parent Genome");
+    let Some(ResponseData::Genome { genome: parent }) = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            parent_path.to_str().unwrap(),
+            "--world",
+            &world.world_id,
+        ],
+    ))
+    .data
+    else {
+        panic!("parent Genome registration should succeed");
+    };
+
+    let candidate_path = work_dir.join("mixed-candidate.json");
+    fs::write(
+        &candidate_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "name": "mixed-candidate",
+            "parents": [],
+            "model": {"provider": "claude", "family": "sonnet"},
+            "authority": {"workspace_write": false, "network": false},
+            "artifacts": {}
+        }))
+        .expect("encode candidate Genome"),
+    )
+    .expect("write candidate Genome");
+    let Some(ResponseData::Genome { genome: candidate }) = response(&cli(
+        &data_dir,
+        &[
+            "genome",
+            "register",
+            candidate_path.to_str().unwrap(),
+            "--world",
+            &world.world_id,
+        ],
+    ))
+    .data
+    else {
+        panic!("candidate Genome registration should succeed");
+    };
+
+    assert!(response(&cli(&data_dir, &["unfreeze"])).error.is_none());
+
+    let evaluate = response(&cli(
+        &data_dir,
+        &[
+            "arena",
+            "evaluate",
+            "mixed-e2e-eval",
+            &parent.genome_id,
+            &candidate.genome_id,
+        ],
+    ));
+    assert!(
+        evaluate.error.is_none(),
+        "mixed reference/provider Arena evaluation failed: {:?}",
+        evaluate.error
+    );
+    let Some(ResponseData::Evaluation { evaluation }) = evaluate.data else {
+        panic!("arena evaluate should report the completed evaluation: {evaluate:?}");
+    };
+    assert_eq!(evaluation.visible_total, 1);
+
+    assert!(matches!(
+        response(&cli(&data_dir, &["arena", "select", "mixed-e2e-eval"],)).data,
+        Some(ResponseData::Selection { .. })
+    ));
 
     assert!(response(&cli(&data_dir, &["replay"])).error.is_none());
     daemon.stop();

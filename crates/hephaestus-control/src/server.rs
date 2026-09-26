@@ -595,7 +595,10 @@ struct AsyncArenaTrialLaunch {
     data_dir: PathBuf,
     guardian: PathBuf,
     protected_paths: Vec<PathBuf>,
-    worker: Arc<PinnedReferenceWorker>,
+    /// `None` when neither role in this pair is reference-shaped (a fully
+    /// provider pair never executes a reference-role trial, so
+    /// `submit_arena_job` skips pinning one at all -- TD-15).
+    worker: Option<Arc<PinnedReferenceWorker>>,
     codex_executable: PathBuf,
     claude_executable: PathBuf,
     provider_extra_env: Vec<(String, String)>,
@@ -5624,11 +5627,20 @@ impl ControlPlane {
         )
         .map_err(|_| ExecuteError::Internal)?;
         let evaluator = Arc::new(self.open_evaluator(&evaluator_id, evaluator_limits)?);
-        // The reference worker is pinned unconditionally: even a fully
-        // provider paired trial keeps the same admission shape, and a mixed
-        // pair needs it for whichever role stays on the reference path.
-        let worker = self.pin_reference_worker()?;
-        let reference_environment_id = Self::reference_execution_environment(&worker);
+        // The reference worker is only pinned (a private snapshot write plus
+        // a digest re-verification) when a role actually needs it: a fully
+        // provider pair never executes it, so skip the work entirely rather
+        // than pinning-then-discarding it (TD-15). `self.reference_worker_digest`
+        // alone is enough to fill `worker_digest` below in that case -- it is
+        // exactly what a pin's own digest would re-verify to anyway.
+        let worker = if parent_provider.is_none() || candidate_provider.is_none() {
+            Some(self.pin_reference_worker()?)
+        } else {
+            None
+        };
+        let reference_environment_id = worker
+            .as_ref()
+            .map(|worker| Self::reference_execution_environment(worker));
         let provider_environment_id = |provider: Provider| -> Result<String, ExecuteError> {
             let executable = self.provider_executable(provider)?;
             let digest = executable_digest(&executable).map_err(|_| ExecuteError::Internal)?;
@@ -5636,11 +5648,15 @@ impl ControlPlane {
         };
         let parent_environment_id = match parent_provider {
             Some(provider) => provider_environment_id(provider)?,
-            None => reference_environment_id.clone(),
+            None => reference_environment_id
+                .clone()
+                .ok_or(ExecuteError::Internal)?,
         };
         let candidate_environment_id = match candidate_provider {
             Some(provider) => provider_environment_id(provider)?,
-            None => reference_environment_id.clone(),
+            None => reference_environment_id
+                .clone()
+                .ok_or(ExecuteError::Internal)?,
         };
         let mixed_environments = parent_environment_id != candidate_environment_id;
         if mixed_environments && !world.evaluation_policy().allow_mixed_environments() {
@@ -5765,7 +5781,10 @@ impl ControlPlane {
             sealed_manifest_id,
             evaluator_id,
             source_revision: revision,
-            worker_digest: worker.digest.clone(),
+            worker_digest: worker.as_ref().map_or_else(
+                || self.reference_worker_digest.clone(),
+                |worker| worker.digest.clone(),
+            ),
             environment_id: parent_environment_id.clone(),
             candidate_environment_id: mixed_environments.then(|| candidate_environment_id.clone()),
             seed: PAIRED_EVALUATION_SEED,
@@ -5800,7 +5819,7 @@ impl ControlPlane {
             data_dir: self.data_dir.clone(),
             guardian: self.guardian_executable.clone(),
             protected_paths: self.protected_runtime_paths(),
-            worker: Arc::clone(&worker),
+            worker: worker.clone(),
             codex_executable: self.codex_executable.clone(),
             claude_executable: self.claude_executable.clone(),
             provider_extra_env: resolve_provider_extra_env(&self.provider_env_allowlist),
@@ -9313,19 +9332,25 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
             )
         } else if let Some(lease) = remote_lease.as_deref() {
             execute_arena_trial_remotely(lease, &job_id, index, trial, &cancel, overall_deadline)
-        } else {
+        } else if let Some(worker) = worker.as_ref() {
             execute_async_reference(
                 AsyncReferenceLaunch {
                     data_dir: data_dir.clone(),
                     guardian: guardian.clone(),
                     protected_paths: protected_paths.clone(),
-                    worker: Arc::clone(&worker),
+                    worker: Arc::clone(worker),
                     cancel: Arc::clone(&cancel),
                 },
                 &trial.spec,
                 evidence.clone(),
                 initial_sequence,
             )
+        } else {
+            // Unreachable in practice: `submit_arena_job` only ever admits a
+            // provider-less (reference-role) trial after pinning a worker for
+            // it. Fail the trial rather than panic if that invariant is ever
+            // broken.
+            Err("reference-role Arena trial has no pinned reference worker".to_owned())
         };
         let (reply, response) = mpsc::channel();
         if messages

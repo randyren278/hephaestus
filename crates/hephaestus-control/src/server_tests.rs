@@ -16243,6 +16243,196 @@ fn arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_candidat
     );
 }
 
+/// TD-15: a fully provider pair (neither role is reference-shaped) never
+/// pins the reference worker at all -- the private-snapshot write and digest
+/// re-verification `pin_reference_worker` does is avoidable work for a pair
+/// that never executes it. `worker_digest` still records the daemon's
+/// configured reference worker digest for the job record's provenance, even
+/// though it was never pinned to run anything.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_worker() {
+    let directory = tempdir().expect("fully provider Arena fixture");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(
+        repository.join("fixture.txt"),
+        b"Fully provider Arena fixture\n",
+    )
+    .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("provider-pair-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+    let fake_claude = directory.path().join("provider-pair-fake-claude");
+    write_fake_claude_binary(&fake_claude);
+
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open fully provider Arena fixture")
+    .with_provider_executables_for_testing(
+        "/nonexistent/codex-should-not-be-invoked",
+        &fake_claude,
+        Vec::new(),
+    );
+    let token = plane.token_hex.clone();
+
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        "provider-pair-visible",
+        Visibility::Visible,
+        vec![
+            hephaestus_arena::TrustedTask::new("visible-task", "visible", "VISIBLE")
+                .expect("visible task"),
+        ],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "provider-pair-sealed",
+        Visibility::Sealed,
+        vec![
+            hephaestus_arena::TrustedTask::new("sealed-task", "sealed", "SEALED")
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator_id = artifacts
+        .put(&fs::read(&evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    drop(artifacts);
+
+    let world_path = directory.path().join("provider-pair-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"provider-pair","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+        ),
+    )
+    .expect("write provider-pair World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        "provider-pair-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("provider-pair World registration should succeed");
+    };
+
+    let parent = register_claude_provider_genome(&mut plane, &token, &directory, &world.world_id);
+    let candidate_path = directory.path().join("provider-pair-candidate.json");
+    fs::write(
+        &candidate_path,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "name": "provider-pair-candidate",
+            "parents": [],
+            "model": {"provider": "claude", "family": "sonnet"},
+            "authority": {"workspace_write": false, "network": false},
+            "artifacts": {}
+        }))
+        .expect("encode candidate Genome"),
+    )
+    .expect("write candidate Genome source");
+    let Some(ResponseData::Genome { genome: candidate }) = dispatch_call(
+        &mut plane,
+        &token,
+        "provider-pair-candidate",
+        Command::GenomeRegister {
+            path: candidate_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("candidate Genome registration should succeed");
+    };
+
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "provider-pair-unfreeze",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+
+    assert!(
+        plane.pinned_reference_worker.borrow().is_none(),
+        "no pin before admission"
+    );
+    complete_arena_test_job(
+        &mut plane,
+        "provider-pair-eval",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    assert!(
+        plane.pinned_reference_worker.borrow().is_none(),
+        "TD-15: a fully provider pair must never pin the reference worker"
+    );
+
+    let job = plane
+        .state
+        .arena_jobs
+        .get("provider-pair-eval")
+        .expect("provider-pair Arena job recorded");
+    assert_eq!(
+        job.worker_digest, plane.reference_worker_digest,
+        "worker_digest still records the daemon's configured reference worker for \
+         provenance, even though it was never pinned"
+    );
+    assert!(job.evaluation.is_some());
+}
+
 #[test]
 fn submit_admits_and_cancels_a_provider_job_through_daemon_stop() {
     let directory = tempdir().expect("fixture directory");
