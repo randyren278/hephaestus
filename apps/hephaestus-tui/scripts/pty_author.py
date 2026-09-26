@@ -92,9 +92,14 @@ def main() -> int:
         if not until("Author Markdown agent", LAUNCH_TIMEOUT_SECONDS):
             raise RuntimeError("TUI did not render the Author Markdown agent action")
         stage = "select-author"
-        for _ in range(9):
+        # Walk the menu until the action is selected instead of counting a
+        # fixed number of rows, so adding a menu entry above it cannot break this.
+        for _ in range(20):
+            start = mark()
             press(b"\x1b[B")
-        if not until(SELECTED + "Author Markdown agent", 3):
+            if until(SELECTED + "Author Markdown agent", 0.5, start):
+                break
+        else:
             raise RuntimeError("TUI did not select the Author Markdown agent action")
         stage = "open-author-world"
         start = mark()
