@@ -11,25 +11,30 @@ mod selection;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use clusters::{
-    CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, FailureCluster, OperatorClusterAnalysis,
-    SealedTrial, SuggestedMutation, VisibleTrial, check_failure_clusters, cluster_event_references,
-    cluster_trials, load_failure_clusters, verify_cluster_event,
+    CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, ClusterView, FailureCluster,
+    OperatorClusterAnalysis, SealedTrial, SuggestedMutation, VisibleTrial, check_failure_clusters,
+    cluster_event_references, cluster_trials, load_failure_clusters, verify_cluster_event,
+    verify_cluster_event_in,
 };
 pub use error::ArenaError;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultVerifier,
 };
 use hephaestus_genome::CompiledWorld;
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
+use hephaestus_ledger::{
+    ArtifactId, ArtifactStore, EventIndex, EventInput, EventStore, StoredEvent,
+};
 pub use invariants::{
-    InvariantEvent, InvariantPredicateResult, InvariantReceipt, OperatorInvariantCheck,
-    check_reference_output_invariants, invariant_event_references,
+    InvariantEvent, InvariantPredicateResult, InvariantReceipt, InvariantView,
+    OperatorInvariantCheck, check_reference_output_invariants, invariant_event_references,
     load_reference_output_invariants, verify_reference_output_invariant_event,
+    verify_reference_output_invariant_event_in,
 };
 pub use isolated_evaluator::IsolatedEvaluator;
 pub use selection::{
-    OperatorSelection, SelectionEvent, SelectionReceipt, load_selection, select_and_record,
-    selection_event_references, verify_selection_event,
+    OperatorSelection, SelectionEvent, SelectionReceipt, SelectionView, load_selection,
+    select_and_record, selection_event_references, verify_selection_event,
+    verify_selection_event_in,
 };
 use serde::{Deserialize, Serialize};
 
@@ -1310,8 +1315,11 @@ fn evaluate_and_record_inner(
         .iter()
         .find(|event| event.event_id == expected_event_id)
     {
-        let existing_receipt =
-            rehydrate_operator_receipt(&owned_stores.artifacts, existing, &history)?;
+        let existing_receipt = rehydrate_operator_receipt(
+            &owned_stores.artifacts,
+            existing,
+            &EventIndex::build(&history),
+        )?;
         if existing.aggregate_id != expected_aggregate_id
             || !receipts_match_except_timestamp(&existing_receipt, &receipt)
         {
@@ -1350,6 +1358,44 @@ fn evaluate_and_record_inner(
     })
 }
 
+/// Read-only, history-borrowing counterpart to [`OperatorEvaluation`], with no
+/// evaluator-store capability of its own. Produced by [`load_operator_evaluation_in`].
+pub struct OperatorEvaluationView {
+    recorded: RecordedEvaluation,
+    operator_receipt: OperatorReceipt,
+    event_hash: [u8; 32],
+}
+
+impl OperatorEvaluationView {
+    /// Borrows the candidate-safe result without exposing operator capabilities.
+    #[must_use]
+    pub const fn candidate_result(&self) -> &RecordedEvaluation {
+        &self.recorded
+    }
+
+    /// Consumes the view and returns only the candidate-safe result.
+    #[must_use]
+    pub fn into_candidate_result(self) -> RecordedEvaluation {
+        self.recorded
+    }
+
+    /// Produces aggregate, event-bound evidence for trusted statistical selection.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if an internal receipt already validated during construction
+    /// no longer satisfies the same aggregate invariants.
+    #[must_use]
+    pub fn selection_evidence(&self) -> SelectionEvidence {
+        selection_evidence(
+            &self.operator_receipt,
+            &self.recorded.event.event_id,
+            self.event_hash,
+        )
+        .expect("stored operator receipts are validated before construction")
+    }
+}
+
 /// Rehydrates one trusted evaluation capability from verified canonical history.
 ///
 /// # Errors
@@ -1360,20 +1406,57 @@ pub fn load_operator_evaluation(
     stores: EvaluationStores,
     evaluation_id: &str,
 ) -> Result<OperatorEvaluation, ArenaError> {
+    let history = stores.events.replay_verified()?;
+    let index = EventIndex::build(&history);
+    let view = load_operator_evaluation_in(&index, &stores.artifacts, evaluation_id)?;
+    Ok(OperatorEvaluation {
+        recorded: view.recorded,
+        stores,
+        operator_receipt: view.operator_receipt,
+        event_hash: view.event_hash,
+    })
+}
+
+/// History-borrowing counterpart to [`load_operator_evaluation`]: verifies
+/// against a caller-supplied history and artifact store instead of opening
+/// fresh evaluator-owned stores and replaying the ledger again. Used by a
+/// daemon projection refresh to verify every evidence event against the one
+/// history it already replayed for this refresh, instead of reopening the
+/// event store and re-replaying the whole ledger once per event (TD-16).
+///
+/// `index` lets a caller verifying many events reuse one O(history length)
+/// index across all of them instead of each call re-scanning `history`, which
+/// would make a full verification pass quadratic again; build it once with
+/// [`EventIndex::build`].
+///
+/// # Trust
+///
+/// The caller must supply an index over history from
+/// `EventLedger::replay_verified()` (or an equally verified source) obtained
+/// in the *same* operation as this call. This function trusts that the hash
+/// chain has already been verified and does not check it again itself.
+///
+/// # Errors
+///
+/// Fails closed exactly as [`load_operator_evaluation`] does: an invalid
+/// identity, or a missing, malformed, or inconsistent evaluation event or any
+/// evaluator-owned evidence artifact.
+pub fn load_operator_evaluation_in(
+    index: &EventIndex<'_>,
+    artifacts: &ArtifactStore,
+    evaluation_id: &str,
+) -> Result<OperatorEvaluationView, ArenaError> {
     validate_id("evaluation_id", evaluation_id)?;
     let event_id = canonical_event_id(evaluation_id);
-    let history = stores.events.replay_verified()?;
-    let event = history
-        .iter()
-        .find(|event| event.event_id == event_id)
+    let event = index
+        .get(&event_id)
         .ok_or_else(|| ArenaError::UnknownEvaluation(evaluation_id.to_owned()))?;
-    let receipt = rehydrate_operator_receipt(&stores.artifacts, event, &history)?;
-    Ok(OperatorEvaluation {
+    let receipt = rehydrate_operator_receipt(artifacts, event, index)?;
+    Ok(OperatorEvaluationView {
         recorded: RecordedEvaluation {
             summary: summary_from_receipt(&receipt),
             event: EvaluationEvent::from(event),
         },
-        stores,
         operator_receipt: receipt,
         event_hash: event.hash,
     })
@@ -1395,6 +1478,22 @@ pub fn load_recorded_evaluation(
     evaluation_id: &str,
 ) -> Result<RecordedEvaluation, ArenaError> {
     load_operator_evaluation(stores, evaluation_id).map(OperatorEvaluation::into_candidate_result)
+}
+
+/// History-borrowing counterpart to [`load_recorded_evaluation`]. See
+/// [`load_operator_evaluation_in`] for the trust requirement on `index` and
+/// why callers verifying many events should build it once and reuse it.
+///
+/// # Errors
+///
+/// See [`load_operator_evaluation_in`].
+pub fn load_recorded_evaluation_in(
+    index: &EventIndex<'_>,
+    artifacts: &ArtifactStore,
+    evaluation_id: &str,
+) -> Result<RecordedEvaluation, ArenaError> {
+    load_operator_evaluation_in(index, artifacts, evaluation_id)
+        .map(OperatorEvaluationView::into_candidate_result)
 }
 
 fn resolve_pair(
@@ -1545,7 +1644,7 @@ fn receipts_match_except_timestamp(left: &OperatorReceipt, right: &OperatorRecei
 fn rehydrate_operator_receipt(
     artifacts: &ArtifactStore,
     event: &StoredEvent,
-    history: &[StoredEvent],
+    index: &EventIndex<'_>,
 ) -> Result<OperatorReceipt, ArenaError> {
     let receipt: OperatorReceipt = serde_json::from_slice(&event.payload)?;
     let schema_version_matches_shape = match receipt.schema_version {
@@ -1575,7 +1674,7 @@ fn rehydrate_operator_receipt(
     verify_operator_artifact(artifacts, &receipt.evaluator_id)?;
     verify_submission_evidence(
         artifacts,
-        history,
+        index,
         &receipt.parent_submission_artifact_id,
         &receipt.parent_submission_id,
         &receipt.parent_genome_id,
@@ -1583,7 +1682,7 @@ fn rehydrate_operator_receipt(
     )?;
     verify_submission_evidence(
         artifacts,
-        history,
+        index,
         &receipt.candidate_submission_artifact_id,
         &receipt.candidate_submission_id,
         &receipt.candidate_genome_id,
@@ -1595,7 +1694,7 @@ fn rehydrate_operator_receipt(
 
 fn verify_submission_evidence(
     artifacts: &ArtifactStore,
-    history: &[StoredEvent],
+    index: &EventIndex<'_>,
     artifact_id: &str,
     submission_id: &str,
     genome_id: &str,
@@ -1612,10 +1711,6 @@ fn verify_submission_evidence(
     {
         return Err(ArenaError::InvalidStoredReceipt("submission evidence"));
     }
-    let events = history
-        .iter()
-        .map(|event| (event.event_id.as_str(), event))
-        .collect::<BTreeMap<_, _>>();
     let mut metrics = OperatorMetrics {
         reliable_trials: 0,
         total_trials: 0,
@@ -1623,7 +1718,7 @@ fn verify_submission_evidence(
         total_latency_millis: 0,
     };
     for trial in evidence.trials.values() {
-        let run_event = events
+        let run_event = index
             .get(trial.run_result_event_id.as_str())
             .ok_or_else(|| ArenaError::UnknownRunEvent(trial.run_result_event_id.clone()))?;
         if trial.run_result_event_hash != encode_hash(run_event.hash) {

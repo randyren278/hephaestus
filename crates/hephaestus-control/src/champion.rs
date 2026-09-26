@@ -5,11 +5,9 @@
 //! payload from the history that preceded it, so a transition can only exist if
 //! the policy admitted it at that point.
 
-use std::path::Path;
-
-use hephaestus_arena::{EvaluationStores, verify_reference_output_invariant_event};
+use hephaestus_arena::verify_reference_output_invariant_event_in;
 use hephaestus_genome::RegisteredObjects;
-use hephaestus_ledger::StoredEvent;
+use hephaestus_ledger::{ArtifactStore, StoredEvent};
 
 use super::{
     ControlError, ExecuteError, OPERATOR_ACTOR, decode_forge_assessment, forge_assessment_event_id,
@@ -193,7 +191,7 @@ pub(super) fn existing_champion_transition(
 
 /// Derives the only payload the policy admits for `request` after `history`.
 pub(super) fn champion_transition_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     transition_id: &str,
@@ -213,7 +211,7 @@ pub(super) fn champion_transition_payload(
             reason,
         ),
         ChampionRequest::Promote { assessment_id } => {
-            promote_payload(data_dir, history, registered, transition_id, assessment_id)
+            promote_payload(artifacts, history, registered, transition_id, assessment_id)
         }
         ChampionRequest::Rollback { world_id, reason } => {
             rollback_payload(history, registered, transition_id, world_id, reason)
@@ -277,7 +275,7 @@ fn seed_payload(
 }
 
 fn promote_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     transition_id: &str,
@@ -338,14 +336,15 @@ fn promote_payload(
     let world = registered
         .world(&assessment.world_id)
         .ok_or(ExecuteError::Internal)?;
-    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-        .map_err(|_| ExecuteError::Internal)?;
-    let verified =
-        verify_reference_output_invariant_event(stores, invariant_event, world.compiled())
-            .map_err(|_| ExecuteError::Internal)?;
+    let verified = verify_reference_output_invariant_event_in(
+        &hephaestus_ledger::EventIndex::build(history),
+        artifacts,
+        invariant_event,
+        world.compiled(),
+    )
+    .map_err(|_| ExecuteError::Internal)?;
     let receipt = verified.receipt().clone();
     let invariant_receipt_artifact_id = verified.event().receipt_artifact_id.clone();
-    drop(verified.into_stores());
     if receipt.evaluation_id != assessment.evaluation_id
         || receipt.world_id != assessment.world_id
         || receipt.parent_genome_id != assessment.parent_genome_id
@@ -416,21 +415,24 @@ fn rollback_payload(
 }
 
 /// Recomputes every Champion transition from the history that preceded it.
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 pub(super) fn verify_champion_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
     verify_champion_history_with(
-        data_dir,
+        artifacts,
         history,
         registered,
         &mut super::EvidenceCache::default(),
     )
 }
 
+/// Cache-aware counterpart of [`verify_champion_history`]; see `EvidenceCache`.
 pub(super) fn verify_champion_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,
@@ -453,7 +455,7 @@ pub(super) fn verify_champion_history_with(
         }
         let request = ChampionRequest::from_payload(&payload)?;
         let expected = champion_transition_payload(
-            data_dir,
+            artifacts,
             &history[..index],
             registered,
             &payload.transition_id,

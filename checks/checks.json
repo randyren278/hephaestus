@@ -1716,8 +1716,15 @@
       "id": "selection-wrong-world-evidence-accepted",
       "file": "crates/hephaestus-arena/src/selection.rs",
       "invariant": "Selection requires the exact compiled World committed by trusted evaluation evidence.",
-      "find": "    if evidence.world_id() != world.id() {",
-      "replace": "    if false && evidence.world_id() != world.id() {"
+      "find": "    let operator = load_operator_evaluation(stores, evaluation_id)?;\n    let evidence = operator.selection_evidence();\n    if evidence.world_id() != world.id() {",
+      "replace": "    let operator = load_operator_evaluation(stores, evaluation_id)?;\n    let evidence = operator.selection_evidence();\n    if false && evidence.world_id() != world.id() {"
+    },
+    {
+      "id": "selection-in-wrong-world-evidence-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "History-borrowing selection verification requires the exact compiled World committed by trusted evaluation evidence.",
+      "find": "    let operator = load_operator_evaluation_in(index, artifacts, evaluation_id)?;\n    let evidence = operator.selection_evidence();\n    if evidence.world_id() != world.id() {",
+      "replace": "    let operator = load_operator_evaluation_in(index, artifacts, evaluation_id)?;\n    let evidence = operator.selection_evidence();\n    if false && evidence.world_id() != world.id() {"
     },
     {
       "id": "selection-promotion-without-invariant-evidence",
@@ -1765,8 +1772,15 @@
       "id": "selection-forged-canonical-receipt-accepted",
       "file": "crates/hephaestus-arena/src/selection.rs",
       "invariant": "A hash-valid canonical selection receipt must equal the decision recomputed from trusted evaluation evidence.",
-      "find": "    if serde_json::to_vec(&receipt)? != bytes || &receipt != expected {",
-      "replace": "    if serde_json::to_vec(&receipt)? != bytes {"
+      "find": "    let bytes = stores.artifacts.get(&receipt_id)?;\n    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;\n    if serde_json::to_vec(&receipt)? != bytes || &receipt != expected {",
+      "replace": "    let bytes = stores.artifacts.get(&receipt_id)?;\n    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;\n    if serde_json::to_vec(&receipt)? != bytes {"
+    },
+    {
+      "id": "selection-in-forged-canonical-receipt-accepted",
+      "file": "crates/hephaestus-arena/src/selection.rs",
+      "invariant": "History-borrowing selection verification requires a hash-valid canonical receipt to equal the decision recomputed from trusted evaluation evidence.",
+      "find": "    let bytes = artifacts.get(&receipt_id)?;\n    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;\n    if serde_json::to_vec(&receipt)? != bytes || &receipt != expected {",
+      "replace": "    let bytes = artifacts.get(&receipt_id)?;\n    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;\n    if serde_json::to_vec(&receipt)? != bytes {"
     },
     {
       "id": "selection-pareto-correctness-regression-accepted",
@@ -1800,15 +1814,15 @@
       "id": "control-selection-history-unverified-at-startup",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Daemon startup revalidates every recorded selection against exact World and canonical evidence.",
-      "find": "        verify_selection_history(&data_dir, &history, &registered)?;",
+      "find": "        verify_selection_history(&artifacts, &history, &registered)?;",
       "replace": "        // mutation: skip selection history verification at startup"
     },
     {
       "id": "control-selection-history-unverified-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
-      "find": "        verify_selection_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&self.data_dir, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "find": "        verify_selection_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -2143,7 +2157,7 @@
       "id": "control-invariant-history-unverified-at-startup",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Daemon startup verifies every invariant receipt against its exact canonical event, World, and evaluation evidence.",
-      "find": "        verify_invariant_history(&data_dir, &history, &registered)?;",
+      "find": "        verify_invariant_history(&artifacts, &history, &registered)?;",
       "replace": "        // mutation: skip invariant history verification at startup"
     },
     {

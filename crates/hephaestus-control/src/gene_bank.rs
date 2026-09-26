@@ -21,12 +21,9 @@
 //! from the history that preceded it, so an event can only exist if the
 //! policy admitted it at that point.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
-use hephaestus_arena::{EvaluationStores, verify_selection_event};
+use hephaestus_arena::verify_selection_event_in;
 use hephaestus_genome::{CompiledWorld, RegisteredObjects, SourceFormat, compile_genome};
 use hephaestus_ledger::{ArtifactId, ArtifactStore, StoredEvent};
 use hephaestus_runtime::ReferenceInstruction;
@@ -221,7 +218,7 @@ pub(super) fn existing_gene(
 /// `promotion_transition_id`, or refuses when the origin evidence does not
 /// meet the deterministic minimum-evidence threshold.
 pub(super) fn gene_extraction_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     gene_id: &str,
@@ -276,13 +273,15 @@ pub(super) fn gene_extraction_payload(
         .iter()
         .find(|event| event.event_id == assessment.selection_event_id)
         .ok_or(ExecuteError::Internal)?;
-    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-        .map_err(|_| ExecuteError::Internal)?;
-    let verified = verify_selection_event(stores, selection_event, world.compiled())
-        .map_err(|_| ExecuteError::Internal)?;
+    let verified = verify_selection_event_in(
+        &hephaestus_ledger::EventIndex::build(history),
+        artifacts,
+        selection_event,
+        world.compiled(),
+    )
+    .map_err(|_| ExecuteError::Internal)?;
     let receipt = verified.receipt().clone();
     let selection_event_hash = verified.event().event_hash.clone();
-    drop(verified.into_stores());
     if receipt.evaluation_id() != assessment.evaluation_id
         || receipt.world_id() != assessment.world_id
         || receipt.parent_genome_id() != assessment.parent_genome_id
@@ -506,7 +505,7 @@ pub(super) fn existing_transfer_recorded(
 /// its already-applied transfer and the verified paired selection of
 /// `evaluation_id`.
 pub(super) fn transfer_recorded_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     trial_id: &str,
@@ -532,15 +531,17 @@ pub(super) fn transfer_recorded_payload(
     let world = registered
         .world(&applied.world_id)
         .ok_or(ExecuteError::Internal)?;
-    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-        .map_err(|_| ExecuteError::Internal)?;
-    let verified = verify_selection_event(stores, selection_event, world.compiled())
-        .map_err(|_| ExecuteError::Internal)?;
+    let verified = verify_selection_event_in(
+        &hephaestus_ledger::EventIndex::build(history),
+        artifacts,
+        selection_event,
+        world.compiled(),
+    )
+    .map_err(|_| ExecuteError::Internal)?;
     let receipt = verified.receipt().clone();
     let verified_event_id = verified.event().event_id.clone();
     let selection_event_hash = verified.event().event_hash.clone();
     let selection_receipt_artifact_id = verified.event().receipt_artifact_id.clone();
-    drop(verified.into_stores());
 
     if receipt.evaluation_id() != evaluation_id
         || receipt.world_id() != applied.world_id
@@ -901,23 +902,27 @@ pub(super) fn gene_summaries(history: &[StoredEvent]) -> Result<Vec<GeneSummary>
 // ---------------------------------------------------------------------
 
 /// Recomputes every Gene Bank event from the history that preceded it,
-/// exactly like [`super::champion::verify_champion_history`].
+/// exactly like [`super::champion::verify_champion_history`]. `artifacts` is
+/// the daemon's already-open artifact store, reused for every event instead
+/// of reopening it (see `TECH_DEBT.md` TD-16).
+#[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
     verify_gene_bank_history_with(
-        data_dir,
+        artifacts,
         history,
         registered,
         &mut super::EvidenceCache::default(),
     )
 }
 
+/// Cache-aware counterpart of [`verify_gene_bank_history`]; see `EvidenceCache`.
 #[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,
@@ -938,7 +943,7 @@ pub(super) fn verify_gene_bank_history_with(
                     return Err(invalid("Gene event identity is invalid"));
                 }
                 let expected = gene_extraction_payload(
-                    data_dir,
+                    artifacts,
                     prefix,
                     registered,
                     &payload.gene_id,
@@ -957,11 +962,9 @@ pub(super) fn verify_gene_bank_history_with(
                 {
                     return Err(invalid("Gene transfer applied event identity is invalid"));
                 }
-                let storage_artifacts = ArtifactStore::open(data_dir.join("blobs"))
-                    .map_err(|_| invalid("Gene transfer artifacts unavailable"))?;
                 let expected = transfer_applied_payload(
                     registered,
-                    &storage_artifacts,
+                    artifacts,
                     prefix,
                     &payload.trial_id,
                     &payload.gene_id,
@@ -982,7 +985,7 @@ pub(super) fn verify_gene_bank_history_with(
                     return Err(invalid("Gene transfer recorded event identity is invalid"));
                 }
                 let expected = transfer_recorded_payload(
-                    data_dir,
+                    artifacts,
                     prefix,
                     registered,
                     &payload.trial_id,

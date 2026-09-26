@@ -9,11 +9,9 @@
 //! `canary.transitioned` event; replay recomputes each payload from the
 //! history that preceded it, exactly like Champion transitions.
 
-use std::path::Path;
-
-use hephaestus_arena::{EvaluationStores, SelectionReceipt, verify_selection_event};
+use hephaestus_arena::{SelectionReceipt, verify_selection_event_in};
 use hephaestus_genome::RegisteredObjects;
-use hephaestus_ledger::{EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactStore, EventInput, StoredEvent};
 
 use super::champion::{
     self, ChampionRequest, champion_event_id, champion_projection, champion_transition_payload,
@@ -305,7 +303,7 @@ fn next_stage(stage: CanaryStage) -> Option<CanaryStage> {
 }
 
 fn load_selection_receipt(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     world_id: &str,
@@ -320,24 +318,26 @@ fn load_selection_receipt(
         .cloned()
         .ok_or(ExecuteError::NotFound)?;
     let world = registered.world(world_id).ok_or(ExecuteError::Internal)?;
-    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-        .map_err(|_| ExecuteError::Internal)?;
-    let verified = verify_selection_event(stores, &selection_event, world.compiled())
-        .map_err(|_| ExecuteError::Internal)?;
+    let verified = verify_selection_event_in(
+        &hephaestus_ledger::EventIndex::build(history),
+        artifacts,
+        &selection_event,
+        world.compiled(),
+    )
+    .map_err(|_| ExecuteError::Internal)?;
     let receipt = verified.receipt().clone();
-    drop(verified.into_stores());
     Ok((receipt, selection_event))
 }
 
 /// Derives the only payload the policy admits for `request` after `history`.
 ///
-/// `canary_id` and `data_dir` drive lookups; the deterministic ledger
+/// `canary_id` and `artifacts` drive lookups; the deterministic ledger
 /// events actually appended by a request live in `server.rs`, since a
 /// completing or live-regressing canary also appends a separate, existing
 /// `champion.transitioned` event through `champion::champion_transition_payload`.
 #[allow(clippy::too_many_lines)]
 pub(super) fn canary_transition_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
@@ -359,7 +359,7 @@ pub(super) fn canary_transition_payload(
         CanaryRequest::Advance {
             evidence_evaluation_id,
         } => advance_payload(
-            data_dir,
+            artifacts,
             history,
             registered,
             canary_id,
@@ -368,7 +368,7 @@ pub(super) fn canary_transition_payload(
         CanaryRequest::LiveCheck {
             evidence_evaluation_id,
         } => live_check_payload(
-            data_dir,
+            artifacts,
             history,
             registered,
             canary_id,
@@ -448,7 +448,7 @@ fn start_payload(
 }
 
 fn advance_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
@@ -467,7 +467,7 @@ fn advance_payload(
     };
 
     let (receipt, selection_event) = load_selection_receipt(
-        data_dir,
+        artifacts,
         history,
         registered,
         &canary.world_id,
@@ -521,7 +521,7 @@ fn advance_payload(
 
     let champion_promotion = if target_stage == CanaryStage::Completed {
         let promotion_payload = champion_transition_payload(
-            data_dir,
+            artifacts,
             history,
             registered,
             &canary_id_promotion_transition_id(canary_id),
@@ -557,7 +557,7 @@ fn advance_payload(
 }
 
 fn live_check_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
@@ -580,7 +580,7 @@ fn live_check_payload(
     }
 
     let (receipt, selection_event) = load_selection_receipt(
-        data_dir,
+        artifacts,
         history,
         registered,
         &canary.world_id,
@@ -618,7 +618,7 @@ fn live_check_payload(
 
     let rollback_transition_id = canary_id_rollback_transition_id(canary_id);
     let _rollback_payload = champion_transition_payload(
-        data_dir,
+        artifacts,
         history,
         registered,
         &rollback_transition_id,
@@ -675,23 +675,26 @@ pub(super) fn rollback_payload_hash_placeholder() -> String {
 
 /// Recomputes every canary transition from the history that preceded it,
 /// including cross-referencing the separate Champion transition event a
-/// completion or live regression must have also appended.
-#[allow(clippy::too_many_lines)]
+/// completion or live regression must have also appended. `artifacts` is the
+/// daemon's already-open artifact store, reused for every event instead of
+/// reopening it (see `TECH_DEBT.md` TD-16).
 pub(super) fn verify_canary_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
     verify_canary_history_with(
-        data_dir,
+        artifacts,
         history,
         registered,
         &mut super::EvidenceCache::default(),
     )
 }
 
+/// Cache-aware counterpart of [`verify_canary_history`]; see `EvidenceCache`.
+#[allow(clippy::too_many_lines)]
 pub(super) fn verify_canary_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,
@@ -760,7 +763,7 @@ pub(super) fn verify_canary_history_with(
             }
         }
         let mut expected = canary_transition_payload(
-            data_dir,
+            artifacts,
             &history[..derivation_bound],
             registered,
             &payload.canary_id,

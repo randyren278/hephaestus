@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 
 use hephaestus_experience::{RunCompletionReason, RunResultReceipt, RunResultVerifier};
 use hephaestus_genome::CompiledWorld;
-use hephaestus_ledger::{ArtifactId, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactId, EventIndex, EventInput, StoredEvent};
 use hephaestus_runtime::ExperimentContext;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ArenaError, EvaluationStores, OperatorEvaluation, load_operator_evaluation,
-    run_result_verifier, verify_operator_artifact,
+    ArenaError, ArtifactStore, EvaluationStores, OperatorReceipt, load_operator_evaluation,
+    load_operator_evaluation_in, run_result_verifier, verify_operator_artifact,
 };
 
 const MANIFEST_KEY: &str = "arena.invariant_manifest";
@@ -207,6 +207,89 @@ pub fn verify_reference_output_invariant_event(
     Ok(check)
 }
 
+/// Read-only, history-borrowing counterpart to [`OperatorInvariantCheck`],
+/// with no evaluator-store capability of its own. Produced by
+/// [`verify_reference_output_invariant_event_in`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvariantView {
+    receipt: InvariantReceipt,
+    event: InvariantEvent,
+}
+
+impl InvariantView {
+    /// Canonical aggregate result without task identities or raw outputs.
+    #[must_use]
+    pub const fn receipt(&self) -> &InvariantReceipt {
+        &self.receipt
+    }
+
+    /// Canonical event metadata binding the receipt into the ledger.
+    #[must_use]
+    pub const fn event(&self) -> &InvariantEvent {
+        &self.event
+    }
+}
+
+/// History-borrowing counterpart to [`verify_reference_output_invariant_event`]:
+/// verifies against a caller-supplied history index and artifact store
+/// instead of opening fresh evaluator-owned stores and replaying the ledger
+/// again. See [`crate::load_operator_evaluation_in`] for the trust
+/// requirement on `index` and why callers verifying many events should build
+/// it once.
+///
+/// # Errors
+///
+/// Rejects a malformed event envelope, a noncanonical hash-chain snapshot, or
+/// receipt content that does not recompute from the signed paired trial evidence.
+pub fn verify_reference_output_invariant_event_in(
+    index: &EventIndex<'_>,
+    artifacts: &ArtifactStore,
+    event: &StoredEvent,
+    world: &CompiledWorld,
+) -> Result<InvariantView, ArenaError> {
+    let (evaluation_id, world_id) = invariant_event_references(event)?;
+    if world_id != world.id() {
+        return Err(ArenaError::WorldArtifactMismatch(MANIFEST_KEY));
+    }
+    let operator = load_operator_evaluation_in(index, artifacts, &evaluation_id)?;
+    if operator.operator_receipt.world_id != world.id() {
+        return Err(ArenaError::WorldArtifactMismatch(MANIFEST_KEY));
+    }
+    let evaluation_event = index
+        .get(&operator.recorded.event.event_id)
+        .ok_or_else(|| ArenaError::UnknownEvaluation(evaluation_id.clone()))?;
+    if super::encode_hash(evaluation_event.hash) != super::encode_hash(operator.event_hash) {
+        return Err(ArenaError::InvalidStoredReceipt(
+            "invariant evaluation event",
+        ));
+    }
+    let (manifest, manifest_artifact_id) = load_invariant_manifest(world, artifacts)?;
+    let receipt = compute_receipt(
+        &operator.operator_receipt,
+        artifacts,
+        index,
+        evaluation_event,
+        world,
+        &manifest,
+        &manifest_artifact_id,
+    )?;
+    let event_id = invariant_event_id(&evaluation_id);
+    let stored = index
+        .get(&event_id)
+        .ok_or_else(|| ArenaError::UnknownInvariantCheck(evaluation_id.clone()))?;
+    if stored != event {
+        return Err(ArenaError::InvalidInvariantEvent);
+    }
+    if stored.sequence <= evaluation_event.sequence {
+        return Err(ArenaError::InvariantConflict(evaluation_id));
+    }
+    let rehydrated = rehydrate_event(artifacts, stored, &receipt)?;
+    Ok(InvariantView {
+        receipt,
+        event: invariant_event(stored, &rehydrated.receipt_artifact_id),
+    })
+}
+
 fn check(
     stores: EvaluationStores,
     evaluation_id: &str,
@@ -230,8 +313,11 @@ fn check(
     }
     let (manifest, manifest_artifact_id) =
         load_invariant_manifest(world, &operator.stores.artifacts)?;
+    let index = EventIndex::build(&history);
     let receipt = compute_receipt(
-        &operator,
+        &operator.operator_receipt,
+        &operator.stores.artifacts,
+        &index,
         evaluation_event,
         world,
         &manifest,
@@ -276,14 +362,14 @@ fn check(
 }
 
 fn compute_receipt(
-    operator: &OperatorEvaluation,
+    receipt: &OperatorReceipt,
+    artifacts: &ArtifactStore,
+    index: &EventIndex<'_>,
     evaluation_event: &StoredEvent,
     world: &CompiledWorld,
     manifest: &InvariantManifest,
     manifest_artifact_id: &str,
 ) -> Result<InvariantReceipt, ArenaError> {
-    let artifacts = &operator.stores.artifacts;
-    let receipt = &operator.operator_receipt;
     let visible_bytes = verify_operator_artifact(artifacts, &receipt.visible_manifest_artifact_id)?;
     let sealed_bytes = verify_operator_artifact(artifacts, &receipt.sealed_manifest_artifact_id)?;
     let visible =
@@ -300,7 +386,9 @@ fn compute_receipt(
         }
     }
     let parent = verified_submission_outputs(
-        operator,
+        artifacts,
+        index,
+        receipt,
         &receipt.parent_submission_artifact_id,
         &receipt.parent_genome_id,
         &task_inputs,
@@ -308,7 +396,9 @@ fn compute_receipt(
         evaluation_event,
     )?;
     let candidate = verified_submission_outputs(
-        operator,
+        artifacts,
+        index,
+        receipt,
         &receipt.candidate_submission_artifact_id,
         &receipt.candidate_genome_id,
         &task_inputs,
@@ -380,15 +470,17 @@ fn compute_receipt(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn verified_submission_outputs(
-    operator: &OperatorEvaluation,
+    artifacts: &ArtifactStore,
+    index: &EventIndex<'_>,
+    operator_receipt: &OperatorReceipt,
     submission_artifact_id: &str,
     genome_id: &str,
     task_inputs: &BTreeMap<String, String>,
     world: &CompiledWorld,
     evaluation_event: &StoredEvent,
 ) -> Result<BTreeMap<String, VerifiedTrialOutput>, ArenaError> {
-    let artifacts = &operator.stores.artifacts;
     let bytes = verify_operator_artifact(artifacts, submission_artifact_id)?;
     let submission: super::SubmissionEvidence = serde_json::from_slice(&bytes)?;
     if submission.schema_version != 1
@@ -400,17 +492,12 @@ pub(crate) fn verified_submission_outputs(
             "invariant submission evidence",
         ));
     }
-    let history = operator.stores.events.replay_verified()?;
-    let events = history
-        .iter()
-        .map(|event| (event.event_id.as_str(), event))
-        .collect::<BTreeMap<_, _>>();
     let verifier = run_result_verifier(world, artifacts)?;
     submission
         .trials
         .iter()
         .map(|(task_id, trial)| {
-            let event = events
+            let event = index
                 .get(trial.run_result_event_id.as_str())
                 .ok_or_else(|| ArenaError::UnknownRunEvent(trial.run_result_event_id.clone()))?;
             if super::encode_hash(event.hash) != trial.run_result_event_hash
@@ -424,17 +511,17 @@ pub(crate) fn verified_submission_outputs(
             let experiment = ExperimentContext::new(
                 task_id,
                 &task_inputs[task_id],
-                operator.operator_receipt.seed,
-                &operator.operator_receipt.environment_id,
+                operator_receipt.seed,
+                &operator_receipt.environment_id,
             )?;
             if run.event_id() != trial.run_result_event_id
                 || run.world_id != world.id()
                 || run.genome_id != genome_id
                 || run.task_id != *task_id
                 || run.input_commitment != experiment.input_commitment()
-                || run.seed != operator.operator_receipt.seed
-                || run.environment_id != operator.operator_receipt.environment_id
-                || run.budget != operator.operator_receipt.budget
+                || run.seed != operator_receipt.seed
+                || run.environment_id != operator_receipt.environment_id
+                || run.budget != operator_receipt.budget
                 || run.completion_reason != trial.completion_reason
                 || run.latency_millis != trial.latency_millis
                 || run.actual_cost_microusd != trial.actual_cost_microusd

@@ -1,10 +1,13 @@
 //! Deterministic selection analysis and durable, evaluation-bound receipts.
 
 use hephaestus_genome::CompiledWorld;
-use hephaestus_ledger::{ArtifactId, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactId, ArtifactStore, EventIndex, EventInput, StoredEvent};
 use serde::{Deserialize, Serialize};
 
-use crate::{ArenaError, EvaluationStores, SelectionEvidence, load_operator_evaluation};
+use crate::{
+    ArenaError, EvaluationStores, SelectionEvidence, load_operator_evaluation,
+    load_operator_evaluation_in,
+};
 
 const EVENT_TYPE: &str = "selection.recorded";
 const EVENT_ACTOR: &str = "arena-plane";
@@ -370,6 +373,138 @@ fn validate_event_snapshot(
     } else {
         Err(ArenaError::InvalidSelectionEvent)
     }
+}
+
+/// Read-only, history-borrowing counterpart to [`OperatorSelection`], with no
+/// evaluator-store capability of its own. Produced by
+/// [`verify_selection_event_in`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectionView {
+    receipt: SelectionReceipt,
+    event: SelectionEvent,
+}
+
+impl SelectionView {
+    /// Canonical deterministic measurements and policy-bound decision fields.
+    #[must_use]
+    pub const fn receipt(&self) -> &SelectionReceipt {
+        &self.receipt
+    }
+    /// Canonical event metadata binding the receipt artifact into history.
+    #[must_use]
+    pub const fn event(&self) -> &SelectionEvent {
+        &self.event
+    }
+}
+
+/// History-borrowing counterpart to [`verify_selection_event`]: verifies
+/// against a caller-supplied history index and artifact store instead of
+/// opening fresh evaluator-owned stores and replaying the ledger again. See
+/// [`crate::load_operator_evaluation_in`] for the trust requirement on
+/// `index` and why callers verifying many events should build it once.
+///
+/// # Errors
+///
+/// Fails unless the supplied event exactly matches canonical history and the
+/// receipt recomputes from the verified source evaluation.
+pub fn verify_selection_event_in(
+    index: &EventIndex<'_>,
+    artifacts: &ArtifactStore,
+    event: &StoredEvent,
+    world: &CompiledWorld,
+) -> Result<SelectionView, ArenaError> {
+    let (evaluation_id, world_id) = selection_event_references(event)?;
+    if world_id != world.id() {
+        return Err(ArenaError::SelectionWorldMismatch);
+    }
+    let selection = load_selection_in(index, artifacts, &evaluation_id, world)?;
+    let canonical = index
+        .get(&event.event_id)
+        .ok_or(ArenaError::InvalidSelectionEvent)?;
+    validate_event_snapshot(event, canonical)?;
+    Ok(selection)
+}
+
+fn load_selection_in(
+    index: &EventIndex<'_>,
+    artifacts: &ArtifactStore,
+    evaluation_id: &str,
+    world: &CompiledWorld,
+) -> Result<SelectionView, ArenaError> {
+    let operator = load_operator_evaluation_in(index, artifacts, evaluation_id)?;
+    let evidence = operator.selection_evidence();
+    if evidence.world_id() != world.id() {
+        return Err(ArenaError::SelectionWorldMismatch);
+    }
+    let policy = world.evaluation_policy();
+    ensure_supported_confidence(policy.confidence_bps())?;
+    let selection_event_id = format!("arena:selection:{evaluation_id}:selected");
+    let source_event = index
+        .get(evidence.evaluation_event_id())
+        .ok_or_else(|| ArenaError::UnknownEvaluation(evaluation_id.to_owned()))?;
+    let existing_event = index.get(&selection_event_id);
+    validate_selection_chronology(
+        source_event.sequence,
+        existing_event.map(|event| event.sequence),
+    )?;
+    // Recompute with whichever algorithm the existing receipt was produced
+    // under, mirroring `select`.
+    let algorithm = match existing_event {
+        Some(event) => existing_receipt_algorithm_in(artifacts, event)?,
+        None => CURRENT_ALGORITHM.to_owned(),
+    };
+    let receipt = analyze(&evidence, world, &algorithm)?;
+    match existing_event {
+        Some(event) => rehydrate_selection_in(artifacts, event, &receipt),
+        None => Err(ArenaError::UnknownSelection(evaluation_id.to_owned())),
+    }
+}
+
+/// Read-only counterpart to [`existing_receipt_algorithm`] taking a borrowed
+/// artifact store instead of owned stores.
+fn existing_receipt_algorithm_in(
+    artifacts: &ArtifactStore,
+    event: &StoredEvent,
+) -> Result<String, ArenaError> {
+    let payload: SelectionEventPayload = serde_json::from_slice(&event.payload)?;
+    let receipt_id = ArtifactId::parse(payload.receipt_artifact_id)?;
+    let bytes = artifacts.get(&receipt_id)?;
+    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;
+    Ok(receipt.algorithm)
+}
+
+/// Read-only counterpart to `rehydrate_selection` taking a borrowed artifact
+/// store instead of owned stores, and returning a store-less [`SelectionView`].
+fn rehydrate_selection_in(
+    artifacts: &ArtifactStore,
+    event: &StoredEvent,
+    expected: &SelectionReceipt,
+) -> Result<SelectionView, ArenaError> {
+    let payload: SelectionEventPayload = serde_json::from_slice(&event.payload)?;
+    let canonical_payload = serde_json::to_vec(&payload)?;
+    if payload.schema_version != RECEIPT_SCHEMA_VERSION
+        || canonical_payload != event.payload
+        || payload.evaluation_id != expected.evaluation_id
+        || payload.world_id != expected.world_id
+        || event.event_id != format!("arena:selection:{}:selected", expected.evaluation_id)
+        || event.aggregate_id != format!("arena:selection:{}", expected.evaluation_id)
+        || event.event_type != EVENT_TYPE
+        || event.actor != EVENT_ACTOR
+    {
+        return Err(ArenaError::InvalidSelectionEvent);
+    }
+    let receipt_id = ArtifactId::parse(payload.receipt_artifact_id.clone())?;
+    let bytes = artifacts.get(&receipt_id)?;
+    let receipt: SelectionReceipt = serde_json::from_slice(&bytes)?;
+    if serde_json::to_vec(&receipt)? != bytes || &receipt != expected {
+        return Err(ArenaError::SelectionConflict(
+            expected.evaluation_id.clone(),
+        ));
+    }
+    Ok(SelectionView {
+        receipt,
+        event: event_metadata(event, receipt_id.as_str()),
+    })
 }
 
 fn select(

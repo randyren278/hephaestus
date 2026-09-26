@@ -27,9 +27,10 @@ use hephaestus_arena::{
     TrustedManifest, Visibility, check_failure_clusters, check_reference_output_invariants,
     cluster_event_references, evaluate_and_record_scored, invariant_event_references,
     load_failure_clusters, load_operator_evaluation, load_recorded_evaluation,
-    load_reference_output_invariants, prepare_evaluation, select_and_record,
-    selection_event_references, verify_cluster_event, verify_reference_output_invariant_event,
-    verify_selection_event,
+    load_recorded_evaluation_in, load_reference_output_invariants, prepare_evaluation,
+    select_and_record, selection_event_references, verify_cluster_event_in,
+    verify_reference_output_invariant_event, verify_reference_output_invariant_event_in,
+    verify_selection_event, verify_selection_event_in,
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
 use hephaestus_experience::{
@@ -41,7 +42,9 @@ use hephaestus_genome::{
     CompiledGenome, CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat,
     compile_genome, compile_markdown_genome, compile_world,
 };
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
+use hephaestus_ledger::{
+    ArtifactId, ArtifactStore, EventIndex, EventInput, EventStore, StoredEvent,
+};
 use hephaestus_runtime::{
     Budget, CapabilityToken, CompletionReason, DeterministicRuntime, ExperimentContext,
     IsolationPolicy, Provider, ReferenceInstruction, RunSpec, RunStatus, RuntimeAdapter, Sandbox,
@@ -189,7 +192,8 @@ pub fn data_dir_from_environment() -> Result<PathBuf, ControlError> {
 
 /// Single-writer daemon state and local operator API.
 pub struct ControlPlane {
-    /// Evidence already verified by projection refresh in this process.
+    /// Evidence already verified by projection refresh in this process; see
+    /// [`EvidenceCache`].
     evidence_cache: EvidenceCache,
     data_dir: PathBuf,
     source_repository: PathBuf,
@@ -725,17 +729,17 @@ impl ControlPlane {
         reject_legacy_run_result_history(&history)?;
         let registered =
             RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;
-        verify_selection_history(&data_dir, &history, &registered)?;
-        verify_forge_history(&data_dir, &history, &registered)?;
-        verify_forge_assessment_history(&data_dir, &history, &registered)?;
-        verify_invariant_history(&data_dir, &history, &registered)?;
-        verify_cluster_history(&data_dir, &history, &registered)?;
-        verify_champion_history(&data_dir, &history, &registered)?;
-        verify_gene_bank_history(&data_dir, &history, &registered)?;
+        verify_selection_history(&artifacts, &history, &registered)?;
+        verify_forge_history(&artifacts, &history, &registered)?;
+        verify_forge_assessment_history(&artifacts, &history, &registered)?;
+        verify_invariant_history(&artifacts, &history, &registered)?;
+        verify_cluster_history(&artifacts, &history, &registered)?;
+        verify_champion_history(&artifacts, &history, &registered)?;
+        verify_gene_bank_history(&artifacts, &history, &registered)?;
         verify_evolution_history(&history, &registered)?;
         verify_meta_evolution_history(&history)?;
-        verify_drift_history(&data_dir, &history, &registered)?;
-        verify_canary_history(&data_dir, &history, &registered)?;
+        verify_drift_history(&artifacts, &history, &registered)?;
+        verify_canary_history(&artifacts, &history, &registered)?;
         let has_run_results = history
             .iter()
             .any(|event| event.event_type == "run.result_recorded");
@@ -756,7 +760,7 @@ impl ControlPlane {
         let mut state =
             ControlState::from_events(&history, registered, &operator_token, &run_result_verifier)?;
         ControlState::verify_artifacts(&history, &artifacts, &run_result_verifier)?;
-        verify_arena_evaluation_records(&data_dir, &state)?;
+        verify_arena_evaluation_records(&artifacts, &history, &state)?;
         // The prior guardian owns any process group left at crash time; recovery
         // persists an outcome only from already verified canonical evidence.
         recover_unfinished_jobs(
@@ -773,6 +777,7 @@ impl ControlPlane {
             &run_result_verifier,
         )?;
         Ok(Self {
+            evidence_cache: EvidenceCache::default(),
             data_dir,
             source_repository,
             evaluator_executable,
@@ -787,7 +792,6 @@ impl ControlPlane {
             run_result_signer,
             run_result_verifier,
             storage: Some(CanonicalStorage { ledger, artifacts }),
-            evidence_cache: EvidenceCache::default(),
             state,
             _lock: lock,
             shutdown_requested: false,
@@ -1215,7 +1219,7 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        verify_champion_history(&self.data_dir, &history, &self.state.registered)
+        verify_champion_history(&storage.artifacts, &history, &self.state.registered)
             .map_err(|_| ExecuteError::Internal)?;
         if let Some(existing) = existing_champion_transition(&history, transition_id, request)? {
             return Ok(ResponseData::ChampionTransition {
@@ -1223,7 +1227,7 @@ impl ControlPlane {
             });
         }
         let payload = champion_transition_payload(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &self.state.registered,
             transition_id,
@@ -1282,7 +1286,7 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        verify_drift_history(&self.data_dir, &history, &self.state.registered)
+        verify_drift_history(&storage.artifacts, &history, &self.state.registered)
             .map_err(|_| ExecuteError::Internal)?;
         if let Some(existing) =
             existing_drift_record(&history, drift_id, world_id, kind, evidence_evaluation_id)?
@@ -1292,7 +1296,7 @@ impl ControlPlane {
             });
         }
         let payload = drift_record_payload(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &self.state.registered,
             drift_id,
@@ -1399,7 +1403,7 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        verify_canary_history(&self.data_dir, &history, &self.state.registered)
+        verify_canary_history(&storage.artifacts, &history, &self.state.registered)
             .map_err(|_| ExecuteError::Internal)?;
         if let Some(existing) = existing_canary_transition(&history, canary_id, request)? {
             return Ok(ResponseData::CanaryTransition {
@@ -1407,7 +1411,7 @@ impl ControlPlane {
             });
         }
         let mut payload = canary_transition_payload(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &self.state.registered,
             canary_id,
@@ -1423,7 +1427,7 @@ impl ControlPlane {
         {
             let promotion_transition_id = canary::canary_id_promotion_transition_id(canary_id);
             let promotion_payload = champion_transition_payload(
-                &self.data_dir,
+                &storage.artifacts,
                 &history,
                 &self.state.registered,
                 &promotion_transition_id,
@@ -1449,7 +1453,7 @@ impl ControlPlane {
         } else if payload.kind == CanaryTransitionKind::LiveRegressionDetected {
             let rollback_transition_id = canary::canary_id_rollback_transition_id(canary_id);
             let rollback_payload = champion_transition_payload(
-                &self.data_dir,
+                &storage.artifacts,
                 &history,
                 &self.state.registered,
                 &rollback_transition_id,
@@ -1545,7 +1549,7 @@ impl ControlPlane {
             });
         }
         let payload = gene_extraction_payload(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &self.state.registered,
             gene_id,
@@ -1675,7 +1679,7 @@ impl ControlPlane {
             });
         }
         let payload = transfer_recorded_payload(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &self.state.registered,
             trial_id,
@@ -4340,23 +4344,23 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_selection_history(&self.data_dir, &history, &registered)
+        verify_selection_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_forge_history(&self.data_dir, &history, &registered)
+        verify_forge_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_forge_assessment_history(&self.data_dir, &history, &registered)
+        verify_forge_assessment_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_invariant_history(&self.data_dir, &history, &registered)
+        verify_invariant_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_cluster_history(&self.data_dir, &history, &registered)
+        verify_cluster_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_champion_history(&self.data_dir, &history, &registered)
+        verify_champion_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_drift_history(&self.data_dir, &history, &registered)
+        verify_drift_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_canary_history(&self.data_dir, &history, &registered)
+        verify_canary_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_gene_bank_history(&self.data_dir, &history, &registered)
+        verify_gene_bank_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         let replayed = ControlState::from_events(
             &history,
@@ -4365,7 +4369,7 @@ impl ControlPlane {
             &self.run_result_verifier,
         )
         .map_err(|_| ExecuteError::Internal)?;
-        verify_arena_evaluation_records(&self.data_dir, &replayed)
+        verify_arena_evaluation_records(&storage.artifacts, &history, &replayed)
             .map_err(|_| ExecuteError::Internal)?;
         if replayed.snapshot() != self.state.snapshot() {
             return Err(ExecuteError::Internal);
@@ -5721,7 +5725,7 @@ impl ControlPlane {
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
         let (selection_hash, evaluation_id, world_id) = verified_forge_source(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &self.state.registered,
             selection_event_id,
@@ -5733,7 +5737,7 @@ impl ControlPlane {
             .world(&world_id)
             .ok_or(ExecuteError::Internal)?;
         let (hypothesis, analysis_binding) = resolve_forge_hypothesis(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             world.compiled(),
             &evaluation_id,
@@ -5831,9 +5835,9 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        verify_forge_history(&self.data_dir, &history, &self.state.registered)
+        verify_forge_history(&storage.artifacts, &history, &self.state.registered)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_forge_assessment_history(&self.data_dir, &history, &self.state.registered)
+        verify_forge_assessment_history(&storage.artifacts, &history, &self.state.registered)
             .map_err(|_| ExecuteError::Internal)?;
 
         if let Some(existing) = existing_forge_assessment_response(
@@ -5845,8 +5849,8 @@ impl ControlPlane {
             return Ok(existing);
         }
         let payload = forge_assessment_payload(
-            &self.data_dir,
-            &history,
+            &storage.artifacts,
+            &EventIndex::build(&history),
             &self.state.registered,
             assessment_id,
             proposal_id,
@@ -5953,6 +5957,21 @@ impl ControlPlane {
         })
     }
 
+    /// Recomputes the whole projection from the ledger. `history` is
+    /// replayed and hash-chain-verified exactly once here, and every
+    /// `verify_*_history_with` call below re-verifies its evidence against
+    /// that same `history` and the daemon's already-open
+    /// `storage.artifacts`, instead of reopening the event store and
+    /// re-replaying the ledger once per evidence event: even a fully cold
+    /// verification pass is linear in history size, not quadratic (see
+    /// `TECH_DEBT.md` TD-16). `self.evidence_cache` additionally skips
+    /// events this process has already verified in an earlier refresh, so
+    /// the total cost of many refreshes over a growing history stays linear
+    /// in the number of *new* events rather than the square of history
+    /// length; every event is still fully re-verified, against a freshly
+    /// hash-chain-verified `history`, the first time it is seen or whenever
+    /// its recorded content changes. Startup (`Self::open*`) and explicit
+    /// `replay` use a fresh, empty cache and verify everything.
     fn refresh_projection(&mut self) -> Result<(), ExecuteError> {
         let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
         let history = storage
@@ -5962,44 +5981,44 @@ impl ControlPlane {
         let registered = RegisteredObjects::replay(&history, &storage.artifacts)
             .map_err(|_| ExecuteError::Internal)?;
         verify_selection_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
         verify_forge_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
         verify_forge_assessment_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
         verify_invariant_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
-        verify_cluster_history(&self.data_dir, &history, &registered)
+        verify_cluster_history(&storage.artifacts, &history, &registered)
             .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
         verify_gene_bank_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
@@ -6008,14 +6027,14 @@ impl ControlPlane {
         verify_evolution_history(&history, &registered).map_err(|_| ExecuteError::Internal)?;
         verify_meta_evolution_history(&history).map_err(|_| ExecuteError::Internal)?;
         verify_drift_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
         verify_canary_history_with(
-            &self.data_dir,
+            &storage.artifacts,
             &history,
             &registered,
             &mut self.evidence_cache,
@@ -6030,8 +6049,13 @@ impl ControlPlane {
         .map_err(|_| ExecuteError::Internal)?;
         ControlState::verify_artifacts(&history, &storage.artifacts, &self.run_result_verifier)
             .map_err(|_| ExecuteError::Internal)?;
-        verify_arena_evaluation_records_with(&self.data_dir, &state, &mut self.evidence_cache)
-            .map_err(|_| ExecuteError::Internal)?;
+        verify_arena_evaluation_records_with(
+            &storage.artifacts,
+            &history,
+            &state,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         self.state = state;
         Ok(())
     }
@@ -6209,14 +6233,26 @@ fn evaluation_record_from_recorded(
 }
 
 /// Remembers evidence a live daemon has already verified during projection
-/// refresh, so each refresh re-verifies only events appended since the last
-/// one instead of the whole history.
+/// refresh, so each refresh re-verifies only events appended or changed
+/// since the last one instead of the whole history every time.
 ///
-/// A key embeds the event's chain hash, which commits to the event and to its
-/// entire ledger prefix; every refresh still re-verifies the hash chain first,
-/// so a rewritten prefix changes every later hash and misses the cache.
-/// Startup, `replay`, and every direct verifier call use a fresh, empty cache
-/// and verify everything.
+/// A key embeds the event's chain hash (or, for an Arena job terminal, a
+/// digest of the recorded summary), which commits to the event and its
+/// entire ledger prefix; every refresh still re-verifies the hash chain
+/// first via `EventLedger::replay_verified()`, so a rewritten ledger prefix
+/// changes every later event's hash and misses the cache. Startup, `replay`,
+/// and every direct verifier call use a fresh, empty cache and verify
+/// everything. See `TECH_DEBT.md` TD-16: unlike before this cache existed,
+/// a cache hit no longer implies reopening stores or replaying the ledger —
+/// [`load_operator_evaluation_in`] and its siblings verify a cache *miss*
+/// against the already-replayed `history` in one pass, so a cold cache (a
+/// fresh daemon, or many events appended between refreshes) is itself linear
+/// in history size rather than quadratic. The cache remains because a
+/// warm-cache refresh is still cheaper than any full linear pass: it makes
+/// the total cost of many refreshes over a growing history linear in the
+/// number of *new* events, not the square of history length. A CAS blob
+/// tampered with after its event was verified is not re-detected until the
+/// cache is empty again (the next daemon start or `replay`).
 #[derive(Default)]
 struct EvidenceCache {
     verified: HashSet<String>,
@@ -6248,26 +6284,36 @@ impl EvidenceCache {
     }
 }
 
-fn arena_record_cache_key(
-    evaluation_id: &str,
-    evaluation: Option<&EvaluationRecord>,
-) -> Result<String, ControlError> {
-    let digest = blake3::hash(&serde_json::to_vec(&evaluation)?);
-    Ok(format!("arena_record:{evaluation_id}:{}", digest.to_hex()))
-}
-
+/// Verifies every succeeded Arena job's terminal summary against the trusted
+/// evaluation evidence in `history`, using the daemon's already-open
+/// `artifacts` store and the already-replayed `history` instead of reopening
+/// stores per job (see `TECH_DEBT.md` TD-16).
 fn verify_arena_evaluation_records(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
+    history: &[StoredEvent],
     state: &ControlState,
 ) -> Result<(), ControlError> {
-    verify_arena_evaluation_records_with(data_dir, state, &mut EvidenceCache::default())
+    verify_arena_evaluation_records_with(artifacts, history, state, &mut EvidenceCache::default())
 }
 
+/// Cache-aware counterpart of [`verify_arena_evaluation_records`] used by a
+/// live daemon's projection refresh: `cache` remembers, by evaluation id and
+/// a digest of the recorded summary, which terminals this process has
+/// already verified this run, so a repeated refresh skips re-verifying a job
+/// whose terminal has not changed since. Every event is still fully
+/// re-verified against `history`'s freshly re-verified hash chain the first
+/// time (or after its recorded summary changes), so this is an optimization,
+/// not a relaxation: `verify_arena_evaluation_records`, startup, and
+/// `replay` always use a fresh cache and verify everything.
 fn verify_arena_evaluation_records_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
+    history: &[StoredEvent],
     state: &ControlState,
     cache: &mut EvidenceCache,
 ) -> Result<(), ControlError> {
+    // Built only on a cache miss, so a fully warm refresh (the common case)
+    // never pays the O(history length) cost of indexing it.
+    let mut index = None;
     for job in state.arena_jobs.values().filter(|job| {
         job.state == JobState::Succeeded && job.terminal == Some(JobTerminal::Succeeded)
     }) {
@@ -6275,14 +6321,11 @@ fn verify_arena_evaluation_records_with(
         if cache.contains_key(&key) {
             continue;
         }
-        let stores =
-            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-                .map_err(|_| {
-                    ControlError::Projection("Arena evidence stores are unavailable".into())
-                })?;
-        let recorded = load_recorded_evaluation(stores, &job.evaluation_id).map_err(|_| {
-            ControlError::Projection("Arena terminal lacks trusted evaluation evidence".into())
-        })?;
+        let index = index.get_or_insert_with(|| EventIndex::build(history));
+        let recorded =
+            load_recorded_evaluation_in(index, artifacts, &job.evaluation_id).map_err(|_| {
+                ControlError::Projection("Arena terminal lacks trusted evaluation evidence".into())
+            })?;
         if job.evaluation.as_ref() != Some(&evaluation_record_from_recorded(&recorded)) {
             return Err(ControlError::Projection(
                 "Arena terminal differs from trusted evaluation evidence".to_owned(),
@@ -6293,21 +6336,39 @@ fn verify_arena_evaluation_records_with(
     Ok(())
 }
 
+fn arena_record_cache_key(
+    evaluation_id: &str,
+    evaluation: Option<&EvaluationRecord>,
+) -> Result<String, ControlError> {
+    let digest = blake3::hash(&serde_json::to_vec(&evaluation)?);
+    Ok(format!("arena_record:{evaluation_id}:{}", digest.to_hex()))
+}
+
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_forge_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
-    verify_forge_history_with(data_dir, history, registered, &mut EvidenceCache::default())
+    verify_forge_history_with(
+        artifacts,
+        history,
+        registered,
+        &mut EvidenceCache::default(),
+    )
 }
 
+/// Cache-aware counterpart of [`verify_forge_history`]; see [`EvidenceCache`].
 fn verify_forge_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
 ) -> Result<(), ControlError> {
-    let artifacts = ArtifactStore::open(data_dir.join("blobs"))?;
+    // Built only on a cache miss, so a fully warm refresh (the common case)
+    // never pays the O(history length) cost of indexing it.
+    let mut index = None;
     let mut proposal_ids = BTreeSet::new();
     for event in history
         .iter()
@@ -6323,9 +6384,9 @@ fn verify_forge_history_with(
         if cache.contains("forge", event) {
             continue;
         }
-        let selection_event = history
-            .iter()
-            .find(|candidate| candidate.event_id == payload.selection_event_id)
+        let index = index.get_or_insert_with(|| EventIndex::build(history));
+        let selection_event = index
+            .get(&payload.selection_event_id)
             .filter(|selection| selection.sequence < event.sequence)
             .ok_or_else(|| {
                 ControlError::Projection(
@@ -6339,18 +6400,13 @@ fn verify_forge_history_with(
         let world = registered.world(&selection_world_id).ok_or_else(|| {
             ControlError::Projection("Forge source World is not registered".to_owned())
         })?;
-        let stores =
-            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-                .map_err(|_| {
-                    ControlError::Projection("Forge source stores are unavailable".to_owned())
-                })?;
         let selected =
-            verify_selection_event(stores, selection_event, world.compiled()).map_err(|_| {
-                ControlError::Projection("Forge source selection is unverified".to_owned())
-            })?;
+            verify_selection_event_in(index, artifacts, selection_event, world.compiled())
+                .map_err(|_| {
+                    ControlError::Projection("Forge source selection is unverified".to_owned())
+                })?;
         let receipt = selected.receipt().clone();
         let expected_hash = selected.event().event_hash.clone();
-        drop(selected.into_stores());
         if payload.selection_event_hash != expected_hash
             || payload.evaluation_id != receipt.evaluation_id()
             || payload.world_id != receipt.world_id()
@@ -6360,7 +6416,7 @@ fn verify_forge_history_with(
                 "Forge proposal is not bound to its selected candidate".to_owned(),
             ));
         }
-        verify_forge_child(&artifacts, registered, event, &payload, world.compiled())?;
+        verify_forge_child(artifacts, registered, event, &payload, world.compiled())?;
         validate_hypothesis(&payload.hypothesis)
             .map_err(|_| ControlError::Projection("Forge hypothesis is invalid".to_owned()))?;
         cache.insert("forge", event);
@@ -6556,25 +6612,31 @@ fn decode_forge_proposal(event: &StoredEvent) -> Result<ForgeProposalPayload, Co
     Ok(payload)
 }
 
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_forge_assessment_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
     verify_forge_assessment_history_with(
-        data_dir,
+        artifacts,
         history,
         registered,
         &mut EvidenceCache::default(),
     )
 }
 
+/// Cache-aware counterpart of [`verify_forge_assessment_history`]; see [`EvidenceCache`].
 fn verify_forge_assessment_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
 ) -> Result<(), ControlError> {
+    // Built only on a cache miss, so a fully warm refresh (the common case)
+    // never pays the O(history length) cost of indexing it.
+    let mut index = None;
     for event in history
         .iter()
         .filter(|event| event.event_type == "forge.assessed")
@@ -6582,6 +6644,7 @@ fn verify_forge_assessment_history_with(
         if cache.contains("forge_assessment", event) {
             continue;
         }
+        let index = index.get_or_insert_with(|| EventIndex::build(history));
         let payload = decode_forge_assessment(event)?;
         if payload.schema_version != 1
             || event.actor != OPERATOR_ACTOR
@@ -6598,20 +6661,17 @@ fn verify_forge_assessment_history_with(
             ControlError::Projection("Forge assessment proposal id is invalid".to_owned())
         })?;
         let expected = forge_assessment_payload(
-            data_dir,
-            history,
+            artifacts,
+            index,
             registered,
             &payload.assessment_id,
             &payload.proposal_id,
             &payload.selection_event_id,
         )
         .map_err(|_| ControlError::Projection("Forge assessment evidence is invalid".to_owned()))?;
-        let selection_event = history
-            .iter()
-            .find(|candidate| candidate.event_id == payload.selection_event_id)
-            .ok_or_else(|| {
-                ControlError::Projection("Forge assessment selection is missing".to_owned())
-            })?;
+        let selection_event = index.get(&payload.selection_event_id).ok_or_else(|| {
+            ControlError::Projection("Forge assessment selection is missing".to_owned())
+        })?;
         if selection_event.sequence >= event.sequence || payload != expected {
             return Err(ControlError::Projection(
                 "Forge assessment differs from verified evidence".to_owned(),
@@ -6697,17 +6757,16 @@ fn existing_forge_assessment_response(
 }
 
 fn forge_assessment_payload(
-    data_dir: &Path,
-    history: &[StoredEvent],
+    artifacts: &ArtifactStore,
+    index: &EventIndex<'_>,
     registered: &RegisteredObjects,
     assessment_id: &str,
     proposal_id: &str,
     selection_event_id: &str,
 ) -> Result<ForgeAssessmentPayload, ExecuteError> {
     let proposal_event_id = forge_event_id(proposal_id);
-    let proposal_event = history
-        .iter()
-        .find(|event| event.event_id == proposal_event_id)
+    let proposal_event = index
+        .get(&proposal_event_id)
         .ok_or(ExecuteError::NotFound)?;
     let proposal = decode_forge_proposal(proposal_event).map_err(|_| ExecuteError::Internal)?;
     validate_forge_event(proposal_event, &proposal).map_err(|_| ExecuteError::Internal)?;
@@ -6715,9 +6774,8 @@ fn forge_assessment_payload(
         return Err(ExecuteError::Internal);
     }
 
-    let selection_event = history
-        .iter()
-        .find(|event| event.event_id == selection_event_id)
+    let selection_event = index
+        .get(selection_event_id)
         .ok_or(ExecuteError::NotFound)?;
     if selection_event.event_type != "selection.recorded" {
         return Err(ExecuteError::Rejected(
@@ -6729,20 +6787,16 @@ fn forge_assessment_payload(
     let world = registered
         .world(&routed_world_id)
         .ok_or(ExecuteError::Internal)?;
-    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-        .map_err(|_| ExecuteError::Internal)?;
-    let selected = verify_selection_event(stores, selection_event, world.compiled())
+    let selected = verify_selection_event_in(index, artifacts, selection_event, world.compiled())
         .map_err(|_| ExecuteError::Internal)?;
     let receipt = selected.receipt().clone();
     let verified_selection_event_id = selected.event().event_id.clone();
     let selection_event_hash = selected.event().event_hash.clone();
     let selection_receipt_artifact_id = selected.event().receipt_artifact_id.clone();
     let selection_sequence = selected.event().sequence;
-    drop(selected.into_stores());
 
-    let evaluation_event = history
-        .iter()
-        .find(|event| event.event_id == receipt.evaluation_event_id())
+    let evaluation_event = index
+        .get(receipt.evaluation_event_id())
         .ok_or(ExecuteError::Internal)?;
     if evaluation_event.event_type != "evaluation.recorded"
         || hex_encode(&evaluation_event.hash) != receipt.evaluation_event_hash()
@@ -6907,7 +6961,7 @@ fn compile_forge_child(
 }
 
 fn verified_forge_source(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     selection_event_id: &str,
@@ -6925,13 +6979,15 @@ fn verified_forge_source(
     let (evaluation_id, world_id) =
         selection_event_references(event).map_err(|_| ExecuteError::Internal)?;
     let world = registered.world(&world_id).ok_or(ExecuteError::Internal)?;
-    let stores = EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-        .map_err(|_| ExecuteError::Internal)?;
-    let selection = verify_selection_event(stores, event, world.compiled())
-        .map_err(|_| ExecuteError::Internal)?;
+    let selection = verify_selection_event_in(
+        &EventIndex::build(history),
+        artifacts,
+        event,
+        world.compiled(),
+    )
+    .map_err(|_| ExecuteError::Internal)?;
     let receipt = selection.receipt().clone();
     let selection_hash = selection.event().event_hash.clone();
-    drop(selection.into_stores());
     if receipt.evaluation_id() != evaluation_id
         || receipt.world_id() != world_id
         || receipt.candidate_genome_id() != parent_genome_id
@@ -6958,7 +7014,7 @@ enum ForgeHypothesisSource {
 /// binding recorded in the proposal payload. This never proposes, mutates, or
 /// promotes anything; it only reads and verifies already-recorded evidence.
 fn resolve_forge_hypothesis(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     world: &CompiledWorld,
     evaluation_id: &str,
@@ -6979,14 +7035,11 @@ fn resolve_forge_hypothesis(
                 .iter()
                 .find(|event| event.event_id == event_id)
                 .ok_or(ExecuteError::NotFound)?;
-            let stores =
-                EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-                    .map_err(|_| ExecuteError::Internal)?;
             let verified =
-                verify_cluster_event(stores, event, world).map_err(|_| ExecuteError::Internal)?;
+                verify_cluster_event_in(&EventIndex::build(history), artifacts, event, world)
+                    .map_err(|_| ExecuteError::Internal)?;
             let analysis = verified.analysis().clone();
             let analysis_event_hash = verified.event().event_hash.clone();
-            drop(verified.into_stores());
             if analysis.evaluation_id != evaluation_id
                 || analysis.candidate_genome_id != parent_genome_id
             {
@@ -7095,20 +7148,31 @@ fn mutate_reference_instruction_document(
     Ok(prompt_text.replacen(&old, &new, 1))
 }
 
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_selection_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
-    verify_selection_history_with(data_dir, history, registered, &mut EvidenceCache::default())
+    verify_selection_history_with(
+        artifacts,
+        history,
+        registered,
+        &mut EvidenceCache::default(),
+    )
 }
 
+/// Cache-aware counterpart of [`verify_selection_history`]; see [`EvidenceCache`].
 fn verify_selection_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
 ) -> Result<(), ControlError> {
+    // Built only on a cache miss, so a fully warm refresh (the common case)
+    // never pays the O(history length) cost of indexing it.
+    let mut index = None;
     for event in history
         .iter()
         .filter(|event| event.event_type == "selection.recorded")
@@ -7116,6 +7180,7 @@ fn verify_selection_history_with(
         if cache.contains("selection", event) {
             continue;
         }
+        let index = index.get_or_insert_with(|| EventIndex::build(history));
         // The World identity in the event envelope is only a routing hint. Arena
         // independently recomputes the evaluation receipt and compares the full
         // canonical selection event against this registered World's policy.
@@ -7125,15 +7190,9 @@ fn verify_selection_history_with(
         let world = registered.world(&world_id).ok_or_else(|| {
             ControlError::Projection("selection World is not registered".to_owned())
         })?;
-        let stores =
-            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-                .map_err(|_| {
-                    ControlError::Projection("selection stores could not be opened".to_owned())
-                })?;
-        let verified = verify_selection_event(stores, event, world.compiled()).map_err(|_| {
+        verify_selection_event_in(index, artifacts, event, world.compiled()).map_err(|_| {
             ControlError::Projection("canonical selection receipt is invalid".to_owned())
         })?;
-        drop(verified.into_stores());
         cache.insert("selection", event);
     }
     Ok(())
@@ -7148,20 +7207,31 @@ struct InvariantEventEnvelope {
     receipt_artifact_id: String,
 }
 
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_invariant_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
-    verify_invariant_history_with(data_dir, history, registered, &mut EvidenceCache::default())
+    verify_invariant_history_with(
+        artifacts,
+        history,
+        registered,
+        &mut EvidenceCache::default(),
+    )
 }
 
+/// Cache-aware counterpart of [`verify_invariant_history`]; see [`EvidenceCache`].
 fn verify_invariant_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
 ) -> Result<(), ControlError> {
+    // Built only on a cache miss, so a fully warm refresh (the common case)
+    // never pays the O(history length) cost of indexing it.
+    let mut index = None;
     for event in history.iter().filter(|event| {
         event.event_type == "invariants.recorded"
             || event.event_id.starts_with("arena:invariants:")
@@ -7170,6 +7240,7 @@ fn verify_invariant_history_with(
         if cache.contains("invariant", event) {
             continue;
         }
+        let index = index.get_or_insert_with(|| EventIndex::build(history));
         let (evaluation_id, world_id) = invariant_event_references(event).map_err(|_| {
             ControlError::Projection("canonical invariant event envelope is invalid".to_owned())
         })?;
@@ -7189,15 +7260,9 @@ fn verify_invariant_history_with(
         let world = registered.world(&world_id).ok_or_else(|| {
             ControlError::Projection("invariant World is not registered".to_owned())
         })?;
-        let stores =
-            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
+        let verified =
+            verify_reference_output_invariant_event_in(index, artifacts, event, world.compiled())
                 .map_err(|_| {
-                    ControlError::Projection(
-                        "invariant evidence stores could not be opened".to_owned(),
-                    )
-                })?;
-        let verified = verify_reference_output_invariant_event(stores, event, world.compiled())
-            .map_err(|_| {
                 ControlError::Projection("canonical invariant receipt is invalid".to_owned())
             })?;
         if verified.receipt().evaluation_id != evaluation_id
@@ -7208,7 +7273,6 @@ fn verify_invariant_history_with(
                 "canonical invariant event differs from verified receipt".to_owned(),
             ));
         }
-        drop(verified.into_stores());
         cache.insert("invariant", event);
     }
     Ok(())
@@ -7224,16 +7288,23 @@ struct ClusterEventEnvelope {
     analysis_artifact_id: String,
 }
 
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_cluster_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    // Built only when at least one cluster event exists, so the common case
+    // (no cluster analyses recorded yet) never pays the O(history length)
+    // cost of indexing it.
+    let mut index = None;
     for event in history.iter().filter(|event| {
         event.event_type == "forge.clustered"
             || event.event_id.starts_with(CLUSTER_EVENT_PREFIX)
             || event.aggregate_id.starts_with(CLUSTER_EVENT_PREFIX)
     }) {
+        let index = index.get_or_insert_with(|| EventIndex::build(history));
         let (analysis_id, evaluation_id, world_id) =
             cluster_event_references(event).map_err(|_| {
                 ControlError::Projection("canonical cluster event envelope is invalid".to_owned())
@@ -7255,16 +7326,10 @@ fn verify_cluster_history(
         let world = registered.world(&world_id).ok_or_else(|| {
             ControlError::Projection("cluster World is not registered".to_owned())
         })?;
-        let stores =
-            EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-                .map_err(|_| {
-                    ControlError::Projection(
-                        "cluster evidence stores could not be opened".to_owned(),
-                    )
-                })?;
-        let verified = verify_cluster_event(stores, event, world.compiled()).map_err(|_| {
-            ControlError::Projection("canonical cluster analysis is invalid".to_owned())
-        })?;
+        let verified =
+            verify_cluster_event_in(index, artifacts, event, world.compiled()).map_err(|_| {
+                ControlError::Projection("canonical cluster analysis is invalid".to_owned())
+            })?;
         if verified.analysis().evaluation_id != evaluation_id
             || verified.analysis().world_id != world_id
             || verified.event().analysis_artifact_id != envelope.analysis_artifact_id
@@ -7273,7 +7338,6 @@ fn verify_cluster_history(
                 "canonical cluster event differs from verified analysis".to_owned(),
             ));
         }
-        drop(verified.into_stores());
     }
     Ok(())
 }

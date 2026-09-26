@@ -4,10 +4,9 @@
 //! record never replaces a Champion; it only cites verified evidence for an
 //! operator (or a later automated adaptation branch) to act on.
 
-use std::path::Path;
-
+use hephaestus_arena::verify_selection_event_in;
 use hephaestus_genome::RegisteredObjects;
-use hephaestus_ledger::{EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactStore, EventInput, StoredEvent};
 
 use super::canary::{
     CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
@@ -128,7 +127,7 @@ pub(super) fn existing_drift_record(
 
 /// Derives the only payload the policy admits for this drift request.
 pub(super) fn drift_record_payload(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     drift_id: &str,
@@ -152,16 +151,14 @@ pub(super) fn drift_record_payload(
         .find(|event| event.event_id == selection_event_id)
         .ok_or(ExecuteError::NotFound)?;
     let world = registered.world(world_id).ok_or(ExecuteError::Internal)?;
-    let stores = hephaestus_arena::EvaluationStores::open(
-        data_dir.join("events.sqlite3"),
-        data_dir.join("blobs"),
+    let verified = verify_selection_event_in(
+        &hephaestus_ledger::EventIndex::build(history),
+        artifacts,
+        selection_event,
+        world.compiled(),
     )
     .map_err(|_| ExecuteError::Internal)?;
-    let verified =
-        hephaestus_arena::verify_selection_event(stores, selection_event, world.compiled())
-            .map_err(|_| ExecuteError::Internal)?;
     let receipt = verified.receipt().clone();
-    drop(verified.into_stores());
 
     if receipt.world_id() != world_id || receipt.parent_genome_id() != baseline_genome_id {
         return Err(ExecuteError::Rejected(
@@ -209,21 +206,24 @@ pub(super) fn drift_record_payload(
 }
 
 /// Recomputes every drift record from the history that preceded it.
+/// `artifacts` is the daemon's already-open artifact store, reused for every
+/// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 pub(super) fn verify_drift_history(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
     verify_drift_history_with(
-        data_dir,
+        artifacts,
         history,
         registered,
         &mut super::EvidenceCache::default(),
     )
 }
 
+/// Cache-aware counterpart of [`verify_drift_history`]; see `EvidenceCache`.
 pub(super) fn verify_drift_history_with(
-    data_dir: &Path,
+    artifacts: &ArtifactStore,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,
@@ -245,7 +245,7 @@ pub(super) fn verify_drift_history_with(
             ));
         }
         let expected = drift_record_payload(
-            data_dir,
+            artifacts,
             &history[..index],
             registered,
             &payload.drift_id,

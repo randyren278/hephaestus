@@ -658,8 +658,19 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
             .expect("completed Arena record");
         job.evaluation.take()
     };
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical Arena ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify genuine Arena evaluation history");
     assert!(matches!(
-        verify_arena_evaluation_records(&plane.data_dir, &plane.state),
+        verify_arena_evaluation_records(
+            &plane.storage.as_ref().expect("canonical Arena stores").artifacts,
+            &history,
+            &plane.state,
+        ),
         Err(ControlError::Projection(message))
             if message == "Arena terminal differs from trusted evaluation evidence"
     ));
@@ -669,18 +680,6 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         .get_mut(evaluation_id)
         .expect("completed Arena record")
         .evaluation = mismatched_record;
-
-    let unavailable_data = directory.path().join("unavailable-evidence");
-    fs::create_dir(&unavailable_data).expect("create unavailable evidence fixture");
-    symlink(plane.data_dir.join("blobs"), unavailable_data.join("blobs"))
-        .expect("reuse canonical evidence artifacts");
-    fs::create_dir(unavailable_data.join("events.sqlite3")).expect("block evaluation store path");
-    let unavailable = verify_arena_evaluation_records(&unavailable_data, &plane.state);
-    assert!(matches!(
-        unavailable,
-        Err(ControlError::Projection(message))
-            if message == "Arena evidence stores are unavailable"
-    ));
 
     let ResponseData::Selection { selection } = plane
         .select_arena_evaluation(evaluation_id)
@@ -747,19 +746,16 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         .ledger
         .replay_verified()
         .expect("verify genuine selection and proposal history");
-    verify_forge_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("valid Forge proposal replays against its selection receipt");
-
-    let unavailable_data = directory.path().join("forge-unavailable-source");
-    fs::create_dir(&unavailable_data).expect("create unavailable Forge source fixture");
-    symlink(plane.data_dir.join("blobs"), unavailable_data.join("blobs"))
-        .expect("reuse canonical Forge artifacts");
-    fs::create_dir(unavailable_data.join("events.sqlite3")).expect("block Forge source store path");
-    assert!(matches!(
-        verify_forge_history(&unavailable_data, &history, &plane.state.registered),
-        Err(ControlError::Projection(message))
-            if message == "Forge source stores are unavailable"
-    ));
+    verify_forge_history(
+        &plane
+            .storage
+            .as_ref()
+            .expect("canonical Forge stores")
+            .artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("valid Forge proposal replays against its selection receipt");
 
     let selection_event_id = selection.event.event_id.clone();
 
@@ -808,8 +804,11 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     let missing_selection = forge_history_with_payload_edit(&history, &forge_event_id, |payload| {
         payload.selection_event_id = "selection:missing".to_owned();
     });
-    let missing_selection_result =
-        verify_forge_history(&plane.data_dir, &missing_selection, &plane.state.registered);
+    let missing_selection_result = verify_forge_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &missing_selection,
+        &plane.state.registered,
+    );
     assert!(
         matches!(
             &missing_selection_result,
@@ -825,7 +824,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         });
     assert!(matches!(
         verify_forge_history(
-            &plane.data_dir,
+            &plane.storage.as_ref().unwrap().artifacts,
             &invalid_selection_envelope,
             &plane.state.registered
         ),
@@ -845,24 +844,37 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     let replacement = old_payload.replace(old_world, "world:missing");
     selection_event.payload = replacement.into_bytes();
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &wrong_world, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &wrong_world, &plane.state.registered),
         Err(ControlError::Projection(message))
             if message == "Forge source World is not registered"
     ));
 
-    let unverified_selection =
-        forge_history_with_selection_edit(&history, &selection_event_id, |event| {
-            event.hash[0] ^= 0xff;
-        });
-    assert!(matches!(
-        verify_forge_history(
-            &plane.data_dir,
-            &unverified_selection,
-            &plane.state.registered
-        ),
-        Err(ControlError::Projection(message))
-            if message == "Forge source selection is unverified"
-    ));
+    // Post-TD-16, `verify_forge_history` trusts its caller-supplied `history`
+    // (already hash-chain verified by `EventLedger::replay_verified()` in the
+    // same operation) instead of independently re-replaying the real ledger
+    // per event, so a lone in-memory hash-byte edit on a `history` slice no
+    // longer has an independent source to be caught against inside the
+    // verifier itself; a selection event whose ledger hash was actually
+    // tampered with is instead caught earlier, when the ledger is next
+    // opened. Prove that guarantee still holds, on a copy of the real ledger
+    // so the live `plane` is untouched.
+    let tampered_data_dir = directory.path().join("forge-selection-hash-tamper");
+    copy_directory(&plane.data_dir, &tampered_data_dir);
+    let tampered_ledger_path = tampered_data_dir.join("events.sqlite3");
+    let connection =
+        rusqlite::Connection::open(&tampered_ledger_path).expect("open hash-tamper ledger");
+    let changed = connection
+        .execute(
+            "UPDATE events SET hash = ?1 WHERE event_id = ?2",
+            rusqlite::params![vec![0_u8; 32], selection_event_id],
+        )
+        .expect("tamper with the selection event's ledger hash");
+    assert_eq!(changed, 1);
+    drop(connection);
+    assert!(
+        EventStore::open(&tampered_ledger_path).is_err(),
+        "a selection event whose ledger hash was tampered with must fail chain verification"
+    );
 
     let noncanonical_proposal =
         forge_history_with_selection_edit(&history, &forge_event_id, |event| {
@@ -870,7 +882,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         });
     assert!(matches!(
         verify_forge_history(
-            &plane.data_dir,
+            &plane.storage.as_ref().unwrap().artifacts,
             &noncanonical_proposal,
             &plane.state.registered
         ),
@@ -882,7 +894,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         payload.parent_genome_id = parent.genome_id.clone();
     });
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &wrong_parent, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &wrong_parent, &plane.state.registered),
         Err(ControlError::Projection(message))
             if message == "Forge proposal is not bound to its selected candidate"
     ));
@@ -892,7 +904,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
             payload.selection_event_hash = "0".repeat(64);
         });
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &wrong_selection_hash, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &wrong_selection_hash, &plane.state.registered),
         Err(ControlError::Projection(message))
             if message == "Forge proposal is not bound to its selected candidate"
     ));
@@ -901,7 +913,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         payload.child.name.push_str("-tampered");
     });
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &wrong_child, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &wrong_child, &plane.state.registered),
         Err(ControlError::Projection(message))
             if message == "Forge proposal child differs from its registered lineage"
     ));
@@ -910,7 +922,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         payload.operation_after = "identity".to_owned();
     });
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &wrong_operation, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &wrong_operation, &plane.state.registered),
         Err(ControlError::Projection(message))
             if message == "Forge prompt mutation is not the supported one-step operation flip"
     ));
@@ -920,7 +932,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
             payload.hypothesis = " \n".to_owned();
         });
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &invalid_hypothesis, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &invalid_hypothesis, &plane.state.registered),
         Err(ControlError::Projection(message)) if message == "Forge hypothesis is invalid"
     ));
 
@@ -931,7 +943,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
         .expect("Forge event exists")
         .actor = "untrusted-actor".to_owned();
     assert!(matches!(
-        verify_forge_history(&plane.data_dir, &invalid_actor, &plane.state.registered),
+        verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &invalid_actor, &plane.state.registered),
         Err(ControlError::Projection(message)) if message == "Forge proposal event identity is invalid"
     ));
 
@@ -3447,7 +3459,7 @@ fn selection_history_rejects_unregistered_world_reference() {
     };
 
     assert!(matches!(
-        verify_selection_history(directory.path(), &[event], &plane.state.registered),
+        verify_selection_history(&plane.storage.as_ref().unwrap().artifacts, &[event], &plane.state.registered),
         Err(ControlError::Projection(message)) if message == "selection World is not registered"
     ));
 }
@@ -3489,7 +3501,7 @@ fn invariant_history_rejects_unregistered_world_and_unknown_evaluation() {
         invariant_event_payload("forged-invariants", unregistered_world, receipt_artifact_id),
     );
     assert!(matches!(
-        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        verify_invariant_history(&plane.storage.as_ref().unwrap().artifacts, &[event], &plane.state.registered),
         Err(ControlError::Projection(message)) if message == "invariant World is not registered"
     ));
 
@@ -3501,7 +3513,7 @@ fn invariant_history_rejects_unregistered_world_and_unknown_evaluation() {
         invariant_event_payload("no-such-evaluation", &world.world_id, receipt_artifact_id),
     );
     assert!(matches!(
-        verify_invariant_history(directory.path(), &[event], &plane.state.registered),
+        verify_invariant_history(&plane.storage.as_ref().unwrap().artifacts, &[event], &plane.state.registered),
         Err(ControlError::Projection(message)) if message == "canonical invariant receipt is invalid"
     ));
 }
@@ -9314,8 +9326,12 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
     ));
 
     let history = champion_history(&plane);
-    verify_champion_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("canonical Champion history verifies");
+    verify_champion_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical Champion history verifies");
     for (event_id, edit) in [
         (
             promoted.event.event_id.clone(),
@@ -9346,7 +9362,12 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
     ] {
         let tampered = champion_history_with_payload_edit(&history, &event_id, edit);
         assert!(
-            verify_champion_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+            verify_champion_history(
+                &plane.storage.as_ref().unwrap().artifacts,
+                &tampered,
+                &plane.state.registered
+            )
+            .is_err(),
             "tampered Champion transition {event_id} must fail replay"
         );
     }
@@ -9358,7 +9379,12 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         .payload
         .push(b' ');
     assert!(
-        verify_champion_history(&plane.data_dir, &noncanonical, &plane.state.registered).is_err(),
+        verify_champion_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &noncanonical,
+            &plane.state.registered
+        )
+        .is_err(),
         "a noncanonical Champion payload must fail replay"
     );
     // Nothing later depends on the final rollback, so only identity-based
@@ -9369,7 +9395,14 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         .find(|event| event.event_id == rolled_back.event.event_id)
         .expect("rollback event")
         .event_type = "champion.rewritten".to_owned();
-    assert!(verify_champion_history(&plane.data_dir, &retyped, &plane.state.registered).is_err());
+    assert!(
+        verify_champion_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &retyped,
+            &plane.state.registered
+        )
+        .is_err()
+    );
     let mut reordered = history;
     let seed_index = reordered
         .iter()
@@ -9378,7 +9411,12 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
     let seed_event = reordered.remove(seed_index);
     reordered.push(seed_event);
     assert!(
-        verify_champion_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
+        verify_champion_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &reordered,
+            &plane.state.registered
+        )
+        .is_err(),
         "a promotion cannot precede the seed it depends on"
     );
 }
@@ -10215,8 +10253,18 @@ fn cluster_and_invariant_histories_reject_tampered_events() {
         .replay_verified()
         .expect("verified history");
     let registered = &plane.state.registered;
-    verify_cluster_history(&plane.data_dir, &history, registered).expect("canonical clusters");
-    verify_invariant_history(&plane.data_dir, &history, registered).expect("canonical invariants");
+    verify_cluster_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        registered,
+    )
+    .expect("canonical clusters");
+    verify_invariant_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        registered,
+    )
+    .expect("canonical invariants");
 
     let world_id = analysis.analysis.world_id.clone();
     let foreign_world = format!("hephaestus:world:{}", "0".repeat(64));
@@ -10242,7 +10290,12 @@ fn cluster_and_invariant_histories_reject_tampered_events() {
         ),
     ] {
         assert!(
-            verify_cluster_history(&plane.data_dir, &tampered, registered).is_err(),
+            verify_cluster_history(
+                &plane.storage.as_ref().unwrap().artifacts,
+                &tampered,
+                registered
+            )
+            .is_err(),
             "a tampered forge.clustered event must fail replay"
         );
     }
@@ -10262,7 +10315,12 @@ fn cluster_and_invariant_histories_reject_tampered_events() {
         ),
     ] {
         assert!(
-            verify_invariant_history(&plane.data_dir, &tampered, registered).is_err(),
+            verify_invariant_history(
+                &plane.storage.as_ref().unwrap().artifacts,
+                &tampered,
+                registered
+            )
+            .is_err(),
             "a tampered invariants.recorded event must fail replay"
         );
     }
@@ -11915,8 +11973,12 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     ));
 
     let history = canary_history(&plane);
-    verify_canary_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("canonical canary history verifies");
+    verify_canary_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical canary history verifies");
     for (event_id, edit) in [
         (
             started.event.event_id.clone(),
@@ -11941,7 +12003,12 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     ] {
         let tampered = canary_history_with_payload_edit(&history, &event_id, edit);
         assert!(
-            verify_canary_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+            verify_canary_history(
+                &plane.storage.as_ref().unwrap().artifacts,
+                &tampered,
+                &plane.state.registered
+            )
+            .is_err(),
             "tampered canary transition {event_id} must fail replay"
         );
     }
@@ -11951,7 +12018,14 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
         .find(|event| event.event_id == started.event.event_id)
         .expect("start event")
         .event_type = "canary.rewritten".to_owned();
-    assert!(verify_canary_history(&plane.data_dir, &retyped, &plane.state.registered).is_err());
+    assert!(
+        verify_canary_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &retyped,
+            &plane.state.registered
+        )
+        .is_err()
+    );
     let mut reordered = history;
     let start_index = reordered
         .iter()
@@ -11960,7 +12034,12 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
     let start_event = reordered.remove(start_index);
     reordered.push(start_event);
     assert!(
-        verify_canary_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
+        verify_canary_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &reordered,
+            &plane.state.registered
+        )
+        .is_err(),
         "an advance cannot precede the start it depends on"
     );
 }
@@ -12132,8 +12211,12 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
         Ok(ResponseData::Replay { .. })
     ));
     let history = canary_history(&plane);
-    verify_canary_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("canonical canary history including the live rollback verifies");
+    verify_canary_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical canary history including the live rollback verifies");
 }
 
 #[test]
@@ -12277,8 +12360,12 @@ fn canary_injected_regression_during_staged_advance_automatically_aborts_and_rep
         Ok(ResponseData::Replay { .. })
     ));
     let history = canary_history(&plane);
-    verify_canary_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("canonical canary history verifies");
+    verify_canary_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical canary history verifies");
     let tampered = canary_history_with_payload_edit(
         &history,
         &aborted.event.event_id,
@@ -12288,7 +12375,12 @@ fn canary_injected_regression_during_staged_advance_automatically_aborts_and_rep
         },
     );
     assert!(
-        verify_canary_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+        verify_canary_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &tampered,
+            &plane.state.registered
+        )
+        .is_err(),
         "a rewritten abort must fail replay"
     );
 }
@@ -12475,8 +12567,12 @@ fn drift_record_derives_from_verified_evidence_and_replays() {
         Ok(ResponseData::Replay { .. })
     ));
     let history = drift_history(&plane);
-    verify_drift_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("canonical drift history verifies");
+    verify_drift_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical drift history verifies");
     let tampered = drift_history_with_payload_edit(
         &history,
         &recorded.event.event_id,
@@ -12485,7 +12581,12 @@ fn drift_record_derives_from_verified_evidence_and_replays() {
         },
     );
     assert!(
-        verify_drift_history(&plane.data_dir, &tampered, &plane.state.registered).is_err(),
+        verify_drift_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &tampered,
+            &plane.state.registered
+        )
+        .is_err(),
         "a rewritten drift observation must fail replay"
     );
     let mut retyped = history;
@@ -12494,7 +12595,14 @@ fn drift_record_derives_from_verified_evidence_and_replays() {
         .find(|event| event.event_id == recorded.event.event_id)
         .expect("drift event")
         .event_type = "drift.rewritten".to_owned();
-    assert!(verify_drift_history(&plane.data_dir, &retyped, &plane.state.registered).is_err());
+    assert!(
+        verify_drift_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &retyped,
+            &plane.state.registered
+        )
+        .is_err()
+    );
 }
 
 fn write_fake_claude_binary(path: &Path) {
@@ -14150,7 +14258,7 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
         Ok(ResponseData::Replay { .. })
     ));
     verify_gene_bank_history(
-        &plane.data_dir,
+        &plane.storage.as_ref().unwrap().artifacts,
         &gene_bank_history(&plane),
         &plane.state.registered,
     )
@@ -14189,6 +14297,7 @@ where
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
     let directory = tempdir().expect("Gene Bank tamper fixture");
     let mut plane = gene_bank_plane_fixture(&directory);
@@ -14219,8 +14328,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
     );
 
     let history = gene_bank_history(&plane);
-    verify_gene_bank_history(&plane.data_dir, &history, &plane.state.registered)
-        .expect("canonical Gene Bank history verifies before tampering");
+    verify_gene_bank_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical Gene Bank history verifies before tampering");
 
     let tampered_gene_event_id = gene_event_id(&gene.payload.gene_id);
     let tampered_gene = gene_bank_history_with_payload_edit::<GeneExtractedPayload, _>(
@@ -14229,7 +14342,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         |payload| payload.evidence_trials = 999,
     );
     assert!(
-        verify_gene_bank_history(&plane.data_dir, &tampered_gene, &plane.state.registered).is_err(),
+        verify_gene_bank_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &tampered_gene,
+            &plane.state.registered
+        )
+        .is_err(),
         "a tampered Gene payload must fail replay"
     );
 
@@ -14240,8 +14358,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         |payload| payload.to_genome_id = gene.payload.origin_parent_genome_id.clone(),
     );
     assert!(
-        verify_gene_bank_history(&plane.data_dir, &tampered_applied, &plane.state.registered)
-            .is_err(),
+        verify_gene_bank_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &tampered_applied,
+            &plane.state.registered
+        )
+        .is_err(),
         "a tampered transfer applied payload must fail replay"
     );
 
@@ -14252,8 +14374,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         |payload| payload.outcome = GeneTransferOutcome::Negative,
     );
     assert!(
-        verify_gene_bank_history(&plane.data_dir, &tampered_recorded, &plane.state.registered)
-            .is_err(),
+        verify_gene_bank_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &tampered_recorded,
+            &plane.state.registered
+        )
+        .is_err(),
         "a tampered transfer outcome must fail replay"
     );
 
@@ -14265,7 +14391,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         .payload
         .push(b' ');
     assert!(
-        verify_gene_bank_history(&plane.data_dir, &noncanonical, &plane.state.registered).is_err(),
+        verify_gene_bank_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &noncanonical,
+            &plane.state.registered
+        )
+        .is_err(),
         "a noncanonical Gene payload must fail replay"
     );
 
@@ -14279,7 +14410,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
         .expect("transfer recorded event")
         .event_type = "gene.rewritten".to_owned();
     assert!(
-        verify_gene_bank_history(&plane.data_dir, &retyped, &plane.state.registered).is_err(),
+        verify_gene_bank_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &retyped,
+            &plane.state.registered
+        )
+        .is_err(),
         "a retyped Gene Bank event must still be rejected by ID-prefix detection"
     );
 
@@ -14293,7 +14429,12 @@ fn gene_bank_history_rejects_tampering_retyping_and_reordering() {
     let applied_event = reordered.remove(applied_index);
     reordered.push(applied_event);
     assert!(
-        verify_gene_bank_history(&plane.data_dir, &reordered, &plane.state.registered).is_err(),
+        verify_gene_bank_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &reordered,
+            &plane.state.registered
+        )
+        .is_err(),
         "a transfer record cannot precede the trial it applies to"
     );
 }
@@ -14965,10 +15106,15 @@ fn submit_admits_and_cancels_a_provider_job_through_daemon_stop() {
 }
 
 #[test]
-fn projection_refresh_with_a_warm_evidence_cache_still_rejects_a_tampered_ledger() {
-    let directory = tempdir().expect("evidence cache fixture");
+fn projection_refresh_rejects_a_ledger_row_tampered_after_a_prior_successful_refresh() {
+    // TD-16: refresh no longer caches verified evidence across calls, so this
+    // also proves a full refresh is not merely fast because it skips already
+    // verified events; the very next refresh re-verifies every event against
+    // a freshly hash-chain-verified history and still catches a row tampered
+    // in between.
+    let directory = tempdir().expect("projection refresh fixture");
     let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
-    let evaluation_id = "evidence-cache-evaluation";
+    let evaluation_id = "refresh-retamper-evaluation";
     plane
         .submit_arena_job(evaluation_id, &parent.genome_id, &candidate.genome_id)
         .expect("admit genuine Arena evaluation");
@@ -14976,7 +15122,7 @@ fn projection_refresh_with_a_warm_evidence_cache_still_rejects_a_tampered_ledger
     while plane.active_arena_job.is_some() {
         plane
             .service_async_messages()
-            .expect("persist trials for the evidence cache fixture");
+            .expect("persist trials for the projection refresh fixture");
         assert!(
             Instant::now() < deadline,
             "genuine Arena evaluation did not finish"
@@ -14988,11 +15134,7 @@ fn projection_refresh_with_a_warm_evidence_cache_still_rejects_a_tampered_ledger
         .expect("select completed Arena evidence");
     plane
         .refresh_projection()
-        .expect("refresh verifies and caches the selection");
-    assert!(
-        !plane.evidence_cache.verified.is_empty(),
-        "refresh caches verified evidence"
-    );
+        .expect("refresh verifies the genuine selection");
 
     let connection =
         rusqlite::Connection::open(plane.data_dir.join("events.sqlite3")).expect("open ledger");
@@ -15001,12 +15143,12 @@ fn projection_refresh_with_a_warm_evidence_cache_still_rejects_a_tampered_ledger
             "UPDATE events SET payload = ?1 WHERE event_type = 'selection.recorded'",
             rusqlite::params![b"{}".as_slice()],
         )
-        .expect("tamper with the cached selection event");
+        .expect("tamper with the previously verified selection event");
     assert_eq!(changed, 1);
     drop(connection);
 
     assert!(
         plane.refresh_projection().is_err(),
-        "a cached event whose ledger bytes changed must fail refresh"
+        "an event whose ledger bytes changed after a prior successful refresh must fail the next refresh"
     );
 }

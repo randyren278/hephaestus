@@ -23,11 +23,14 @@ use std::collections::BTreeMap;
 
 use hephaestus_experience::RunCompletionReason;
 use hephaestus_genome::CompiledWorld;
-use hephaestus_ledger::{ArtifactId, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactId, EventIndex, EventInput, StoredEvent};
 use serde::{Deserialize, Serialize};
 
 use crate::invariants::verified_submission_outputs;
-use crate::{ArenaError, EvaluationStores, TrustedManifest, Visibility, load_operator_evaluation};
+use crate::{
+    ArenaError, ArtifactStore, EvaluationStores, OperatorReceipt, TrustedManifest, Visibility,
+    load_operator_evaluation, load_operator_evaluation_in,
+};
 
 const RECEIPT_SCHEMA_VERSION: u16 = 1;
 const ALGORITHM: &str = "failure-cluster-v1";
@@ -440,6 +443,83 @@ pub fn verify_cluster_event(
     Ok(check)
 }
 
+/// Read-only, history-borrowing counterpart to [`OperatorClusterAnalysis`],
+/// with no evaluator-store capability of its own. Produced by
+/// [`verify_cluster_event_in`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClusterView {
+    analysis: ClusterAnalysis,
+    event: ClusterEvent,
+}
+
+impl ClusterView {
+    /// Canonical cluster analysis without task identities or raw outputs.
+    #[must_use]
+    pub const fn analysis(&self) -> &ClusterAnalysis {
+        &self.analysis
+    }
+
+    /// Canonical event metadata binding the analysis into the ledger.
+    #[must_use]
+    pub const fn event(&self) -> &ClusterEvent {
+        &self.event
+    }
+}
+
+/// History-borrowing counterpart to [`verify_cluster_event`]: verifies
+/// against a caller-supplied history index and artifact store instead of
+/// opening fresh evaluator-owned stores and replaying the ledger again. See
+/// [`crate::load_operator_evaluation_in`] for the trust requirement on
+/// `index` and why callers verifying many events should build it once.
+///
+/// # Errors
+///
+/// Rejects a malformed event envelope, a noncanonical hash-chain snapshot, or
+/// analysis content that does not recompute from the signed candidate trial
+/// evidence.
+pub fn verify_cluster_event_in(
+    index: &EventIndex<'_>,
+    artifacts: &ArtifactStore,
+    event: &StoredEvent,
+    world: &CompiledWorld,
+) -> Result<ClusterView, ArenaError> {
+    let (analysis_id, evaluation_id, world_id) = cluster_event_references(event)?;
+    if world_id != world.id() {
+        return Err(ArenaError::WorldArtifactMismatch("cluster analysis world"));
+    }
+    crate::validate_id("analysis_id", &analysis_id)?;
+    let operator = load_operator_evaluation_in(index, artifacts, &evaluation_id)?;
+    if operator.operator_receipt.world_id != world.id() {
+        return Err(ArenaError::WorldArtifactMismatch("cluster analysis world"));
+    }
+    let evaluation_event = index
+        .get(&operator.recorded.event.event_id)
+        .ok_or_else(|| ArenaError::UnknownEvaluation(evaluation_id.clone()))?;
+    if crate::encode_hash(evaluation_event.hash) != crate::encode_hash(operator.event_hash) {
+        return Err(ArenaError::InvalidStoredReceipt("cluster evaluation event"));
+    }
+    let analysis = compute_analysis(
+        &analysis_id,
+        &operator.operator_receipt,
+        artifacts,
+        index,
+        evaluation_event,
+        world,
+    )?;
+    let event_id = cluster_event_id(&analysis_id);
+    let stored = index
+        .get(&event_id)
+        .ok_or_else(|| ArenaError::UnknownClusterAnalysis(analysis_id.clone()))?;
+    if stored != event {
+        return Err(ArenaError::InvalidClusterEvent);
+    }
+    let rehydrated = rehydrate_event(artifacts, stored, &analysis)?;
+    Ok(ClusterView {
+        analysis,
+        event: cluster_event(stored, &rehydrated.analysis_artifact_id),
+    })
+}
+
 fn check(
     stores: EvaluationStores,
     analysis_id: &str,
@@ -461,7 +541,15 @@ fn check(
     if crate::encode_hash(evaluation_event.hash) != crate::encode_hash(operator.event_hash) {
         return Err(ArenaError::InvalidStoredReceipt("cluster evaluation event"));
     }
-    let analysis = compute_analysis(analysis_id, &operator, evaluation_event, world)?;
+    let index = EventIndex::build(&history);
+    let analysis = compute_analysis(
+        analysis_id,
+        &operator.operator_receipt,
+        &operator.stores.artifacts,
+        &index,
+        evaluation_event,
+        world,
+    )?;
     let event_id = cluster_event_id(analysis_id);
     if let Some(event) = history.iter().find(|event| event.event_id == event_id) {
         let rehydrated = rehydrate_event(&operator.stores.artifacts, event, &analysis)?;
@@ -500,12 +588,12 @@ fn check(
 
 fn compute_analysis(
     analysis_id: &str,
-    operator: &crate::OperatorEvaluation,
+    receipt: &OperatorReceipt,
+    artifacts: &ArtifactStore,
+    index: &EventIndex<'_>,
     evaluation_event: &StoredEvent,
     world: &CompiledWorld,
 ) -> Result<ClusterAnalysis, ArenaError> {
-    let artifacts = &operator.stores.artifacts;
-    let receipt = &operator.operator_receipt;
     let visible_bytes =
         crate::verify_operator_artifact(artifacts, &receipt.visible_manifest_artifact_id)?;
     let sealed_bytes =
@@ -531,7 +619,9 @@ fn compute_analysis(
     }
 
     let candidate = verified_submission_outputs(
-        operator,
+        artifacts,
+        index,
+        receipt,
         &receipt.candidate_submission_artifact_id,
         &receipt.candidate_genome_id,
         &task_inputs,

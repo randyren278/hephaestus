@@ -174,9 +174,12 @@ independent of whether the slow end-to-end scenario above is enabled.
 **Runtime:** the three-lineage descendant test drives about nine real evolve
 generations (18 paired Arena evaluations) through the reference worker and
 evaluator subprocesses and passes in about 90 seconds on a developer Mac. It
-could not finish before projection refresh cached verified evidence; before
-that, every daemon step re-verified the whole ledger, so each step grew slower
-as history grew.
+could not finish before projection refresh stopped reopening stores and
+replaying the ledger once per evidence event; a daemon step now verifies a
+new or changed event once against the history it already replayed for that
+refresh (an already-verified event is skipped via a per-process cache), so a
+cold verification pass stays linear in history size instead of growing
+quadratically with it (see TECH_DEBT.md TD-16).
 
 A genuinely smarter search policy (prioritizing which failure cluster to
 mutate first, trying more than one candidate per generation, or consulting
