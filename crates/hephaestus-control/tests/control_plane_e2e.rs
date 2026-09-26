@@ -15,12 +15,12 @@ use hephaestus_arena::{
 };
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind, Command,
-    ControlError, ControlPlane, DenialKind, ForgeAssessmentOutcome, GeneTransferOutcome,
-    GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, McpDecision, RemoteCompletion,
-    RemoteJobState, ResponseData, RunCompletionReason, WorkerReply, WorkerRequest, WorldRecord,
+    ControlError, ControlPlane, DenialKind, GeneTransferOutcome, GenomeRecord, JobProgress,
+    JobRecord, JobState, JobTerminal, McpDecision, RemoteCompletion, RemoteJobState, ResponseData,
+    RunCompletionReason, WorkerReply, WorkerRequest, WorldRecord,
 };
 #[cfg(feature = "test-support")]
-use hephaestus_control::{ArenaJobPhase, Client};
+use hephaestus_control::{ArenaJobPhase, Client, ForgeAssessmentOutcome};
 use hephaestus_experience::{
     RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner, TraceKind,
     TraceReceipt,
@@ -1775,11 +1775,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         Some("arena-plane"),
     );
     restarted = Daemon::start_with_repository(&data_dir, &repository);
-    let recovered = Client::new(&data_dir)
-        .request(Command::JobStatus {
-            job_id: "daemon-owned-pair".to_owned(),
-        })
-        .unwrap();
+    let recovered = response(&cli(&data_dir, &["job", "status", "daemon-owned-pair"]));
     assert!(matches!(
         recovered.data,
         Some(ResponseData::ArenaJob { job })
@@ -5936,13 +5932,8 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
     git(&repository, &["commit", "-m", "fixture"]);
     let (world, parent) = seed_compiled_genome(&data_dir);
     let daemon = Daemon::start_with_repository(&data_dir, &repository);
-    let client = Client::new(&data_dir);
 
-    let empty_selection = client
-        .request(Command::ArenaSelect {
-            evaluation_id: " ".to_owned(),
-        })
-        .expect("empty selection response");
+    let empty_selection = response(&cli(&data_dir, &["arena", "select", " "]));
     assert_eq!(
         empty_selection.error.expect("empty selection error").code,
         ApiErrorCode::InvalidRequest
@@ -5984,11 +5975,7 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
         panic!("unexpected Genome registration response");
     };
     assert!(cli(&data_dir, &["unfreeze"]).status.success());
-    let rejected_run = client
-        .request(Command::RunReference {
-            genome_id: unsupported.genome_id,
-        })
-        .expect("unsupported prompt response");
+    let rejected_run = response(&cli(&data_dir, &["run", &unsupported.genome_id]));
     let run_error = rejected_run.error.expect("unsupported prompt error");
     assert_eq!(run_error.code, ApiErrorCode::InvalidRequest);
     assert_eq!(
@@ -6024,14 +6011,16 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
     .expect("registered candidate response") else {
         panic!("unexpected candidate registration response");
     };
-    let rejected_pair = client
-        .request(Command::EvaluatePair {
-            evaluation_id: "unpaired-evaluation".to_owned(),
-            parent_genome_id: parent.genome_id,
-            candidate_genome_id: candidate.genome_id,
-            remote: false,
-        })
-        .expect("unpaired evaluation response");
+    let rejected_pair = response(&cli(
+        &data_dir,
+        &[
+            "arena",
+            "evaluate",
+            "unpaired-evaluation",
+            &parent.genome_id,
+            &candidate.genome_id,
+        ],
+    ));
     let pair_error = rejected_pair.error.expect("unpaired evaluation error");
     assert_eq!(pair_error.code, ApiErrorCode::InvalidRequest);
     assert_eq!(

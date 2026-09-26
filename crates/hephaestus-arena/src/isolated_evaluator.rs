@@ -151,14 +151,16 @@ impl IsolatedEvaluator {
         if bytes.len() > MAX_EVALUATOR_REQUEST_BYTES {
             return Err(ArenaError::EvaluatorProtocol("request exceeds byte limit"));
         }
+        #[cfg(feature = "test-support")]
         let worker = match &self.backend {
             EvaluatorBackend::Process(worker) => worker,
-            #[cfg(feature = "test-support")]
             EvaluatorBackend::InProcess => {
                 let stdout = crate::evaluator_protocol::evaluate_request(&bytes)?;
                 return validate_response(&stdout, &bytes, request);
             }
         };
+        #[cfg(not(feature = "test-support"))]
+        let EvaluatorBackend::Process(worker) = &self.backend;
         let output = if let Some((guardian, cancel)) = guard {
             worker.execute_guarded(evaluation_id, &bytes, guardian, cancel)?
         } else {
