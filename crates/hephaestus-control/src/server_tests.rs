@@ -10918,11 +10918,35 @@ fn register_test_strategy(
     mutation_prioritization: &str,
     gene_selection: &str,
 ) -> String {
+    register_test_strategy_with_candidate_count(
+        plane,
+        token,
+        directory,
+        name,
+        mutation_prioritization,
+        gene_selection,
+        1,
+    )
+}
+
+/// TD-17 (roadmap items 10, 13): like [`register_test_strategy`], but with an
+/// explicit `candidate_count` so a test can exercise multi-candidate
+/// generations.
+fn register_test_strategy_with_candidate_count(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    name: &str,
+    mutation_prioritization: &str,
+    gene_selection: &str,
+    candidate_count: u32,
+) -> String {
     let path = directory.path().join(format!("{name}-strategy.json"));
     fs::write(
         &path,
         format!(
-            r#"{{"schema_version":1,"name":"{name}","mutation_prioritization":"{mutation_prioritization}","generation_count":1,"experiment_allocation":{TRIALS_PER_GENERATION},"candidate_count":1,"gene_selection":"{gene_selection}"}}"#
+            r#"{{"schema_version":1,"name":"{name}","mutation_prioritization":"{mutation_prioritization}","generation_count":1,"experiment_allocation":{},"candidate_count":{candidate_count},"gene_selection":"{gene_selection}"}}"#,
+            TRIALS_PER_GENERATION + u64::from(candidate_count.saturating_sub(1))
         ),
     )
     .expect("write Evolver strategy");
@@ -11132,6 +11156,233 @@ fn evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation(
     ));
 }
 
+/// TD-17 (roadmap items 10, 13): a `candidate_count == 2` strategy proposes
+/// two distinct, ranked candidates from the Champion's failure clusters --
+/// the context-loss Gauntlet mode's family fix (`context_loss_aware`, rank
+/// `0`, from every cluster's shape-independent primary suggestion) and the
+/// `sealed_incorrect_output` cluster's secondary exploratory suggestion
+/// (`ascii_uppercase`, rank `1`) -- consumes `1 + 2 = 3` trials, and promotes
+/// the highest-ranked `metrics_passed` candidate (the genuine fix; the
+/// casing flip does not address context loss and never passes correctness).
+#[test]
+#[allow(clippy::too_many_lines)]
+fn evolve_candidate_count_two_evaluates_both_ranked_candidates_and_promotes_the_better_one() {
+    let directory = tempdir().expect("Gauntlet evolve fixture directory");
+    let (mut plane, parent, _candidate) = real_worker_gauntlet_fixture(
+        &directory,
+        "context-loss",
+        r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+        " the deploy key is banana",
+        "context_loss_naive",
+        "context_loss_aware",
+    );
+    let token = plane.token_hex.clone();
+    let strategy_id = register_test_strategy_with_candidate_count(
+        &mut plane,
+        &token,
+        &directory,
+        "two-candidates",
+        "fifo",
+        "none",
+        2,
+    );
+
+    let run_id = "evolve-two-candidates";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-two-candidates-start",
+        evolve_start_command_with_strategy(
+            run_id,
+            &parent.world_id,
+            &parent.genome_id,
+            1,
+            TRIALS_PER_GENERATION + 1,
+            Some(&strategy_id),
+        ),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start should succeed: {:?}",
+        start.error
+    );
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::GenerationsExhausted)
+    );
+    assert_eq!(run.generations.len(), 1);
+    assert_eq!(
+        run.trials_consumed,
+        TRIALS_PER_GENERATION + 1,
+        "one diagnostic trial plus one trial per proposed candidate"
+    );
+
+    let generation = &run.generations[0].payload;
+    assert_eq!(
+        generation.candidates.len(),
+        2,
+        "both ranked candidates should have been proposed and assessed"
+    );
+    assert_eq!(generation.candidates[0].rank, 0);
+    assert_eq!(generation.candidates[1].rank, 1);
+
+    let operation_of = |genome_id: &str| {
+        plane
+            .reference_instruction(genome_id)
+            .expect("readable reference operation")
+            .map(ReferenceInstruction::operation_name)
+    };
+    assert_eq!(
+        operation_of(&generation.candidates[0].child_genome_id),
+        Some("context_loss_aware"),
+        "rank 0 is the family fix every cluster suggests"
+    );
+    assert_eq!(
+        operation_of(&generation.candidates[1].child_genome_id),
+        Some("ascii_uppercase"),
+        "rank 1 is the sealed cluster's distinct secondary suggestion"
+    );
+    assert_eq!(
+        generation.candidates[0].outcome,
+        ForgeAssessmentOutcome::MetricsPassed,
+        "the genuine fix should pass correctness"
+    );
+    assert_ne!(
+        generation.candidates[1].outcome,
+        ForgeAssessmentOutcome::MetricsPassed,
+        "uppercasing the wrong answer never fixes context loss"
+    );
+
+    assert!(
+        generation.promoted,
+        "the highest-ranked metrics_passed candidate should be promoted"
+    );
+    assert_eq!(
+        generation.champion_after,
+        generation.candidates[0].child_genome_id
+    );
+    assert_eq!(generation.proposal_id, generation.candidates[0].proposal_id);
+    assert_eq!(
+        generation.child_genome_id,
+        generation.candidates[0].child_genome_id
+    );
+    assert_eq!(
+        generation.assessment_id,
+        generation.candidates[0].assessment_id
+    );
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical ledger")
+        .ledger
+        .replay_verified()
+        .expect("verified history");
+    verify_evolution_history(&history, &plane.state.registered)
+        .expect("canonical multi-candidate evolution history");
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+}
+
+/// TD-17 (roadmap items 10, 13): a `candidates` list that claims a
+/// non-highest-ranked (or non-passing) candidate was promoted, without
+/// actually promoting it through the Champion, must fail replay -- this is
+/// exactly the tamper `verify_evolution_history`'s new candidate
+/// cross-check exists to catch.
+#[test]
+fn evolve_history_replay_rejects_a_forged_candidates_list() {
+    let directory = tempdir().expect("Gauntlet evolve fixture directory");
+    let (mut plane, parent, _candidate) = real_worker_gauntlet_fixture(
+        &directory,
+        "context-loss",
+        r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+        " the deploy key is banana",
+        "context_loss_naive",
+        "context_loss_aware",
+    );
+    let token = plane.token_hex.clone();
+    let strategy_id = register_test_strategy_with_candidate_count(
+        &mut plane,
+        &token,
+        &directory,
+        "two-candidates-forged",
+        "fifo",
+        "none",
+        2,
+    );
+
+    let run_id = "evolve-forged-candidates";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-forged-candidates-start",
+        evolve_start_command_with_strategy(
+            run_id,
+            &parent.world_id,
+            &parent.genome_id,
+            1,
+            TRIALS_PER_GENERATION + 1,
+            Some(&strategy_id),
+        ),
+    );
+    assert!(start.error.is_none());
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.generations.len(), 1);
+    let genuine = run.generations[0].clone();
+    assert!(genuine.payload.promoted);
+    assert_eq!(genuine.payload.candidates.len(), 2);
+    assert_eq!(
+        genuine.payload.candidates[1].outcome,
+        ForgeAssessmentOutcome::MetricsRejected,
+        "the second candidate must genuinely have failed for this forgery to be meaningful"
+    );
+
+    // Rewrite the recorded generation event's payload so its top-level
+    // fields describe the second (non-passing, non-highest-ranked)
+    // candidate while keeping `promoted: true` and the real, unmodified
+    // candidates list -- an attacker cannot simply claim a different
+    // candidate won without also editing the evidence it names.
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical ledger")
+        .ledger
+        .replay_verified()
+        .expect("verified history");
+    let generation_event_id = evolution_generation_event_id(run_id, 0);
+    let forged = EvolutionGenerationPayload {
+        proposal_id: genuine.payload.candidates[1].proposal_id.clone(),
+        child_genome_id: genuine.payload.candidates[1].child_genome_id.clone(),
+        child_evaluation_id: genuine.payload.candidates[1].child_evaluation_id.clone(),
+        assessment_id: genuine.payload.candidates[1].assessment_id.clone(),
+        champion_after: genuine.payload.candidates[1].child_genome_id.clone(),
+        ..genuine.payload.clone()
+    };
+    assert_ne!(forged, genuine.payload);
+    let payload_value = serde_json::to_value(&forged).expect("encode forged payload");
+    let payload_bytes = serde_json::to_vec(&payload_value).expect("serialize forged payload");
+    let forged_history: Vec<StoredEvent> = history
+        .iter()
+        .cloned()
+        .map(|mut event| {
+            if event.event_id == generation_event_id {
+                event.payload = payload_bytes.clone();
+            }
+            event
+        })
+        .collect();
+
+    assert!(
+        verify_evolution_history(&forged_history, &plane.state.registered).is_err(),
+        "a candidates list must not let the top-level fields describe a non-highest-ranked, \
+         non-promoted candidate"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Autonomous evolution (roadmap item 10). `real_worker_arena_fixture` already
 // registers a World plus two Genomes ("arena-parent" and its child
@@ -11303,6 +11554,26 @@ fn evolve_start_completes_three_generations_with_one_promotion_and_replays() {
         "flipping the same operation back is never an improvement"
     );
     assert!(!run.generations[2].payload.promoted);
+    // TD-17 (roadmap items 10, 13): a strategy-less run always proposes
+    // exactly one candidate per generation, exactly like before
+    // multi-candidate generations existed; `candidates` stays empty and is
+    // omitted from the canonical payload bytes so every previously recorded
+    // generation still replays byte-for-byte.
+    for generation in &run.generations {
+        assert!(
+            generation.payload.candidates.is_empty(),
+            "a strategy-less run's generation never records more than one candidate"
+        );
+        let canonical = serde_json::to_value(&generation.payload)
+            .expect("encode generation payload")
+            .as_object()
+            .expect("generation payload is a JSON object")
+            .clone();
+        assert!(
+            !canonical.contains_key("candidates"),
+            "single-candidate generation bytes must stay identical to before candidates existed"
+        );
+    }
     assert_eq!(
         run.generations[1].payload.champion_before,
         run.generations[0].payload.champion_after
@@ -12074,6 +12345,7 @@ fn evolve_history_rejects_a_generation_forged_without_matching_evidence() {
         assessment_id: "forged-assessment".to_owned(),
         promoted: true,
         champion_after: candidate.genome_id.clone(),
+        candidates: Vec::new(),
     };
     let payload_value = serde_json::to_value(&forged).expect("encode forged payload");
     let payload_bytes = serde_json::to_vec(&payload_value).expect("serialize forged payload");

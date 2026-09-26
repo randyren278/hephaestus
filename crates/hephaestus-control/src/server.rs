@@ -68,15 +68,16 @@ use crate::{
     DriftAdaptationFinishReason, DriftAdaptationFinishedPayload, DriftAdaptationStartedPayload,
     DriftKind, EvaluationEventRecord, EvaluationForgeSummary, EvaluationInvariantSummary,
     EvaluationListEntry, EvaluationRecord, EvaluationSelectionSummary, EvolutionCancelPayload,
-    EvolutionFinishReason, EvolutionFinishedPayload, EvolutionGenerationPayload,
-    EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload, EvolverStrategyConfig,
-    ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord, ForgeAssessmentOutcome,
-    ForgeAssessmentPayload, ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload,
-    ForgeProposalRecord, GeneSelectionPolicy, GeneTransferOutcome, GenomeRecord, InvariantRecord,
-    JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, McpDecision,
-    MetaEvaluationPayload, MetaLineageOutcome, MetaStrategyRegisteredPayload,
-    MutationPrioritization, RemoteJobState, ResponseData, RunCompletionReason, RunListEntry,
-    SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
+    EvolutionCandidateRecord, EvolutionFinishReason, EvolutionFinishedPayload,
+    EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
+    EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
+    ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
+    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GeneSelectionPolicy,
+    GeneTransferOutcome, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
+    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationPayload, MetaLineageOutcome,
+    MetaStrategyRegisteredPayload, MutationPrioritization, MutationSlot, RemoteJobState,
+    ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord,
+    WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -1447,6 +1448,7 @@ impl ControlPlane {
             (None, Some(analysis_id), Some(cluster_index)) => ForgeHypothesisSource::Analysis {
                 analysis_id,
                 cluster_index,
+                use_secondary: false,
             },
             _ => return Err(ExecuteError::Internal),
         };
@@ -2740,8 +2742,10 @@ impl ControlPlane {
 
     /// Drives one generation forward through the same primitives an operator
     /// uses directly: evaluate the Champion as the mutated candidate, select,
-    /// propose one child, evaluate the child against the Champion, select,
-    /// check invariants, assess, and promote when the deterministic policy
+    /// propose up to `candidate_count` ranked children (TD-17, roadmap items
+    /// 10, 13; exactly one without a bound strategy), evaluate each against
+    /// the Champion, check invariants, assess, and promote the
+    /// highest-ranked `metrics_passed` child when the deterministic policy
     /// admits it. Every sub-step is idempotent, so re-entering this function
     /// on a later tick (or after a daemon restart) safely resumes exactly
     /// where a prior call left off.
@@ -2786,88 +2790,137 @@ impl ControlPlane {
         };
         let selection_event_id = selection.event.event_id.clone();
 
-        let Some(source) = self.choose_evolution_hypothesis_source(
+        let mut sources = self.choose_evolution_hypothesis_sources(
             run,
             generation_index,
             &diagnostic_id,
             &champion_before,
-        )?
-        else {
+        )?;
+        if sources.is_empty() {
             // A strategy-bound run whose failure-cluster analysis suggested
             // no mutation, and the Champion isn't the casing pair either
             // (roadmap items 8, 10, 13): stop rather than proposing an
             // unfounded mutation.
             self.finish_evolution_run(&run_id, EvolutionFinishReason::NoCandidateMutation)?;
             return Ok(());
-        };
-        let proposal_id = evolution_proposal_id(&run_id, generation_index);
-        let ResponseData::ForgeProposal { proposal } = self.propose_genome_from_source(
-            &proposal_id,
-            &selection_event_id,
-            &champion_before,
-            source,
-        )?
-        else {
-            return Err(ExecuteError::Internal);
-        };
-        let child_genome_id = proposal.payload.child.genome_id.clone();
-
-        let child_evaluation_id = evolution_child_evaluation_id(&run_id, generation_index);
-        match self
-            .state
-            .arena_jobs
-            .get(&child_evaluation_id)
-            .and_then(|job| job.terminal)
-        {
-            None => {
-                self.submit_arena_job(
-                    &child_evaluation_id,
-                    &champion_before,
-                    &child_genome_id,
-                    false,
-                )?;
-                return Ok(());
-            }
-            Some(JobTerminal::Succeeded) => {}
-            Some(_) => {
-                return Err(ExecuteError::Rejected(
-                    "child evaluation did not succeed".to_owned(),
-                ));
-            }
         }
-        let ResponseData::Selection {
-            selection: child_selection,
-        } = self.select_arena_evaluation(&child_evaluation_id)?
-        else {
-            return Err(ExecuteError::Internal);
-        };
-        let child_selection_event_id = child_selection.event.event_id.clone();
-        self.check_arena_invariants(&child_evaluation_id)?;
+        // Never propose more candidates than the run's remaining budget can
+        // afford (the diagnostic trial already run this generation counts
+        // against it): admission already guarantees room for at least one.
+        let remaining_after_diagnostic = run
+            .max_paired_trials
+            .saturating_sub(run.trials_consumed)
+            .saturating_sub(1);
+        let max_candidates = usize::try_from(remaining_after_diagnostic)
+            .unwrap_or(usize::MAX)
+            .max(1);
+        sources.truncate(max_candidates);
 
-        let assessment_id = evolution_assessment_id(&run_id, generation_index);
-        let ResponseData::ForgeAssessment { assessment } =
-            self.assess_genome(&assessment_id, &proposal_id, &child_selection_event_id)?
-        else {
-            return Err(ExecuteError::Internal);
-        };
+        let mut candidates: Vec<EvolutionCandidateRecord> = Vec::new();
+        for (rank_index, source) in sources.into_iter().enumerate() {
+            let rank = u32::try_from(rank_index).map_err(|_| ExecuteError::Internal)?;
+            let proposal_id = evolution_candidate_proposal_id(&run_id, generation_index, rank);
+            let ResponseData::ForgeProposal { proposal } = self.propose_genome_from_source(
+                &proposal_id,
+                &selection_event_id,
+                &champion_before,
+                source,
+            )?
+            else {
+                return Err(ExecuteError::Internal);
+            };
+            let child_genome_id = proposal.payload.child.genome_id.clone();
 
+            let child_evaluation_id =
+                evolution_candidate_child_evaluation_id(&run_id, generation_index, rank);
+            match self
+                .state
+                .arena_jobs
+                .get(&child_evaluation_id)
+                .and_then(|job| job.terminal)
+            {
+                None => {
+                    self.submit_arena_job(
+                        &child_evaluation_id,
+                        &champion_before,
+                        &child_genome_id,
+                        false,
+                    )?;
+                    return Ok(());
+                }
+                Some(JobTerminal::Succeeded) => {}
+                Some(_) => {
+                    return Err(ExecuteError::Rejected(
+                        "child evaluation did not succeed".to_owned(),
+                    ));
+                }
+            }
+            let ResponseData::Selection {
+                selection: child_selection,
+            } = self.select_arena_evaluation(&child_evaluation_id)?
+            else {
+                return Err(ExecuteError::Internal);
+            };
+            let child_selection_event_id = child_selection.event.event_id.clone();
+            self.check_arena_invariants(&child_evaluation_id)?;
+
+            let assessment_id = evolution_candidate_assessment_id(&run_id, generation_index, rank);
+            let ResponseData::ForgeAssessment { assessment } =
+                self.assess_genome(&assessment_id, &proposal_id, &child_selection_event_id)?
+            else {
+                return Err(ExecuteError::Internal);
+            };
+
+            candidates.push(EvolutionCandidateRecord {
+                rank,
+                proposal_id,
+                child_genome_id,
+                child_evaluation_id,
+                assessment_id,
+                outcome: assessment.payload.outcome,
+            });
+        }
+
+        // The highest-ranked (lowest rank index) `metrics_passed` candidate
+        // is promoted, unchanged Champion policy otherwise.
+        let promoted_index = candidates
+            .iter()
+            .position(|candidate| candidate.outcome == ForgeAssessmentOutcome::MetricsPassed);
         let mut promoted = false;
         let mut champion_after = champion_before.clone();
-        if assessment.payload.outcome == ForgeAssessmentOutcome::MetricsPassed {
+        if let Some(index) = promoted_index {
             let transition_id = evolution_promotion_transition_id(&run_id, generation_index);
             if self
                 .transition_champion(
                     &transition_id,
                     &ChampionRequest::Promote {
-                        assessment_id: assessment_id.clone(),
+                        assessment_id: candidates[index].assessment_id.clone(),
                     },
                 )
                 .is_ok()
             {
                 promoted = true;
-                champion_after.clone_from(&child_genome_id);
+                champion_after.clone_from(&candidates[index].child_genome_id);
             }
         }
+
+        // The top-level fields always describe the promoted candidate, or
+        // rank 0 when none was promoted, whether or not `candidates` is
+        // populated (kept unpopulated -- and the top-level fields exactly
+        // today's single-candidate ids -- whenever exactly one candidate was
+        // proposed, so that generation's payload stays byte-for-byte
+        // identical to today's behavior).
+        let chosen_index = if promoted {
+            promoted_index.unwrap_or(0)
+        } else {
+            0
+        };
+        let chosen = candidates[chosen_index].clone();
+        let candidates_field = if candidates.len() <= 1 {
+            Vec::new()
+        } else {
+            candidates
+        };
 
         self.record_evolution_generation(&EvolutionGenerationPayload {
             schema_version: 1,
@@ -2875,43 +2928,47 @@ impl ControlPlane {
             generation_index,
             champion_before,
             diagnostic_evaluation_id: diagnostic_id,
-            proposal_id,
-            child_genome_id,
-            child_evaluation_id,
-            assessment_id,
+            proposal_id: chosen.proposal_id,
+            child_genome_id: chosen.child_genome_id,
+            child_evaluation_id: chosen.child_evaluation_id,
+            assessment_id: chosen.assessment_id,
             promoted,
             champion_after,
+            candidates: candidates_field,
         })
     }
 
-    /// Chooses this generation's Forge hypothesis source. Without a bound
-    /// strategy, this is always the historical default: an operator-authored
-    /// hypothesis proposing the `identity`/`ascii_uppercase` flip (unchanged
-    /// behavior for every existing evolve run).
+    /// Chooses this generation's ranked, distinct-by-target-operation Forge
+    /// hypothesis sources, highest priority first (rank `0`). Without a
+    /// bound strategy, this is always exactly one source: the historical
+    /// default, an operator-authored hypothesis proposing the
+    /// `identity`/`ascii_uppercase` flip (unchanged behavior for every
+    /// existing evolve run).
     ///
     /// With a bound strategy (roadmap items 8, 10, 13): runs `forge analyze`
     /// on the diagnostic evaluation (the Champion is the analyzed
     /// candidate), orders its failure clusters by the strategy's
     /// `mutation_prioritization` (`Fifo` keeps the clusters' stable
     /// signature order; `CostWeighted` sorts by descending `total_count`,
-    /// ties by signature), prefers a Gene Bank suggestion when
-    /// `gene_selection == HighestTransferEffect` names one of the available
-    /// suggested operations, and binds the proposal to whichever cluster
-    /// produced the chosen suggestion. `Ok(None)` means no cluster suggested
-    /// a mutation and the Champion is not the casing pair either, so the
+    /// ties by signature), and puts first whichever cluster's suggestion the
+    /// Gene Bank prefers when `gene_selection == HighestTransferEffect`.
+    /// Every cluster's primary `suggested_mutation` is then considered in
+    /// that order, followed by every cluster's `secondary_suggested_mutation`
+    /// (TD-17); a target operation already chosen at a higher rank is
+    /// skipped, so no two returned sources ever propose the same operation.
+    /// The result is truncated to the strategy's `candidate_count` (`1`
+    /// without a strategy). An empty result means no cluster suggested a
+    /// mutation and the Champion is not the casing pair either, so the
     /// caller finishes the run with `NoCandidateMutation` instead of
     /// proposing anything.
-    ///
-    /// `candidate_count` above `1` and multi-candidate trial accounting are
-    /// not implemented: exactly one candidate is ever proposed per
-    /// generation (see `TECH_DEBT.md`).
-    fn choose_evolution_hypothesis_source(
+    #[allow(clippy::too_many_lines)]
+    fn choose_evolution_hypothesis_sources(
         &mut self,
         run: &EvolutionRunRecord,
         generation_index: u32,
         diagnostic_id: &str,
         champion_before: &str,
-    ) -> Result<Option<ForgeHypothesisSource>, ExecuteError> {
+    ) -> Result<Vec<ForgeHypothesisSource>, ExecuteError> {
         let run_id = run.run_id.clone();
         let default_hypothesis = || {
             ForgeHypothesisSource::Operator(format!(
@@ -2921,7 +2978,7 @@ impl ControlPlane {
             ))
         };
         let Some(strategy_id) = run.strategy_id.clone() else {
-            return Ok(Some(default_hypothesis()));
+            return Ok(vec![default_hypothesis()]);
         };
         let history = self
             .storage
@@ -2958,7 +3015,7 @@ impl ControlPlane {
         }
         // `Fifo` keeps the clusters' already-stable signature order.
 
-        let suggestion_of = |cluster: &FailureCluster| match &cluster.suggested_mutation {
+        let suggestion_of = |mutation: Option<&SuggestedMutation>| match mutation {
             Some(SuggestedMutation::ReferenceOperation { operation_after }) => {
                 Some(operation_after.clone())
             }
@@ -2969,47 +3026,64 @@ impl ControlPlane {
             .reference_instruction(champion_before)?
             .map(ReferenceInstruction::operation_name);
 
-        let chosen_index =
-            if strategy.config.gene_selection == GeneSelectionPolicy::HighestTransferEffect {
-                let preferred = champion_operation
-                    .and_then(|operation| best_gene_target_operation(&history, operation));
-                preferred
-                    .as_deref()
-                    .and_then(|preferred_op| {
-                        clusters
-                            .iter()
-                            .find(|(_, cluster)| {
-                                suggestion_of(cluster).as_deref() == Some(preferred_op)
-                            })
-                            .map(|(index, _)| *index)
-                    })
-                    .or_else(|| {
-                        clusters
-                            .iter()
-                            .find(|(_, cluster)| suggestion_of(cluster).is_some())
-                            .map(|(index, _)| *index)
-                    })
-            } else {
-                clusters
-                    .iter()
-                    .find(|(_, cluster)| suggestion_of(cluster).is_some())
-                    .map(|(index, _)| *index)
-            };
+        // Ordered, deduplicated-by-target-operation candidates: (cluster
+        // index, whether the secondary suggestion is used).
+        let mut ranked: Vec<(u32, bool)> = Vec::new();
+        let mut seen_operations: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        let mut push = |index: u32, use_secondary: bool, operation: String| {
+            if seen_operations.insert(operation) {
+                ranked.push((index, use_secondary));
+            }
+        };
 
-        if let Some(cluster_index) = chosen_index {
-            return Ok(Some(ForgeHypothesisSource::Analysis {
-                analysis_id,
-                cluster_index,
-            }));
+        if strategy.config.gene_selection == GeneSelectionPolicy::HighestTransferEffect {
+            let preferred = champion_operation
+                .and_then(|operation| best_gene_target_operation(&history, operation));
+            if let Some(preferred_op) = preferred {
+                if let Some((index, _)) = clusters.iter().find(|(_, cluster)| {
+                    suggestion_of(cluster.suggested_mutation.as_ref()).as_deref()
+                        == Some(preferred_op.as_str())
+                }) {
+                    push(*index, false, preferred_op);
+                }
+            }
+        }
+        for (index, cluster) in &clusters {
+            if let Some(operation) = suggestion_of(cluster.suggested_mutation.as_ref()) {
+                push(*index, false, operation);
+            }
+        }
+        for (index, cluster) in &clusters {
+            if let Some(operation) = suggestion_of(cluster.secondary_suggested_mutation.as_ref()) {
+                push(*index, true, operation);
+            }
         }
 
-        // No cluster suggested anything: fall back to today's casing flip
-        // when the Champion runs one of the two casing operations, exactly
-        // like a strategy-less run would.
-        if matches!(champion_operation, Some("identity" | "ascii_uppercase")) {
-            return Ok(Some(default_hypothesis()));
+        if ranked.is_empty() {
+            // No cluster suggested anything: fall back to today's casing
+            // flip when the Champion runs one of the two casing operations,
+            // exactly like a strategy-less run would.
+            if matches!(champion_operation, Some("identity" | "ascii_uppercase")) {
+                return Ok(vec![default_hypothesis()]);
+            }
+            return Ok(Vec::new());
         }
-        Ok(None)
+
+        let candidate_count = usize::try_from(strategy.config.candidate_count)
+            .unwrap_or(usize::MAX)
+            .max(1);
+        Ok(ranked
+            .into_iter()
+            .take(candidate_count)
+            .map(
+                |(cluster_index, use_secondary)| ForgeHypothesisSource::Analysis {
+                    analysis_id: analysis_id.clone(),
+                    cluster_index,
+                    use_secondary,
+                },
+            )
+            .collect())
     }
 
     fn record_evolution_generation(
@@ -7883,6 +7957,43 @@ fn evolution_analysis_id(run_id: &str, generation_index: u32) -> String {
     format!("evolve-{run_id}-g{generation_index}-analysis")
 }
 
+// TD-17 (roadmap items 10, 13): a generation's rank-0 candidate keeps
+// exactly today's unsuffixed id (so a single-candidate generation --
+// candidate_count == 1, or no bound strategy -- is byte-for-byte identical
+// to a generation recorded before multi-candidate proposals existed); every
+// other ranked candidate gets a distinct, still `validate_job_id`-legal
+// suffix.
+fn evolution_candidate_proposal_id(run_id: &str, generation_index: u32, rank: u32) -> String {
+    let base = evolution_proposal_id(run_id, generation_index);
+    if rank == 0 {
+        base
+    } else {
+        format!("{base}-c{rank}")
+    }
+}
+
+fn evolution_candidate_child_evaluation_id(
+    run_id: &str,
+    generation_index: u32,
+    rank: u32,
+) -> String {
+    let base = evolution_child_evaluation_id(run_id, generation_index);
+    if rank == 0 {
+        base
+    } else {
+        format!("{base}-c{rank}")
+    }
+}
+
+fn evolution_candidate_assessment_id(run_id: &str, generation_index: u32, rank: u32) -> String {
+    let base = evolution_assessment_id(run_id, generation_index);
+    if rank == 0 {
+        base
+    } else {
+        format!("{base}-c{rank}")
+    }
+}
+
 fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
     if hypothesis.trim().is_empty()
         || hypothesis.len() > 512
@@ -8012,6 +8123,11 @@ enum ForgeHypothesisSource {
     Analysis {
         analysis_id: String,
         cluster_index: u32,
+        /// Use the bound cluster's `secondary_suggested_mutation` instead of
+        /// its primary `suggested_mutation` (TD-17, roadmap items 10, 13).
+        /// Always `false` outside a `candidate_count > 1` generation's
+        /// non-highest-ranked candidates.
+        use_secondary: bool,
     },
 }
 
@@ -8122,6 +8238,7 @@ fn resolve_forge_hypothesis(
         ForgeHypothesisSource::Analysis {
             analysis_id,
             cluster_index,
+            use_secondary,
         } => {
             let event_id = format!("{CLUSTER_EVENT_PREFIX}{analysis_id}:clustered");
             let event = history
@@ -8156,7 +8273,12 @@ fn resolve_forge_hypothesis(
                 .clusters
                 .get(usize::try_from(cluster_index).map_err(|_| ExecuteError::NotFound)?)
                 .ok_or(ExecuteError::NotFound)?;
-            let target = match &cluster.suggested_mutation {
+            let chosen_mutation = if use_secondary {
+                cluster.secondary_suggested_mutation.as_ref()
+            } else {
+                cluster.suggested_mutation.as_ref()
+            };
+            let target = match chosen_mutation {
                 Some(SuggestedMutation::ReferenceOperationFlip) => None,
                 Some(SuggestedMutation::ReferenceOperation { operation_after }) => {
                     Some(parse_reference_operation_name(operation_after)?)
@@ -8167,6 +8289,7 @@ fn resolve_forge_hypothesis(
                     ));
                 }
             };
+            let mutation_slot = use_secondary.then_some(MutationSlot::Secondary);
             Ok((
                 cluster.hypothesis.clone(),
                 Some(ForgeAnalysisBinding {
@@ -8175,6 +8298,7 @@ fn resolve_forge_hypothesis(
                     analysis_event_hash,
                     cluster_index,
                     cluster_signature: cluster.signature.clone(),
+                    mutation_slot,
                 }),
                 target,
             ))

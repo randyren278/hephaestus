@@ -1022,6 +1022,27 @@ pub struct ForgeAnalysisBinding {
     pub cluster_index: u32,
     /// The bound cluster's stable signature, for operator-visible confirmation.
     pub cluster_signature: String,
+    /// Which of the bound cluster's suggested mutations this proposal used
+    /// (TD-17, roadmap items 10, 13). `None` (the default, omitted from
+    /// canonical bytes) means the cluster's primary `suggested_mutation` --
+    /// every binding recorded before this field existed, and every
+    /// single-candidate generation today. `Some(Secondary)` means
+    /// `secondary_suggested_mutation` instead, used only by a
+    /// `candidate_count > 1` strategy's non-highest-ranked candidates. This
+    /// field was added after `schema_version` 1 shipped; it defaults to
+    /// `None` so every previously recorded binding still replays
+    /// byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutation_slot: Option<MutationSlot>,
+}
+
+/// Selects which of a `FailureCluster`'s suggested mutations a
+/// [`ForgeAnalysisBinding`] used (TD-17, roadmap items 10, 13).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationSlot {
+    /// `FailureCluster::secondary_suggested_mutation`.
+    Secondary,
 }
 
 /// Operator-visible cluster analysis and its durable event identity.
@@ -2133,6 +2154,45 @@ pub struct EvolutionGenerationPayload {
     pub promoted: bool,
     /// World Champion after this generation (equal to `champion_before` unless promoted).
     pub champion_after: String,
+    /// Every candidate mutation proposed, evaluated, and ranked this
+    /// generation (TD-17, roadmap items 10, 13), in rank order (rank `0`
+    /// first). Empty (and omitted from canonical bytes) whenever exactly one
+    /// candidate was proposed -- the historical case, and every
+    /// strategy-less run -- so that generation's payload, and every field
+    /// above, stays byte-for-byte identical to a generation recorded before
+    /// this field existed: `proposal_id`, `child_genome_id`,
+    /// `child_evaluation_id`, and `assessment_id` above always describe the
+    /// promoted candidate, or the first (rank `0`) one when none was
+    /// promoted, whether or not `candidates` is populated. This field was
+    /// added after `schema_version` 1 shipped; it defaults to empty (and is
+    /// omitted from canonical bytes when empty) so every previously
+    /// recorded generation still replays byte-for-byte.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<EvolutionCandidateRecord>,
+}
+
+/// One candidate mutation proposed, evaluated, and ranked within a
+/// generation (TD-17, roadmap items 10, 13). Rank `0` is the highest
+/// priority a strategy's `mutation_prioritization` and `gene_selection`
+/// order would consider first; candidates are deduplicated by target
+/// operation before ranking, so ranks never tie.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvolutionCandidateRecord {
+    /// Zero-based rank within this generation; `0` is highest priority.
+    pub rank: u32,
+    /// Durable Forge proposal mutating `champion_before` toward this
+    /// candidate's distinct target operation.
+    pub proposal_id: String,
+    /// This candidate's proposed child Genome identity.
+    pub child_genome_id: String,
+    /// Paired evaluation identity of `champion_before` versus this
+    /// candidate's `child_genome_id`.
+    pub child_evaluation_id: String,
+    /// Evidence-only Forge assessment of this candidate against the Champion.
+    pub assessment_id: String,
+    /// This candidate's assessed outcome.
+    pub outcome: ForgeAssessmentOutcome,
 }
 
 /// Canonical payload of the one `evolution.finished` event for a run.

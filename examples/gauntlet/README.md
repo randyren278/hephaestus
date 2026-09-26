@@ -75,12 +75,19 @@ only replay an operator-supplied one.
 
 ### What this does *not* yet prove
 
-A strategy-bound generation still proposes exactly one candidate mutation
-(the highest-priority failure cluster's suggestion, optionally reordered by
-a Gene Bank preference); it does not propose and rank several candidates per
-generation (`EvolverStrategyConfig.candidate_count` above `1` is recorded
-but not yet actionable — see `TECH_DEBT.md` TD-17). The catalog is a closed
-table of these exact 16 operations, not free-form prompt editing: Forge
+A strategy-bound generation now proposes and ranks up to `candidate_count`
+distinct candidate mutations (the highest-priority failure clusters'
+suggestions, optionally reordered by a Gene Bank preference, plus each
+cluster's secondary suggestion when the primary rule alone cannot supply a
+second distinct target — see `docs/EVOLUTION.md`), evaluates each against
+the Champion, and promotes the highest-ranked `metrics_passed` one
+(`EvolverStrategyConfig.candidate_count` above `1` is now actionable —
+`TECH_DEBT.md` TD-17 is closed). What is still missing is a bundled
+`meta evaluate` scenario that isolates `candidate_count` as the only
+differing knob between two compared strategies, so no end-to-end run yet
+demonstrates the efficiency difference this makes possible (`TECH_DEBT.md`
+TD-22). The catalog is a closed table of these exact 16 operations, not
+free-form prompt editing: Forge
 cannot propose, and the reference runtime cannot execute, any operation
 outside it. And the reference runtime remains what it always was — a
 deterministic simulation of each failure mode's shape, not a real

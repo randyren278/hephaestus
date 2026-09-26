@@ -119,6 +119,23 @@ pub struct FailureCluster {
     pub hypothesis: String,
     /// The single minimal supported mutation, when one exists.
     pub suggested_mutation: Option<SuggestedMutation>,
+    /// A second, lower-priority mutation this cluster also supports, when
+    /// one exists (TD-17, roadmap items 10, 13). Today the only source is
+    /// `failure-cluster-v2`'s per-operation rule: a Gauntlet "bad" current
+    /// operation's cluster whose signature is exactly
+    /// `sealed_incorrect_output` also names the cross-family casing target
+    /// `ascii_uppercase` as a deterministic, always-representable
+    /// exploratory alternative. This exists because the primary rule names
+    /// the *same* family fix for every cluster of a given bad operation
+    /// (regardless of shape), so a `candidate_count > 1` strategy needs a
+    /// second, genuinely distinct, evidence-bound target to steer toward;
+    /// see `docs/EVOLUTION.md`. `failure-cluster-v1` and every other case
+    /// leave this `None`. This field was added after `schema_version` 1
+    /// shipped; it defaults to `None` (and is omitted from canonical bytes
+    /// when absent) so every previously recorded receipt still replays
+    /// byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_suggested_mutation: Option<SuggestedMutation>,
 }
 
 /// Canonical aggregate receipt recomputed from authenticated candidate trial evidence.
@@ -301,9 +318,11 @@ fn cluster_trials_for(
         .into_iter()
         .map(|(signature, (visible_count, sealed_count))| {
             let total_count = visible_count.saturating_add(sealed_count);
-            let (hypothesis, suggested_mutation) = match algorithm {
+            let (hypothesis, suggested_mutation, secondary_suggested_mutation) = match algorithm {
                 ClusterAlgorithm::V1 => {
-                    describe(signature, visible_count, sealed_count, total_count)
+                    let (hypothesis, suggested_mutation) =
+                        describe(signature, visible_count, sealed_count, total_count);
+                    (hypothesis, suggested_mutation, None)
                 }
                 ClusterAlgorithm::V2 => describe_v2(
                     signature,
@@ -320,6 +339,7 @@ fn cluster_trials_for(
                 total_count,
                 hypothesis,
                 suggested_mutation,
+                secondary_suggested_mutation,
             }
         })
         .collect()
@@ -490,15 +510,35 @@ fn describe(
 /// - If `current_operation` is absent or unrecognized, no cluster suggests a
 ///   mutation (a safe default: no derivable operation to build a target
 ///   from).
+///
+/// TD-17: a Gauntlet bad operation's cluster whose signature is exactly
+/// `sealed_incorrect_output` also names this fixed, always-representable
+/// cross-family casing target as a secondary candidate. See
+/// [`FailureCluster::secondary_suggested_mutation`].
+const SECONDARY_EXPLORATORY_OPERATION: &str = "ascii_uppercase";
+
 fn describe_v2(
     signature: &'static str,
     visible_count: u32,
     sealed_count: u32,
     total_count: u32,
     current_operation: Option<&str>,
-) -> (String, Option<SuggestedMutation>) {
+) -> (String, Option<SuggestedMutation>, Option<SuggestedMutation>) {
     if let Some(current) = current_operation {
         if let Some(fix) = mutation_family_fix_for(current) {
+            // Every cluster of a Gauntlet bad operation suggests the same
+            // family fix as its primary candidate (unchanged since v2
+            // shipped). The `sealed_incorrect_output` cluster additionally
+            // names a second, genuinely distinct, catalog-valid target
+            // (TD-17): without this, a `candidate_count > 1` strategy would
+            // never see more than one distinct suggested operation for a
+            // given bad operation, since the primary rule depends only on
+            // `current`, not on shape signature.
+            let secondary = (signature == "sealed_incorrect_output"
+                && current != SECONDARY_EXPLORATORY_OPERATION)
+                .then(|| SuggestedMutation::ReferenceOperation {
+                    operation_after: SECONDARY_EXPLORATORY_OPERATION.to_owned(),
+                });
             return (
                 format!(
                     "The candidate's current reference operation ({current}) is a known \
@@ -509,6 +549,7 @@ fn describe_v2(
                 Some(SuggestedMutation::ReferenceOperation {
                     operation_after: fix.to_owned(),
                 }),
+                secondary,
             );
         }
         if let Some(other) = mutation_casing_flip(current) {
@@ -522,10 +563,11 @@ fn describe_v2(
                     Some(SuggestedMutation::ReferenceOperation {
                         operation_after: other.to_owned(),
                     }),
+                    None,
                 )
             } else {
                 let (hypothesis, _) = describe(signature, visible_count, sealed_count, total_count);
-                (hypothesis, None)
+                (hypothesis, None, None)
             };
         }
         // A Gauntlet family's "fix" operation: never propose a regression.
@@ -536,10 +578,11 @@ fn describe_v2(
                  regressing back to its paired bad operation."
             ),
             None,
+            None,
         );
     }
     let (hypothesis, _) = describe(signature, visible_count, sealed_count, total_count);
-    (hypothesis, None)
+    (hypothesis, None, None)
 }
 
 /// Checks authenticated candidate evidence and durably records one
@@ -1195,6 +1238,7 @@ mod tests {
                 total_count: 1,
                 hypothesis: "expected hypothesis".to_owned(),
                 suggested_mutation: Some(SuggestedMutation::ReferenceOperationFlip),
+                secondary_suggested_mutation: None,
             }],
         );
         // The stored artifact recomputes to different cluster content under
@@ -1209,6 +1253,7 @@ mod tests {
                 total_count: 2,
                 hypothesis: "different hypothesis".to_owned(),
                 suggested_mutation: Some(SuggestedMutation::ReferenceOperationFlip),
+                secondary_suggested_mutation: None,
             }],
         );
         let analysis_artifact_id = stores
@@ -1300,6 +1345,48 @@ mod tests {
                 operation_after: "context_loss_aware".to_owned()
             })
         );
+    }
+
+    /// TD-17: the `sealed_incorrect_output` cluster of a Gauntlet bad
+    /// operation names a second, distinct, catalog-valid target in addition
+    /// to the family fix every cluster already suggests, so a
+    /// `candidate_count > 1` strategy can steer toward more than one
+    /// distinct operation even though the primary rule is shape-independent.
+    #[test]
+    fn v2_gauntlet_bad_operation_sealed_cluster_also_names_a_secondary_candidate() {
+        let sealed = [SealedTrial {
+            completion_reason: RunCompletionReason::Success,
+            output_matches: false,
+        }];
+        let clusters = cluster_trials_v2(&[], &sealed, Some("context_loss_naive"));
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].signature, "sealed_incorrect_output");
+        assert_eq!(
+            clusters[0].suggested_mutation,
+            Some(SuggestedMutation::ReferenceOperation {
+                operation_after: "context_loss_aware".to_owned()
+            }),
+            "the primary suggestion is unchanged: still the family fix"
+        );
+        assert_eq!(
+            clusters[0].secondary_suggested_mutation,
+            Some(SuggestedMutation::ReferenceOperation {
+                operation_after: "ascii_uppercase".to_owned()
+            }),
+            "the sealed cluster also names a second, distinct candidate"
+        );
+    }
+
+    /// A visible-shape cluster of a Gauntlet bad operation never gets a
+    /// secondary suggestion (only the sealed cluster does): this keeps the
+    /// single-candidate ranked pick (the family fix) unambiguous regardless
+    /// of which cluster a strategy's prioritization considers first.
+    #[test]
+    fn v2_gauntlet_bad_operation_visible_cluster_has_no_secondary_candidate() {
+        let trials = vec![v2_trial("UNKNOWN")];
+        let clusters = cluster_trials_v2(&trials, &[], Some("context_loss_naive"));
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].secondary_suggested_mutation, None);
     }
 
     #[test]

@@ -140,11 +140,21 @@ strategy-steered generations"). `EvolveStart` accepts an optional
 `strategy_id`; `meta evaluate` passes each compared strategy's own id to its
 lineage runs, so a meta-evaluation now genuinely exercises those two knobs,
 not only `generation_count`/`experiment_allocation`. `candidate_count` above
-`1` is still recorded but not actionable — Forge proposes exactly one
-candidate per generation regardless (see `TECH_DEBT.md` TD-17), so **two
-strategies differing only in `candidate_count` still cannot show a real
-efficiency difference**. The in-process test suite covers both ends of the
-now-actionable knobs:
+`1` is now actionable too (TD-17, closed in this lane): a generation proposes
+up to `candidate_count` distinct, ranked catalog-suggested target operations
+(the same `mutation_prioritization`/`gene_selection` ordering picks rank
+`0`; a Gauntlet bad operation's `sealed_incorrect_output` cluster additionally
+names a second, distinct exploratory target so a `candidate_count > 1`
+strategy has more than one candidate to choose from — see
+[docs/EVOLUTION.md](EVOLUTION.md)), evaluates and ranks every proposed
+candidate against the Champion, and promotes the highest-ranked
+`metrics_passed` one. A generation's trial cost is `1 + candidates proposed`
+rather than the historical fixed `2`, so **two strategies differing only in
+`candidate_count` can now show a real efficiency difference** (more trials
+spent per generation, potentially fewer generations needed) — though no
+end-to-end meta-evaluation scenario exercising exactly that comparison is
+bundled yet (new debt: TD-22). The in-process test suite covers both ends of
+the now-actionable knobs:
 
 - a two-strategy, two-lineage meta-evaluation whose declared
   `generation_count`/`experiment_allocation` are equal and whose bootstrap
@@ -186,11 +196,11 @@ refresh (an already-verified event is skipped via a per-process cache), so a
 cold verification pass stays linear in history size instead of growing
 quadratically with it (see TECH_DEBT.md TD-16).
 
-A genuinely smarter search policy now exists for two of the three knobs:
-Forge reads `mutation_prioritization` to choose which failure cluster to
-mutate first and `gene_selection` to consult the Gene Bank for a
-higher-effect alternative. Trying more than one candidate per generation
-(`candidate_count`) still needs a richer Forge (see `TECH_DEBT.md` TD-17),
-so a meta-evaluation comparing two strategies that differ only in
-`candidate_count` still cannot show a real efficiency difference from it
-alone.
+A genuinely smarter search policy now exists for all three knobs: Forge reads
+`mutation_prioritization` to choose which failure cluster to mutate first,
+`gene_selection` to consult the Gene Bank for a higher-effect alternative,
+and `candidate_count` to propose, evaluate, and rank that many distinct
+target operations per generation, promoting the highest-ranked
+`metrics_passed` one (TD-17, closed in this lane). No bundled meta-evaluation
+scenario yet isolates `candidate_count` as the only differing knob between
+two compared strategies (TD-22).

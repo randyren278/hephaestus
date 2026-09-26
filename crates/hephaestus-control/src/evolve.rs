@@ -36,10 +36,32 @@ pub(super) const EVOLUTION_FINISHED_TYPE: &str = "evolution.finished";
 pub(super) const EVOLUTION_CANCEL_TYPE: &str = "evolution.cancel_requested";
 const EVOLUTION_PREFIX: &str = "evolution:";
 
-/// Paired Arena evaluations (trials) exactly one generation consumes: a
-/// diagnostic selection establishing the Champion as the mutated candidate,
-/// plus a child-versus-Champion assessment evaluation.
+/// Minimum paired Arena evaluations (trials) any one generation can consume:
+/// a diagnostic selection establishing the Champion as the mutated
+/// candidate, plus at least one child-versus-Champion assessment
+/// evaluation. Used as the admission/budget floor (`EvolveStart.budget` and
+/// an `EvolverStrategyConfig.experiment_allocation` must allow at least
+/// this much). A generation's *actual* trial cost is `1 + candidates
+/// proposed` (TD-17, roadmap items 10, 13): with `candidate_count == 1` (or
+/// no bound strategy), that is always exactly this constant; with a
+/// strategy proposing more than one candidate, it can be higher, up to
+/// `1 + candidate_count`, bounded by the run's remaining budget.
 pub(super) const TRIALS_PER_GENERATION: u64 = 2;
+
+/// The paired-trial cost `evolution_projection` charges one recorded
+/// generation: `1 + candidates.len()` when `candidates` is populated
+/// (TD-17's multi-candidate accounting), or the historical
+/// [`TRIALS_PER_GENERATION`] when it is empty -- covering both a genuinely
+/// historical (pre-TD-17) generation event and the byte-identical
+/// single-candidate case this lane still emits (see
+/// [`EvolutionGenerationPayload::candidates`]).
+fn generation_trial_count(payload: &EvolutionGenerationPayload) -> u64 {
+    if payload.candidates.is_empty() {
+        TRIALS_PER_GENERATION
+    } else {
+        1_u64.saturating_add(u64::try_from(payload.candidates.len()).unwrap_or(u64::MAX))
+    }
+}
 
 pub(super) fn evolution_started_event_id(run_id: &str) -> String {
     format!("{EVOLUTION_PREFIX}{run_id}:started")
@@ -195,7 +217,9 @@ pub(super) fn evolution_projection(
                 let run = record.as_mut().ok_or_else(|| {
                     ControlError::Projection("evolution generation precedes its run".to_owned())
                 })?;
-                run.trials_consumed = run.trials_consumed.saturating_add(TRIALS_PER_GENERATION);
+                run.trials_consumed = run
+                    .trials_consumed
+                    .saturating_add(generation_trial_count(&payload));
                 run.generations.push(EvolutionGenerationRecord {
                     payload,
                     event: event_record(event),
@@ -211,6 +235,13 @@ pub(super) fn evolution_projection(
                 })?;
                 run.state = EvolutionRunState::Finished;
                 run.finish_reason = Some(payload.reason);
+                // Trust the finished payload's own trials_consumed, which
+                // `verify_evolution_history` cross-checks against the sum of
+                // recorded generations: this is the only way a
+                // `NoCandidateMutation` finish's spent diagnostic-only trial
+                // (TD-17) is ever reflected here, since no generation event
+                // is recorded for it.
+                run.trials_consumed = payload.trials_consumed;
                 run.finished_event = Some(event_record(event));
             }
             EVOLUTION_CANCEL_TYPE => {
@@ -346,6 +377,79 @@ pub(super) fn verify_evolution_history(
                     }
                 } else if payload.champion_after != payload.champion_before {
                     return Err(bad());
+                }
+                // TD-17 (roadmap items 10, 13): a populated `candidates` list
+                // must independently re-verify -- every candidate's own
+                // proposal and assessment, that no two candidates propose the
+                // same target operation, and that the top-level fields above
+                // describe exactly the highest-ranked (lowest `rank`)
+                // `metrics_passed` candidate when `promoted`, or rank `0`
+                // otherwise. A generation recorded with exactly one candidate
+                // always leaves this empty (see
+                // `EvolutionGenerationPayload::candidates`), so a non-empty
+                // list with fewer than two entries is itself a tamper signal.
+                if !payload.candidates.is_empty() {
+                    if payload.candidates.len() < 2 {
+                        return Err(bad());
+                    }
+                    let mut seen_operations: std::collections::BTreeSet<String> =
+                        std::collections::BTreeSet::new();
+                    let mut highest_passed: Option<usize> = None;
+                    for (candidate_index, candidate) in payload.candidates.iter().enumerate() {
+                        let expected_rank = u32::try_from(candidate_index).map_err(|_| bad())?;
+                        if candidate.rank != expected_rank {
+                            return Err(bad());
+                        }
+                        let candidate_proposal_event = history[..index]
+                            .iter()
+                            .find(|event| event.event_id == forge_event_id(&candidate.proposal_id))
+                            .ok_or_else(bad)?;
+                        let candidate_proposal = decode_forge_proposal(candidate_proposal_event)?;
+                        if candidate_proposal.parent_genome_id != payload.champion_before
+                            || candidate_proposal.child.genome_id != candidate.child_genome_id
+                            || candidate_proposal.world_id != prior.world_id
+                        {
+                            return Err(bad());
+                        }
+                        if !seen_operations.insert(candidate_proposal.operation_after.clone()) {
+                            return Err(bad());
+                        }
+                        let candidate_assessment_event = history[..index]
+                            .iter()
+                            .find(|event| {
+                                event.event_id
+                                    == forge_assessment_event_id(&candidate.assessment_id)
+                            })
+                            .ok_or_else(bad)?;
+                        let candidate_assessment =
+                            decode_forge_assessment(candidate_assessment_event)?;
+                        if candidate_assessment.proposal_id != candidate.proposal_id
+                            || candidate_assessment.evaluation_id != candidate.child_evaluation_id
+                            || candidate_assessment.parent_genome_id != payload.champion_before
+                            || candidate_assessment.child_genome_id != candidate.child_genome_id
+                            || candidate_assessment.outcome != candidate.outcome
+                        {
+                            return Err(bad());
+                        }
+                        if highest_passed.is_none()
+                            && candidate.outcome == ForgeAssessmentOutcome::MetricsPassed
+                        {
+                            highest_passed = Some(candidate_index);
+                        }
+                    }
+                    let expected_chosen = if payload.promoted {
+                        highest_passed.ok_or_else(bad)?
+                    } else {
+                        0
+                    };
+                    let chosen = &payload.candidates[expected_chosen];
+                    if chosen.proposal_id != payload.proposal_id
+                        || chosen.child_genome_id != payload.child_genome_id
+                        || chosen.child_evaluation_id != payload.child_evaluation_id
+                        || chosen.assessment_id != payload.assessment_id
+                    {
+                        return Err(bad());
+                    }
                 }
             }
             EVOLUTION_FINISHED_TYPE => {

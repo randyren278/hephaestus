@@ -91,11 +91,44 @@ operator-supplied one — proven by a per-mode in-process test that seeds each
 mode's bad Genome as Champion and confirms the strategy-driven run promotes
 its paired fix (see [examples/gauntlet/README.md](../examples/gauntlet/README.md)).
 
-`candidate_count` above `1` (proposing and ranking several candidates per
-generation) is still not implemented: Forge proposes exactly one candidate
-per generation regardless of a strategy's declared `candidate_count`, and
-`TRIALS_PER_GENERATION` stays the fixed constant `2` rather than becoming a
-per-generation minimum (see `TECH_DEBT.md` TD-17).
+`candidate_count` above `1` (TD-17, closed in this lane) now proposes and
+ranks several candidates per generation. `choose_evolution_hypothesis_sources`
+builds the same ordered, deduplicated-by-target-operation list the
+single-candidate path always did — the Gene Bank's preferred operation
+(when `gene_selection == HighestTransferEffect`) first, then every cluster's
+primary `suggested_mutation` in `mutation_prioritization` order, then every
+cluster's `secondary_suggested_mutation` — and takes up to `candidate_count`
+of it (still exactly one without a bound strategy, or with
+`candidate_count == 1`). A Gauntlet bad operation's `sealed_incorrect_output`
+cluster is the only source of a second, genuinely distinct target today: it
+additionally suggests the fixed, always-representable cross-family casing
+flip (`ascii_uppercase`) as a `secondary_suggested_mutation`
+(`FailureCluster::secondary_suggested_mutation`, `failure-cluster-v2` only;
+omitted from `failure-cluster-v1` receipts and every other cluster), since
+the primary rule already names the same family fix for *every* cluster of a
+given bad operation regardless of shape. Each chosen candidate is proposed
+(the non-highest-priority ones through a new `ForgeAnalysisBinding.mutation_slot:
+Some(Secondary)` when bound to a cluster's secondary suggestion, an optional
+field that keeps every existing binding's canonical bytes unchanged),
+evaluated against the Champion, invariant-checked, and assessed exactly like
+the single-candidate path; the highest-ranked (lowest-rank) `metrics_passed`
+candidate is promoted, unmodified Champion policy otherwise. A generation's
+trial cost is `1 + candidates proposed` (`TRIALS_PER_GENERATION` is now a
+budget floor, not the per-generation cost), and the run's remaining budget
+caps how many candidates a generation actually proposes. `EvolutionGenerationPayload`
+gained a `candidates: Vec<EvolutionCandidateRecord>` field (rank, proposal,
+child Genome, child evaluation, assessment, and outcome per candidate),
+empty and omitted from canonical bytes whenever exactly one candidate is
+proposed — the historical case, and every strategy-less or
+`candidate_count == 1` run — so every payload recorded before multi-candidate
+generations existed, and every single-candidate generation recorded today,
+stays byte-for-byte identical. `verify_evolution_history` independently
+re-verifies a populated `candidates` list: every candidate's own proposal and
+assessment evidence, that no two candidates propose the same target
+operation, and that the top-level fields describe exactly the highest-ranked
+`metrics_passed` candidate when `promoted`, or rank `0` otherwise — rejecting
+a forged list that claims a different (lower-ranked or non-passing)
+candidate won.
 
 ## What this proves today
 
