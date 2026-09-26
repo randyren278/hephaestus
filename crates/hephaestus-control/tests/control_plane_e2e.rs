@@ -15,9 +15,10 @@ use hephaestus_arena::{
 };
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind, Command,
-    ControlError, ControlPlane, DenialKind, GeneTransferOutcome, GenomeRecord, JobProgress,
-    JobRecord, JobState, JobTerminal, McpDecision, RemoteCompletion, RemoteJobState, ResponseData,
-    RunCompletionReason, WorkerReply, WorkerRequest, WorldRecord,
+    ControlError, ControlPlane, DenialKind, EvolutionFinishReason, EvolutionRunState,
+    GeneTransferOutcome, GenomeRecord, JobProgress, JobRecord, JobState, JobTerminal, McpDecision,
+    RemoteCompletion, RemoteJobState, ResponseData, RunCompletionReason, WorkerReply,
+    WorkerRequest, WorldRecord,
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client, ForgeAssessmentOutcome};
@@ -6811,6 +6812,59 @@ fn tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty() {
         ResponseData::Genome { .. }
     ));
     assert!(text(&["replay"]).starts_with("replayed events="));
+    daemon.stop();
+}
+
+/// TD-5: the evolve lane's daemon end-to-end proof. `hephaestus evolve
+/// coding` is a real operator-facing convenience command that registers the
+/// bundled `examples/gauntlet/coding` World/Genome/task fixtures against a
+/// running daemon and then drives three unattended generations to
+/// completion purely through the daemon's own background
+/// `advance_evolution` tick (see `ControlPlane::service_async_messages`) and
+/// repeated `evolve status` polling -- exactly the path an operator takes,
+/// as opposed to the in-process `evolve_coding_bundled_world_completes_
+/// three_generations_from_the_example_fixture` unit test in
+/// `server_tests.rs`, which dispatches the same fixture directly against a
+/// `ControlPlane` with no daemon process or CLI in between.
+#[test]
+fn evolve_coding_completes_three_generations_through_the_real_daemon_and_cli() {
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let daemon = Daemon::start(&data_dir);
+
+    let output = cli(&data_dir, &["evolve", "coding", "--budget", "6"]);
+    let evolve_response = response(&output);
+    assert!(
+        evolve_response.error.is_none(),
+        "evolve coding failed: {:?}",
+        evolve_response.error
+    );
+    let Some(ResponseData::Evolution { run }) = evolve_response.data else {
+        panic!("evolve coding should report the finished run: {evolve_response:?}");
+    };
+    assert_eq!(run.state, EvolutionRunState::Finished);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::GenerationsExhausted)
+    );
+    assert_eq!(
+        run.generations.len(),
+        3,
+        "evolve coding must complete three unattended generations"
+    );
+    assert_eq!(run.trials_consumed, 6);
+
+    // Idempotent re-admission: the run is already finished, so a second
+    // `evolve status` through the CLI replays the same durable outcome
+    // rather than restarting it.
+    let status = response(&cli(&data_dir, &["evolve", "status", &run.run_id]));
+    let Some(ResponseData::Evolution { run: replayed }) = status.data else {
+        panic!("evolve status should report the durable run: {status:?}");
+    };
+    assert_eq!(replayed.state, EvolutionRunState::Finished);
+    assert_eq!(replayed.generations.len(), 3);
+
+    assert!(response(&cli(&data_dir, &["replay"])).error.is_none());
     daemon.stop();
 }
 

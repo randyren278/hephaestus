@@ -14689,6 +14689,7 @@ fn meta_evaluate_shows_a_descendant_strategy_reaching_equal_champions_at_lower_c
 /// candidates changes a lineage's cost relative to an otherwise-identical
 /// single-candidate strategy, without changing its outcome here.
 #[test]
+#[allow(clippy::similar_names)]
 fn meta_evaluate_isolates_candidate_count_as_the_only_differing_knob() {
     let directory = tempdir().expect("Gauntlet evolve fixture directory");
     let (mut plane, parent, _candidate) = real_worker_gauntlet_fixture(
@@ -14713,8 +14714,14 @@ fn meta_evaluate_isolates_candidate_count_as_the_only_differing_knob() {
         "context_loss_naive",
         "context_loss_aware",
     );
-    let strategy_a_id =
-        register_test_strategy(&mut plane, &token, &directory, "meta-cc-one", "fifo", "none");
+    let strategy_a_id = register_test_strategy(
+        &mut plane,
+        &token,
+        &directory,
+        "meta-cc-one",
+        "fifo",
+        "none",
+    );
     let strategy_b_id = register_test_strategy_with_candidate_count(
         &mut plane,
         &token,
