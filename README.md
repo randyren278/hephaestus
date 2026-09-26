@@ -15,34 +15,49 @@
   <img src="https://img.shields.io/badge/license-MIT-E8590C?labelColor=161B22" alt="MIT license">
 </p>
 
-<p align="center">
-  <a href="#quickstart">Quickstart</a> ·
-  <a href="#what-it-does">What it does</a> ·
-  <a href="#daily-use">Daily use</a> ·
-  <a href="#why-you-can-trust-it">Why you can trust it</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a>
-</p>
+Most "self-improving agent" loops keep score by vibes: a model rewrites its
+own prompt, a benchmark number goes up, and nobody can say afterwards which
+change caused it or how to get the old version back. Hephaestus is the
+boring, stubborn part of that loop done properly. An agent configuration is
+an immutable, content-addressed Genome, scored in an isolated sandbox against
+a sealed evaluator it can never read, with every run and receipt written to a
+hash-linked ledger. Kill the daemon and restart it, and it rebuilds that exact
+history from disk or refuses to start.
 
-Most "self-improving agent" loops keep score by vibes. A model rewrites its own
-prompt, a benchmark number goes up, and nobody can say afterwards which change
-caused it, whether the candidate peeked at the answer key, or how to get the old
-version back.
+## Install
 
-Hephaestus is the boring, stubborn part of that loop done properly. An agent
-configuration is an immutable, content-addressed **Genome**. The environment it
-is judged in is an immutable **World** with non-evolvable **Laws**. Parent and
-child run in separately sandboxed worktrees under one pinned source revision,
-are scored by an evaluator the candidate can never read, and the result lands in
-a hash-linked ledger signed by the daemon. Kill the daemon, restart it, and it
-rebuilds the exact same state from history or refuses to start.
+Source checkout: `git clone https://github.com/randyren278/hephaestus.git && cd hephaestus && scripts/install.sh`
 
-Named for the god who forged things that lasted. Protected Arena evaluation,
-deterministic measured selection, and recorded reference-output invariant checks
-are available. Promotion authorization remains separate work.
+Then run `heph` — it starts the daemon, opens the operator console, and walks
+you through a short tour on first launch; `heph --tour` replays it. New to
+Hephaestus? [Getting started](docs/GETTING_STARTED.md) covers the same ground
+in more detail.
 
----
+Prefer a macOS package? See [macOS installation](docs/MACOS_INSTALL.md).
 
-## How it fits together
+## Quickstart
+
+Prerequisites: macOS, `git`, and a stable Rust toolchain (1.85+).
+
+```bash
+hephaestus world register world.json
+hephaestus genome register parent.md --world hephaestus:world:<id>
+hephaestus genome register child.md  --world hephaestus:world:<id>
+hephaestus unfreeze
+hephaestus run hephaestus:genome:<parent>
+hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>
+hephaestus arena select eval-001
+hephaestus replay
+```
+
+That registers a World and two Genomes, runs the parent, measures parent
+against child in a protected Arena, then verifies the whole ledger replays
+byte-for-byte. Prefer one command? `scripts/quickstart.sh` builds the
+workspace, drives this exact loop against a scratch daemon, then `kill -9`s
+it and brings it back to prove the state is canonical history. Full
+walkthrough, including building the World's evaluator artifacts: [docs/CLI.md](docs/CLI.md).
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -63,319 +78,31 @@ flowchart LR
 
 Candidates never see canonical storage, the evaluator, expected outputs, or
 each other. The daemon starts **frozen**; only the operator can unfreeze it,
-and that decision is itself a ledgered event.
-
-## What it does
-
-<table>
-<tr>
-<td width="34%" valign="top"><strong>Compiles Genomes and Worlds into immutable identities</strong></td>
-<td valign="top">JSON or YAML in, canonical content-addressed objects out. Two equivalent sources get one identity. A child that claims more authority than its parent or its World is refused at compile time, with the reason.</td>
-</tr>
-<tr>
-<td valign="top"><strong>Registers them through one trusted projection</strong></td>
-<td valign="top"><code>hephaestus world register</code> and <code>hephaestus genome register</code> append <code>world.registered</code> / <code>genome.registered</code> events. Every startup replays them strictly: a Genome before its World, a parent under another World, a tampered payload, or a non-canonical artifact fails the boot rather than producing a broken state.</td>
-</tr>
-<tr>
-<td valign="top"><strong>Runs a Genome in isolation</strong></td>
-<td valign="top"><code>hephaestus run</code> materializes a private Git worktree at a pinned commit, executes the offline reference runtime under a deny-by-default Seatbelt profile with hard wall and output limits, records redacted lifecycle traces, and signs the terminal result.</td>
-</tr>
-<tr>
-<td valign="top"><strong>Measures parent against child in a protected Arena</strong></td>
-<td valign="top"><code>hephaestus arena evaluate</code> loads the World's visible and sealed task manifests itself, pins one revision, seed, environment, and budget for both trials, verifies the deployed evaluator's hash against the World before spending any work, and returns only visible aggregates. A crashed trial is recorded as unreliable and incorrect, with its cost and latency, not dropped.</td>
-</tr>
-<tr>
-<td valign="top"><strong>Records deterministic measured selection</strong></td>
-<td valign="top"><code>hephaestus arena select &lt;evaluation-id&gt;</code> recomputes a seeded bootstrap and correctness/reliability/cost/latency gates from verified Arena evidence, then stores an event-bound, hash-addressed receipt. Its invariant gate is explicitly unverified, so it never authorizes promotion.</td>
-</tr>
-<tr>
-<td valign="top"><strong>Proves its own state</strong></td>
-<td valign="top"><code>hephaestus replay</code> reloads the ledger from disk, verifies its hash chain, registrations, recorded selections, and projected state, then compares the result with the live daemon. Mismatch is an error, not a warning.</td>
-</tr>
-<tr>
-<td valign="top"><strong>Stays under your thumb</strong></td>
-<td valign="top"><code>freeze</code>, <code>unfreeze</code>, and cancellation requests survive restarts. A job is reported stopped only after its guardian confirms process-group termination. The socket, token, database, and producer key are owner-only (0600) inside a 0700 directory.</td>
-</tr>
-</table>
-
-## What it doesn't do (yet)
-
-- **No promotion or rollback.** Arena records deterministic measured-selection
-  and reference-output invariant receipts, but does not combine them into a
-  promotion decision. Promotion always fails closed; rollback remains roadmap
-  item 8 work.
-- **No hosted-model runs.** The Codex and Claude invocation contracts exist and
-  are tested inert; only the deterministic reference runtime executes. Billable
-  runs require an explicit permit that does not exist yet.
-- **macOS only for execution.** Isolation is Seatbelt. On other hosts the
-  daemon refuses to launch candidate processes rather than running them
-  unsandboxed. Registration, replay, and inspection work everywhere.
-- **The Ink TUI is a local operator console.** macOS packages bundle its
-  JavaScript and pinned Node runtime; source checkouts use Node/npm. Besides
-  local status, freeze/kill controls, and Arena progress by known evaluation
-  ID, it has a Lineage and Champions screen (World list, Genome ancestry tree
-  marking Champion/standby/quarantined rows, a prompt diff against the
-  parent, and operator-confirmed Champion rollback), an Evidence & Costs
-  submenu with read-only Runs, Evidence receipts, Costs, and Denials screens
-  built from the existing `run_list`/`evaluation_list`/`denial_list`
-  projections and grouped by World, and a Markdown agent authoring flow: pick
-  a World, edit a Markdown Genome source via `$EDITOR` hand-off (or its
-  starter template), register it through `genome_register`, and run a paired
-  Test via `evaluate_pair` with live progress; a read-only Gene Bank
-  screen (`gene_list`/`gene_show`: extracted Genes, their transfer tally and
-  contradiction flag, and per-Gene transfer/speciation detail); and a
-  read-only Drift, Canary & Meta-eval submenu (`drift_list`/`drift_show`,
-  `canary_list`/`canary_show`, `meta_strategy_list`/`meta_strategy_show`,
-  `meta_list`/`meta_show`): drift records with their observed delta versus
-  threshold, canaries with full stage/transition/evidence history, registered
-  Evolver strategies, and meta-evaluation receipts with their bootstrapped
-  quality/cost confidence intervals. There is intentionally no MCP gateway or
-  remote-worker activity screen — the daemon has no list command for MCP
-  calls or remote-worker jobs, only lookup by known ID (see below).
-  `scripts/package_macos_acceptance.sh`
-  installs the packaged, non-source-checkout archive into an isolated `$HOME`
-  and exercises the authoring flow's CLI equivalent (World/Genome
-  registration, Arena run, replay) plus the bundled TUI against the real
-  daemon. A recorded real demo (`docs/demo/`) shows the daemon starting,
-  World/Genome registration, TUI-driven Lineage/Champion viewing, and
-  TUI-driven authoring, registration, and paired Testing of a Genome. See
-  [the setup guide](apps/hephaestus-tui/README.md) and
-  [macOS package instructions](docs/MACOS_INSTALL.md).
-- **The web console is a local, read-only browser view.** It proxies a fixed
-  allowlist of read-only daemon commands (`status`, `world_list`,
-  `genome_list`, `genome_show`, `genome_prompt`, `champion_show`,
-  `job_status`, `gene_list`, `gene_show`, `drift_show`, `drift_list`,
-  `canary_show`, `canary_list`, `meta_strategy_show`, `meta_strategy_list`,
-  `meta_show`, `meta_list`, `run_list`, `evaluation_list`, `denial_list`)
-  over an owner-only Unix socket, the same way the TUI does; it can never
-  mutate canonical state. Its tabs cover Status, Worlds/lineage, Genome
-  prompt diffs, Genes, Drift & Canary, Experiments (meta-evaluation), and
-  Activity (runs, evaluations, costs, and authority/denial history). See
-  [apps/hephaestus-web/README.md](apps/hephaestus-web/README.md). There is no
-  autonomous-loop or MCP/remote-worker activity view yet.
-- **The MCP gateway and remote workers are a first slice, not the full
-  distributed surface.** `hephaestus-mcp-gateway` exposes 11 read-only and 4
-  mutating tools over MCP's stdio JSON-RPC transport, enforced by a
-  per-client capability policy and ledgered (including denials) through the
-  daemon's ordinary authenticated API. `hephaestus-remote-worker`
-  authenticates with a scoped, expiring, operator-minted credential and
-  executes one job kind — a bounded direct reference run — with the daemon
-  remaining the sole signer of the result. See
-  [docs/MCP_GATEWAY.md](docs/MCP_GATEWAY.md) and
-  [docs/REMOTE_WORKERS.md](docs/REMOTE_WORKERS.md). Leasing an Arena trial, a
-  second storage backend, and migrating the daemon's internal storage calls
-  onto the new `EventLedger`/`ArtifactBackend` traits remain open.
-
----
-
-## Quickstart
-
-**Prerequisites:** macOS, `git`, and a stable Rust toolchain (1.85+).
-
-```bash
-git clone https://github.com/randyren278/hephaestus.git
-cd hephaestus
-scripts/quickstart.sh
-```
-
-That builds the workspace, starts a daemon on a scratch `.quickstart` directory,
-and walks the entire loop with real binaries: publish evaluator artifacts,
-register a World, register an identity Markdown Genome and an uppercase child,
-unfreeze, run the parent, evaluate parent vs child in the Arena,
-replay the ledger, then `kill -9` the daemon and bring it back to show that
-everything it just did is canonical history. A few seconds, once the build is
-warm.
-
-The quickstart demonstrates only the bounded offline reference instruction
-language: the parent returns each input unchanged and the child uppercases it.
-Its release run checks for a visible score improvement from 0/1 to 1/1 and two
-total correctness improvements including the sealed task. Execution uses the
-release Seatbelt sandbox and produces signed receipts and CAS outputs.
-Promotion remains disabled until invariant evidence is joined to selection in a verified promotion decision.
-
-## Daily use
-
-For a relocatable, user-local macOS package and its fixture initializer, see
-[macOS installation](docs/MACOS_INSTALL.md).
-
-Start the daemon once, from the repository you want candidates to work in:
-
-```bash
-cargo build --release --workspace
-target/release/hephaestusd --source-repository . \
-  --evaluator-executable target/release/hephaestus-reference-evaluator
-```
-
-It defaults to `HEPHAESTUS_HOME`, then `~/.hephaestus`. Every `hephaestus`
-command below accepts `--data-dir` and `--json`.
-
-**Build a World.** A World is Laws plus the evaluator artifacts that enforce
-them. Put the artifacts in the store first, then reference them by address:
-
-```bash
-hephaestus arena manifest tasks/visible.json      # canonicalizes and stores → artifact id
-hephaestus arena manifest tasks/sealed.json
-hephaestus artifact put target/release/hephaestus-reference-evaluator
-hephaestus verifier                               # this daemon's Ed25519 producer key
-hephaestus world register world.json              # → hephaestus:world:<blake3>
-```
-
-The World source names those four addresses under `evaluator_artifacts`
-(`arena.visible_manifest`, `arena.sealed_manifest`, `arena.evaluator`,
-`arena.runtime_verifier`). A World that anchors somebody else's verifier key is
-rejected on the spot. Full schema in [docs/WORLDS.md](docs/WORLDS.md); a working
-template in [examples/quickstart/world.template.json](examples/quickstart/world.template.json).
-
-**Register Genomes.** A Genome is compiled *under* a World, and its parents must
-already be registered under that same World:
-
-```bash
-hephaestus genome register parent.md --world hephaestus:world:<id>
-hephaestus genome register child.md  --world hephaestus:world:<id>   # child.md lists the parent id
-hephaestus genome list
-```
-
-Registration is idempotent: the same source always yields the same identity and
-never a conflict. Schema in [docs/GENOMES.md](docs/GENOMES.md).
-
-**Run and measure.**
-
-```bash
-hephaestus unfreeze
-hephaestus run hephaestus:genome:<parent>
-hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>
-hephaestus arena select eval-001
-hephaestus arena invariants eval-001
-hephaestus replay
-```
-
-Retrying `arena evaluate` with the same evaluation id reuses the same signed
-run events and receipt; a conflicting retry fails closed.
-
-### Command reference
-
-The daemon supports one active direct run or paired Arena evaluation at a time.
-Arena trials and protected scoring run under the same supervised async job, so
-status, freeze, and cancellation requests remain responsive. Cancellation
-records a request; the job becomes terminal only after supervised process
-termination. The admitted overall wall budget bounds the complete Arena job.
-
-| Command | What it does |
-|---|---|
-| `hephaestus status` | Freeze state, active runs, event count, registered Genomes |
-| `hephaestus freeze` / `unfreeze` | Halt or resume evolution; ledgered, restart-safe |
-| `hephaestus kill --all` | Request cancellation of the active async job |
-| `hephaestus arena manifest <file>` | Canonicalize a task manifest into the artifact store |
-| `hephaestus artifact put <file>` | Store any file by BLAKE3 address |
-| `hephaestus verifier` | Publish this daemon's runtime-result public key as an artifact |
-| `hephaestus world register <file>` | Compile and register a World (`.json`, `.yaml`, `.yml`) |
-| `hephaestus world list` / `show <id>` | Inspect registered Worlds |
-| `hephaestus genome register <file> --world <id>` | Compile and register a Genome under a World |
-| `hephaestus genome list` / `show <id>` | Inspect registered Genomes |
-| `hephaestus genome prompt <id>` | Print the verified reserved prompt body for a Markdown Genome |
-| `hephaestus genome propose <id> --selection-event <event> --parent <genome> --hypothesis <text>` | Propose one evidence-bound prompt mutation; never promotes |
-| `hephaestus genome assess <id> --proposal <proposal> --selection-event <event>` | Record measured evidence for a proposed child; never promotes |
-| `hephaestus run <genome>` | One isolated reference run with signed evidence |
-| `hephaestus submit <job-id> <genome>` | Submit a bounded async direct reference run |
-| `hephaestus job status <job-id>` | Inspect durable state and last recorded trace progress |
-| `hephaestus job kill <job-id>` | Request cancellation; confirm termination with `job status` |
-| `hephaestus tui` | Open the source-checkout Ink operator console (Node.js 22+ and `npm ci` required) |
-| `hephaestus arena evaluate <id> <parent> <child>` | Protected paired evaluation |
-| `hephaestus arena select <id>` | Deterministic measured decision from trusted evaluation history |
-| `hephaestus arena invariants <id>` | Record aggregate reference-output invariant evidence; never promotes |
-| `hephaestus evolve start <id> --world <w> --from <g> --generations <n> --budget <b>` | Unattended, budget-bounded evolution through the ordinary Forge and Champion policy ([docs/EVOLUTION.md](docs/EVOLUTION.md)) |
-| `hephaestus evolve status <id>` / `cancel <id>` | Inspect or cooperatively stop an evolution run |
-| `hephaestus meta strategy register <file>` | Register a versioned, content-addressed Evolver strategy Genome ([docs/META_EVOLUTION.md](docs/META_EVOLUTION.md)) |
-| `hephaestus meta strategy show <id>` / `list` | Inspect one or every registered Evolver strategy |
-| `hephaestus meta evaluate <id> --strategy-a <g> --strategy-b <g> --lineage-world <w> --lineage-genome <g> ... --lineages <n>` | Run a paired meta-evaluation of two Evolver strategies over held-out base lineages using the existing evolve engine; records a replay-verified receipt with a bootstrap confidence interval |
-| `hephaestus meta show <id>` / `list` | Inspect one meta-evaluation receipt, or list recent receipts |
-| `hephaestus forge analyze <id> --evaluation <evaluation>` | Record deterministic failure clusters with hypotheses and suggested minimal mutations; never promotes |
-| `hephaestus champion seed <id> --world <world> --genome <genome> --reason <text>` | Bootstrap a World's first Champion by operator authority |
-| `hephaestus champion promote <id> --assessment <assessment>` | Promote an assessed child whose metrics and invariant evidence pass World policy |
-| `hephaestus champion rollback <id> --world <world> --reason <text>` | Restore the previous Champion and quarantine the current one |
-| `hephaestus champion show <world>` | Current Champion, standby predecessors, quarantined Genomes, and transition history |
-| `hephaestus drift record <id> --world <w> --kind latency\|cost\|correctness\|workload --evidence <evaluation>` | Record verified drift evidence against the current Champion; never replaces it ([docs/CANARY.md](docs/CANARY.md)) |
-| `hephaestus drift show <id>` | Inspect one recorded drift observation |
-| `hephaestus canary start <id> --world <w> --candidate <genome> --assessment <assessment>` | Start a staged canary bound to a shadow-evaluated candidate; the prior Champion stays Champion |
-| `hephaestus canary advance <id> --evidence <evaluation>` | Advance 5% -> 25% -> 50% -> 100% on healthy evidence; automatically aborts on a regression |
-| `hephaestus canary live-check <id> --evidence <evaluation>` | Check a completed canary's Champion against the previous one; a regression automatically rolls back through the existing Champion policy |
-| `hephaestus canary show <id>` | Inspect one canary's stage and transition history |
-| `hephaestus gene extract <id> --promotion <transition>` | Extract a Gene from a promoted, evidence-bound Champion transition ([docs/GENE_BANK.md](docs/GENE_BANK.md)) |
-| `hephaestus gene transfer <id> --gene <gene> --to <genome>` | Apply a Gene's mutation to another lineage's Genome through the ordinary compiler |
-| `hephaestus gene record <id> --evaluation <evaluation>` | Record a transfer trial's measured effect as positive, neutral, or negative |
-| `hephaestus gene show <id>` / `list` | Inspect one Gene's transfer trials, contradictions, and species, or list every Gene |
-| `hephaestus gene speciate <id> --gene <gene> --domain <world>` | Create a specialist species from persistent, statistically significant domain advantage |
-| `hephaestus replay` | Verify history and compare it with live state |
-| `hephaestus runs --limit <n>` | Recent direct runs and jobs, newest first, bounded (default 20, max 200) |
-| `hephaestus evaluations --limit <n>` | Recent Arena evaluations with selection, invariant, and Forge evidence references, newest first |
-| `hephaestus denials --limit <n>` | Recent refused operator requests and recorded runtime denials, newest first |
-| `hephaestus daemon stop` | Audited graceful stop |
-| `hephaestus worker credential-mint <worker-id> --ttl-seconds <n>` | Mint a scoped, expiring remote worker credential |
-| `hephaestus worker credential-revoke <credential-id>` | Revoke a remote worker credential; fails closed on future use |
-| `hephaestus worker submit <job-id> <genome-id>` | Admit one bounded direct reference run for remote-worker execution |
-| `hephaestus worker status <job-id>` | Inspect one remote-worker job |
-
-Operator behavior in detail: [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
-Remote workers: [docs/REMOTE_WORKERS.md](docs/REMOTE_WORKERS.md). The MCP
-gateway (`hephaestus-mcp-gateway`) is a separate stdio binary, not a CLI
-subcommand: [docs/MCP_GATEWAY.md](docs/MCP_GATEWAY.md).
-
----
+and that decision is itself a ledgered event. Every Arena run pins one
+revision, seed, and budget for both trials, and returns only the aggregates
+the operator is authorized to see.
 
 ## Why you can trust it
 
-Tests that pass are not evidence; tests that *fail when they should* are. CI
-runs the suite, then applies **343 deliberate source mutations**, each one
-disabling a specific documented invariant (from "an oversized request is
-accepted" to "a Genome registered before its World is accepted"), and requires
-the suite to go red for every single one. A mutation that survives fails the
-build. The mutation jobs run only after the deterministic job passes; inspect
-the latest CI result before treating a commit as verified. The count can only go up.
-
-Alongside that: an 80% per-module coverage floor (temporarily lowered from 95%; see [TECH_DEBT.md](TECH_DEBT.md)) on each of 37 production-critical
-modules (branch coverage where LCOV reports branches, line coverage otherwise),
-`clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a
-docs gate that fails if any path mentioned in this README stops existing.
-
-The threat model is written down rather than implied:
-[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md). The short version is that a
-candidate is assumed hostile, the evaluator is assumed to leak if it can, and the
-daemon would rather not start than start with a ledger it cannot verify.
-
-## Development
-
-Install the stable Rust toolchain with `clippy`, `rustfmt`, and
-`llvm-tools-preview`, plus `cargo-llvm-cov`. For quick code-quality feedback,
-run `scripts/check-fast.sh` (or pass a Cargo package name to check one package
-and its dependencies). This checks formatting and lints all Rust targets,
-including tests, without linking or launching test executables. Run the full
-gate before a milestone:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features
-cargo test --workspace --all-features
-PYTHONPATH=python python3 -m unittest discover -s python/tests -v
-cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
-python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 343
-python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
-```
-
-The mutation guard takes a while; `--file-prefix crates/hephaestus-genome/`
-scopes it to one crate while iterating.
+- **343 deliberate source mutations** run in CI after the test suite passes, each disabling one documented invariant; the suite must go red for every single one, or the build fails.
+- An 80% per-module coverage floor across 37 production-critical modules, `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a docs gate that fails if any path this documentation mentions stops existing.
+- The threat model is written down, not implied: a candidate is assumed hostile, the evaluator is assumed to leak if it can, and the daemon would rather not start than start with a ledger it cannot verify. See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), including how to verify all of this yourself.
 
 ## Documentation
 
+- [Getting Started](docs/GETTING_STARTED.md): first-run walkthrough
+- [Status](docs/STATUS.md): what is built and what is not
+- [CLI Reference](docs/CLI.md): daily use and every command
 - [Architecture](docs/ARCHITECTURE.md): crate map, trust boundary, and the full system diagram
-- [Control Plane](docs/CONTROL_PLANE.md): daemon lifecycle, commands, fail-closed boundaries
-- [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): compiler contracts and source schemas
-- [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md)
-- [Constitution](docs/CONSTITUTION.md) · [Threat Model](docs/THREAT_MODEL.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md)
+- [Control Plane](docs/CONTROL_PLANE.md) · [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): daemon lifecycle and compiler contracts
+- [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md) · [Ledgers and Artifacts](docs/LEDGERS.md): execution and storage internals
+- [Evolution](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md) · [Gene Bank](docs/GENE_BANK.md) · [Meta-evolution](docs/META_EVOLUTION.md): the evolve/Champion/Gene loop
+- [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md): the distributed surfaces
+- [Threat Model](docs/THREAT_MODEL.md) · [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md): security, supply chain, and how to verify it yourself
+- [Constitution](docs/CONSTITUTION.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md) · [Hera Inheritance](docs/HERA_INHERITANCE.md) · [Iris Inheritance](docs/IRIS_INHERITANCE.md): concepts and lineage
 - [Lab cross-check](docs/LAB_CROSSCHECK.md): independent Python recompute of Rust selection and meta-evolution receipts
-- [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md)
-- [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md)
-- [Evolution runs](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md)
+- [macOS installation](docs/MACOS_INSTALL.md)
+- Operator console: [TUI](apps/hephaestus-tui/README.md) · [Web](apps/hephaestus-web/README.md)
 - [Feature audit](AUDIT.md)
 
 ## License
