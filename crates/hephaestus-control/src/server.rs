@@ -21,7 +21,8 @@ use std::{
 use fs2::FileExt;
 use hephaestus_arena::{
     ArenaError, CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, EvaluationBinding,
-    EvaluationInputs, EvaluationSources, EvaluationStores, InvariantEvent, InvariantReceipt,
+    EvaluationInputs, EvaluationSources, EvaluationStores, FailureCluster, InvariantEvent,
+    InvariantReceipt,
     IsolatedEvaluator, OperatorClusterAnalysis, OperatorInvariantCheck, ReceiptContext,
     ScoredEvaluation, SelectionEvent, SelectionReceipt, SuggestedMutation, TrialPlan,
     TrustedManifest, Visibility, check_failure_clusters, check_reference_output_invariants,
@@ -33,6 +34,7 @@ use hephaestus_arena::{
     verify_selection_event, verify_selection_event_in,
 };
 use hephaestus_core::authority::{CapabilitySet, FreezeState, OperatorToken};
+use hephaestus_core::domain::MutationTarget;
 use hephaestus_experience::{
     EvidenceRecorder, EvidenceRequest, RUN_RESULT_SCHEMA_VERSION, RecordedRuntime, RedactionPolicy,
     RetentionLimits, RunBudgetReceipt, RunResultReceipt, RunResultSigner, RunResultVerifier,
@@ -47,9 +49,9 @@ use hephaestus_ledger::{
 };
 use hephaestus_runtime::{
     Budget, CapabilityToken, CompletionReason, DeterministicRuntime, ExperimentContext,
-    IsolationPolicy, Provider, ReferenceInstruction, RunSpec, RunStatus, RuntimeAdapter, Sandbox,
-    SandboxManager, SupervisedRuntime, WorkerLimits, extract_actual_cost_microusd,
-    extract_final_answer,
+    IsolationPolicy, MUTATION_CATALOG_VERSION, Provider, ReferenceInstruction, RunSpec, RunStatus,
+    RuntimeAdapter, Sandbox, SandboxManager, SupervisedRuntime, WorkerLimits,
+    extract_actual_cost_microusd, extract_final_answer, is_catalog_edge, mutation_edge_kind,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::{Builder as TempDirBuilder, TempDir};
@@ -64,10 +66,11 @@ use crate::{
     EvolutionStartedPayload, EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord,
     ForgeAssessmentEventRecord, ForgeAssessmentOutcome, ForgeAssessmentPayload,
     ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord,
-    GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT,
-    McpDecision, MetaEvaluationPayload, MetaLineageOutcome, MetaStrategyRegisteredPayload,
-    RemoteJobState, ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord,
-    SelectionRecord, WorkerScope, WorldRecord,
+    GenomeRecord, GeneSelectionPolicy, GeneTransferOutcome, InvariantRecord, JobProgress, JobRecord, JobState,
+    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationPayload, MetaLineageOutcome,
+    MetaStrategyRegisteredPayload, MutationPrioritization, RemoteJobState, ResponseData,
+    RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope,
+    WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -1818,6 +1821,7 @@ impl ControlPlane {
             from_genome_id,
             generations,
             budget,
+            strategy_id,
         } = command
         else {
             return Err(ExecuteError::Internal);
@@ -1845,6 +1849,7 @@ impl ControlPlane {
                 || existing.from_genome_id != from_genome_id
                 || existing.max_generations != generations
                 || existing.max_paired_trials != budget
+                || existing.strategy_id != strategy_id
             {
                 return Err(ExecuteError::Rejected(
                     "run_id is already bound to a different evolution configuration".to_owned(),
@@ -1853,6 +1858,11 @@ impl ControlPlane {
             return Ok(ResponseData::Evolution {
                 run: Box::new(existing),
             });
+        }
+        if let Some(strategy_id) = &strategy_id {
+            meta_strategy_projection(&history, strategy_id)
+                .map_err(|_| ExecuteError::Internal)?
+                .ok_or(ExecuteError::NotFound)?;
         }
 
         self.state
@@ -1919,6 +1929,7 @@ impl ControlPlane {
             baseline_genome_id,
             max_generations: generations,
             max_paired_trials: budget,
+            strategy_id,
         };
         let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
         let payload_bytes =
@@ -2122,6 +2133,7 @@ impl ControlPlane {
         from_genome_id: &str,
         generations: u32,
         budget: u64,
+        strategy_id: &str,
     ) -> Result<EvolutionRunRecord, ExecuteError> {
         self.evolve_start(Command::EvolveStart {
             run_id: run_id.to_owned(),
@@ -2129,6 +2141,7 @@ impl ControlPlane {
             from_genome_id: from_genome_id.to_owned(),
             generations,
             budget,
+            strategy_id: Some(strategy_id.to_owned()),
         })?;
         let deadline = Instant::now() + Duration::from_secs(600);
         loop {
@@ -2242,6 +2255,7 @@ impl ControlPlane {
                 &lineage.from_genome_id,
                 strategy_a.config.generation_count,
                 strategy_a.config.experiment_allocation,
+                &strategy_a_id,
             )?;
             self.rollback_champion_to(
                 &run_a_id,
@@ -2255,6 +2269,7 @@ impl ControlPlane {
                 &lineage.from_genome_id,
                 strategy_b.config.generation_count,
                 strategy_b.config.experiment_allocation,
+                &strategy_b_id,
             )?;
             self.rollback_champion_to(
                 &run_b_id,
@@ -2461,16 +2476,26 @@ impl ControlPlane {
         };
         let selection_event_id = selection.event.event_id.clone();
 
+        let Some(source) = self.choose_evolution_hypothesis_source(
+            run,
+            generation_index,
+            &diagnostic_id,
+            &champion_before,
+        )?
+        else {
+            // A strategy-bound run whose failure-cluster analysis suggested
+            // no mutation, and the Champion isn't the casing pair either
+            // (roadmap items 8, 10, 13): stop rather than proposing an
+            // unfounded mutation.
+            self.finish_evolution_run(&run_id, EvolutionFinishReason::NoCandidateMutation)?;
+            return Ok(());
+        };
         let proposal_id = evolution_proposal_id(&run_id, generation_index);
-        let hypothesis = format!(
-            "Evolve run {run_id} generation {generation_index}: flip the reference operation of \
-             Champion {champion_before} to explore the paired instruction space."
-        );
         let ResponseData::ForgeProposal { proposal } = self.propose_genome_from_source(
             &proposal_id,
             &selection_event_id,
             &champion_before,
-            ForgeHypothesisSource::Operator(hypothesis),
+            source,
         )?
         else {
             return Err(ExecuteError::Internal);
@@ -2542,6 +2567,136 @@ impl ControlPlane {
             promoted,
             champion_after,
         })
+    }
+
+    /// Chooses this generation's Forge hypothesis source. Without a bound
+    /// strategy, this is always the historical default: an operator-authored
+    /// hypothesis proposing the `identity`/`ascii_uppercase` flip (unchanged
+    /// behavior for every existing evolve run).
+    ///
+    /// With a bound strategy (roadmap items 8, 10, 13): runs `forge analyze`
+    /// on the diagnostic evaluation (the Champion is the analyzed
+    /// candidate), orders its failure clusters by the strategy's
+    /// `mutation_prioritization` (`Fifo` keeps the clusters' stable
+    /// signature order; `CostWeighted` sorts by descending `total_count`,
+    /// ties by signature), prefers a Gene Bank suggestion when
+    /// `gene_selection == HighestTransferEffect` names one of the available
+    /// suggested operations, and binds the proposal to whichever cluster
+    /// produced the chosen suggestion. `Ok(None)` means no cluster suggested
+    /// a mutation and the Champion is not the casing pair either, so the
+    /// caller finishes the run with `NoCandidateMutation` instead of
+    /// proposing anything.
+    ///
+    /// `candidate_count` above `1` and multi-candidate trial accounting are
+    /// not implemented: exactly one candidate is ever proposed per
+    /// generation (see `TECH_DEBT.md`).
+    fn choose_evolution_hypothesis_source(
+        &mut self,
+        run: &EvolutionRunRecord,
+        generation_index: u32,
+        diagnostic_id: &str,
+        champion_before: &str,
+    ) -> Result<Option<ForgeHypothesisSource>, ExecuteError> {
+        let run_id = run.run_id.clone();
+        let default_hypothesis = || {
+            ForgeHypothesisSource::Operator(format!(
+                "Evolve run {run_id} generation {generation_index}: flip the reference \
+                 operation of Champion {champion_before} to explore the paired instruction \
+                 space."
+            ))
+        };
+        let Some(strategy_id) = run.strategy_id.clone() else {
+            return Ok(Some(default_hypothesis()));
+        };
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let strategy = meta_strategy_projection(&history, &strategy_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::Internal)?;
+
+        let analysis_id = evolution_analysis_id(&run.run_id, generation_index);
+        let ResponseData::ForgeAnalysis { analysis } =
+            self.analyze_forge_clusters(&analysis_id, diagnostic_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+
+        let mut clusters: Vec<(u32, &FailureCluster)> = analysis
+            .analysis
+            .clusters
+            .iter()
+            .enumerate()
+            .filter_map(|(index, cluster)| Some((u32::try_from(index).ok()?, cluster)))
+            .collect();
+        if strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {
+            clusters.sort_by(|(_, left), (_, right)| {
+                right
+                    .total_count
+                    .cmp(&left.total_count)
+                    .then_with(|| left.signature.cmp(&right.signature))
+            });
+        }
+        // `Fifo` keeps the clusters' already-stable signature order.
+
+        let suggestion_of = |cluster: &FailureCluster| match &cluster.suggested_mutation {
+            Some(SuggestedMutation::ReferenceOperation { operation_after }) => {
+                Some(operation_after.clone())
+            }
+            _ => None,
+        };
+
+        let champion_operation = self
+            .reference_instruction(champion_before)?
+            .map(ReferenceInstruction::operation_name);
+
+        let chosen_index = if strategy.config.gene_selection
+            == GeneSelectionPolicy::HighestTransferEffect
+        {
+            let preferred = champion_operation
+                .and_then(|operation| best_gene_target_operation(&history, operation));
+            preferred
+                .as_deref()
+                .and_then(|preferred_op| {
+                    clusters
+                        .iter()
+                        .find(|(_, cluster)| suggestion_of(cluster).as_deref() == Some(preferred_op))
+                        .map(|(index, _)| *index)
+                })
+                .or_else(|| {
+                    clusters
+                        .iter()
+                        .find(|(_, cluster)| suggestion_of(cluster).is_some())
+                        .map(|(index, _)| *index)
+                })
+        } else {
+            clusters
+                .iter()
+                .find(|(_, cluster)| suggestion_of(cluster).is_some())
+                .map(|(index, _)| *index)
+        };
+
+        if let Some(cluster_index) = chosen_index {
+            return Ok(Some(ForgeHypothesisSource::Analysis {
+                analysis_id,
+                cluster_index,
+            }));
+        }
+
+        // No cluster suggested anything: fall back to today's casing flip
+        // when the Champion runs one of the two casing operations, exactly
+        // like a strategy-less run would.
+        if matches!(
+            champion_operation,
+            Some("identity" | "ascii_uppercase")
+        ) {
+            return Ok(Some(default_hypothesis()));
+        }
+        Ok(None)
     }
 
     fn record_evolution_generation(
@@ -5053,6 +5208,7 @@ impl ControlPlane {
         let operator = load_operator_evaluation(self.open_arena_stores()?, evaluation_id)
             .map_err(map_cluster_error)?;
         let world_id = operator.selection_evidence().world_id().to_owned();
+        let candidate_genome_id = operator.selection_evidence().candidate_genome_id().to_owned();
         drop(operator.into_stores());
         let world = self
             .state
@@ -5060,6 +5216,22 @@ impl ControlPlane {
             .world(&world_id)
             .map(|registered| registered.compiled().clone())
             .ok_or(ExecuteError::NotFound)?;
+        // The candidate's own current reference operation, resolved from its
+        // registered Genome and the daemon's already-open artifact store
+        // (roadmap items 8, 10, 13): `failure-cluster-v2`'s suggestion rule
+        // reads this, and replay re-derives it the same deterministic way
+        // (see `verify_cluster_history`).
+        let current_operation = self
+            .storage
+            .as_ref()
+            .and_then(|storage| {
+                genome_reference_instruction(
+                    &self.state.registered,
+                    &storage.artifacts,
+                    &candidate_genome_id,
+                )
+            })
+            .map(ReferenceInstruction::operation_name);
 
         // An existing deterministic analysis is a verified idempotent retry.
         match load_failure_clusters(
@@ -5067,6 +5239,7 @@ impl ControlPlane {
             analysis_id,
             evaluation_id,
             &world,
+            current_operation,
         ) {
             Ok(check) => return self.finish_cluster_check(check),
             Err(ArenaError::UnknownClusterAnalysis(_)) => {}
@@ -5084,6 +5257,7 @@ impl ControlPlane {
             analysis_id,
             evaluation_id,
             &world,
+            current_operation,
             timestamp_millis().map_err(|_| ExecuteError::Internal)?,
         );
         let check = match checked {
@@ -5707,6 +5881,7 @@ impl ControlPlane {
         )
     }
 
+    #[allow(clippy::too_many_lines)]
     fn propose_genome_from_source(
         &mut self,
         proposal_id: &str,
@@ -5736,9 +5911,10 @@ impl ControlPlane {
             .registered
             .world(&world_id)
             .ok_or(ExecuteError::Internal)?;
-        let (hypothesis, analysis_binding) = resolve_forge_hypothesis(
+        let (hypothesis, analysis_binding, target_operation) = resolve_forge_hypothesis(
             &storage.artifacts,
             &history,
+            &self.state.registered,
             world.compiled(),
             &evaluation_id,
             parent_genome_id,
@@ -5748,7 +5924,8 @@ impl ControlPlane {
             &storage.artifacts,
             &self.state.registered,
             parent_genome_id,
-            &world_id,
+            world.compiled(),
+            target_operation,
         )?;
         let prompt_after = storage
             .artifacts
@@ -5763,6 +5940,8 @@ impl ControlPlane {
             proposal_id,
             prompt_after.as_str(),
         )?;
+        let edge_kind = mutation_edge_kind(before.operation_name(), after.operation_name())
+            .map(|kind| kind.as_str().to_owned());
         let payload = ForgeProposalPayload {
             schema_version: 1,
             proposal_id: proposal_id.to_owned(),
@@ -5779,6 +5958,8 @@ impl ControlPlane {
             operation_before: reference_instruction_operation(before).to_owned(),
             operation_after: reference_instruction_operation(after).to_owned(),
             analysis_binding,
+            catalog_version: Some(MUTATION_CATALOG_VERSION),
+            mutation_kind: edge_kind,
         };
         let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
         let payload_bytes =
@@ -6473,23 +6654,35 @@ fn verify_forge_prompt(
         .map_err(|_| ControlError::Protocol("Forge parent prompt is unsupported"))?;
     let after = ReferenceInstruction::parse(after_text)
         .map_err(|_| ControlError::Protocol("Forge child prompt is unsupported"))?;
-    let expected_after = match before {
-        ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
-        ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
-        // Every Gauntlet-mode operation (roadmap item 10) is outside Forge's
-        // supported mutation language: only the Identity/AsciiUppercase flip
-        // is a recognized one-step mutation.
-        _ => return Err(ControlError::Protocol("Forge parent prompt is unsupported")),
-    };
-    let expected_text = mutate_reference_instruction_document(before_text, before, expected_after)
+    // Replay never re-derives an "expected" target the way a new proposal
+    // does: it only checks that the recorded `before -> after` edge is a
+    // representable catalog edge (roadmap items 8, 10, 13), so every
+    // previously recordable receipt (the identity/uppercase flip) still
+    // verifies, and a cluster- or Gene-derived proposal targeting any of the
+    // 16 reference operations verifies the same way. World mutation-scope
+    // authorization is a propose-time-only check (see `forge_prompt_mutation`).
+    if mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {
+        return Err(ControlError::Protocol(
+            "Forge prompt mutation is not a representable catalog edge",
+        ));
+    }
+    let edge_kind = mutation_edge_kind(before.operation_name(), after.operation_name())
+        .expect("checked above");
+    let expected_text = mutate_reference_instruction_document(before_text, before, after)
         .map_err(|()| ControlError::Protocol("Forge prompt is outside mutation scope"))?;
-    if after != expected_after
-        || after_text != expected_text
+    if after_text != expected_text
         || payload.operation_before != reference_instruction_operation(before)
         || payload.operation_after != reference_instruction_operation(after)
+        || payload
+            .catalog_version
+            .is_some_and(|version| version != MUTATION_CATALOG_VERSION)
+        || payload
+            .mutation_kind
+            .as_deref()
+            .is_some_and(|kind| kind != edge_kind.as_str())
     {
         return Err(ControlError::Projection(
-            "Forge prompt mutation is not the supported one-step operation flip".to_owned(),
+            "Forge prompt mutation is not a representable one-step catalog edge".to_owned(),
         ));
     }
     Ok(())
@@ -6878,6 +7071,10 @@ fn evolution_promotion_transition_id(run_id: &str, generation_index: u32) -> Str
     format!("evolve-{run_id}-g{generation_index}-x")
 }
 
+fn evolution_analysis_id(run_id: &str, generation_index: u32) -> String {
+    format!("evolve-{run_id}-g{generation_index}-analysis")
+}
+
 fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
     if hypothesis.trim().is_empty()
         || hypothesis.len() > 512
@@ -7010,21 +7207,102 @@ enum ForgeHypothesisSource {
     },
 }
 
+/// Parses a bare reference-operation name (as recorded in a `ForgeProposalPayload`,
+/// `SuggestedMutation::ReferenceOperation`, or a Gene's `operation_after`)
+/// into a [`ReferenceInstruction`] by round-tripping it through the same
+/// strict document parser every prompt artifact uses.
+fn parse_reference_operation_name(operation: &str) -> Result<ReferenceInstruction, ExecuteError> {
+    let document = format!(
+        "```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{operation}\"}}\n```"
+    );
+    ReferenceInstruction::parse(&document).map_err(|_| ExecuteError::Internal)
+}
+
+/// Best-effort lookup of a registered Genome's `agent.prompt` reference
+/// operation. Returns `None` for any Genome without a supported prompt
+/// (unknown Genome, no `agent.prompt` artifact, unreadable or unparsable
+/// content) rather than failing: callers use this only as a deterministic
+/// hint for choosing a mutation target, and every choice it feeds into is
+/// independently re-verified against catalog edges and canonical bytes.
+fn genome_reference_instruction(
+    registered: &RegisteredObjects,
+    artifacts: &ArtifactStore,
+    genome_id: &str,
+) -> Option<ReferenceInstruction> {
+    let genome = registered.genome(genome_id)?;
+    let artifact = genome.compiled().artifact_id("agent.prompt")?;
+    let id = ArtifactId::parse(artifact.to_owned()).ok()?;
+    let bytes = artifacts.get(&id).ok()?;
+    let body = std::str::from_utf8(&bytes).ok()?;
+    ReferenceInstruction::parse(body).ok()
+}
+
+/// Deterministic Gene Bank lookup for `EvolverStrategyConfig::gene_selection
+/// == HighestTransferEffect` (roadmap items 8, 10, 13): among every
+/// extracted Gene whose `operation_before` equals `current_operation`,
+/// returns the `operation_after` of the one with the highest mean
+/// `estimate_bps` across its `Positive`-outcome transfer trials, requiring
+/// at least one such trial. Ties break on the lexicographically smallest
+/// `gene_id` for determinism. Returns `None` when no such Gene exists.
+fn best_gene_target_operation(history: &[StoredEvent], current_operation: &str) -> Option<String> {
+    let mut best: Option<(i64, String, String)> = None; // (mean_bps, gene_id, operation_after)
+    for gene_event in history
+        .iter()
+        .filter(|event| event.event_type == GENE_EVENT_TYPE)
+    {
+        let Ok(gene) = decode_gene_extracted(gene_event) else {
+            continue;
+        };
+        if gene.operation_before != current_operation {
+            continue;
+        }
+        let mut total: i64 = 0;
+        let mut count: i64 = 0;
+        for transfer_event in history
+            .iter()
+            .filter(|event| event.event_type == TRANSFER_RECORDED_EVENT_TYPE)
+        {
+            let Ok(recorded) = decode_transfer_recorded(transfer_event) else {
+                continue;
+            };
+            if recorded.gene_id != gene.gene_id || recorded.outcome != GeneTransferOutcome::Positive
+            {
+                continue;
+            }
+            total += recorded.estimate_bps;
+            count += 1;
+        }
+        if count == 0 {
+            continue;
+        }
+        let mean = total / count;
+        let better = best.as_ref().is_none_or(|(best_mean, best_gene_id, _)| {
+            mean > *best_mean || (mean == *best_mean && gene.gene_id < *best_gene_id)
+        });
+        if better {
+            best = Some((mean, gene.gene_id, gene.operation_after));
+        }
+    }
+    best.map(|(_, _, operation_after)| operation_after)
+}
+
 /// Resolves the hypothesis text and, for an analysis-derived proposal, the
-/// binding recorded in the proposal payload. This never proposes, mutates, or
+/// binding recorded in the proposal payload plus an explicit mutation target
+/// when the bound cluster names one. This never proposes, mutates, or
 /// promotes anything; it only reads and verifies already-recorded evidence.
 fn resolve_forge_hypothesis(
     artifacts: &ArtifactStore,
     history: &[StoredEvent],
+    registered: &RegisteredObjects,
     world: &CompiledWorld,
     evaluation_id: &str,
     parent_genome_id: &str,
     source: ForgeHypothesisSource,
-) -> Result<(String, Option<ForgeAnalysisBinding>), ExecuteError> {
+) -> Result<(String, Option<ForgeAnalysisBinding>, Option<ReferenceInstruction>), ExecuteError> {
     match source {
         ForgeHypothesisSource::Operator(hypothesis) => {
             validate_hypothesis(&hypothesis)?;
-            Ok((hypothesis, None))
+            Ok((hypothesis, None, None))
         }
         ForgeHypothesisSource::Analysis {
             analysis_id,
@@ -7035,9 +7313,17 @@ fn resolve_forge_hypothesis(
                 .iter()
                 .find(|event| event.event_id == event_id)
                 .ok_or(ExecuteError::NotFound)?;
-            let verified =
-                verify_cluster_event_in(&EventIndex::build(history), artifacts, event, world)
-                    .map_err(|_| ExecuteError::Internal)?;
+            let current_operation =
+                genome_reference_instruction(registered, artifacts, parent_genome_id)
+                    .map(ReferenceInstruction::operation_name);
+            let verified = verify_cluster_event_in(
+                &EventIndex::build(history),
+                artifacts,
+                event,
+                world,
+                current_operation,
+            )
+            .map_err(|_| ExecuteError::Internal)?;
             let analysis = verified.analysis().clone();
             let analysis_event_hash = verified.event().event_hash.clone();
             if analysis.evaluation_id != evaluation_id
@@ -7055,11 +7341,17 @@ fn resolve_forge_hypothesis(
                 .clusters
                 .get(usize::try_from(cluster_index).map_err(|_| ExecuteError::NotFound)?)
                 .ok_or(ExecuteError::NotFound)?;
-            if cluster.suggested_mutation != Some(SuggestedMutation::ReferenceOperationFlip) {
-                return Err(ExecuteError::Rejected(
-                    "the selected cluster has no supported mutation".to_owned(),
-                ));
-            }
+            let target = match &cluster.suggested_mutation {
+                Some(SuggestedMutation::ReferenceOperationFlip) => None,
+                Some(SuggestedMutation::ReferenceOperation { operation_after }) => {
+                    Some(parse_reference_operation_name(operation_after)?)
+                }
+                None => {
+                    return Err(ExecuteError::Rejected(
+                        "the selected cluster has no supported mutation".to_owned(),
+                    ));
+                }
+            };
             Ok((
                 cluster.hypothesis.clone(),
                 Some(ForgeAnalysisBinding {
@@ -7069,20 +7361,45 @@ fn resolve_forge_hypothesis(
                     cluster_index,
                     cluster_signature: cluster.signature.clone(),
                 }),
+                target,
             ))
         }
     }
 }
 
+/// Proposes (or validates an explicit) one-step mutation of `parent_genome_id`'s
+/// `agent.prompt` artifact.
+///
+/// Authorization is enforced here, on the propose path only: a proposal for
+/// `agent.prompt` requires `MutationTarget::Harness` in the World's
+/// `mutation_scope` (roadmap items 8, 10, 13). Replay of an already-recorded
+/// `forge.proposed` event does not re-check World scope (see
+/// `verify_forge_prompt`), only that the recorded edge is a representable
+/// catalog edge, so proposals recorded before this field existed still
+/// verify.
+///
+/// `target`, when supplied, must be a representable [`mutation_catalog`]
+/// edge from the parent's current operation (any of the 16 reference
+/// operations); this is how a cluster- or Gene-derived hypothesis reaches a
+/// Gauntlet fix, not only the casing flip. Without `target`, the default
+/// one-step mutation is the historical `identity`/`ascii_uppercase` flip; any
+/// other current operation is rejected as outside Forge's default mutation
+/// (an explicit `target` is required to mutate a Gauntlet operation).
 fn forge_prompt_mutation(
     artifacts: &ArtifactStore,
     registered: &RegisteredObjects,
     parent_genome_id: &str,
-    world_id: &str,
+    world: &CompiledWorld,
+    target: Option<ReferenceInstruction>,
 ) -> Result<(String, ReferenceInstruction, ReferenceInstruction, String), ExecuteError> {
+    if !world.mutation_scope().contains(&MutationTarget::Harness) {
+        return Err(ExecuteError::Rejected(
+            "World mutation scope does not authorize harness mutations".to_owned(),
+        ));
+    }
     let parent = registered
         .genome(parent_genome_id)
-        .filter(|genome| genome.record().world_id == world_id)
+        .filter(|genome| genome.record().world_id == world.id())
         .ok_or(ExecuteError::NotFound)?;
     let prompt_before = parent
         .compiled()
@@ -7103,17 +7420,29 @@ fn forge_prompt_mutation(
             "the selected candidate prompt is outside the supported mutation language".to_owned(),
         )
     })?;
-    let after = match before {
-        ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
-        ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
-        // Every Gauntlet-mode operation (roadmap item 10) is outside Forge's
-        // supported mutation language: only the Identity/AsciiUppercase flip
-        // is a recognized one-step mutation.
-        _ => {
-            return Err(ExecuteError::Rejected(
-                "the selected candidate prompt is outside the Forge mutation scope".to_owned(),
-            ));
+    let after = match target {
+        Some(explicit) => {
+            if !is_catalog_edge(before.operation_name(), explicit.operation_name()) {
+                return Err(ExecuteError::Rejected(
+                    "the requested mutation target is not a representable catalog edge"
+                        .to_owned(),
+                ));
+            }
+            explicit
         }
+        None => match before {
+            ReferenceInstruction::Identity => ReferenceInstruction::AsciiUppercase,
+            ReferenceInstruction::AsciiUppercase => ReferenceInstruction::Identity,
+            // Every Gauntlet-mode operation (roadmap item 10) needs an
+            // explicit catalog-derived target; there is no default flip for
+            // it.
+            _ => {
+                return Err(ExecuteError::Rejected(
+                    "the selected candidate prompt is outside the Forge mutation scope"
+                        .to_owned(),
+                ));
+            }
+        },
     };
     let after_text =
         mutate_reference_instruction_document(prompt_text, before, after).map_err(|()| {
@@ -7326,10 +7655,30 @@ fn verify_cluster_history(
         let world = registered.world(&world_id).ok_or_else(|| {
             ControlError::Projection("cluster World is not registered".to_owned())
         })?;
-        let verified =
-            verify_cluster_event_in(index, artifacts, event, world.compiled()).map_err(|_| {
-                ControlError::Projection("canonical cluster analysis is invalid".to_owned())
-            })?;
+        // Re-derive the candidate's current operation the same deterministic
+        // way the control plane did when the analysis was first computed
+        // (roadmap items 8, 10, 13), so a `failure-cluster-v2` analysis
+        // recomputes byte-identically on replay.
+        let current_operation = load_recorded_evaluation_in(index, artifacts, &evaluation_id)
+            .ok()
+            .and_then(|recorded| {
+                genome_reference_instruction(
+                    registered,
+                    artifacts,
+                    &recorded.summary.candidate_genome_id,
+                )
+            })
+            .map(ReferenceInstruction::operation_name);
+        let verified = verify_cluster_event_in(
+            index,
+            artifacts,
+            event,
+            world.compiled(),
+            current_operation,
+        )
+        .map_err(|_| {
+            ControlError::Projection("canonical cluster analysis is invalid".to_owned())
+        })?;
         if verified.analysis().evaluation_id != evaluation_id
             || verified.analysis().world_id != world_id
             || verified.event().analysis_artifact_id != envelope.analysis_artifact_id
@@ -7469,6 +7818,7 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         from_genome_id,
         generations,
         budget,
+        strategy_id: _,
     } = command
     {
         validate_job_id(run_id).map_err(|_| ExecuteError::Invalid("run_id is invalid"))?;
@@ -10007,10 +10357,11 @@ mod gene_bank;
 
 use gene_bank::{
     CONTRADICTION_EVENT_TYPE, GENE_EVENT_TYPE, SPECIES_EVENT_TYPE, TRANSFER_APPLIED_EVENT_TYPE,
-    TRANSFER_RECORDED_EVENT_TYPE, contradiction_event_id, decode_transfer_applied,
-    detect_contradiction, existing_contradiction, existing_gene, existing_species,
-    existing_transfer_applied, existing_transfer_recorded, gene_aggregate, gene_aggregate_id,
-    gene_event_id, gene_extraction_payload, gene_record, gene_summaries, speciation_payload,
+    TRANSFER_RECORDED_EVENT_TYPE, contradiction_event_id, decode_gene_extracted,
+    decode_transfer_applied, decode_transfer_recorded, detect_contradiction,
+    existing_contradiction, existing_gene, existing_species, existing_transfer_applied,
+    existing_transfer_recorded, gene_aggregate, gene_aggregate_id, gene_event_id,
+    gene_extraction_payload, gene_record, gene_summaries, speciation_payload,
     species_aggregate_id, species_event_id, species_record, transfer_aggregate_id,
     transfer_applied_event_id, transfer_applied_payload, transfer_record,
     transfer_recorded_event_id, transfer_recorded_payload, verify_gene_bank_history,

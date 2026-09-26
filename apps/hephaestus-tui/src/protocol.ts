@@ -145,7 +145,7 @@ export type EvaluationListEntry = {
 	champion_transition_ids: string[];
 };
 export type EvolutionRunState = 'running' | 'finished';
-export type EvolutionFinishReason = 'generations_exhausted' | 'budget_exhausted' | 'cancelled' | 'interrupted';
+export type EvolutionFinishReason = 'generations_exhausted' | 'budget_exhausted' | 'cancelled' | 'interrupted' | 'no_candidate_mutation';
 export type EvolutionGeneration = {
 	generation_index: number; champion_before: string; diagnostic_evaluation_id: string;
 	proposal_id: string; child_genome_id: string; child_evaluation_id: string; assessment_id: string;
@@ -506,7 +506,7 @@ function parseGeneAggregate(value: unknown): GeneAggregate | undefined {
 }
 
 const EVOLUTION_STATES: EvolutionRunState[] = ['running', 'finished'];
-const EVOLUTION_FINISH_REASONS: EvolutionFinishReason[] = ['generations_exhausted', 'budget_exhausted', 'cancelled', 'interrupted'];
+const EVOLUTION_FINISH_REASONS: EvolutionFinishReason[] = ['generations_exhausted', 'budget_exhausted', 'cancelled', 'interrupted', 'no_candidate_mutation'];
 const MAX_EVOLUTION_GENERATIONS = 1_000_000;
 
 function nullableEnum<T extends string>(value: unknown, allowed: readonly T[]): value is T | null {

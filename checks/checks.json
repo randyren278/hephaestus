@@ -2502,6 +2502,27 @@
       "invariant": "The in-memory artifact backend's reads fail when bytes do not match the requested content address.",
       "find": "        if actual != *id {\n            return Err(LedgerError::ArtifactHashMismatch {\n                expected: id.as_str().to_owned(),\n                actual: actual.as_str().to_owned(),\n            });\n        }",
       "replace": "        if false && actual != *id {\n            return Err(LedgerError::ArtifactHashMismatch {\n                expected: id.as_str().to_owned(),\n                actual: actual.as_str().to_owned(),\n            });\n        }"
+    },
+    {
+      "id": "forge-harness-mutation-scope-skipped",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Forge refuses to propose an agent.prompt mutation unless the target World's mutation_scope authorizes MutationTarget::Harness.",
+      "find": "    if !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }",
+      "replace": "    if false && !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }"
+    },
+    {
+      "id": "forge-catalog-edge-check-skipped-on-replay",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "Replay of a forge.proposed event rejects a recorded operation_before -> operation_after edge that is not a representable mutation-catalog edge.",
+      "find": "    if mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }",
+      "replace": "    if false && mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }"
+    },
+    {
+      "id": "evolve-strategy-cost-weighted-ordering-skipped",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A strategy-bound evolve generation with CostWeighted mutation_prioritization orders candidate failure clusters by descending total_count instead of leaving them in Fifo signature order.",
+      "find": "        if strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }",
+      "replace": "        if false && strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }"
     }
   ]
 }

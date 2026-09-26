@@ -19,6 +19,7 @@ use hephaestus_genome::RegisteredObjects;
 use hephaestus_ledger::StoredEvent;
 
 use super::champion::decode_champion_transition;
+use super::meta_evolve::meta_strategy_projection;
 use super::{
     ControlError, OPERATOR_ACTOR, decode_forge_assessment, decode_forge_proposal,
     forge_assessment_event_id, forge_event_id, hex_encode, validate_job_id,
@@ -176,6 +177,7 @@ pub(super) fn evolution_projection(
                     baseline_genome_id: payload.baseline_genome_id,
                     max_generations: payload.max_generations,
                     max_paired_trials: payload.max_paired_trials,
+                    strategy_id: payload.strategy_id,
                     trials_consumed: 0,
                     state: EvolutionRunState::Running,
                     cancel_requested: false,
@@ -268,6 +270,10 @@ pub(super) fn verify_evolution_history(
                     || payload.max_paired_trials < TRIALS_PER_GENERATION
                 {
                     return Err(bad());
+                }
+                if let Some(strategy_id) = &payload.strategy_id {
+                    meta_strategy_projection(&history[..index], strategy_id)?
+                        .ok_or_else(bad)?;
                 }
             }
             EVOLUTION_GENERATION_TYPE => {

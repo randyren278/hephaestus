@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub use clusters::{
     CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, ClusterView, FailureCluster,
     OperatorClusterAnalysis, SealedTrial, SuggestedMutation, VisibleTrial, check_failure_clusters,
-    cluster_event_references, cluster_trials, load_failure_clusters, verify_cluster_event,
+    cluster_event_references, cluster_trials_v2, load_failure_clusters, verify_cluster_event,
     verify_cluster_event_in,
 };
 pub use error::ArenaError;

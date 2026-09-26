@@ -131,15 +131,20 @@ field on the receipt.
 
 ## What this proves today
 
-The only mutation the Forge can propose is the deterministic
-reference-operation flip described in [docs/EVOLUTION.md](EVOLUTION.md).
-`mutation_prioritization`, `candidate_count` above `1`, and `gene_selection`
-are recorded on every strategy but do not yet change what Forge proposes or
-how many candidates it considers, so **two strategies that only differ in
-those fields cannot show a real efficiency difference today**.
-`generation_count`/`experiment_allocation` are the one knob pair that is
-already actionable, and the in-process test suite now covers both ends of
-that:
+Forge can now propose any of the 16 reference-runtime operations through a
+deterministic mutation catalog, and `mutation_prioritization` and
+`gene_selection` steer which failure-cluster-suggested operation a
+strategy-bound `evolve` generation actually proposes (see
+[docs/EVOLUTION.md](EVOLUTION.md)'s "The mutation catalog and
+strategy-steered generations"). `EvolveStart` accepts an optional
+`strategy_id`; `meta evaluate` passes each compared strategy's own id to its
+lineage runs, so a meta-evaluation now genuinely exercises those two knobs,
+not only `generation_count`/`experiment_allocation`. `candidate_count` above
+`1` is still recorded but not actionable — Forge proposes exactly one
+candidate per generation regardless (see `TECH_DEBT.md` TD-17), so **two
+strategies differing only in `candidate_count` still cannot show a real
+efficiency difference**. The in-process test suite covers both ends of the
+now-actionable knobs:
 
 - a two-strategy, two-lineage meta-evaluation whose declared
   `generation_count`/`experiment_allocation` are equal and whose bootstrap
@@ -181,8 +186,11 @@ refresh (an already-verified event is skipped via a per-process cache), so a
 cold verification pass stays linear in history size instead of growing
 quadratically with it (see TECH_DEBT.md TD-16).
 
-A genuinely smarter search policy (prioritizing which failure cluster to
-mutate first, trying more than one candidate per generation, or consulting
-the Gene Bank) needs a richer Forge that reads `mutation_prioritization`,
-`candidate_count`, and `gene_selection`, which
-does not exist yet.
+A genuinely smarter search policy now exists for two of the three knobs:
+Forge reads `mutation_prioritization` to choose which failure cluster to
+mutate first and `gene_selection` to consult the Gene Bank for a
+higher-effect alternative. Trying more than one candidate per generation
+(`candidate_count`) still needs a richer Forge (see `TECH_DEBT.md` TD-17),
+so a meta-evaluation comparing two strategies that differ only in
+`candidate_count` still cannot show a real efficiency difference from it
+alone.

@@ -7,7 +7,7 @@
     "maximum_cost_microusd": 0
   },
   "authority_ceiling": { "workspace_write": false, "network": false },
-  "mutation_scope": [],
+  "mutation_scope": ["harness"],
   "promotion": {
     "minimum_delta_bps": 0,
     "maximum_regressions": 0,

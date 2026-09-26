@@ -924,7 +924,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     assert!(matches!(
         verify_forge_history(&plane.storage.as_ref().unwrap().artifacts, &wrong_operation, &plane.state.registered),
         Err(ControlError::Projection(message))
-            if message == "Forge prompt mutation is not the supported one-step operation flip"
+            if message == "Forge prompt mutation is not a representable one-step catalog edge"
     ));
 
     let invalid_hypothesis =
@@ -1006,12 +1006,16 @@ fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
     };
     let artifacts =
         ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical Forge artifacts");
+    let compiled_world = plane
+        .registered_world(&world.world_id)
+        .expect("registered dispatch world");
     assert!(matches!(
         forge_prompt_mutation(
             &artifacts,
             &plane.state.registered,
             &promptless.genome_id,
-            &world.world_id
+            &compiled_world,
+            None,
         ),
         Err(ExecuteError::Rejected(message))
             if message == "the selected candidate has no supported prompt to mutate"
@@ -1030,7 +1034,8 @@ fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
             &artifacts,
             &plane.state.registered,
             &unsupported.genome_id,
-            &world.world_id
+            &compiled_world,
+            None,
         ),
         Err(ExecuteError::Rejected(message))
             if message == "the selected candidate prompt is outside the supported mutation language"
@@ -1051,7 +1056,8 @@ fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
             &artifacts,
             &plane.state.registered,
             &out_of_scope.genome_id,
-            &world.world_id
+            &compiled_world,
+            None,
         ),
         Err(ExecuteError::Rejected(message))
             if message == "the selected candidate prompt is outside the Forge mutation scope"
@@ -1667,7 +1673,7 @@ fn register_dispatch_objects(
     let world_path = directory.path().join("world.json");
     fs::write(
         &world_path,
-        r#"{"schema_version":1,"name":"dispatch-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#,
+        r#"{"schema_version":1,"name":"dispatch-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":["harness"],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#,
     )
     .expect("write World source");
     let Some(ResponseData::World { world }) = dispatch_call(
@@ -6657,7 +6663,7 @@ fn register_dispatch_arena_objects_with_invariants(
     fs::write(
         &world_path,
         format!(
-            r#"{{"schema_version":1,"name":"dispatch-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"{}}}}}"#,
+            r#"{{"schema_version":1,"name":"dispatch-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"{}}}}}"#,
             visible_id.as_str(),
             sealed_id.as_str(),
             evaluator_id.as_str(),
@@ -9543,9 +9549,16 @@ fn cluster_analyze_records_deterministic_clusters_and_idempotent_replay() {
         .find(|cluster| cluster.signature == "shape_case_mismatch")
         .expect("candidate's identity output should mismatch the uppercase-expected task");
     assert_eq!(case_mismatch.visible_count, 1);
+    assert_eq!(analysis.analysis.algorithm, "failure-cluster-v2");
+    assert_eq!(
+        analysis.analysis.candidate_operation.as_deref(),
+        Some("identity")
+    );
     assert_eq!(
         case_mismatch.suggested_mutation,
-        Some(SuggestedMutation::ReferenceOperationFlip)
+        Some(SuggestedMutation::ReferenceOperation {
+            operation_after: "ascii_uppercase".to_owned()
+        })
     );
 
     // The identity candidate also answers the sealed task wrong; it is counted
@@ -10456,7 +10469,7 @@ fn register_gauntlet_objects(
     fs::write(
         &world_path,
         format!(
-            r#"{{"schema_version":1,"name":"gauntlet-{mode}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            r#"{{"schema_version":1,"name":"gauntlet-{mode}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
             visible_id.as_str(),
             sealed_id.as_str(),
             evaluator_id.as_str(),
@@ -10676,6 +10689,225 @@ fn gauntlet_failure_modes_reject_the_bad_operation_and_pass_the_fix() {
     }
 }
 
+/// Registers a minimal Fifo/`HighestTransferEffect`-free Evolver strategy
+/// (roadmap item 13) and returns its content-derived strategy id.
+fn register_test_strategy(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    name: &str,
+    mutation_prioritization: &str,
+    gene_selection: &str,
+) -> String {
+    let path = directory.path().join(format!("{name}-strategy.json"));
+    fs::write(
+        &path,
+        format!(
+            r#"{{"schema_version":1,"name":"{name}","mutation_prioritization":"{mutation_prioritization}","generation_count":1,"experiment_allocation":{TRIALS_PER_GENERATION},"candidate_count":1,"gene_selection":"{gene_selection}"}}"#
+        ),
+    )
+    .expect("write Evolver strategy");
+    let Some(ResponseData::MetaStrategy { strategy }) = dispatch_call(
+        plane,
+        token,
+        &format!("{name}-register"),
+        Command::MetaStrategyRegister {
+            path: path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Evolver strategy registration should succeed");
+    };
+    strategy.strategy_id
+}
+
+/// Roadmap items 8, 10, 13: one strategy-driven `evolve` run per named
+/// Gauntlet mode, seeding the mode's bad Genome as Champion and its fix
+/// Genome as the fixed diagnostic baseline (exactly like
+/// `gauntlet_failure_modes_reject_the_bad_operation_and_pass_the_fix`'s
+/// fixture). Generation zero's diagnostic evaluation surfaces the bad
+/// operation's failures; `failure-cluster-v2` recognizes the Champion's
+/// current operation as that mode's known-bad operation and every cluster
+/// suggests the paired fix regardless of shape signature; the strategy's
+/// Fifo prioritization picks it; Forge proposes it as an analysis-bound
+/// catalog edge (`World mutation scope` now authorizes it); the child scores
+/// full correctness against the bad Champion and is promoted through the
+/// exact unmodified Arena/selection/invariant/Champion policy. This is the
+/// first proof that `evolve` can discover a Gauntlet fix on its own, not
+/// just replay an operator-supplied one (see `examples/gauntlet/README.md`).
+#[test]
+#[allow(clippy::too_many_lines)]
+fn evolve_promotes_the_fix_for_every_gauntlet_mode_from_the_bundled_fixtures() {
+    for (mode, task_input, expected_output, bad_operation, good_operation) in [
+        (
+            "context-loss",
+            r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+            " the deploy key is banana",
+            "context_loss_naive",
+            "context_loss_aware",
+        ),
+        (
+            "premature-completion",
+            r#"{"steps":["step1:DONE_A","step2:DONE_B","step3:DONE_C"]}"#,
+            "DONE_A,DONE_B,DONE_C",
+            "premature_completion",
+            "verified_completion",
+        ),
+        (
+            "schema-drift",
+            r#"{"schema_version":2,"field_v1":null,"field_v2":"correct-value"}"#,
+            "correct-value",
+            "schema_drift_brittle",
+            "schema_drift_adaptive",
+        ),
+        (
+            "bad-routing",
+            r#"{"requires_capability":"large_context","routes":[{"name":"cheap","capability":"small","cost":1},{"name":"expensive","capability":"large_context","cost":9}]}"#,
+            "expensive",
+            "bad_routing_cheapest",
+            "capability_aware_routing",
+        ),
+        (
+            "duplicate-subagents",
+            r#"{"requests":["task-a","task-a","task-b"]}"#,
+            "task-a,task-b",
+            "duplicate_subagents_wasteful",
+            "deduplicated_subagents",
+        ),
+        (
+            "poisoned-memory",
+            r#"{"memory":[{"text":"correct-fact","trusted":true},{"text":"malicious-fact","trusted":false}]}"#,
+            "correct-fact",
+            "poisoned_memory_trusting",
+            "provenance_checked_memory",
+        ),
+        (
+            "hallucinated-verification",
+            r#"{"claimed_output":"success-value","claimed_status":"success","actual_state":"actual-value"}"#,
+            "actual-value",
+            "hallucinated_verification_trusting",
+            "ground_truth_verification",
+        ),
+    ] {
+        let directory = tempdir().expect("Gauntlet evolve fixture directory");
+        let (mut plane, parent, _candidate) = real_worker_gauntlet_fixture(
+            &directory,
+            mode,
+            task_input,
+            expected_output,
+            bad_operation,
+            good_operation,
+        );
+        let token = plane.token_hex.clone();
+        let strategy_id =
+            register_test_strategy(&mut plane, &token, &directory, mode, "fifo", "none");
+
+        let run_id = format!("evolve-gauntlet-{mode}");
+        let start = dispatch_call(
+            &mut plane,
+            &token,
+            &format!("{run_id}-start"),
+            evolve_start_command_with_strategy(
+                &run_id,
+                &parent.world_id,
+                &parent.genome_id,
+                1,
+                TRIALS_PER_GENERATION,
+                Some(&strategy_id),
+            ),
+        );
+        assert!(
+            start.error.is_none(),
+            "evolve start should succeed for {mode}: {:?}",
+            start.error
+        );
+
+        let run = evolve_drain_active_run(&mut plane, &run_id);
+        assert_eq!(
+            run.finish_reason,
+            Some(EvolutionFinishReason::GenerationsExhausted),
+            "evolve run for {mode} should complete its one generation"
+        );
+        assert_eq!(
+            run.generations.len(),
+            1,
+            "evolve run for {mode} should record exactly one generation"
+        );
+        let generation = &run.generations[0].payload;
+        assert!(
+            generation.promoted,
+            "evolve should have discovered and promoted {mode}'s fix on its own"
+        );
+        assert_eq!(generation.champion_after, generation.child_genome_id);
+        let promoted_operation = plane
+            .reference_instruction(&generation.child_genome_id)
+            .expect("promoted child should have a readable reference operation");
+        assert_eq!(
+            promoted_operation.map(ReferenceInstruction::operation_name),
+            Some(good_operation),
+            "the promoted child for {mode} should carry the paired fix operation"
+        );
+
+        assert!(matches!(
+            plane.replay_response(),
+            Ok(ResponseData::Replay { .. })
+        ));
+    }
+}
+
+/// A strategy-bound run whose Champion runs an operation with no supported
+/// mutation (a Gauntlet "fix" operation, which never suggests a regression)
+/// and no failing clusters to derive one from finishes with
+/// `NoCandidateMutation` instead of proposing anything.
+#[test]
+fn evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation() {
+    let directory = tempdir().expect("Gauntlet evolve fixture directory");
+    let (mut plane, _parent, candidate) = real_worker_gauntlet_fixture(
+        &directory,
+        "context-loss",
+        r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#,
+        " the deploy key is banana",
+        "context_loss_naive",
+        "context_loss_aware",
+    );
+    let token = plane.token_hex.clone();
+    let strategy_id = register_test_strategy(&mut plane, &token, &directory, "no-op", "fifo", "none");
+
+    // Seed the *fix* Genome as Champion (instead of the bad one): it answers
+    // the diagnostic task correctly, so its evaluation has no failed trials
+    // at all (an empty cluster list) — and even if it had failed some,
+    // `failure-cluster-v2` never suggests a regression for a Gauntlet fix
+    // operation. Either way no cluster suggests anything, and the Champion
+    // isn't the casing pair either.
+    let run_id = "evolve-gauntlet-no-candidate";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "no-candidate-start",
+        evolve_start_command_with_strategy(
+            run_id,
+            &candidate.world_id,
+            &candidate.genome_id,
+            1,
+            TRIALS_PER_GENERATION,
+            Some(&strategy_id),
+        ),
+    );
+    assert!(start.error.is_none(), "evolve start should succeed: {:?}", start.error);
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(
+        run.finish_reason,
+        Some(EvolutionFinishReason::NoCandidateMutation)
+    );
+    assert!(run.generations.is_empty());
+    assert!(matches!(
+        plane.replay_response(),
+        Ok(ResponseData::Replay { .. })
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Autonomous evolution (roadmap item 10). `real_worker_arena_fixture` already
 // registers a World plus two Genomes ("arena-parent" and its child
@@ -10691,12 +10923,24 @@ fn evolve_start_command(
     generations: u32,
     budget: u64,
 ) -> Command {
+    evolve_start_command_with_strategy(run_id, world_id, from_genome_id, generations, budget, None)
+}
+
+fn evolve_start_command_with_strategy(
+    run_id: &str,
+    world_id: &str,
+    from_genome_id: &str,
+    generations: u32,
+    budget: u64,
+    strategy_id: Option<&str>,
+) -> Command {
     Command::EvolveStart {
         run_id: run_id.to_owned(),
         world_id: world_id.to_owned(),
         from_genome_id: from_genome_id.to_owned(),
         generations,
         budget,
+        strategy_id: strategy_id.map(str::to_owned),
     }
 }
 
@@ -13012,7 +13256,7 @@ fn register_meta_lineage(
     fs::write(
         &world_path,
         format!(
-            r#"{{"schema_version":1,"name":"{label}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"{}}}}}"#,
+            r#"{{"schema_version":1,"name":"{label}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"{}}}}}"#,
             visible_id.as_str(),
             sealed_id.as_str(),
             evaluator_id.as_str(),
@@ -13685,7 +13929,7 @@ fn gene_bank_world(
     fs::write(
         &world_path,
         format!(
-            r#"{{"schema_version":1,"name":"{world_name}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            r#"{{"schema_version":1,"name":"{world_name}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
             visible_id.as_str(),
             sealed_id.as_str(),
             evaluator_id.as_str(),

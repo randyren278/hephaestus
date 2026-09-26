@@ -326,6 +326,13 @@ pub enum Command {
         generations: u32,
         /// Hard ceiling on the number of paired Arena evaluations (trials) this run may submit.
         budget: u64,
+        /// Optional registered Evolver strategy (roadmap item 13) steering
+        /// which failure-cluster-suggested mutation each generation
+        /// proposes. Without one, a generation falls back to today's
+        /// default: the `identity`/`ascii_uppercase` flip when the Champion runs
+        /// one of those two operations, otherwise no candidate.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        strategy_id: Option<String>,
     },
     /// Inspect one evolution run's durable, replay-verified progress.
     EvolveStatus {
@@ -977,6 +984,19 @@ pub struct ForgeProposalPayload {
     /// replays byte-for-byte.
     #[serde(default)]
     pub analysis_binding: Option<ForgeAnalysisBinding>,
+    /// The mutation catalog version this proposal's `operation_before` ->
+    /// `operation_after` edge was classified under (roadmap items 8, 10,
+    /// 13). This field was added after `schema_version` 1 shipped; it
+    /// defaults to `None` (and is omitted from canonical bytes when absent)
+    /// so every previously recorded proposal event still replays
+    /// byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_version: Option<u16>,
+    /// The catalog's classification of this edge (`"fix"`, `"regress"`,
+    /// `"flip"`, or `"cross_family"`), recorded for operator visibility.
+    /// Same backward-compatibility treatment as `catalog_version`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutation_kind: Option<String>,
 }
 
 /// Binds one Forge proposal to the exact verified cluster analysis and
@@ -1926,6 +1946,12 @@ pub enum EvolutionFinishReason {
     /// A generation's paired evaluation did not terminate successfully
     /// (for example, a daemon restart recovered it as failed or interrupted).
     Interrupted,
+    /// A strategy-bound run's failure-cluster analysis suggested no
+    /// mutation for the current Champion and the Champion is not the
+    /// casing pair (so no default fallback flip applies either); the run
+    /// stops rather than proposing an unfounded mutation (roadmap items 8,
+    /// 10, 13).
+    NoCandidateMutation,
 }
 
 /// Canonical payload of the one `evolution.started` event for a run.
@@ -1948,6 +1974,13 @@ pub struct EvolutionStartedPayload {
     pub max_generations: u32,
     /// Hard ceiling on the number of paired Arena evaluations (trials) this run may submit.
     pub max_paired_trials: u64,
+    /// Registered Evolver strategy (roadmap item 13) steering this run's
+    /// mutation choice, if one was bound at start. This field was added
+    /// after `schema_version` 1 shipped; it defaults to `None` (and is
+    /// omitted from canonical bytes when absent) so every previously
+    /// recorded `evolution.started` event still replays byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_id: Option<String>,
 }
 
 /// Canonical payload of one `evolution.generation` event.
@@ -2049,6 +2082,10 @@ pub struct EvolutionRunRecord {
     pub max_generations: u32,
     /// Hard ceiling on the number of paired Arena evaluations (trials) this run may submit.
     pub max_paired_trials: u64,
+    /// Registered Evolver strategy steering this run's mutation choice, if
+    /// one was bound at start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_id: Option<String>,
     /// Paired Arena evaluations (trials) consumed by completed generations.
     pub trials_consumed: u64,
     /// Current lifecycle state.
