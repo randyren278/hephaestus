@@ -116,14 +116,27 @@ records the child's win with a receipt.
 To do the same steps by hand, one command at a time:
 
 ```bash
-hephaestus world register world.json                                # 1. set up the exam
-hephaestus genome register parent.md --world hephaestus:world:<id>  # 2. the original agent
-hephaestus genome register child.md  --world hephaestus:world:<id>  # 3. the changed agent
-hephaestus unfreeze                                                 # 4. release the brake
-hephaestus run hephaestus:genome:<parent>                           # 5. try the original once
-hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>  # 6. fair fight
-hephaestus arena select eval-001                                    # 7. record the verdict
-hephaestus replay                                                   # 8. prove the record is intact
+# 1. Set up the exam (a World)
+hephaestus world register world.json
+
+# 2-3. Register the original agent and the changed one (two Genomes)
+hephaestus genome register parent.md --world hephaestus:world:<id>
+hephaestus genome register child.md  --world hephaestus:world:<id>
+
+# 4. Release the brake (Hephaestus starts frozen)
+hephaestus unfreeze
+
+# 5. Try the original once, in a sandbox
+hephaestus run hephaestus:genome:<parent>
+
+# 6. The fair fight: both agents, same tasks, sealed judge
+hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>
+
+# 7. Record the verdict as a receipt
+hephaestus arena select eval-001
+
+# 8. Prove the whole record is intact
+hephaestus replay
 ```
 
 Each `<id>` is the fingerprint Hephaestus prints when you register something.
