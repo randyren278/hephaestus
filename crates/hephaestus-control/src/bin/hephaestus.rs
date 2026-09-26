@@ -514,6 +514,10 @@ enum EvolveCommand {
         /// this run may submit; each generation consumes exactly two.
         #[arg(long)]
         budget: u64,
+        /// Optional registered Evolver strategy steering which
+        /// failure-cluster-suggested mutation each generation proposes.
+        #[arg(long)]
+        strategy: Option<String>,
     },
     /// Show one evolution run's durable, replay-verified progress.
     Status {
@@ -1217,6 +1221,7 @@ fn run_evolve_coding(data_dir: &Path, budget: u64, json: bool) -> ExitCode {
             from_genome_id: parent.genome_id.clone(),
             generations: GENERATIONS,
             budget,
+            strategy_id: None,
         },
     )
     .is_none()
@@ -1530,12 +1535,14 @@ fn evolve_command_from_cli(command: EvolveCommand) -> Result<Command, &'static s
             from,
             generations,
             budget,
+            strategy,
         } => Command::EvolveStart {
             run_id,
             world_id: world,
             from_genome_id: from,
             generations,
             budget,
+            strategy_id: strategy,
         },
         EvolveCommand::Status { run_id } => Command::EvolveStatus { run_id },
         EvolveCommand::Cancel { run_id } => Command::EvolveCancel { run_id },
@@ -2328,6 +2335,7 @@ fn forge_analysis_human(analysis: &ForgeAnalysisRecord) -> String {
         .map(|(index, cluster)| {
             let mutation = cluster
                 .suggested_mutation
+                .as_ref()
                 .map_or_else(|| "none".to_owned(), |mutation| format!("{mutation:?}"));
             format!(
                 "[{index}]{}:visible={},sealed={},mutation={},hypothesis={:?}",
@@ -2595,6 +2603,33 @@ mod tests {
                 from_genome_id: "genome-1".to_owned(),
                 generations: 3,
                 budget: 6,
+                strategy_id: None,
+            }
+        );
+        assert_eq!(
+            parse(&[
+                "hephaestus",
+                "evolve",
+                "start",
+                "run-1",
+                "--world",
+                "world-1",
+                "--from",
+                "genome-1",
+                "--generations",
+                "3",
+                "--budget",
+                "6",
+                "--strategy",
+                "strategy-1"
+            ]),
+            Command::EvolveStart {
+                run_id: "run-1".to_owned(),
+                world_id: "world-1".to_owned(),
+                from_genome_id: "genome-1".to_owned(),
+                generations: 3,
+                budget: 6,
+                strategy_id: Some("strategy-1".to_owned()),
             }
         );
         assert_eq!(

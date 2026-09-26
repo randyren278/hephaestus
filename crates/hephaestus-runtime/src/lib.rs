@@ -4,6 +4,7 @@ mod deterministic;
 mod error;
 mod guardian;
 mod isolation;
+mod mutation_catalog;
 mod provider;
 mod provider_events;
 mod reference_instruction;
@@ -17,6 +18,12 @@ pub use deterministic::DeterministicRuntime;
 pub use error::RuntimeError;
 pub use guardian::{hold_process_group_anchor, run_process_guardian};
 pub use isolation::{IsolationBackend, IsolationPolicy};
+pub use mutation_catalog::{
+    ALL_OPERATIONS as MUTATION_CATALOG_OPERATIONS, CATALOG_VERSION as MUTATION_CATALOG_VERSION,
+    EdgeKind as MutationEdgeKind, casing_flip as mutation_casing_flip,
+    edge_kind as mutation_edge_kind, family_fix_for as mutation_family_fix_for,
+    family_name as mutation_family_name, is_catalog_edge, is_known_operation as is_known_mutation_operation,
+};
 pub use provider::ProviderInvocation;
 pub use provider_events::{
     ProviderEventCursor, extract_actual_cost_microusd, extract_final_answer,

@@ -2912,6 +2912,7 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         "analysis-001",
         "evaluation-001",
         &world,
+        Some("identity"),
         1_788_000_123_500,
     )
     .unwrap();
@@ -2925,7 +2926,8 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
     assert_eq!(check.event().actor, "arena-plane");
 
     let analysis = check.analysis().clone();
-    assert_eq!(analysis.algorithm, "failure-cluster-v1");
+    assert_eq!(analysis.algorithm, "failure-cluster-v2");
+    assert_eq!(analysis.candidate_operation.as_deref(), Some("identity"));
     assert_eq!(analysis.analysis_id, "analysis-001");
     assert_eq!(analysis.evaluation_id, "evaluation-001");
     assert_eq!(analysis.world_id, world.id());
@@ -2943,7 +2945,9 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
     assert_eq!(case_mismatch.sealed_count, 0);
     assert_eq!(
         case_mismatch.suggested_mutation,
-        Some(SuggestedMutation::ReferenceOperationFlip)
+        Some(SuggestedMutation::ReferenceOperation {
+            operation_after: "ascii_uppercase".to_owned()
+        })
     );
     let provider_failure = by_signature["completion_provider_failure"];
     assert_eq!(provider_failure.visible_count, 1);
@@ -2979,6 +2983,7 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         "analysis-001",
         "evaluation-001",
         &world,
+        Some("identity"),
         1_788_000_123_501,
     )
     .unwrap();
@@ -2994,7 +2999,7 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         .into_iter()
         .find(|event| event.event_id == "forge:analysis:analysis-001:clustered")
         .unwrap();
-    let verified = verify_cluster_event(stores, &event, &world).unwrap();
+    let verified = verify_cluster_event(stores, &event, &world, Some("identity")).unwrap();
     assert_eq!(verified.analysis(), &expected_analysis);
 
     // A rewritten event type is rejected even though the ID prefix matches.
@@ -3011,7 +3016,7 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         ))
         .unwrap();
     assert!(matches!(
-        verify_cluster_event(stores, &wrong_type_event, &world),
+        verify_cluster_event(stores, &wrong_type_event, &world, Some("identity")),
         Err(ArenaError::InvalidClusterEvent)
     ));
 
@@ -3024,7 +3029,7 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
     let mut spoofed_event = event.clone();
     spoofed_event.actor = "untrusted-actor".to_owned();
     assert!(matches!(
-        verify_cluster_event(stores, &spoofed_event, &world),
+        verify_cluster_event(stores, &spoofed_event, &world, Some("identity")),
         Err(ArenaError::InvalidClusterEvent)
     ));
 
@@ -3034,7 +3039,7 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         directory.path().join("blobs"),
     )
     .unwrap();
-    let reloaded = load_failure_clusters(stores, "analysis-001", "evaluation-001", &world).unwrap();
+    let reloaded = load_failure_clusters(stores, "analysis-001", "evaluation-001", &world, Some("identity")).unwrap();
     assert_eq!(reloaded.analysis(), &expected_analysis);
     drop(reloaded);
 
@@ -3051,5 +3056,5 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         directory.path().join("blobs"),
     )
     .unwrap();
-    assert!(load_failure_clusters(stores, "analysis-001", "evaluation-001", &world).is_err());
+    assert!(load_failure_clusters(stores, "analysis-001", "evaluation-001", &world, Some("identity")).is_err());
 }

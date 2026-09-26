@@ -52,18 +52,40 @@ World/Genome/task fixtures for a manual walkthrough, structured exactly like
 `invariants.json`, `parent.md`, `candidate.md`, `tasks/visible.json`,
 `tasks/sealed.json`.
 
+### What this now also proves: `evolve` can discover a mode's fix on its own
+
+Forge's supported mutations are now a deterministic catalog of all 16
+reference-runtime operations (`crates/hephaestus-runtime/src/mutation_catalog.rs`),
+not only the `identity`⇄`ascii_uppercase` flip, and a World's
+`mutation_scope` must authorize `harness` mutations before Forge will
+propose one at all (every fixture below already does). When an `evolve` run
+binds a registered Evolver strategy (`evolve start --strategy <id>`), each
+generation's failure-cluster analysis (`failure-cluster-v2`) recognizes a
+Champion running one of these seven modes' "bad" operations and suggests
+its paired fix for *every* failure cluster, regardless of shape — because,
+unlike the casing pair, a Gauntlet bad/fix pair's outputs usually share no
+structural resemblance at all. `crates/hephaestus-control`'s
+`evolve_promotes_the_fix_for_every_gauntlet_mode_from_the_bundled_fixtures`
+test seeds each mode's bad Genome as Champion, its fix Genome as the fixed
+diagnostic baseline, starts a one-generation strategy-bound `evolve` run,
+and asserts the run promotes a child carrying exactly that mode's paired fix
+operation through the unmodified Arena/selection/invariant/Champion policy —
+proving `evolve` can now *discover* a fix for each named mode on its own, not
+only replay an operator-supplied one.
+
 ### What this does *not* yet prove
 
-`evolve`'s only optimizer is Forge's reference-operation flip
-(`identity`⇄`ascii_uppercase`); it does not know how to propose any of the
-14 Gauntlet operations. A Genome carrying one of them is explicitly rejected
-by Forge's prompt-mutation check (`the selected candidate prompt is outside
-the Forge mutation scope`) rather than silently mishandled. That means an
-unattended `evolve` run cannot yet *discover* a fix for any of these seven
-modes on its own — only an operator (or a test) registering the fix Genome
-directly can demonstrate the pass. Closing that gap needs Forge to propose
-mutations across a larger space than one flip, which is future work, not
-claimed here.
+A strategy-bound generation still proposes exactly one candidate mutation
+(the highest-priority failure cluster's suggestion, optionally reordered by
+a Gene Bank preference); it does not propose and rank several candidates per
+generation (`EvolverStrategyConfig.candidate_count` above `1` is recorded
+but not yet actionable — see `TECH_DEBT.md` TD-17). The catalog is a closed
+table of these exact 16 operations, not free-form prompt editing: Forge
+cannot propose, and the reference runtime cannot execute, any operation
+outside it. And the reference runtime remains what it always was — a
+deterministic simulation of each failure mode's shape, not a real
+multi-turn model, tool schema, router, subagent orchestrator, memory store,
+or self-reporting model (see above).
 
 ## What else is expressible today: sealed-holdout generalization
 
@@ -131,15 +153,18 @@ invariants.json` step substituted into `__INVARIANTS__`. Then either:
 [`coding/`](coding/) is the World `hephaestus evolve coding --budget <n>`
 registers and drives automatically (see
 [docs/EVOLUTION.md](../../docs/EVOLUTION.md)). It uses the same
-`identity`/`ascii_uppercase` pair as `sealed-holdout/` (the only pair Forge's
-mutation operator supports), applied to short Python-function-shaped visible
-and sealed tasks so the World reads as "coding"-flavored. Running it proves
-the unattended multi-generation *mechanism* end to end from one command —
-registration, three generations, completion — against a Gauntlet-named
-World; it does not prove the optimizer can solve a real coding task, and it
-does not exercise any of the seven named failure-mode operations above
-(those aren't reachable through Forge's mutation operator yet, as explained
-above).
+`identity`/`ascii_uppercase` pair as `sealed-holdout/`, applied to short
+Python-function-shaped visible and sealed tasks so the World reads as
+"coding"-flavored; `evolve coding` starts no strategy, so its run always
+uses the historical casing-flip default described above, even though Forge
+could now propose any of the 16 catalog operations for a strategy-bound
+run. Running it proves the unattended multi-generation *mechanism* end to
+end from one command — registration, three generations, completion —
+against a Gauntlet-named World; it does not prove the optimizer can solve a
+real coding task, and it does not exercise any of the seven named
+failure-mode operations above (`evolve coding` is a fixed convenience
+command with no `--strategy` flag of its own; see `hephaestus evolve start
+--strategy <id>` above for the mechanism that does reach them).
 
 ## Extending this Gauntlet honestly
 
@@ -147,11 +172,12 @@ The seven failure-mode proxies above are intentionally simple: one JSON
 scenario, one byte-exact bad/fix pair, proven only through direct Arena
 evaluation. When a future roadmap item adds a real capability (a real
 tool-calling adapter, a context/compaction mechanism, subagent orchestration,
-a persisted memory store, a routing table, or a Forge mutation operator that
-can propose more than the one-step operation flip), prefer building the
-richer version alongside these proxies rather than deleting them, and update
-this file's claims in the same commit. Until then, this directory's honest
-claims are exactly two: each named failure mode has a genuine deterministic
-proxy that Arena evaluation alone can reject/pass, and sealed-holdout
-evidence catches a visible-only regression that a richer Gauntlet World will
-still need to catch.
+a persisted memory store, or a routing table), prefer building the richer
+version alongside these proxies rather than deleting them, and update this
+file's claims in the same commit. Until then, this directory's honest claims
+are exactly three: each named failure mode has a genuine deterministic proxy
+that Arena evaluation alone can reject/pass; a strategy-bound `evolve` run
+can discover each mode's fix on its own through Forge's closed 16-operation
+mutation catalog (not free-form prompt editing); and sealed-holdout evidence
+catches a visible-only regression that a richer Gauntlet World will still
+need to catch.
