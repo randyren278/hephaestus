@@ -59,6 +59,12 @@ jobs:
         run: python -m unittest discover -s scripts/tests -p 'test_macos_package.py' -v
 
       - name: Tests with coverage
+        # Two test threads: the control suite's Arena tests each spawn worker,
+        # guardian, evaluator, and git processes, and four at once on this
+        # runner add enough latency noise to trip the selection and canary
+        # latency gates. Mutation shards keep the default (see TD-25).
+        env:
+          RUST_TEST_THREADS: "2"
         run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 
       - name: Per-module floor for critical modules

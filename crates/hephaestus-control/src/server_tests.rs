@@ -16894,7 +16894,7 @@ fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_l
 const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 
 /// Baseline delay added to every reference trial in the auto-canary fixture.
-const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 60;
+const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 150;
 
 /// Like `real_worker_arena_fixture_with_invariants`, but the registered World
 /// opts in to `laws.auto_canary_on_drift`, and both registered Genomes start
