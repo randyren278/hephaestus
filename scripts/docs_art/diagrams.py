@@ -635,6 +635,50 @@ def constitution() -> str:
     return c.svg()
 
 
+def crate_map() -> str:
+    c = Canvas(960, 960, "How the Hephaestus codebase fits together",
+               "Four layers. Front doors: the terminal and web consoles in apps/, and the programs you run, hephaestus and heph, plus the MCP gateway and remote worker. The engine: hephaestusd in hephaestus-control, the only writer. Capabilities: hephaestus-genome turns World and Genome files into sealed objects; hephaestus-runtime runs agents in locked sandboxes; hephaestus-experience records what happened with secrets scrubbed; hephaestus-arena runs fair paired comparisons. Foundation: hephaestus-ledger, the chained record and file store; hephaestus-core, the Laws and shared vocabulary. Standalone: hephaestus-senate, the debate tool, which needs none of the rest. Code only depends on its own layer or the layers below.")
+    c.heading("How the codebase fits together", "Four layers, top to bottom, plus one tool that stands on its own.")
+    layers = [
+        ("FRONT DOORS", [("console", "Consoles", "apps/: the terminal and web screens."),
+                         ("operator", "Programs you run", "hephaestus, heph, the MCP gateway, the remote worker.")]),
+        ("THE ENGINE", [("daemon", "hephaestus-control", "hephaestusd: the daemon, its API, and the only writer to the record.")]),
+        ("CAPABILITIES", [("genome", "hephaestus-genome", "Seals World and Genome files."),
+                          ("sandbox", "hephaestus-runtime", "Runs agents in locked sandboxes."),
+                          ("redact", "hephaestus-experience", "Records runs, secrets scrubbed."),
+                          ("arena", "hephaestus-arena", "Fair, paired comparisons.")]),
+        ("FOUNDATION", [("ledger", "hephaestus-ledger", "The chained record and fingerprinted file store."),
+                        ("law", "hephaestus-core", "The Laws and the shared vocabulary.")]),
+    ]
+    y = 116
+    for label, crates in layers:
+        wide = len(crates) < 4
+        h = 142 if wide else 190
+        c.box(40, y, 880, h, fill=RAISED)
+        c.text(58, y + 26, label, size=12.5, weight=700, fill=GOLD, spacing=1.6)
+        inner_w = (880 - 36 - 14 * (len(crates) - 1)) / len(crates)
+        for i, (icon, name, role) in enumerate(crates):
+            x = 58 + i * (inner_w + 14)
+            c.box(x, y + 40, inner_w, h - 56)
+            if wide:
+                c.icon(icon, x + 14, y + 56, 40)
+                c.text(x + 68, y + 70, name, size=14, fill=INK, weight=700, mono=name.startswith("hephaestus-"))
+                c.paragraph(x + 68, y + 94, role, inner_w - 84, size=13.5)
+            else:
+                c.icon(icon, x + 14, y + 52, 36)
+                c.text(x + 14, y + 112, name, size=12.5, fill=INK, weight=700, mono=True)
+                c.paragraph(x + 14, y + 136, role, inner_w - 28, size=13)
+        if label != "FOUNDATION":
+            c.arrow([(480, y + h + 2), (480, y + h + 16)], width=2)
+        y += h + 18
+    c.box(40, y + 6, 880, 96, stroke=GOLD, width=2, dash="6 5")
+    c.icon("senate", 58, y + 26, 52)
+    c.text(128, y + 44, "STANDALONE", size=12.5, weight=700, fill=GOLD, spacing=1.6)
+    c.text(128, y + 68, "hephaestus-senate", size=14, fill=INK, weight=700, mono=True)
+    c.text(128, y + 90, "The debate tool. It needs none of the layers above, so it installs on its own.", size=13.5)
+    c.text(40, y + 132, "Code only depends on its own layer or the layers below it, never on a layer above.", size=13.5, fill=BRIGHT)
+    return c.svg()
+
 DIAGRAMS = {
     "how-it-works.svg": how_it_works,
     "glossary.svg": glossary_readme,
@@ -655,6 +699,7 @@ DIAGRAMS = {
     "remote-workers.svg": remote_workers,
     "threat-model.svg": threat_model,
     "constitution.svg": constitution,
+    "crate-map.svg": crate_map,
 }
 
 

@@ -1,5 +1,18 @@
 # Hephaestus Feature Audit
 
+**In short.** This is the evidence log behind the claims in the README and [docs/STATUS.md](docs/STATUS.md). For each feature it records whether that feature is actually hooked up, whether it works, and how we know. It is dated and partly historical. For a plain summary of what works today, read [docs/STATUS.md](docs/STATUS.md) instead.
+
+How to read the tables:
+
+| Column | Question it answers |
+|---|---|
+| Wired | Can you actually reach it from a real entry point, such as a command or the daemon? |
+| Works | Was it run, and did it do what it claims? |
+| Tested | Is there an automated test that exercises it? |
+| Guarded | Would CI go red if someone broke it, for example through a deliberate source mutation? |
+| Documented | Is it described in the docs? |
+| Verdict | What to do with it: keep, extend, or fix. |
+
 Audit date: 2026-08-24
 Branch: **full-reign/2026-08-23**
 Baseline commit: `a48c4a5`

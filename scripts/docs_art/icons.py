@@ -582,6 +582,21 @@ ICONS.update({
         "............",
         "............",
     ],
+    # A terminal window with a prompt: the operator consoles.
+    "console": [
+        "............",
+        "oooooooooooo",
+        "onEgoooooooo",
+        "oooooooooooo",
+        "obbbbbbbbbbo",
+        "obEbbbbbbbbo",
+        "obbEbbbbbbbo",
+        "obEbbiiiibbo",
+        "obbbbbbbbbbo",
+        "obbbbbbbbbbo",
+        "oooooooooooo",
+        "............",
+    ],
     # An unmarked parcel of unknown origin: outside input.
     "parcel": [
         "............",
