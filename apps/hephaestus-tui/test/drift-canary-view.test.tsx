@@ -59,24 +59,24 @@ const canary: Canary = {
 };
 
 test('CanaryListPanel renders each canary with its stage and transition count', () => {
-	const output = renderToString(<CanaryListPanel canaries={[canary]} selected={0} height={10} />);
+	const output = renderToString(<CanaryListPanel canaries={[canary]} selected={0} height={10} animate={false} />);
 	assert.match(output, /CANARIES/);
 	assert.match(output, /STAGE25/);
 	assert.match(output, /2 transitions/);
 });
 
 test('CanaryListPanel reports no canaries explicitly', () => {
-	const output = renderToString(<CanaryListPanel canaries={[]} selected={0} height={10} />);
+	const output = renderToString(<CanaryListPanel canaries={[]} selected={0} height={10} animate={false} />);
 	assert.match(output, /No canaries started yet/);
 });
 
 test('CanaryDetailPanel shows a loading state before the projection resolves', () => {
-	const output = renderToString(<CanaryDetailPanel canary={undefined} height={10} />);
+	const output = renderToString(<CanaryDetailPanel canary={undefined} height={10} animate={false} />);
 	assert.match(output, /Loading/);
 });
 
 test('CanaryDetailPanel renders candidate, stage, and transition evidence health', () => {
-	const output = renderToString(<CanaryDetailPanel canary={canary} height={10} />);
+	const output = renderToString(<CanaryDetailPanel canary={canary} height={10} animate={false} />);
 	assert.match(output, /genome-can/);
 	assert.match(output, /STAGE25/);
 	assert.match(output, /started/);

@@ -81,7 +81,7 @@ test('Arena job progress accepts authoritative trial and visible-score projectio
 	assert.equal(response.data?.type, 'arena_job');
 	if (response.data?.type === 'arena_job') {
 		assert.equal(response.data.job.completed_trials, 2);
-		const frame = renderToString(<ArenaProgressPanel job={response.data.job} stale={false} />);
+		const frame = renderToString(<ArenaProgressPanel job={response.data.job} stale={false} animate={false} />);
 		assert.match(frame, /CANDIDATE TRIALS/);
 		assert.match(frame, /Trials 2\/5/);
 		assert.match(frame, /candidate-id/);
@@ -94,14 +94,14 @@ test('terminal Arena progress renders visible aggregate receipt fields without s
 	const response = parseResponse(`{"version":1,"request_id":"request","data":{"type":"arena_job","job":{"evaluation_id":"eval-2","parent_genome_id":"p","candidate_genome_id":"c","state":"succeeded","phase":"terminal","completed_trials":4,"total_trials":4,"evaluation":{"evaluation_id":"eval-2","world_id":"world","parent_genome_id":"p","candidate_genome_id":"c","parent_visible_correct":1,"candidate_visible_correct":2,"visible_total":3,"event":{"sequence":7,"event_id":"e","aggregate_id":"a","event_type":"evaluation.completed","actor":"arena","timestamp_millis":1}}}}}`, 'request');
 	assert.equal(response.data?.type, 'arena_job');
 	if (response.data?.type === 'arena_job') {
-		const frame = renderToString(<ArenaProgressPanel job={response.data.job} stale={false} />);
+		const frame = renderToString(<ArenaProgressPanel job={response.data.job} stale={false} animate={false} />);
 		assert.match(frame, /Visible score 1 → 2 \/ 3/);
 		assert.doesNotMatch(frame, /receipt|cost|sealed/i);
 	}
 });
 
 test('Arena progress shows an explicit stale state when the daemon is unavailable', () => {
-	const frame = renderToString(<ArenaProgressPanel stale notice="daemon socket is unavailable" />);
+	const frame = renderToString(<ArenaProgressPanel stale notice="daemon socket is unavailable" animate={false} />);
 	assert.match(frame, /STALE/);
 	assert.match(frame, /daemon unavailable/);
 	assert.match(frame, /job list\./i);
