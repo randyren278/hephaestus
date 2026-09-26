@@ -9,10 +9,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "test-support")]
 use hephaestus_arena::{
     EvaluationBinding, EvaluationInputs, EvaluationStores, IsolatedEvaluator, ReceiptContext,
-    TrialPlan, TrustedManifest, TrustedTask, Visibility, evaluate_and_record,
+    TrialPlan, evaluate_and_record,
 };
+use hephaestus_arena::{TrustedManifest, TrustedTask, Visibility};
 use hephaestus_control::{
     API_VERSION, ApiErrorCode, ApiRequest, ApiResponse, CanaryStage, CanaryTransitionKind, Command,
     ControlError, ControlPlane, DenialKind, EvolutionFinishReason, EvolutionRunState,
@@ -22,9 +24,10 @@ use hephaestus_control::{
 };
 #[cfg(feature = "test-support")]
 use hephaestus_control::{ArenaJobPhase, Client, ForgeAssessmentOutcome};
+#[cfg(feature = "test-support")]
+use hephaestus_experience::RunBudgetReceipt;
 use hephaestus_experience::{
-    RUN_RESULT_SCHEMA_VERSION, RunBudgetReceipt, RunResultReceipt, RunResultSigner, TraceKind,
-    TraceReceipt,
+    RUN_RESULT_SCHEMA_VERSION, RunResultReceipt, RunResultSigner, TraceKind, TraceReceipt,
 };
 use hephaestus_genome::{SourceFormat, compile_genome, compile_world};
 use hephaestus_ledger::ArtifactId;
@@ -1116,6 +1119,7 @@ fn remote_worker_binary_round_trips_duplicates_and_fails_closed_on_bad_credentia
     daemon.stop();
 }
 
+#[cfg(feature = "test-support")]
 #[test]
 #[allow(clippy::too_many_lines)]
 fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() {
@@ -1800,7 +1804,11 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         Some("arena-plane"),
     );
     restarted = Daemon::start_with_repository(&data_dir, &repository);
-    let recovered = response(&cli(&data_dir, &["job", "status", "daemon-owned-pair"]));
+    let recovered = Client::new(&data_dir)
+        .request(Command::JobStatus {
+            job_id: "daemon-owned-pair".to_owned(),
+        })
+        .unwrap();
     assert!(matches!(
         recovered.data,
         Some(ResponseData::ArenaJob { job })
@@ -3716,6 +3724,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
     daemon.stop();
 }
 
+#[cfg(feature = "test-support")]
 fn evaluation_run(data_dir: &Path, genome_id: &str, task_id: &str, input: &str) -> String {
     let output = cli(
         data_dir,
@@ -4708,6 +4717,7 @@ fn rebuild_ledger_without(
         .expect("install pre-recovery ledger");
 }
 
+#[cfg(feature = "test-support")]
 fn rewrite_ledger_event_payload(
     data_dir: &Path,
     event_id: &str,
@@ -4750,6 +4760,7 @@ fn rewrite_ledger_event_payload(
         .expect("install rewritten ledger");
 }
 
+#[cfg(feature = "test-support")]
 fn rewrite_ledger_event_type(data_dir: &Path, event_id: &str, event_type: &str) {
     let ledger_path = data_dir.join("events.sqlite3");
     let history = EventStore::open(&ledger_path)
@@ -5939,6 +5950,7 @@ fn seed_compiled_genome(data_dir: &Path) -> (WorldRecord, GenomeRecord) {
     (world, genome)
 }
 
+#[cfg(feature = "test-support")]
 #[test]
 #[allow(clippy::too_many_lines)]
 fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
@@ -5957,8 +5969,13 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
     git(&repository, &["commit", "-m", "fixture"]);
     let (world, parent) = seed_compiled_genome(&data_dir);
     let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let client = Client::new(&data_dir);
 
-    let empty_selection = response(&cli(&data_dir, &["arena", "select", " "]));
+    let empty_selection = client
+        .request(Command::ArenaSelect {
+            evaluation_id: " ".to_owned(),
+        })
+        .expect("empty selection response");
     assert_eq!(
         empty_selection.error.expect("empty selection error").code,
         ApiErrorCode::InvalidRequest
@@ -6000,7 +6017,11 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
         panic!("unexpected Genome registration response");
     };
     assert!(cli(&data_dir, &["unfreeze"]).status.success());
-    let rejected_run = response(&cli(&data_dir, &["run", &unsupported.genome_id]));
+    let rejected_run = client
+        .request(Command::RunReference {
+            genome_id: unsupported.genome_id,
+        })
+        .expect("unsupported prompt response");
     let run_error = rejected_run.error.expect("unsupported prompt error");
     assert_eq!(run_error.code, ApiErrorCode::InvalidRequest);
     assert_eq!(
@@ -6036,16 +6057,14 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
     .expect("registered candidate response") else {
         panic!("unexpected candidate registration response");
     };
-    let rejected_pair = response(&cli(
-        &data_dir,
-        &[
-            "arena",
-            "evaluate",
-            "unpaired-evaluation",
-            &parent.genome_id,
-            &candidate.genome_id,
-        ],
-    ));
+    let rejected_pair = client
+        .request(Command::EvaluatePair {
+            evaluation_id: "unpaired-evaluation".to_owned(),
+            parent_genome_id: parent.genome_id,
+            candidate_genome_id: candidate.genome_id,
+            remote: false,
+        })
+        .expect("unpaired evaluation response");
     let pair_error = rejected_pair.error.expect("unpaired evaluation error");
     assert_eq!(pair_error.code, ApiErrorCode::InvalidRequest);
     assert_eq!(
