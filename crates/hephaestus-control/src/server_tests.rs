@@ -11150,6 +11150,13 @@ fn evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation(
         Some(EvolutionFinishReason::NoCandidateMutation)
     );
     assert!(run.generations.is_empty());
+    // TD-22: the diagnostic evaluation that discovered there was no
+    // candidate mutation still spent one trial, even though no
+    // `evolution.generation` event is recorded for it (there was no
+    // generation to record). `finish_evolution_run` must fold that trial
+    // back into `trials_consumed` rather than leaving it at the `0` an
+    // empty generations list would otherwise sum to.
+    assert_eq!(run.trials_consumed, 1);
     assert!(matches!(
         plane.replay_response(),
         Ok(ResponseData::Replay { .. })

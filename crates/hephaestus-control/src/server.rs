@@ -3131,11 +3131,20 @@ impl ControlPlane {
         }
         let generations_completed =
             u32::try_from(run.generations.len()).map_err(|_| ExecuteError::Internal)?;
+        // `run.trials_consumed` only sums recorded `evolution.generation`
+        // events. A `NoCandidateMutation` finish records no generation event
+        // for the attempt that diagnosed there was no candidate mutation, so
+        // its one diagnostic trial is added back here (TD-22).
+        let trials_consumed = if reason == EvolutionFinishReason::NoCandidateMutation {
+            run.trials_consumed.saturating_add(1)
+        } else {
+            run.trials_consumed
+        };
         let payload = EvolutionFinishedPayload {
             schema_version: 1,
             run_id: run_id.to_owned(),
             generations_completed,
-            trials_consumed: run.trials_consumed,
+            trials_consumed,
             reason,
         };
         let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;

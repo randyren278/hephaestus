@@ -466,8 +466,18 @@ pub(super) fn verify_evolution_history(
                 let prior =
                     evolution_projection(&history[..index], &payload.run_id)?.ok_or_else(bad)?;
                 let completed = u32::try_from(prior.generations.len()).map_err(|_| bad())?;
+                // A `NoCandidateMutation` finish spends one diagnostic trial
+                // that records no generation event, so `prior.trials_consumed`
+                // (summed only from recorded generations) undercounts it by
+                // exactly one (TD-22).
+                let expected_trials_consumed =
+                    if payload.reason == EvolutionFinishReason::NoCandidateMutation {
+                        prior.trials_consumed.saturating_add(1)
+                    } else {
+                        prior.trials_consumed
+                    };
                 if payload.generations_completed != completed
-                    || payload.trials_consumed != prior.trials_consumed
+                    || payload.trials_consumed != expected_trials_consumed
                     || (payload.reason == EvolutionFinishReason::Cancelled
                         && !prior.cancel_requested)
                 {
