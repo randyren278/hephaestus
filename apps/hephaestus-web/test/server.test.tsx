@@ -53,6 +53,7 @@ async function withStaticRoot<T>(run: (staticRoot: string) => Promise<T>): Promi
 	await writeFile(join(staticRoot, 'index.html'), '<!doctype html><title>t</title>');
 	await writeFile(join(staticRoot, 'app.js'), 'console.log("ok");');
 	await writeFile(join(staticRoot, 'styles.css'), 'body { color: red; }');
+	await writeFile(join(staticRoot, 'web-header-crest.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
 	try {
 		return await run(staticRoot);
 	} finally {
@@ -221,6 +222,9 @@ test('serves the bundled app.js and styles.css as static files', async () => {
 				assert.match(await app.text(), /console\.log/);
 				const css = await fetch(`http://127.0.0.1:${port}/styles.css`);
 				assert.equal(css.status, 200);
+				const crest = await fetch(`http://127.0.0.1:${port}/web-header-crest.svg`);
+				assert.equal(crest.status, 200);
+				assert.equal(crest.headers.get('content-type'), 'image/svg+xml; charset=utf-8');
 				const missing = await fetch(`http://127.0.0.1:${port}/does-not-exist.js`);
 				assert.equal(missing.status, 404);
 			} finally {
