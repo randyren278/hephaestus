@@ -1157,6 +1157,9 @@ fn spec_with_budget(
     .expect("RunSpec")
 }
 
+// Only the macOS Seatbelt tests above call this helper; on other hosts it
+// would otherwise trip `dead_code` under `-D warnings`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn wait_for_terminal(runtime: &mut SupervisedRuntime, run_id: &str) -> RunSnapshot {
     for _ in 0..400 {
         let snapshot = runtime.snapshot(run_id).expect("snapshot supervised run");

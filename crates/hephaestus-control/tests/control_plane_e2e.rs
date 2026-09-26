@@ -2881,12 +2881,8 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
         );
         thread::sleep(Duration::from_millis(10));
     }
-    let probe = ProcessCommand::new("/bin/kill")
-        .args(["-0", &child_pid.to_string()])
-        .stderr(Stdio::null())
-        .status()
-        .expect("probe worker descendant");
-    assert!(!probe.success(), "deadline left a worker descendant alive");
+    let probe = process_is_alive(&child_pid.to_string());
+    assert!(!probe, "deadline left a worker descendant alive");
     let history = EventStore::open(data_dir.join("events.sqlite3"))
         .unwrap()
         .replay_verified()
@@ -3670,15 +3666,8 @@ fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
         );
         thread::sleep(Duration::from_millis(10));
     }
-    let probe = ProcessCommand::new("/bin/kill")
-        .args(["-0", &child_pid.to_string()])
-        .stderr(Stdio::null())
-        .status()
-        .expect("probe child process");
-    assert!(
-        !probe.success(),
-        "cancelled job left a worker descendant alive"
-    );
+    let probe = process_is_alive(&child_pid.to_string());
+    assert!(!probe, "cancelled job left a worker descendant alive");
     assert!(cli(&data_dir, &["freeze"]).status.success());
     daemon.stop();
     remove_job_terminal_before_restart(&data_dir, "slow-job");
@@ -4311,15 +4300,8 @@ fn async_wall_timeout_is_durable_replayable_and_keeps_daemon_available() {
         receipt.completion_reason,
         RunCompletionReason::WallBudgetExceeded
     );
-    let worker_probe = ProcessCommand::new("/bin/kill")
-        .args(["-0", &worker_pid.to_string()])
-        .stderr(Stdio::null())
-        .status()
-        .expect("probe timed-out worker");
-    assert!(
-        !worker_probe.success(),
-        "timed-out worker survived its budget"
-    );
+    let worker_probe = process_is_alive(&worker_pid.to_string());
+    assert!(!worker_probe, "timed-out worker survived its budget");
 
     let restarted = Daemon::start(&data_dir);
     assert!(matches!(
@@ -4463,12 +4445,8 @@ fn async_artifact_store_failure_does_not_sign_success_and_recovers() {
     ));
     let worker_deadline = Instant::now() + Duration::from_secs(2);
     loop {
-        let worker_alive = ProcessCommand::new("/bin/kill")
-            .args(["-0", &worker_pid])
-            .stderr(Stdio::null())
-            .status()
-            .expect("probe failed worker process");
-        if !worker_alive.success() {
+        let worker_alive = process_is_alive(&worker_pid);
+        if !worker_alive {
             break;
         }
         assert!(
@@ -4556,12 +4534,8 @@ fn guardian_contains_worker_after_daemon_crash_and_replay_marks_job_interrupted(
     daemon.crash();
     let death_deadline = Instant::now() + Duration::from_secs(2);
     loop {
-        let probe = ProcessCommand::new("/bin/kill")
-            .args(["-0", &child_pid.to_string()])
-            .stderr(Stdio::null())
-            .status()
-            .expect("probe worker descendant");
-        if !probe.success() {
+        let probe = process_is_alive(&child_pid.to_string());
+        if !probe {
             break;
         }
         assert!(
@@ -4664,15 +4638,8 @@ fn guardian_monitors_eof_during_large_stdin_and_reaps_leader_descendants() {
         .trim()
         .parse::<u32>()
         .expect("parse worker PID");
-    let worker_probe = ProcessCommand::new("/bin/kill")
-        .args(["-0", &worker_pid.to_string()])
-        .stderr(Stdio::null())
-        .status()
-        .expect("probe worker");
-    assert!(
-        !worker_probe.success(),
-        "large-input worker survived guardian EOF"
-    );
+    let worker_probe = process_is_alive(&worker_pid.to_string());
+    assert!(!worker_probe, "large-input worker survived guardian EOF");
 
     let command = "(/bin/sleep 60) & child=$!; echo $child > \"$HOME/held-pipe-child.pid\"; exit 0";
     let (mut child, _guardian_stdin) = guardian(command, 0);
@@ -4685,13 +4652,9 @@ fn guardian_monitors_eof_during_large_stdin_and_reaps_leader_descendants() {
         .trim()
         .parse::<u32>()
         .expect("parse descendant PID");
-    let descendant_probe = ProcessCommand::new("/bin/kill")
-        .args(["-0", &descendant_pid.to_string()])
-        .stderr(Stdio::null())
-        .status()
-        .expect("probe descendant");
+    let descendant_probe = process_is_alive(&descendant_pid.to_string());
     assert!(
-        !descendant_probe.success(),
+        !descendant_probe,
         "guardian left a pipe-holding descendant alive"
     );
 }
@@ -5490,6 +5453,32 @@ fn raw_request(socket: &Path, bytes: &[u8]) -> ApiResponse {
     let mut response = Vec::new();
     stream.read_to_end(&mut response).expect("read response");
     serde_json::from_slice(&response).expect("decode response")
+}
+
+/// Whether `pid` still names a live process.
+///
+/// `kill -0` alone reports success for a zombie: an exited descendant that
+/// PID 1 has not reaped yet, which happens on hosts whose init does not reap
+/// orphans. A zombie has already terminated, so it is not counted as alive.
+fn process_is_alive(pid: &str) -> bool {
+    let signalable = ProcessCommand::new("/bin/kill")
+        .args(["-0", pid])
+        .stderr(Stdio::null())
+        .status()
+        .expect("probe process")
+        .success();
+    if !signalable {
+        return false;
+    }
+    let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return true;
+    };
+    // The state field follows the parenthesised command name.
+    let state = stat
+        .rsplit_once(')')
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .unwrap_or("");
+    state != "Z"
 }
 
 fn assert_private(data_dir: &Path, name: &str, expected: u32) {
