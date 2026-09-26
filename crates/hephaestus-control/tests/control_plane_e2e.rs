@@ -391,6 +391,38 @@ impl Daemon {
         worker_source: &Path,
         timeout_millis: Option<u64>,
     ) -> Self {
+        Self::start_with_options(
+            data_dir,
+            source_repository,
+            worker_source,
+            timeout_millis,
+            None,
+        )
+    }
+
+    /// Starts a daemon whose reference trials each sleep `baseline_delay_millis`,
+    /// so latency-gated canary checks compare real work rather than noise.
+    fn start_with_reference_baseline_delay(
+        data_dir: &Path,
+        source_repository: &Path,
+        baseline_delay_millis: u64,
+    ) -> Self {
+        Self::start_with_options(
+            data_dir,
+            source_repository,
+            Path::new(REFERENCE_WORKER),
+            None,
+            Some(baseline_delay_millis),
+        )
+    }
+
+    fn start_with_options(
+        data_dir: &Path,
+        source_repository: &Path,
+        worker_source: &Path,
+        timeout_millis: Option<u64>,
+        baseline_delay_millis: Option<u64>,
+    ) -> Self {
         fs::create_dir_all(data_dir).expect("create daemon data directory");
         let evaluator = data_dir.join("reference-evaluator");
         fs::copy(REFERENCE_EVALUATOR, &evaluator).expect("copy evaluator executable");
@@ -417,6 +449,12 @@ impl Daemon {
             command.env(
                 "HEPHAESTUS_TEST_ARENA_OVERALL_WALL_MILLIS",
                 timeout_millis.to_string(),
+            );
+        }
+        if let Some(baseline_delay_millis) = baseline_delay_millis {
+            command.env(
+                "HEPHAESTUS_TEST_REFERENCE_BASELINE_DELAY_MILLIS",
+                baseline_delay_millis.to_string(),
             );
         }
         let mut child = command.spawn().expect("start daemon");
@@ -6909,7 +6947,7 @@ fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary(
     let quickstart = Path::new(QUICKSTART);
     let scratch = directory.path().join("scratch");
     fs::create_dir_all(&scratch).expect("create scratch directory");
-    let daemon = Daemon::start_with_repository(&data_dir, &repository);
+    let daemon = Daemon::start_with_reference_baseline_delay(&data_dir, &repository, 40);
     let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
     let data = |arguments: &[&str]| {
         let output = cli(&data_dir, arguments);

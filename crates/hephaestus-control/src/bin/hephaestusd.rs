@@ -22,6 +22,16 @@ struct Arguments {
 
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
+    // Test-support builds only: latency-gated end-to-end tests give every
+    // reference trial a fixed baseline so scheduling noise cannot cross the
+    // canary's 20% regression gate. Release builds do not contain this.
+    #[cfg(feature = "test-support")]
+    if let Some(millis) = std::env::var("HEPHAESTUS_TEST_REFERENCE_BASELINE_DELAY_MILLIS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        hephaestus_runtime::set_test_reference_baseline_delay(millis);
+    }
     let data_dir = match arguments
         .data_dir
         .map_or_else(data_dir_from_environment, Ok)
