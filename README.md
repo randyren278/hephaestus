@@ -13,8 +13,7 @@
   <a href="#install">Install</a> ·
   <a href="#the-words-youll-see">Glossary</a> ·
   <a href="#try-it-in-five-minutes">Try it</a> ·
-  <a href="#just-here-for-the-senate">The Senate</a> ·
-  <a href="docs/STATUS.md">What works today</a>
+  <a href="#just-here-for-the-senate">The Senate</a>
 </p>
 
 ## What is this?
@@ -39,21 +38,9 @@ tested, and only the good ones are kept.
 
 ## The words you'll see
 
-Hephaestus uses a small vocabulary, and each word has one exact meaning. Here
-they are in plain English.
-
-| Word | Plain meaning | Think of it as |
-|---|---|---|
-| **Genome** | One exact version of an agent: its prompt, model, and permissions. It gets a fingerprint from its contents, so any change makes a new Genome. | A recipe card sealed in plastic |
-| **World** | The test an agent is measured in: its tasks, its time and cost limits, the judge, and the rules. | The exam, plus the exam-hall rules |
-| **Law** | A rule of a World that no agent can change, such as "agents may never read the judge". | A rule written on the wall |
-| **Arena** | Where two Genomes are compared on identical tasks, each in its own sandbox. | The exam hall |
-| **Evaluator** | The program that scores each run. Agents can never read it or the answers. | A judge behind a curtain |
-| **Ledger** | The permanent record of everything that happened. Each entry is chained to the one before it, so edits are detectable. | A notebook with numbered, glued-in pages |
-| **Receipt** | The saved proof behind one decision: what ran, what it scored, and why the verdict came out the way it did. | A signed scorecard |
-| **Champion** | The version currently trusted as best for a World. It changes only when a challenger wins fairly. | The title holder |
-| **Freeze** | Hephaestus always starts paused. Only you can unpause it, and that choice is recorded too. | The emergency brake, on by default |
-| **Daemon** | `hephaestusd`, the background program that does the work and is the only thing allowed to write to the Ledger. | The referee's office |
+<p align="center">
+  <img src="docs/assets/glossary.svg" width="100%" alt="Ten words in plain English. Genome: like a recipe card sealed in plastic; one exact version of an agent, and changing anything makes a new one. World: like the exam plus the exam-hall rules; the tasks, limits, judge, and rules. Law: like a rule written on the wall; a World rule no agent can change. Arena: like the exam hall; two Genomes, identical tasks, separate sandboxes. Evaluator: like a judge behind a curtain; scores every run, and agents never see it or the answers. Ledger: like a notebook with glued-in pages; the permanent record, chained so edits show. Receipt: like a signed scorecard; proof of what ran, what it scored, and why. Champion: like the title holder; the version trusted as best for a World until a challenger wins fairly. Freeze: like an emergency brake, on by default; only you can release it. Daemon: like the referee's office; hephaestusd does the work and is the only writer to the Ledger.">
+</p>
 
 More terms, such as Forge, Gene, Lineage, Drift, and Canary, are in
 [the full glossary](docs/TERMINOLOGY.md).
@@ -184,26 +171,6 @@ sizes, cost, and how to add a document for review: [the Senate](docs/SENATE.md).
 
 The threat model, including how to check all of this yourself, is in
 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
-
-## What works today, and what doesn't yet
-
-Hephaestus is honest about its limits, so here they are up front:
-
-- ✅ Registering agents and Worlds, sandboxed runs, fair Arena comparisons,
-  receipts, full replay, freeze and kill, and the terminal and web consoles.
-- ✅ Unattended multi-generation runs (`hephaestus evolve`) that only promote
-  a new Champion when the evidence clears the World's bar.
-- ⚠️ **The agents it runs today are simple built-in test agents**, not live
-  Claude or Codex sessions. Adapters for Claude Code and Codex exist and are
-  tested, but running them for real is an opt-in you switch on yourself.
-- ⚠️ **Automatic improvement is minimal.** The only change Hephaestus can
-  propose on its own is one small built-in switch. It proves the machinery,
-  not a smart optimizer.
-- ⚠️ **Running agents needs macOS**, because the sandbox is macOS's. On other
-  systems you can still register, inspect, and replay.
-
-The detailed list is in [docs/STATUS.md](docs/STATUS.md), and the evidence
-behind every feature is in [AUDIT.md](AUDIT.md).
 
 ## Under the hood
 

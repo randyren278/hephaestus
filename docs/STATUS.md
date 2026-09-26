@@ -5,6 +5,24 @@ detailed, evidence-cited feature audit). The reference runtime used
 throughout this system is a deterministic, offline simulation; no run against
 a hosted model is claimed as evidence of anything here.
 
+## The short version
+
+- ✅ Registering agents and Worlds, sandboxed runs, fair Arena comparisons,
+  receipts, full replay, freeze and kill, and the terminal and web consoles.
+- ✅ Unattended multi-generation runs (`hephaestus evolve`) that only promote
+  a new Champion when the evidence clears the World's bar.
+- ⚠️ **The agents it runs today are simple built-in test agents**, not live
+  Claude or Codex sessions. Adapters for Claude Code and Codex exist and are
+  tested, but running them for real is an opt-in you switch on yourself.
+- ⚠️ **Automatic improvement is minimal.** The only change Hephaestus can
+  propose on its own is one small built-in switch. It proves the machinery,
+  not a smart optimizer.
+- ⚠️ **Running agents needs macOS**, because the sandbox is macOS's. On other
+  systems you can still register, inspect, and replay.
+
+The details are below, and the evidence behind every feature is in
+[AUDIT.md](../AUDIT.md).
+
 ## What it does
 
 <table>
