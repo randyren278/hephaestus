@@ -35,6 +35,7 @@ import re
 import select
 import shutil
 import struct
+import signal
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,25 @@ def find_release_binaries() -> Path:
     raise SystemExit(
         "no release binaries found; run `cargo build --release --workspace` first"
     )
+
+
+def descendant_pids(root: int) -> list[int]:
+    """Returns every live descendant of `root`, deepest first."""
+    listing = subprocess.run(
+        ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=False
+    ).stdout
+    children: dict[int, list[int]] = {}
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) == 2:
+            children.setdefault(int(fields[1]), []).append(int(fields[0]))
+    ordered: list[int] = []
+    stack = list(children.get(root, []))
+    while stack:
+        pid = stack.pop()
+        ordered.append(pid)
+        stack.extend(children.get(pid, []))
+    return list(reversed(ordered))
 
 
 class Recorder:
@@ -144,6 +164,14 @@ class Recorder:
 
     def close(self) -> None:
         if self.child and self.child.poll() is None:
+            # The shell backgrounds the daemon and runs the TUI as its own
+            # jobs; killing only the shell would orphan them, so stop every
+            # descendant while the process tree is still intact.
+            for pid in descendant_pids(self.child.pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             self.child.kill()
             self.child.wait()
         for fd in (self.master, self.slave):

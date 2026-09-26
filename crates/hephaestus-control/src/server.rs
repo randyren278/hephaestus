@@ -2038,6 +2038,19 @@ impl ControlPlane {
                 strategy: Box::new(existing),
             });
         }
+        if let Some(parent_id) = config.parent_strategy_id.as_deref() {
+            if parent_id == strategy_id {
+                return Err(ExecuteError::Rejected(
+                    "strategy cannot declare itself as its own parent".to_owned(),
+                ));
+            }
+            if meta_strategy_projection(&history, parent_id)
+                .map_err(|_| ExecuteError::Internal)?
+                .is_none()
+            {
+                return Err(ExecuteError::NotFound);
+            }
+        }
         let payload = MetaStrategyRegisteredPayload {
             schema_version: 1,
             strategy_id: strategy_id.clone(),
@@ -2278,6 +2291,14 @@ impl ControlPlane {
             .map_err(|_| ExecuteError::Internal)?;
         let cost_delta = paired_bootstrap(&cost_deltas, bootstrap_seed, confidence_bps)
             .map_err(|_| ExecuteError::Internal)?;
+        let descendant_cheaper_at_equal_quality = descendant_verdict(
+            &strategy_a_id,
+            &strategy_a.config,
+            &strategy_b_id,
+            &strategy_b.config,
+            &quality_delta,
+            &cost_delta,
+        );
 
         let payload = MetaEvaluationPayload {
             schema_version: 1,
@@ -2291,6 +2312,7 @@ impl ControlPlane {
             lineages: outcomes,
             quality_delta,
             cost_delta,
+            descendant_cheaper_at_equal_quality,
         };
         let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
         let payload_bytes =
@@ -9948,10 +9970,10 @@ mod meta_evolve;
 
 use meta_evolve::{
     BOOTSTRAP_ALGORITHM, META_EVALUATION_EVENT_TYPE, META_STRATEGY_EVENT_TYPE, RESAMPLES,
-    champion_after, meta_evaluation_aggregate_id, meta_evaluation_event_id, meta_evaluation_list,
-    meta_evaluation_projection, meta_strategy_aggregate_id, meta_strategy_event_id,
-    meta_strategy_id, meta_strategy_list, meta_strategy_projection, paired_bootstrap,
-    promotions_of, verify_meta_evolution_history,
+    champion_after, descendant_verdict, meta_evaluation_aggregate_id, meta_evaluation_event_id,
+    meta_evaluation_list, meta_evaluation_projection, meta_strategy_aggregate_id,
+    meta_strategy_event_id, meta_strategy_id, meta_strategy_list, meta_strategy_projection,
+    paired_bootstrap, promotions_of, verify_meta_evolution_history,
 };
 
 #[path = "drift.rs"]

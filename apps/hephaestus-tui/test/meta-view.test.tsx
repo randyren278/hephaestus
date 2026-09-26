@@ -9,7 +9,7 @@ const strategy: MetaStrategy = {
 	strategy_id: 'strategy-1',
 	config: {
 		schema_version: 1, name: 'baseline', mutation_prioritization: 'fifo',
-		generation_count: 3, experiment_allocation: 4, candidate_count: 2, gene_selection: 'none',
+		generation_count: 3, experiment_allocation: 4, candidate_count: 2, gene_selection: 'none', parent_strategy_id: null,
 	},
 	event_id: 'event-1', sequence: 1,
 };
@@ -43,7 +43,7 @@ test('MetaStrategyDetailPanel renders every EvolverStrategyConfig field', () => 
 
 const receipt: MetaEvaluation = {
 	meta_run_id: 'meta-1', strategy_a_id: 'strategy-a', strategy_b_id: 'strategy-b',
-	confidence_bps: 9_500, bootstrap_seed: 7, bootstrap_resamples: 10_000, algorithm: 'lineage-paired-histogram-bootstrap-v1',
+	confidence_bps: 9_500, bootstrap_seed: 7, bootstrap_resamples: 10_000, algorithm: 'lineage-paired-histogram-bootstrap-v1', descendant_cheaper_at_equal_quality: null,
 	lineages: [{
 		world_id: 'world-1', from_genome_id: 'genome-1', strategy_a_run_id: 'run-a', strategy_b_run_id: 'run-b',
 		strategy_a_champion_genome_id: 'genome-a', strategy_b_champion_genome_id: 'genome-b',
