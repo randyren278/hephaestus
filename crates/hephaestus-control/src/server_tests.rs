@@ -16891,6 +16891,9 @@ fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_l
 /// 4 s per evaluation, far past the 20% latency regression threshold.
 const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 
+/// Baseline delay added to every reference trial in the auto-canary fixture.
+const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 40;
+
 /// Like `real_worker_arena_fixture_with_invariants`, but the registered World
 /// opts in to `laws.auto_canary_on_drift`, and both registered Genomes start
 /// on the `identity` reference operation against these uppercase-expecting
@@ -16900,6 +16903,11 @@ const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 /// mutation, the flip to `ascii_uppercase`.
 #[allow(clippy::too_many_lines)]
 fn auto_canary_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    // Every trial sleeps a fixed baseline so the canary stages' 20% latency
+    // gate compares tens of milliseconds of real work, not a few milliseconds
+    // dominated by process-scheduling noise (CI runs this under coverage
+    // instrumentation and parallel tests). Callers hold the delay slot.
+    hephaestus_runtime::set_test_reference_baseline_delay(AUTO_CANARY_BASELINE_DELAY_MILLIS);
     let data_dir = directory.path().join("data");
     let repository = directory.path().join("repository");
     fs::create_dir_all(&repository).expect("create source repository");
@@ -17742,8 +17750,21 @@ fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
 /// tests that inject a worker delay (or share its fixtures) must not run in
 /// parallel: one test's clear would silently remove another's injected
 /// latency mid-evaluation.
-fn hold_reference_delay_slot() -> std::sync::MutexGuard<'static, ()> {
+fn hold_reference_delay_slot() -> ReferenceDelaySlot {
     static SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    SLOT.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    ReferenceDelaySlot(
+        SLOT.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
+}
+
+/// Holds the process-wide reference delay slot and clears every injected
+/// delay when the test ends, even if it panics.
+struct ReferenceDelaySlot(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+impl Drop for ReferenceDelaySlot {
+    fn drop(&mut self) {
+        hephaestus_runtime::clear_test_reference_delay();
+        hephaestus_runtime::set_test_reference_baseline_delay(0);
+    }
 }

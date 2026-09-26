@@ -415,13 +415,33 @@ pub fn clear_test_reference_delay() {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
 }
 
+/// Test-only delay added to every reference-worker run, on top of any
+/// per-Genome delay. Latency-gated tests set it so per-trial scheduling noise
+/// is small relative to the measured latency.
+#[cfg(feature = "test-support")]
+static TEST_REFERENCE_BASELINE_DELAY: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Test-only: makes every reference-worker run sleep `delay_millis` (bounded,
+/// see [`crate::reference_instruction`]) in addition to any per-Genome delay.
+#[cfg(feature = "test-support")]
+pub fn set_test_reference_baseline_delay(delay_millis: u64) {
+    TEST_REFERENCE_BASELINE_DELAY.store(delay_millis, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[cfg(feature = "test-support")]
 fn test_reference_delay_millis_for_genome(genome_id: &str) -> Option<u64> {
     let guard = TEST_REFERENCE_DELAY
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let (target, millis) = guard.as_ref()?;
-    (target == genome_id).then_some(*millis)
+    let specific = guard
+        .as_ref()
+        .and_then(|(target, millis)| (target == genome_id).then_some(*millis))
+        .unwrap_or(0);
+    let total = TEST_REFERENCE_BASELINE_DELAY
+        .load(std::sync::atomic::Ordering::SeqCst)
+        .saturating_add(specific);
+    (total > 0).then_some(total)
 }
 
 impl RuntimeAdapter for SupervisedRuntime {

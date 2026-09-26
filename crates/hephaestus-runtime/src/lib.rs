@@ -40,5 +40,7 @@ pub use sandbox::{CapabilityToken, Sandbox, SandboxManager};
 pub use spec::{Budget, ExperimentContext, RunSpec};
 pub use supervisor::SupervisedRuntime;
 #[cfg(feature = "test-support")]
-pub use supervisor::{clear_test_reference_delay, set_test_reference_delay};
+pub use supervisor::{
+    clear_test_reference_delay, set_test_reference_baseline_delay, set_test_reference_delay,
+};
 pub use worker::{IsolatedWorker, WorkerDomain, WorkerLimits, WorkerOutput};
