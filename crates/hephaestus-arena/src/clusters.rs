@@ -302,7 +302,9 @@ fn cluster_trials_for(
         .map(|(signature, (visible_count, sealed_count))| {
             let total_count = visible_count.saturating_add(sealed_count);
             let (hypothesis, suggested_mutation) = match algorithm {
-                ClusterAlgorithm::V1 => describe(signature, visible_count, sealed_count, total_count),
+                ClusterAlgorithm::V1 => {
+                    describe(signature, visible_count, sealed_count, total_count)
+                }
                 ClusterAlgorithm::V2 => describe_v2(
                     signature,
                     visible_count,
@@ -589,7 +591,15 @@ pub fn load_failure_clusters(
     world: &CompiledWorld,
     current_operation: Option<&str>,
 ) -> Result<OperatorClusterAnalysis, ArenaError> {
-    check(stores, analysis_id, evaluation_id, world, current_operation, 0, false)
+    check(
+        stores,
+        analysis_id,
+        evaluation_id,
+        world,
+        current_operation,
+        0,
+        false,
+    )
 }
 
 /// Verifies a supplied durable `forge.clustered` event against canonical
@@ -610,7 +620,13 @@ pub fn verify_cluster_event(
     if world_id != world.id() {
         return Err(ArenaError::WorldArtifactMismatch("cluster analysis world"));
     }
-    let check = load_failure_clusters(stores, &analysis_id, &evaluation_id, world, current_operation)?;
+    let check = load_failure_clusters(
+        stores,
+        &analysis_id,
+        &evaluation_id,
+        world,
+        current_operation,
+    )?;
     let canonical = check
         .stores
         .events
@@ -681,11 +697,9 @@ pub fn verify_cluster_event_in(
         return Err(ArenaError::InvalidStoredReceipt("cluster evaluation event"));
     }
     let event_id = cluster_event_id(&analysis_id);
-    let algorithm = index
-        .get(&event_id)
-        .map_or(ClusterAlgorithm::V2, |stored| {
-            peek_recorded_algorithm(std::slice::from_ref(stored), artifacts, &event_id)
-        });
+    let algorithm = index.get(&event_id).map_or(ClusterAlgorithm::V2, |stored| {
+        peek_recorded_algorithm(std::slice::from_ref(stored), artifacts, &event_id)
+    });
     let analysis = compute_analysis(
         algorithm,
         &analysis_id,
@@ -884,7 +898,12 @@ fn compute_analysis(
             || std::str::from_utf8(&trial.actual_output) != Ok(trial.expected_output.as_str())
     });
 
-    let clusters = cluster_trials_for(algorithm, &visible_trials, &sealed_trials, current_operation);
+    let clusters = cluster_trials_for(
+        algorithm,
+        &visible_trials,
+        &sealed_trials,
+        current_operation,
+    );
     let total_visible_failed_trials =
         u32::try_from(visible_trials.len()).map_err(|_| ArenaError::TooManyTasks)?;
     let total_sealed_failed_trials = u32::try_from(
@@ -1303,7 +1322,11 @@ mod tests {
             })
         );
 
-        let truncated = vec![visible(RunCompletionReason::Success, "hello world", "hello")];
+        let truncated = vec![visible(
+            RunCompletionReason::Success,
+            "hello world",
+            "hello",
+        )];
         let clusters = cluster_trials_v2(&truncated, &[], Some("ascii_uppercase"));
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].suggested_mutation, None);

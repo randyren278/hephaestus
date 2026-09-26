@@ -69,7 +69,10 @@ struct Family {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FamilyMembers {
     Casing(&'static str, &'static str),
-    Gauntlet { bad: &'static str, fix: &'static str },
+    Gauntlet {
+        bad: &'static str,
+        fix: &'static str,
+    },
 }
 
 const FAMILIES: [Family; 8] = [
@@ -247,8 +250,10 @@ mod tests {
             assert!(seen.insert(operation), "duplicate operation {operation}");
             assert!(family_name(operation).is_some());
         }
-        let families: std::collections::BTreeSet<_> =
-            ALL_OPERATIONS.iter().map(|op| family_name(op).unwrap()).collect();
+        let families: std::collections::BTreeSet<_> = ALL_OPERATIONS
+            .iter()
+            .map(|op| family_name(op).unwrap())
+            .collect();
         assert_eq!(families.len(), 8);
     }
 
@@ -274,8 +279,14 @@ mod tests {
 
     #[test]
     fn casing_pair_is_a_flip_in_both_directions() {
-        assert_eq!(edge_kind("identity", "ascii_uppercase"), Some(EdgeKind::Flip));
-        assert_eq!(edge_kind("ascii_uppercase", "identity"), Some(EdgeKind::Flip));
+        assert_eq!(
+            edge_kind("identity", "ascii_uppercase"),
+            Some(EdgeKind::Flip)
+        );
+        assert_eq!(
+            edge_kind("ascii_uppercase", "identity"),
+            Some(EdgeKind::Flip)
+        );
         assert_eq!(casing_flip("identity"), Some("ascii_uppercase"));
         assert_eq!(casing_flip("ascii_uppercase"), Some("identity"));
         assert_eq!(casing_flip("context_loss_naive"), None);
@@ -299,7 +310,11 @@ mod tests {
         ];
         for (bad, fix) in pairs {
             assert_eq!(edge_kind(bad, fix), Some(EdgeKind::Fix), "{bad} -> {fix}");
-            assert_eq!(edge_kind(fix, bad), Some(EdgeKind::Regress), "{fix} -> {bad}");
+            assert_eq!(
+                edge_kind(fix, bad),
+                Some(EdgeKind::Regress),
+                "{fix} -> {bad}"
+            );
             assert_eq!(family_fix_for(bad), Some(fix));
             assert_eq!(family_fix_for(fix), None);
             assert_eq!(casing_flip(bad), None);

@@ -10872,7 +10872,8 @@ fn evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation(
         "context_loss_aware",
     );
     let token = plane.token_hex.clone();
-    let strategy_id = register_test_strategy(&mut plane, &token, &directory, "no-op", "fifo", "none");
+    let strategy_id =
+        register_test_strategy(&mut plane, &token, &directory, "no-op", "fifo", "none");
 
     // Seed the *fix* Genome as Champion (instead of the bad one): it answers
     // the diagnostic task correctly, so its evaluation has no failed trials
@@ -10894,7 +10895,11 @@ fn evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation(
             Some(&strategy_id),
         ),
     );
-    assert!(start.error.is_none(), "evolve start should succeed: {:?}", start.error);
+    assert!(
+        start.error.is_none(),
+        "evolve start should succeed: {:?}",
+        start.error
+    );
 
     let run = evolve_drain_active_run(&mut plane, run_id);
     assert_eq!(

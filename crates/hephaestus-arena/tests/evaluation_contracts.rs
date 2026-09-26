@@ -3039,7 +3039,14 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         directory.path().join("blobs"),
     )
     .unwrap();
-    let reloaded = load_failure_clusters(stores, "analysis-001", "evaluation-001", &world, Some("identity")).unwrap();
+    let reloaded = load_failure_clusters(
+        stores,
+        "analysis-001",
+        "evaluation-001",
+        &world,
+        Some("identity"),
+    )
+    .unwrap();
     assert_eq!(reloaded.analysis(), &expected_analysis);
     drop(reloaded);
 
@@ -3056,5 +3063,14 @@ fn failure_clusters_record_operator_aggregates_and_replay() {
         directory.path().join("blobs"),
     )
     .unwrap();
-    assert!(load_failure_clusters(stores, "analysis-001", "evaluation-001", &world, Some("identity")).is_err());
+    assert!(
+        load_failure_clusters(
+            stores,
+            "analysis-001",
+            "evaluation-001",
+            &world,
+            Some("identity")
+        )
+        .is_err()
+    );
 }

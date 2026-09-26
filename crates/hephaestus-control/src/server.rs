@@ -22,14 +22,13 @@ use fs2::FileExt;
 use hephaestus_arena::{
     ArenaError, CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, EvaluationBinding,
     EvaluationInputs, EvaluationSources, EvaluationStores, FailureCluster, InvariantEvent,
-    InvariantReceipt,
-    IsolatedEvaluator, OperatorClusterAnalysis, OperatorInvariantCheck, ReceiptContext,
-    ScoredEvaluation, SelectionEvent, SelectionReceipt, SuggestedMutation, TrialPlan,
-    TrustedManifest, Visibility, check_failure_clusters, check_reference_output_invariants,
-    cluster_event_references, evaluate_and_record_scored, invariant_event_references,
-    load_failure_clusters, load_operator_evaluation, load_recorded_evaluation,
-    load_recorded_evaluation_in, load_reference_output_invariants, prepare_evaluation,
-    select_and_record, selection_event_references, verify_cluster_event_in,
+    InvariantReceipt, IsolatedEvaluator, OperatorClusterAnalysis, OperatorInvariantCheck,
+    ReceiptContext, ScoredEvaluation, SelectionEvent, SelectionReceipt, SuggestedMutation,
+    TrialPlan, TrustedManifest, Visibility, check_failure_clusters,
+    check_reference_output_invariants, cluster_event_references, evaluate_and_record_scored,
+    invariant_event_references, load_failure_clusters, load_operator_evaluation,
+    load_recorded_evaluation, load_recorded_evaluation_in, load_reference_output_invariants,
+    prepare_evaluation, select_and_record, selection_event_references, verify_cluster_event_in,
     verify_reference_output_invariant_event, verify_reference_output_invariant_event_in,
     verify_selection_event, verify_selection_event_in,
 };
@@ -66,11 +65,11 @@ use crate::{
     EvolutionStartedPayload, EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord,
     ForgeAssessmentEventRecord, ForgeAssessmentOutcome, ForgeAssessmentPayload,
     ForgeAssessmentRecord, ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord,
-    GenomeRecord, GeneSelectionPolicy, GeneTransferOutcome, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationPayload, MetaLineageOutcome,
-    MetaStrategyRegisteredPayload, MutationPrioritization, RemoteJobState, ResponseData,
-    RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope,
-    WorldRecord,
+    GeneSelectionPolicy, GeneTransferOutcome, GenomeRecord, InvariantRecord, JobProgress,
+    JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationPayload,
+    MetaLineageOutcome, MetaStrategyRegisteredPayload, MutationPrioritization, RemoteJobState,
+    ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord,
+    WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -2654,31 +2653,32 @@ impl ControlPlane {
             .reference_instruction(champion_before)?
             .map(ReferenceInstruction::operation_name);
 
-        let chosen_index = if strategy.config.gene_selection
-            == GeneSelectionPolicy::HighestTransferEffect
-        {
-            let preferred = champion_operation
-                .and_then(|operation| best_gene_target_operation(&history, operation));
-            preferred
-                .as_deref()
-                .and_then(|preferred_op| {
-                    clusters
-                        .iter()
-                        .find(|(_, cluster)| suggestion_of(cluster).as_deref() == Some(preferred_op))
-                        .map(|(index, _)| *index)
-                })
-                .or_else(|| {
-                    clusters
-                        .iter()
-                        .find(|(_, cluster)| suggestion_of(cluster).is_some())
-                        .map(|(index, _)| *index)
-                })
-        } else {
-            clusters
-                .iter()
-                .find(|(_, cluster)| suggestion_of(cluster).is_some())
-                .map(|(index, _)| *index)
-        };
+        let chosen_index =
+            if strategy.config.gene_selection == GeneSelectionPolicy::HighestTransferEffect {
+                let preferred = champion_operation
+                    .and_then(|operation| best_gene_target_operation(&history, operation));
+                preferred
+                    .as_deref()
+                    .and_then(|preferred_op| {
+                        clusters
+                            .iter()
+                            .find(|(_, cluster)| {
+                                suggestion_of(cluster).as_deref() == Some(preferred_op)
+                            })
+                            .map(|(index, _)| *index)
+                    })
+                    .or_else(|| {
+                        clusters
+                            .iter()
+                            .find(|(_, cluster)| suggestion_of(cluster).is_some())
+                            .map(|(index, _)| *index)
+                    })
+            } else {
+                clusters
+                    .iter()
+                    .find(|(_, cluster)| suggestion_of(cluster).is_some())
+                    .map(|(index, _)| *index)
+            };
 
         if let Some(cluster_index) = chosen_index {
             return Ok(Some(ForgeHypothesisSource::Analysis {
@@ -2690,10 +2690,7 @@ impl ControlPlane {
         // No cluster suggested anything: fall back to today's casing flip
         // when the Champion runs one of the two casing operations, exactly
         // like a strategy-less run would.
-        if matches!(
-            champion_operation,
-            Some("identity" | "ascii_uppercase")
-        ) {
+        if matches!(champion_operation, Some("identity" | "ascii_uppercase")) {
             return Ok(Some(default_hypothesis()));
         }
         Ok(None)
@@ -5208,7 +5205,10 @@ impl ControlPlane {
         let operator = load_operator_evaluation(self.open_arena_stores()?, evaluation_id)
             .map_err(map_cluster_error)?;
         let world_id = operator.selection_evidence().world_id().to_owned();
-        let candidate_genome_id = operator.selection_evidence().candidate_genome_id().to_owned();
+        let candidate_genome_id = operator
+            .selection_evidence()
+            .candidate_genome_id()
+            .to_owned();
         drop(operator.into_stores());
         let world = self
             .state
@@ -6666,8 +6666,8 @@ fn verify_forge_prompt(
             "Forge prompt mutation is not a representable catalog edge",
         ));
     }
-    let edge_kind = mutation_edge_kind(before.operation_name(), after.operation_name())
-        .expect("checked above");
+    let edge_kind =
+        mutation_edge_kind(before.operation_name(), after.operation_name()).expect("checked above");
     let expected_text = mutate_reference_instruction_document(before_text, before, after)
         .map_err(|()| ControlError::Protocol("Forge prompt is outside mutation scope"))?;
     if after_text != expected_text
@@ -7298,7 +7298,14 @@ fn resolve_forge_hypothesis(
     evaluation_id: &str,
     parent_genome_id: &str,
     source: ForgeHypothesisSource,
-) -> Result<(String, Option<ForgeAnalysisBinding>, Option<ReferenceInstruction>), ExecuteError> {
+) -> Result<
+    (
+        String,
+        Option<ForgeAnalysisBinding>,
+        Option<ReferenceInstruction>,
+    ),
+    ExecuteError,
+> {
     match source {
         ForgeHypothesisSource::Operator(hypothesis) => {
             validate_hypothesis(&hypothesis)?;
@@ -7424,8 +7431,7 @@ fn forge_prompt_mutation(
         Some(explicit) => {
             if !is_catalog_edge(before.operation_name(), explicit.operation_name()) {
                 return Err(ExecuteError::Rejected(
-                    "the requested mutation target is not a representable catalog edge"
-                        .to_owned(),
+                    "the requested mutation target is not a representable catalog edge".to_owned(),
                 ));
             }
             explicit
@@ -7438,8 +7444,7 @@ fn forge_prompt_mutation(
             // it.
             _ => {
                 return Err(ExecuteError::Rejected(
-                    "the selected candidate prompt is outside the Forge mutation scope"
-                        .to_owned(),
+                    "the selected candidate prompt is outside the Forge mutation scope".to_owned(),
                 ));
             }
         },
@@ -7669,16 +7674,11 @@ fn verify_cluster_history(
                 )
             })
             .map(ReferenceInstruction::operation_name);
-        let verified = verify_cluster_event_in(
-            index,
-            artifacts,
-            event,
-            world.compiled(),
-            current_operation,
-        )
-        .map_err(|_| {
-            ControlError::Projection("canonical cluster analysis is invalid".to_owned())
-        })?;
+        let verified =
+            verify_cluster_event_in(index, artifacts, event, world.compiled(), current_operation)
+                .map_err(|_| {
+                ControlError::Projection("canonical cluster analysis is invalid".to_owned())
+            })?;
         if verified.analysis().evaluation_id != evaluation_id
             || verified.analysis().world_id != world_id
             || verified.event().analysis_artifact_id != envelope.analysis_artifact_id
@@ -10361,11 +10361,10 @@ use gene_bank::{
     decode_transfer_applied, decode_transfer_recorded, detect_contradiction,
     existing_contradiction, existing_gene, existing_species, existing_transfer_applied,
     existing_transfer_recorded, gene_aggregate, gene_aggregate_id, gene_event_id,
-    gene_extraction_payload, gene_record, gene_summaries, speciation_payload,
-    species_aggregate_id, species_event_id, species_record, transfer_aggregate_id,
-    transfer_applied_event_id, transfer_applied_payload, transfer_record,
-    transfer_recorded_event_id, transfer_recorded_payload, verify_gene_bank_history,
-    verify_gene_bank_history_with,
+    gene_extraction_payload, gene_record, gene_summaries, speciation_payload, species_aggregate_id,
+    species_event_id, species_record, transfer_aggregate_id, transfer_applied_event_id,
+    transfer_applied_payload, transfer_record, transfer_recorded_event_id,
+    transfer_recorded_payload, verify_gene_bank_history, verify_gene_bank_history_with,
 };
 #[cfg(test)]
 use gene_bank::{GENE_MIN_EVIDENCE_TRIALS, SPECIATION_MIN_EFFECT_BPS};

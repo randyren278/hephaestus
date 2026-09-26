@@ -272,8 +272,7 @@ pub(super) fn verify_evolution_history(
                     return Err(bad());
                 }
                 if let Some(strategy_id) = &payload.strategy_id {
-                    meta_strategy_projection(&history[..index], strategy_id)?
-                        .ok_or_else(bad)?;
+                    meta_strategy_projection(&history[..index], strategy_id)?.ok_or_else(bad)?;
                 }
             }
             EVOLUTION_GENERATION_TYPE => {
