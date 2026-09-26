@@ -1521,18 +1521,30 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         let deployed_worker = data_dir.join("reference-worker");
         let worker_bytes = fs::read(&deployed_worker).unwrap();
         fs::write(&deployed_worker, b"changed reference worker").unwrap();
+        // The reference worker is pinned once per daemon lifetime
+        // (`ControlPlane::pin_reference_worker`): the "daemon-owned-pair"
+        // paired evaluation above already pinned a private snapshot, so this
+        // `run` reuses that cached, already-verified snapshot and succeeds
+        // even though the *public* deployed path was just corrupted — the
+        // pinned copy never reads that path again.
         let changed_worker = cli(&data_dir, &["run", &candidate.genome_id]);
-        assert!(!changed_worker.status.success());
-        assert_eq!(
-            serde_json::from_slice::<ApiResponse>(&changed_worker.stdout)
-                .unwrap()
-                .error
-                .unwrap()
-                .code,
-            ApiErrorCode::InvalidRequest
-        );
+        assert!(changed_worker.status.success());
+        assert!(matches!(
+            response(&changed_worker).data,
+            Some(ResponseData::Run {
+                completion_reason: RunCompletionReason::Success,
+                ..
+            })
+        ));
         fs::write(&deployed_worker, worker_bytes).unwrap();
         fs::set_permissions(&deployed_worker, fs::Permissions::from_mode(0o700)).unwrap();
+        // The reused pin above signs and records one more successful run
+        // result, so the "untrusted evaluator" comparison just below must
+        // use this later snapshot as its baseline rather than `after_retry`.
+        let after_changed_worker_run = EventStore::open(data_dir.join("events.sqlite3"))
+            .unwrap()
+            .replay_verified()
+            .unwrap();
         for root in [data_dir.join("sandboxes"), data_dir.join("evaluator-runs")] {
             assert!(
                 !root.exists() || fs::read_dir(&root).unwrap().next().is_none(),
@@ -1560,7 +1572,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             .replay_verified()
             .unwrap();
         assert_eq!(
-            after_retry
+            after_changed_worker_run
                 .iter()
                 .filter(|event| event.event_type == "run.result_recorded")
                 .count(),

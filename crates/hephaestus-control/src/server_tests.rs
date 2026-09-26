@@ -7585,6 +7585,201 @@ fn evaluation_worker_snapshot_survives_deployment_path_replacement() {
     assert!(pinned.verify().is_err());
 }
 
+/// Counts the private `reference-worker-*` snapshot directories currently
+/// under a daemon data directory: exactly the on-disk footprint of
+/// `pin_reference_worker`'s cache.
+fn count_reference_worker_snapshots(data_dir: &Path) -> usize {
+    fs::read_dir(data_dir)
+        .expect("read daemon data directory")
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("reference-worker-")
+        })
+        .count()
+}
+
+#[test]
+fn pin_reference_worker_is_cached_and_reused_across_calls() {
+    let directory = tempdir().expect("temporary directory");
+    let plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let first = plane.pin_reference_worker().expect("pin reference worker");
+    let second = plane
+        .pin_reference_worker()
+        .expect("reuse pinned reference worker");
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "a second pin call must reuse the daemon-lifetime cached snapshot"
+    );
+    assert_eq!(first.executable, second.executable);
+    assert_eq!(
+        count_reference_worker_snapshots(&plane.data_dir),
+        1,
+        "one pin call, then a cached reuse, must write exactly one private snapshot"
+    );
+}
+
+#[test]
+fn submitted_job_and_paired_arena_evaluation_reuse_the_same_pinned_reference_worker() {
+    let directory = tempdir().expect("Arena reuse fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+
+    // The direct async job admission is the first use in this daemon's
+    // lifetime: it creates the one private snapshot every later use shares.
+    exercise_dispatch_job(&mut plane, &parent.genome_id);
+    let job_environment_id = plane.state.jobs["dispatch-run"].environment_id.clone();
+    let pinned_after_job = plane
+        .pin_reference_worker()
+        .expect("reuse pinned worker after direct job admission");
+    assert_eq!(
+        job_environment_id,
+        ControlPlane::reference_execution_environment(&pinned_after_job)
+    );
+
+    // A paired Arena evaluation admitted afterward reuses the very same
+    // cached snapshot rather than pinning a fresh private copy.
+    complete_arena_test_job(
+        &mut plane,
+        "reuse-arena-evaluation",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let arena_record = &plane.state.arena_jobs["reuse-arena-evaluation"];
+    assert_eq!(arena_record.worker_digest, pinned_after_job.digest);
+    assert_eq!(
+        arena_record.environment_id,
+        ControlPlane::reference_execution_environment(&pinned_after_job)
+    );
+
+    let pinned_after_arena = plane
+        .pin_reference_worker()
+        .expect("reuse pinned worker after paired Arena evaluation");
+    assert!(
+        Arc::ptr_eq(&pinned_after_job, &pinned_after_arena),
+        "the direct job and the paired Arena evaluation must share one pinned Arc"
+    );
+    assert_eq!(
+        count_reference_worker_snapshots(&plane.data_dir),
+        1,
+        "a submitted job followed by a paired Arena evaluation must still only ever \
+         have written one private reference-worker snapshot"
+    );
+}
+
+#[test]
+fn pinned_reference_worker_cache_fails_closed_on_corruption_and_recovers_on_next_use() {
+    let directory = tempdir().expect("Arena reuse fixture");
+    let (mut plane, parent, _candidate) = real_worker_arena_fixture(&directory);
+    let original = plane
+        .pin_reference_worker()
+        .expect("pin reference worker for the first time");
+
+    // Corrupt the private snapshot bytes directly, as an attacker (or disk
+    // corruption) would, without touching the public reference worker path.
+    fs::set_permissions(&original.executable, fs::Permissions::from_mode(0o700))
+        .expect("make cached snapshot writable for the corruption test");
+    fs::write(&original.executable, b"corrupted pinned worker bytes")
+        .expect("corrupt the cached private snapshot");
+
+    // A submission that would use the corrupted cache is rejected before it
+    // ever admits a job or spawns an executing thread.
+    let rejection = plane
+        .submit_job("corrupted-pin-job", &parent.genome_id)
+        .expect_err("submission must fail closed on a corrupted pinned snapshot");
+    assert!(
+        matches!(
+            &rejection,
+            ExecuteError::Rejected(message)
+                if message == "pinned reference worker identity changed during execution"
+        ),
+        "unexpected rejection: {rejection:?}"
+    );
+    assert!(
+        plane.active_job.is_none(),
+        "a rejected pin must never launch an execution thread"
+    );
+    assert!(
+        !plane.state.jobs.contains_key("corrupted-pin-job"),
+        "a rejected pin must never admit a job record"
+    );
+
+    // The next call drops the poisoned cache entry and pins a fresh snapshot
+    // instead of being stuck reusing (or forever refusing) the tampered copy.
+    let recovered = plane
+        .pin_reference_worker()
+        .expect("a fresh pin recovers after the corrupted cache entry is dropped");
+    assert!(
+        !Arc::ptr_eq(&original, &recovered),
+        "recovery must pin a brand-new snapshot, not the corrupted one"
+    );
+    assert_eq!(recovered.digest, plane.reference_worker_digest);
+    assert!(
+        exercise_dispatch_job_succeeds(&mut plane, "recovered-pin-job", &parent.genome_id),
+        "a submission after recovery must run to completion on the fresh snapshot"
+    );
+}
+
+fn exercise_dispatch_job_succeeds(plane: &mut ControlPlane, job_id: &str, genome_id: &str) -> bool {
+    let admitted = match plane.submit_job(job_id, genome_id) {
+        Ok(ResponseData::Job { job, .. }) => job.state == JobState::Running,
+        _ => return false,
+    };
+    if !admitted {
+        return false;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        if plane.service_async_messages().is_err() {
+            return false;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    plane.state.jobs[job_id].state == JobState::Succeeded
+}
+
+#[test]
+fn pin_reference_worker_rejects_a_public_executable_replaced_before_first_pin() {
+    let directory = tempdir().expect("temporary directory");
+    let worker_path = directory.path().join("public-reference-worker");
+    fs::copy(
+        std::env::current_exe().expect("test executable"),
+        &worker_path,
+    )
+    .expect("copy worker executable");
+    fs::set_permissions(&worker_path, fs::Permissions::from_mode(0o700))
+        .expect("make worker executable");
+    let plane = ControlPlane::open_with_repository_and_reference_worker(
+        directory.path().join("daemon-data"),
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        &worker_path,
+    )
+    .expect("open control plane with an explicit reference worker");
+
+    // The public executable changes before the daemon ever pins it: the
+    // digest captured at startup no longer matches, so the very first pin
+    // attempt must still fail closed.
+    fs::write(&worker_path, b"replaced before first pin").expect("replace public worker path");
+    fs::set_permissions(&worker_path, fs::Permissions::from_mode(0o700))
+        .expect("keep replacement executable");
+    assert!(matches!(
+        plane.pin_reference_worker(),
+        Err(ExecuteError::Rejected(message))
+            if message == "reference worker identity changed after daemon startup"
+    ));
+    assert_eq!(
+        count_reference_worker_snapshots(&plane.data_dir),
+        0,
+        "a rejected first pin must never leave a private snapshot behind"
+    );
+}
+
 #[test]
 fn authenticated_failures_are_safe_and_replay_divergence_is_detected() {
     let directory = tempdir().expect("temporary directory");
@@ -8328,7 +8523,15 @@ fn run_result_receipt(plane: &ControlPlane, run_id: &str) -> RunResultReceipt {
         .expect("authenticate run result receipt")
 }
 
+/// Asserts a synchronous run leaves no per-run sandbox state behind.
+///
+/// The reference worker's private snapshot (`reference-worker-*`) is now a
+/// daemon-lifetime pin, reused by every later call instead of being written
+/// and torn down on each run (see `pin_reference_worker`), so up to one such
+/// directory is expected to remain after the first reference run; more than
+/// one would mean a duplicate pin leaked.
 fn assert_runtime_directories_clean(data_dir: &Path) {
+    let mut reference_worker_snapshots = 0usize;
     for entry in fs::read_dir(data_dir).expect("read runtime data directory") {
         let entry = entry.expect("read runtime directory");
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -8342,13 +8545,19 @@ fn assert_runtime_directories_clean(data_dir: &Path) {
                     .is_none(),
                 "synchronous run left a sandbox behind"
             );
+        } else if name.starts_with("reference-worker-") {
+            reference_worker_snapshots += 1;
         } else {
             assert!(
-                !name.starts_with("reference-worker-") && !name.starts_with("sandbox-"),
+                !name.starts_with("sandbox-"),
                 "synchronous run left runtime state behind: {name}"
             );
         }
     }
+    assert!(
+        reference_worker_snapshots <= 1,
+        "synchronous run must reuse one daemon-lifetime pinned reference worker snapshot, found {reference_worker_snapshots}"
+    );
 }
 
 #[test]
