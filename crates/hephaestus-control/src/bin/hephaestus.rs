@@ -482,6 +482,11 @@ enum ArenaCommand {
         parent_genome_id: String,
         /// Content-derived registered candidate Genome identity.
         candidate_genome_id: String,
+        /// Lease each reference-role trial to a registered remote worker
+        /// (see `worker credential-mint`/`hephaestus-remote-worker`)
+        /// instead of running it in a local sandbox.
+        #[arg(long)]
+        remote: bool,
     },
     /// Calculate and persist the trusted metrics outcome for one evaluation.
     Select {
@@ -1365,11 +1370,13 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
                     evaluation_id,
                     parent_genome_id,
                     candidate_genome_id,
+                    remote,
                 },
         } => Command::EvaluatePair {
             evaluation_id,
             parent_genome_id,
             candidate_genome_id,
+            remote,
         },
         CliCommand::Arena {
             command: ArenaCommand::Select { evaluation_id },
@@ -2807,6 +2814,31 @@ mod tests {
                 evaluation_id: "evaluation-1".to_owned(),
                 parent_genome_id: "parent-1".to_owned(),
                 candidate_genome_id: "candidate-1".to_owned(),
+                remote: false,
+            }
+        );
+    }
+
+    #[test]
+    fn arena_evaluate_remote_flag_maps_to_the_remote_opt_in() {
+        let arguments = Arguments::try_parse_from([
+            "hephaestus",
+            "arena",
+            "evaluate",
+            "evaluation-1",
+            "parent-1",
+            "candidate-1",
+            "--remote",
+        ])
+        .expect("CLI parses");
+
+        assert_eq!(
+            command_from_cli(arguments.command).expect("command maps"),
+            Command::EvaluatePair {
+                evaluation_id: "evaluation-1".to_owned(),
+                parent_genome_id: "parent-1".to_owned(),
+                candidate_genome_id: "candidate-1".to_owned(),
+                remote: true,
             }
         );
     }

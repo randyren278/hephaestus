@@ -86,6 +86,15 @@ fn u32_arg_or(arguments: &Value, key: &str, default: u32) -> Result<u32, String>
     }
 }
 
+fn bool_arg_or(arguments: &Value, key: &str, default: bool) -> Result<bool, String> {
+    match arguments.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_bool()
+            .ok_or_else(|| format!("argument '{key}' must be a boolean")),
+    }
+}
+
 fn empty_schema() -> Value {
     json!({ "type": "object", "properties": {}, "additionalProperties": false })
 }
@@ -235,7 +244,11 @@ const TOOLS: &[Tool] = &[
                 "properties": {
                     "evaluation_id": { "type": "string" },
                     "parent_genome_id": { "type": "string" },
-                    "candidate_genome_id": { "type": "string" }
+                    "candidate_genome_id": { "type": "string" },
+                    "remote": {
+                        "type": "boolean",
+                        "description": "Lease each reference-role trial to a remote worker instead of running it locally. Defaults to false."
+                    }
                 },
                 "required": ["evaluation_id", "parent_genome_id", "candidate_genome_id"],
                 "additionalProperties": false
@@ -246,6 +259,7 @@ const TOOLS: &[Tool] = &[
                 evaluation_id: string_arg(arguments, "evaluation_id")?,
                 parent_genome_id: string_arg(arguments, "parent_genome_id")?,
                 candidate_genome_id: string_arg(arguments, "candidate_genome_id")?,
+                remote: bool_arg_or(arguments, "remote", false)?,
             })
         },
     },

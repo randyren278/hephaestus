@@ -1,7 +1,7 @@
 //! Deterministic selection analysis and durable, evaluation-bound receipts.
 
 use hephaestus_genome::CompiledWorld;
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventIndex, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, ArtifactId, EventIndex, EventInput, StoredEvent};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -409,7 +409,7 @@ impl SelectionView {
 /// receipt recomputes from the verified source evaluation.
 pub fn verify_selection_event_in(
     index: &EventIndex<'_>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event: &StoredEvent,
     world: &CompiledWorld,
 ) -> Result<SelectionView, ArenaError> {
@@ -427,7 +427,7 @@ pub fn verify_selection_event_in(
 
 fn load_selection_in(
     index: &EventIndex<'_>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     evaluation_id: &str,
     world: &CompiledWorld,
 ) -> Result<SelectionView, ArenaError> {
@@ -463,7 +463,7 @@ fn load_selection_in(
 /// Read-only counterpart to [`existing_receipt_algorithm`] taking a borrowed
 /// artifact store instead of owned stores.
 fn existing_receipt_algorithm_in(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event: &StoredEvent,
 ) -> Result<String, ArenaError> {
     let payload: SelectionEventPayload = serde_json::from_slice(&event.payload)?;
@@ -476,7 +476,7 @@ fn existing_receipt_algorithm_in(
 /// Read-only counterpart to `rehydrate_selection` taking a borrowed artifact
 /// store instead of owned stores, and returning a store-less [`SelectionView`].
 fn rehydrate_selection_in(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event: &StoredEvent,
     expected: &SelectionReceipt,
 ) -> Result<SelectionView, ArenaError> {

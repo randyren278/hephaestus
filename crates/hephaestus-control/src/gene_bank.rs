@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use hephaestus_arena::verify_selection_event_in;
 use hephaestus_genome::{CompiledWorld, RegisteredObjects, SourceFormat, compile_genome};
-use hephaestus_ledger::{ArtifactId, ArtifactStore, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, ArtifactId, StoredEvent};
 use hephaestus_runtime::ReferenceInstruction;
 
 use super::champion::{champion_event_id, decode_champion_transition};
@@ -218,7 +218,7 @@ pub(super) fn existing_gene(
 /// `promotion_transition_id`, or refuses when the origin evidence does not
 /// meet the deterministic minimum-evidence threshold.
 pub(super) fn gene_extraction_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     gene_id: &str,
@@ -353,7 +353,7 @@ pub(super) fn existing_transfer_applied(
 /// must currently carry the Gene's exact origin (pre-mutation) operation.
 pub(super) fn transfer_applied_payload(
     registered: &RegisteredObjects,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     trial_id: &str,
     gene_id: &str,
@@ -433,7 +433,7 @@ pub(super) fn transfer_applied_payload(
 fn compile_gene_child(
     registered: &RegisteredObjects,
     world: &CompiledWorld,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
     parent_genome_id: &str,
     world_id: &str,
     trial_id: &str,
@@ -505,7 +505,7 @@ pub(super) fn existing_transfer_recorded(
 /// its already-applied transfer and the verified paired selection of
 /// `evaluation_id`.
 pub(super) fn transfer_recorded_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     trial_id: &str,
@@ -907,7 +907,7 @@ pub(super) fn gene_summaries(history: &[StoredEvent]) -> Result<Vec<GeneSummary>
 /// of reopening it (see `TECH_DEBT.md` TD-16).
 #[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -922,7 +922,7 @@ pub(super) fn verify_gene_bank_history(
 /// Cache-aware counterpart of [`verify_gene_bank_history`]; see `EvidenceCache`.
 #[allow(clippy::too_many_lines)]
 pub(super) fn verify_gene_bank_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,

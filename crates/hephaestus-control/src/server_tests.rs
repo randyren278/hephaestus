@@ -101,7 +101,7 @@ fn complete_arena_test_job(
 ) {
     assert!(matches!(
         plane
-            .submit_arena_job(evaluation_id, parent_genome_id, candidate_genome_id)
+            .submit_arena_job(evaluation_id, parent_genome_id, candidate_genome_id, false)
             .expect("admit Arena evidence job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -254,8 +254,7 @@ fn forge_assessment_records_verified_child_selection_and_replays() {
             .submit_arena_job(
                 "assessment-child-evaluation",
                 &initial_candidate.genome_id,
-                &child.genome_id
-            )
+                &child.genome_id, false)
             .expect("admit child evaluation"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -627,7 +626,7 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     let evaluation_id = "forge-projection-evaluation";
     assert!(matches!(
         plane
-            .submit_arena_job(evaluation_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(evaluation_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit genuine Arena evaluation"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -1200,6 +1199,7 @@ fn command_audit_types_and_source_extensions_are_stable() {
                 evaluation_id: "e".into(),
                 parent_genome_id: "p".into(),
                 candidate_genome_id: "c".into(),
+                remote: false,
             },
             "control.evaluate_pair",
         ),
@@ -1638,6 +1638,7 @@ fn assert_dispatch_missing_command_paths(
             evaluation_id: "missing-pair".to_owned(),
             parent_genome_id: absent_genome.clone(),
             candidate_genome_id: format!("hephaestus:genome:{}", "e".repeat(64)),
+            remote: false,
         },
         Command::ArenaSelect {
             evaluation_id: "missing-evaluation".to_owned(),
@@ -2473,6 +2474,7 @@ fn arena_job_record_validation_rejects_plan_and_event_tampering() {
         state: JobState::Admitted,
         terminal: None,
         evaluation: None,
+        remote: false,
     };
     let event_for = |record: &ArenaJobRecord| StoredEvent {
         sequence: 1,
@@ -2569,6 +2571,7 @@ fn admitted_arena_record(
         state: JobState::Admitted,
         terminal: None,
         evaluation: None,
+        remote: false,
     }
 }
 
@@ -2914,6 +2917,7 @@ fn direct_thread_launch_failure_persists_interruption_and_releases_slot() {
             evaluation_id: "blocked-after-launch-failure".to_owned(),
             parent_genome_id: genome.genome_id.clone(),
             candidate_genome_id: candidate.genome_id.clone(),
+            remote: false,
         },
     );
     assert_eq!(
@@ -2988,7 +2992,8 @@ fn arena_thread_launch_failure_persists_interruption_and_releases_slot() {
         plane.submit_arena_job(
             "arena-launch-failed-one",
             &parent.genome_id,
-            &candidate.genome_id
+            &candidate.genome_id,
+            false
         ),
         Err(ExecuteError::Internal)
     ));
@@ -3007,7 +3012,8 @@ fn arena_thread_launch_failure_persists_interruption_and_releases_slot() {
             plane.submit_arena_job(
                 "arena-launch-failed-two",
                 &parent.genome_id,
-                &candidate.genome_id
+                &candidate.genome_id,
+                false
             ),
             Err(ExecuteError::Internal)
         ),
@@ -3080,7 +3086,8 @@ fn arena_replay_rejects_signed_trials_before_running_and_out_of_admitted_order()
         plane.submit_arena_job(
             "signed-trial-order",
             &parent.genome_id,
-            &candidate.genome_id
+            &candidate.genome_id,
+            false
         ),
         Err(ExecuteError::Internal)
     ));
@@ -4045,7 +4052,7 @@ fn paired_admission_rejects_world_missing_sealed_manifest() {
     );
 
     assert!(matches!(
-        plane.submit_arena_job("missing-sealed", &parent.genome_id, &candidate.genome_id),
+        plane.submit_arena_job("missing-sealed", &parent.genome_id, &candidate.genome_id, false),
         Err(ExecuteError::Rejected(message))
             if message == "World does not declare arena.sealed_manifest"
     ));
@@ -4101,7 +4108,7 @@ fn paired_admission_rejects_world_missing_evaluator_after_valid_manifests() {
     );
 
     assert!(matches!(
-        plane.submit_arena_job("missing-evaluator", &parent.genome_id, &candidate.genome_id),
+        plane.submit_arena_job("missing-evaluator", &parent.genome_id, &candidate.genome_id, false),
         Err(ExecuteError::Rejected(message)) if message == "World does not declare arena.evaluator"
     ));
     assert!(!plane.state.arena_jobs.contains_key("missing-evaluator"));
@@ -4163,7 +4170,7 @@ fn paired_admission_rejects_combined_manifest_tasks_above_bound() {
     );
 
     assert!(matches!(
-        plane.submit_arena_job("combined-over-limit", &parent.genome_id, &candidate.genome_id),
+        plane.submit_arena_job("combined-over-limit", &parent.genome_id, &candidate.genome_id, false),
         Err(ExecuteError::Invalid(message))
             if message == "paired task count is outside the bounded range"
     ));
@@ -4574,7 +4581,7 @@ fn arena_evidence_failures_cancel_through_production_writer_and_replay_once() {
         let trial_run_id = paired_run_id(job_id, "parent", 0);
         assert!(matches!(
             plane
-                .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id)
+                .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id, false)
                 .expect("admit real Arena job"),
             ResponseData::ArenaJob { job } if job.state == JobState::Running
         ));
@@ -4726,7 +4733,7 @@ fn arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained() 
         .expect("reject the first trial result append");
     assert!(matches!(
         plane
-            .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit real Arena worker job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -4814,7 +4821,7 @@ fn arena_trial_acknowledgement_disconnect_fails_and_replays_without_next_trial()
     let job_id = "trial-ack-disconnected";
     assert!(matches!(
         plane
-            .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(job_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit real Arena worker job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5037,7 +5044,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
         .expect("preflight pinned Git revision");
     assert!(matches!(
         plane
-            .submit_arena_job("channel-drop", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("channel-drop", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit channel-drop job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5134,7 +5141,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let trials_error_id = "trials-error-terminal-write-failure";
     assert!(matches!(
         plane
-            .submit_arena_job(trials_error_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(trials_error_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit Trials Err terminal fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5210,7 +5217,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let cross_run_id = "arena-cross-run-evidence";
     assert!(matches!(
         plane
-            .submit_arena_job(cross_run_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(cross_run_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit cross-run Arena evidence fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5274,7 +5281,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("scoring-failure", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("scoring-failure", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit Arena job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5335,7 +5342,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("scorer-launch-failure", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("scorer-launch-failure", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit scorer launch failure job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5484,7 +5491,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let success_id = "scorer-launch-success";
     assert!(matches!(
         plane
-            .submit_arena_job(success_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(success_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit successful scorer launch failure fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5557,7 +5564,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("scorer-launch-retry", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("scorer-launch-retry", &parent.genome_id, &candidate.genome_id, false)
             .expect("retry Arena admission"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5579,7 +5586,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("cancelled-scoring", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("cancelled-scoring", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit cancellation job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5605,7 +5612,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("scoring-timeout", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("scoring-timeout", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit scoring-timeout job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5636,7 +5643,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let deadline_replay_id = "deadline-terminal-replay";
     assert!(matches!(
         plane
-            .submit_arena_job(deadline_replay_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(deadline_replay_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit Arena deadline replay fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5760,7 +5767,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("scoring-success", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("scoring-success", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit successful Arena job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5797,7 +5804,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("scoring-commit-failure", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("scoring-commit-failure", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit scoring-commit-failure job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5865,7 +5872,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("terminal-write-failure", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("terminal-write-failure", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit terminal-write-failure job"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5931,7 +5938,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("cancel-terminal-write-failure", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("cancel-terminal-write-failure", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit cancellation write fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -5973,7 +5980,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
 
     assert!(matches!(
         plane
-            .submit_arena_job("timeout-terminal-write-failure", &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job("timeout-terminal-write-failure", &parent.genome_id, &candidate.genome_id, false)
             .expect("admit timeout write fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -6026,7 +6033,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let failed_commit_id = "failed-commit-terminal-write-failure";
     assert!(matches!(
         plane
-            .submit_arena_job(failed_commit_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(failed_commit_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit failed commit terminal write fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -6114,7 +6121,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let phase_id = "scoring-phase-write-failure";
     assert!(matches!(
         plane
-            .submit_arena_job(phase_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(phase_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit scoring-phase write fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -6186,7 +6193,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let committing_id = "committing-phase-write-failure";
     assert!(matches!(
         plane
-            .submit_arena_job(committing_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(committing_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit committing-phase write fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -6268,7 +6275,7 @@ fn injected_arena_scoring_failure_persists_failed_terminal_and_replays() {
     let recovery_id = "scored-terminal-write-failure";
     assert!(matches!(
         plane
-            .submit_arena_job(recovery_id, &parent.genome_id, &candidate.genome_id)
+            .submit_arena_job(recovery_id, &parent.genome_id, &candidate.genome_id, false)
             .expect("admit scored terminal write fixture"),
         ResponseData::ArenaJob { job } if job.state == JobState::Running
     ));
@@ -7183,16 +7190,19 @@ fn command_field_validation_rejects_empty_ids_and_paths() {
             evaluation_id: String::new(),
             parent_genome_id: "parent".to_owned(),
             candidate_genome_id: "candidate".to_owned(),
+            remote: false,
         },
         Command::EvaluatePair {
             evaluation_id: "evaluation".to_owned(),
             parent_genome_id: " ".to_owned(),
             candidate_genome_id: "candidate".to_owned(),
+            remote: false,
         },
         Command::EvaluatePair {
             evaluation_id: "evaluation".to_owned(),
             parent_genome_id: "parent".to_owned(),
             candidate_genome_id: String::new(),
+            remote: false,
         },
         Command::ArenaSelect {
             evaluation_id: String::new(),
@@ -8378,8 +8388,8 @@ fn corrupted_runtime_recorder_fixture(
         .expect("append valid canonical event");
     let artifacts = ArtifactStore::open(directory.join("artifacts")).expect("open artifact store");
     let recorder = EvidenceRecorder::from_stores(
-        events,
-        artifacts,
+        Box::new(events),
+        Box::new(artifacts),
         RedactionPolicy::new([]),
         RetentionLimits::new(8, 1024).expect("valid retention limits"),
     );
@@ -15574,7 +15584,12 @@ fn projection_refresh_rejects_a_ledger_row_tampered_after_a_prior_successful_ref
     let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
     let evaluation_id = "refresh-retamper-evaluation";
     plane
-        .submit_arena_job(evaluation_id, &parent.genome_id, &candidate.genome_id)
+        .submit_arena_job(
+            evaluation_id,
+            &parent.genome_id,
+            &candidate.genome_id,
+            false,
+        )
         .expect("admit genuine Arena evaluation");
     let deadline = Instant::now() + Duration::from_secs(30);
     while plane.active_arena_job.is_some() {
@@ -15608,5 +15623,640 @@ fn projection_refresh_rejects_a_ledger_row_tampered_after_a_prior_successful_ref
     assert!(
         plane.refresh_projection().is_err(),
         "an event whose ledger bytes changed after a prior successful refresh must fail the next refresh"
+    );
+}
+
+/// Stores bytes through whichever `ArtifactBackend` the given plane is
+/// currently open on (SQLite/CAS, or the JSONL/memory pair from
+/// [`ControlPlane::open_with_backends`]), instead of assuming the
+/// filesystem CAS the way `register_dispatch_arena_objects_with_invariants`
+/// does. Needed so the same registration recipe can run unmodified against
+/// either backend pair (TD-13).
+fn put_plane_artifact(plane: &mut ControlPlane, bytes: &[u8]) -> ArtifactId {
+    plane
+        .storage
+        .as_mut()
+        .expect("canonical storage")
+        .artifacts
+        .put(bytes)
+        .expect("store artifact through the plane's own backend")
+}
+
+/// Backend-agnostic counterpart to `register_dispatch_arena_objects_with_invariants`:
+/// registers one World and a parent/candidate reference Genome pair, storing
+/// every supporting artifact through `plane.storage.artifacts` (whatever
+/// backend that is) rather than opening a second, backend-specific handle.
+fn register_backend_arena_objects(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &Path,
+) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+    let visible = TrustedManifest::new(
+        "backend-visible",
+        Visibility::Visible,
+        vec![
+            hephaestus_arena::TrustedTask::new("visible-task", "visible", "VISIBLE")
+                .expect("visible task"),
+        ],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        "backend-sealed",
+        Visibility::Sealed,
+        vec![
+            hephaestus_arena::TrustedTask::new("sealed-task", "sealed", "SEALED")
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = put_plane_artifact(
+        plane,
+        &serde_json::to_vec(&visible).expect("encode visible manifest"),
+    );
+    let sealed_id = put_plane_artifact(
+        plane,
+        &serde_json::to_vec(&sealed).expect("encode sealed manifest"),
+    );
+    let evaluator = env::current_exe()
+        .expect("locate test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("locate Cargo binary directory")
+        .join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+    let evaluator_id = put_plane_artifact(
+        plane,
+        &fs::read(evaluator).expect("read reference evaluator"),
+    );
+    let verifier_bytes = plane.run_result_verifier.public_key_bytes();
+    let verifier_id = put_plane_artifact(plane, &verifier_bytes);
+    let world_path = directory.join("backend-arena-world.json");
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"backend-arena","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+        ),
+    )
+    .expect("write Arena World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        "backend-arena-world",
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Arena World registration should succeed");
+    };
+    let register_genome = |plane: &mut ControlPlane, token: &str, name: &str, parents: &str| {
+        let path = directory.join(format!("{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: {name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"identity\"}}\n```\n"
+            ),
+        )
+        .expect("write Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            name,
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Arena Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(plane, token, "backend-arena-parent", "[]");
+    let candidate = register_genome(
+        plane,
+        token,
+        "backend-arena-candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+    );
+    (world, parent, candidate)
+}
+
+/// Opens a fresh `ControlPlane` over the JSONL event ledger and in-memory
+/// artifact backend (TD-13) instead of the default SQLite/CAS pair, using
+/// the same real reference-worker/evaluator binaries every other Arena
+/// fixture in this file uses.
+fn open_jsonl_memory_arena_fixture(
+    data_dir: &Path,
+    repository: &Path,
+    evaluator: &Path,
+    worker: &Path,
+) -> ControlPlane {
+    let ledger_path = data_dir.join("events.jsonl");
+    let open_ledger = move || -> Result<Box<dyn EventLedger + Send>, ControlError> {
+        Ok(Box::new(FileEventLedger::open(&ledger_path)?))
+    };
+    let backend = Arc::new(MemoryArtifactBackend::new());
+    let open_artifacts = move || -> Result<Box<dyn ArtifactBackend + Send + Sync>, ControlError> {
+        Ok(Box::new(Arc::clone(&backend)))
+    };
+    ControlPlane::open_with_backends(
+        data_dir,
+        repository,
+        evaluator,
+        worker,
+        open_ledger,
+        open_artifacts,
+    )
+    .expect("open JSONL/memory Arena fixture")
+}
+
+/// Every field of a [`hephaestus_arena::SelectionReceipt`] that is a pure
+/// function of the trial inputs (the pinned reference-worker transform, the
+/// bootstrap algorithm, and the World's promotion policy), used to compare
+/// two receipts computed by two different storage backends for otherwise
+/// identical inputs.
+///
+/// Deliberately excludes `world_id`/`parent_genome_id`/`candidate_genome_id`
+/// (each backend's `ControlPlane` mints its own runtime-producer keypair on
+/// first open, which is folded into the World's `arena.runtime_verifier`
+/// artifact and therefore into the content-addressed World/Genome
+/// identities — expected to differ across independently opened daemons, not
+/// a storage-backend effect), `evaluation_event_hash` (hash-chained, so it
+/// depends on wall-clock timestamps of every prior event), the two measured
+/// `*_latency_millis` fields (wall-clock, not decision inputs), and
+/// `candidate_pareto_dominates` (folds those same measured latencies into a
+/// cost/latency dominance check, so it can legitimately flip between two
+/// runs of the identical deterministic reference genomes whose measured
+/// wall-clock latencies differ, e.g. local execution versus a remote-leased
+/// trial's extra round trip).
+#[derive(Debug, PartialEq)]
+struct SelectionDecision {
+    schema_version: u16,
+    algorithm: String,
+    resamples: u32,
+    seed: u64,
+    maximum_cost_microusd: u64,
+    minimum_delta_bps: i64,
+    maximum_regressions: u32,
+    confidence_bps: u16,
+    correctness_regressions: u32,
+    correctness_unchanged: u32,
+    correctness_improvements: u32,
+    estimate_bps: i64,
+    lower_bps: i64,
+    upper_bps: i64,
+    parent_correctness_bps: u32,
+    candidate_correctness_bps: u32,
+    parent_reliability_bps: u32,
+    candidate_reliability_bps: u32,
+    parent_cost_microusd: u64,
+    candidate_cost_microusd: u64,
+    metrics_eligible: bool,
+    invariant_gate_verified: bool,
+    promotion_eligible: bool,
+}
+
+impl From<&hephaestus_arena::SelectionReceipt> for SelectionDecision {
+    fn from(receipt: &hephaestus_arena::SelectionReceipt) -> Self {
+        Self {
+            schema_version: receipt.schema_version(),
+            algorithm: receipt.algorithm().to_owned(),
+            resamples: receipt.resamples(),
+            seed: receipt.seed(),
+            maximum_cost_microusd: receipt.maximum_cost_microusd(),
+            minimum_delta_bps: receipt.minimum_delta_bps(),
+            maximum_regressions: receipt.maximum_regressions(),
+            confidence_bps: receipt.confidence_bps(),
+            correctness_regressions: receipt.correctness_regressions(),
+            correctness_unchanged: receipt.correctness_unchanged(),
+            correctness_improvements: receipt.correctness_improvements(),
+            estimate_bps: receipt.estimate_bps(),
+            lower_bps: receipt.lower_bps(),
+            upper_bps: receipt.upper_bps(),
+            parent_correctness_bps: receipt.parent_correctness_bps(),
+            candidate_correctness_bps: receipt.candidate_correctness_bps(),
+            parent_reliability_bps: receipt.parent_reliability_bps(),
+            candidate_reliability_bps: receipt.candidate_reliability_bps(),
+            parent_cost_microusd: receipt.parent_cost_microusd(),
+            candidate_cost_microusd: receipt.candidate_cost_microusd(),
+            metrics_eligible: receipt.metrics_eligible(),
+            invariant_gate_verified: receipt.invariant_gate_verified(),
+            promotion_eligible: receipt.promotion_eligible(),
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn open_with_backends_on_jsonl_ledger_and_memory_artifacts_matches_sqlite_cas_decision() {
+    // TD-13: proves the JSONL ledger + in-memory artifact backend pair
+    // lands a real World/Genome registration, a paired Arena evaluation,
+    // `arena select`, and `replay` end to end through `ControlPlane`, and
+    // that the resulting selection decision is identical to the default
+    // SQLite/CAS backend for the same reference-genome inputs.
+    let directory = tempdir().expect("storage backend parity fixture");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(
+        repository.join("fixture.txt"),
+        b"Storage backend parity fixture\n",
+    )
+    .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("parity-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+
+    // SQLite/CAS backend (the default daemon path).
+    let sqlite_data_dir = directory.path().join("sqlite-data");
+    let mut sqlite_plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &sqlite_data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open SQLite/CAS Arena fixture");
+    let sqlite_token = sqlite_plane.token_hex.clone();
+    let (_, sqlite_parent, sqlite_candidate) =
+        register_backend_arena_objects(&mut sqlite_plane, &sqlite_token, directory.path());
+    assert!(
+        dispatch_call(
+            &mut sqlite_plane,
+            &sqlite_token,
+            "sqlite-unfreeze",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+    complete_arena_test_job(
+        &mut sqlite_plane,
+        "parity-eval",
+        &sqlite_parent.genome_id,
+        &sqlite_candidate.genome_id,
+    );
+    let ResponseData::Selection {
+        selection: sqlite_selection,
+    } = sqlite_plane
+        .select_arena_evaluation("parity-eval")
+        .expect("select on SQLite/CAS backend")
+    else {
+        panic!("SQLite/CAS selection should produce a receipt");
+    };
+    assert!(matches!(
+        sqlite_plane
+            .replay_response()
+            .expect("replay SQLite/CAS history"),
+        ResponseData::Replay { .. }
+    ));
+
+    // JSONL ledger + in-memory artifact backend pair (TD-13's second
+    // backend), driven through the identical registration/run/select/replay
+    // recipe.
+    let jsonl_data_dir = directory.path().join("jsonl-data");
+    let mut jsonl_plane =
+        open_jsonl_memory_arena_fixture(&jsonl_data_dir, &repository, &evaluator, &worker);
+    let jsonl_token = jsonl_plane.token_hex.clone();
+    let (_, jsonl_parent, jsonl_candidate) =
+        register_backend_arena_objects(&mut jsonl_plane, &jsonl_token, directory.path());
+    assert!(
+        dispatch_call(
+            &mut jsonl_plane,
+            &jsonl_token,
+            "jsonl-unfreeze",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+    complete_arena_test_job(
+        &mut jsonl_plane,
+        "parity-eval",
+        &jsonl_parent.genome_id,
+        &jsonl_candidate.genome_id,
+    );
+    let ResponseData::Selection {
+        selection: jsonl_selection,
+    } = jsonl_plane
+        .select_arena_evaluation("parity-eval")
+        .expect("select on JSONL/memory backend")
+    else {
+        panic!("JSONL/memory selection should produce a receipt");
+    };
+    assert!(matches!(
+        jsonl_plane
+            .replay_response()
+            .expect("replay JSONL/memory history"),
+        ResponseData::Replay { .. }
+    ));
+
+    assert_eq!(
+        SelectionDecision::from(&sqlite_selection.receipt),
+        SelectionDecision::from(&jsonl_selection.receipt),
+        "the same reference-genome inputs must reach the same Arena decision \
+         regardless of which EventLedger/ArtifactBackend pair the control plane \
+         is routed through"
+    );
+
+    // Independently proves both hash chains verify byte for byte from a
+    // fresh reader, not merely from the already-open handle above.
+    assert!(
+        sqlite_plane
+            .storage
+            .as_ref()
+            .expect("SQLite/CAS storage")
+            .ledger
+            .replay_verified()
+            .is_ok()
+    );
+    assert!(
+        jsonl_plane
+            .storage
+            .as_ref()
+            .expect("JSONL storage")
+            .ledger
+            .replay_verified()
+            .is_ok()
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn remote_leased_arena_trial_matches_local_execution_and_is_idempotent_under_duplicate_delivery() {
+    // TD-12's last item: a paired Arena evaluation admitted with the remote
+    // opt-in leases every reference-role trial to a remote worker exactly
+    // like the direct-run `worker.sock` path, and the daemon (never the
+    // worker) remains the sole signer of the resulting canonical result.
+    let directory = tempdir().expect("remote Arena lease fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let (_, worker_token) =
+        mint_worker_credential(&mut plane, &token, "arena-remote-worker", 3_600);
+
+    // Baseline: the same Genome pair evaluated locally.
+    complete_arena_test_job(
+        &mut plane,
+        "local-eval",
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let ResponseData::Selection {
+        selection: local_selection,
+    } = plane
+        .select_arena_evaluation("local-eval")
+        .expect("select local Arena evidence")
+    else {
+        panic!("local selection should produce a receipt");
+    };
+
+    // The same pair, admitted with the remote opt-in: every reference-role
+    // trial must be leased and completed through `handle_worker_request`
+    // instead of a local sandbox.
+    assert!(matches!(
+        plane
+            .submit_arena_job("remote-eval", &parent.genome_id, &candidate.genome_id, true)
+            .expect("admit remote-leased Arena evaluation"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut last_leased: Option<(String, String)> = None;
+    let mut leased_trials = 0_u32;
+    while plane.active_arena_job.is_some() {
+        match plane.handle_worker_request(WorkerRequest::Lease {
+            worker_id: "arena-remote-worker".to_owned(),
+            token: worker_token.clone(),
+        }) {
+            WorkerReply::Leased {
+                job_id, frame_hex, ..
+            } => {
+                let frame = hex_decode_bytes(&frame_hex).expect("leased frame is valid hex");
+                let output = hephaestus_runtime::execute_reference_worker_request(&frame)
+                    .expect("remote reference transform succeeds");
+                let output_hex = hex_encode_bytes(&output);
+                let reply = plane.handle_worker_request(WorkerRequest::SubmitResult {
+                    worker_id: "arena-remote-worker".to_owned(),
+                    token: worker_token.clone(),
+                    job_id: job_id.clone(),
+                    output_hex: output_hex.clone(),
+                    completion: RemoteCompletion::Success,
+                });
+                assert!(
+                    matches!(reply, WorkerReply::ResultAccepted { .. }),
+                    "a genuine leased trial result must be accepted"
+                );
+                leased_trials += 1;
+                last_leased = Some((job_id, output_hex));
+            }
+            WorkerReply::NoWork => {}
+            WorkerReply::Error { reason } => panic!("lease unexpectedly failed: {reason}"),
+            WorkerReply::ResultAccepted { .. } => {
+                panic!("Lease request must not reply ResultAccepted")
+            }
+        }
+        plane
+            .service_async_messages()
+            .expect("persist remote-leased Arena trials");
+        assert!(
+            Instant::now() < deadline,
+            "remote-leased Arena evaluation did not finish"
+        );
+        if plane.active_arena_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_eq!(
+        plane.state.arena_jobs["remote-eval"].terminal,
+        Some(JobTerminal::Succeeded)
+    );
+    assert!(
+        leased_trials > 0,
+        "the remote-leased evaluation must have leased at least one trial"
+    );
+
+    let ResponseData::Selection {
+        selection: remote_selection,
+    } = plane
+        .select_arena_evaluation("remote-eval")
+        .expect("select remote-leased Arena evidence")
+    else {
+        panic!("remote-leased selection should produce a receipt");
+    };
+    assert_eq!(
+        SelectionDecision::from(&local_selection.receipt),
+        SelectionDecision::from(&remote_selection.receipt),
+        "a remote-leased evaluation must reach the same decision as the identical \
+         evaluation executed locally: its recorded run.result_recorded events must \
+         be indistinguishable from local execution"
+    );
+
+    // Duplicate delivery of the last trial's result, after the whole
+    // evaluation already completed, must stay idempotent: no new canonical
+    // event is appended, and the reply still reports acceptance.
+    let (duplicate_job_id, duplicate_output_hex) =
+        last_leased.expect("at least one trial was leased");
+    let history_len_before = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history before duplicate delivery")
+        .len();
+    let repeat = plane.handle_worker_request(WorkerRequest::SubmitResult {
+        worker_id: "arena-remote-worker".to_owned(),
+        token: worker_token,
+        job_id: duplicate_job_id,
+        output_hex: duplicate_output_hex,
+        completion: RemoteCompletion::Success,
+    });
+    assert!(
+        matches!(repeat, WorkerReply::ResultAccepted { .. }),
+        "duplicate delivery of an already-completed Arena trial must still be accepted"
+    );
+    let history_len_after = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after duplicate delivery")
+        .len();
+    assert_eq!(
+        history_len_before, history_len_after,
+        "duplicate delivery of a completed Arena trial result must not append a new event"
+    );
+}
+
+#[test]
+fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_local_path_unaffected()
+ {
+    // TD-12: an expired worker credential must fail closed before any lease
+    // is handed out, leaving the Arena job pending rather than silently
+    // executing the trial some other way; operator cancellation still
+    // terminalizes it, and the daemon's local (non-remote) execution path is
+    // unaffected by the failed remote attempt.
+    let directory = tempdir().expect("remote Arena credential expiry fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let (_, worker_token) = mint_worker_credential(&mut plane, &token, "expiring-arena-worker", 1);
+
+    assert!(matches!(
+        plane
+            .submit_arena_job(
+                "remote-expiry-eval",
+                &parent.genome_id,
+                &candidate.genome_id,
+                true
+            )
+            .expect("admit remote-leased Arena evaluation"),
+        ResponseData::ArenaJob { job } if job.state == JobState::Running
+    ));
+    std::thread::sleep(Duration::from_millis(1_100));
+
+    let reply = plane.handle_worker_request(WorkerRequest::Lease {
+        worker_id: "expiring-arena-worker".to_owned(),
+        token: worker_token.clone(),
+    });
+    assert!(
+        matches!(reply, WorkerReply::Error { .. }),
+        "an expired credential must fail closed before a trial is leased"
+    );
+    assert!(
+        plane.active_arena_job.is_some(),
+        "the Arena job must stay pending, not silently fail or complete, \
+         when its only remote worker's credential has expired"
+    );
+    assert!(
+        plane.state.arena_jobs["remote-expiry-eval"]
+            .terminal
+            .is_none()
+    );
+
+    // The same expired credential must also fail closed on `SubmitResult`,
+    // not only on `Lease`: a result must never be recorded for any job
+    // (direct-run or a leased Arena trial) without a fresh, valid
+    // credential re-check.
+    let submit_reply = plane.handle_worker_request(WorkerRequest::SubmitResult {
+        worker_id: "expiring-arena-worker".to_owned(),
+        token: worker_token,
+        job_id: "arena:remote-expiry-eval:trial:0".to_owned(),
+        output_hex: hex_encode_bytes(b"forged output"),
+        completion: RemoteCompletion::Success,
+    });
+    assert!(
+        matches!(submit_reply, WorkerReply::Error { .. }),
+        "an expired credential must fail closed before a result is recorded"
+    );
+
+    // Operator cancellation still terminalizes a job stuck on an
+    // unavailable remote worker.
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "cancel-remote-expiry",
+            Command::JobKill {
+                job_id: "remote-expiry-eval".to_owned(),
+            },
+        )
+        .error
+        .is_none()
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while plane.active_arena_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("drain cancelled remote-leased Arena job");
+        assert!(
+            Instant::now() < deadline,
+            "cancellation of the remote-leased Arena job did not terminalize it"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(
+        plane.state.arena_jobs["remote-expiry-eval"].terminal,
+        Some(JobTerminal::Cancelled)
+    );
+
+    // The local (non-remote) execution path is unaffected by the failed
+    // remote attempt above.
+    complete_arena_test_job(
+        &mut plane,
+        "local-after-expiry",
+        &parent.genome_id,
+        &candidate.genome_id,
     );
 }

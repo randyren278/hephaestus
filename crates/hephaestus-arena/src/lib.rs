@@ -22,7 +22,8 @@ use hephaestus_experience::{
 };
 use hephaestus_genome::CompiledWorld;
 use hephaestus_ledger::{
-    ArtifactId, ArtifactStore, EventIndex, EventInput, EventStore, StoredEvent,
+    ArtifactBackend, ArtifactId, ArtifactStore, EventIndex, EventInput, EventLedger, EventStore,
+    StoredEvent,
 };
 pub use invariants::{
     InvariantEvent, InvariantPredicateResult, InvariantReceipt, InvariantView,
@@ -881,15 +882,21 @@ struct OperatorReceipt {
 }
 
 /// Durable stores owned by one evaluator composition root.
+///
+/// Stored as boxed trait objects so any [`EventLedger`]/[`ArtifactBackend`]
+/// pair can back an evaluation, not only the SQLite/CAS backends. [`Self::open`]
+/// remains the SQLite/CAS convenience constructor used by the default daemon;
+/// [`Self::from_backends`] accepts any other backend pair (e.g. the JSONL
+/// ledger and in-memory artifact backend used by remote-storage tests).
 pub struct EvaluationStores {
     /// Single-writer tamper-evident event store.
-    pub events: EventStore,
+    pub events: Box<dyn EventLedger + Send>,
     /// Content-addressed artifact store.
-    pub artifacts: ArtifactStore,
+    pub artifacts: Box<dyn ArtifactBackend + Send + Sync>,
 }
 
 impl EvaluationStores {
-    /// Opens evaluator-owned durable stores.
+    /// Opens evaluator-owned durable stores backed by SQLite and a filesystem CAS.
     ///
     /// # Errors
     ///
@@ -899,9 +906,21 @@ impl EvaluationStores {
         artifact_root: impl Into<std::path::PathBuf>,
     ) -> Result<Self, ArenaError> {
         Ok(Self {
-            events: EventStore::open(database)?,
-            artifacts: ArtifactStore::open(artifact_root)?,
+            events: Box::new(EventStore::open(database)?),
+            artifacts: Box::new(ArtifactStore::open(artifact_root)?),
         })
+    }
+
+    /// Builds stores from any backend pair, e.g. a non-default `EventLedger`
+    /// or `ArtifactBackend` implementation.
+    pub fn from_backends(
+        events: impl EventLedger + Send + 'static,
+        artifacts: impl ArtifactBackend + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            events: Box::new(events),
+            artifacts: Box::new(artifacts),
+        }
     }
 }
 
@@ -1201,7 +1220,7 @@ struct PreparedArtifacts {
 }
 
 impl PreparedArtifacts {
-    fn publish(&self, artifacts: &ArtifactStore) -> Result<(), ArenaError> {
+    fn publish(&self, artifacts: &dyn ArtifactBackend) -> Result<(), ArenaError> {
         for bytes in [
             &self.visible_manifest,
             &self.sealed_manifest,
@@ -1527,7 +1546,7 @@ pub fn load_operator_evaluation(
 /// evaluator-owned evidence artifact.
 pub fn load_operator_evaluation_in(
     index: &EventIndex<'_>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     evaluation_id: &str,
 ) -> Result<OperatorEvaluationView, ArenaError> {
     validate_id("evaluation_id", evaluation_id)?;
@@ -1573,7 +1592,7 @@ pub fn load_recorded_evaluation(
 /// See [`load_operator_evaluation_in`].
 pub fn load_recorded_evaluation_in(
     index: &EventIndex<'_>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     evaluation_id: &str,
 ) -> Result<RecordedEvaluation, ArenaError> {
     load_operator_evaluation_in(index, artifacts, evaluation_id)
@@ -1586,7 +1605,7 @@ fn resolve_pair(
     task_inputs: &BTreeMap<String, String>,
     binding: &EvaluationBinding,
     history: &[StoredEvent],
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     run_result_verifier: &RunResultVerifier,
 ) -> Result<ResolvedPair, ArenaError> {
     let parent = resolve_plan(
@@ -1673,7 +1692,7 @@ fn source_commitment(
 
 fn validate_world_evaluator_artifacts(
     world: &CompiledWorld,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     binding: &EvaluationBinding,
     visible: &TrustedManifest,
     sealed: &TrustedManifest,
@@ -1726,7 +1745,7 @@ fn receipts_match_except_timestamp(left: &OperatorReceipt, right: &OperatorRecei
 }
 
 fn rehydrate_operator_receipt(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event: &StoredEvent,
     index: &EventIndex<'_>,
 ) -> Result<OperatorReceipt, ArenaError> {
@@ -1777,7 +1796,7 @@ fn rehydrate_operator_receipt(
 }
 
 fn verify_submission_evidence(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     index: &EventIndex<'_>,
     artifact_id: &str,
     submission_id: &str,
@@ -1996,7 +2015,7 @@ fn resolve_plan(
     expected_tasks: &BTreeMap<String, String>,
     binding: &EvaluationBinding,
     history: &[StoredEvent],
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     run_result_verifier: &RunResultVerifier,
 ) -> Result<ResolvedSubmission, ArenaError> {
     if plan.trials.keys().ne(expected_tasks.keys()) {
@@ -2134,7 +2153,7 @@ fn required_world_artifact<'a>(
 
 fn run_result_verifier(
     world: &CompiledWorld,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
 ) -> Result<RunResultVerifier, ArenaError> {
     let id = required_world_artifact(world, RUN_RESULT_VERIFIER_KEY)?;
     let bytes = artifacts.get(&ArtifactId::parse(id)?)?;
@@ -2147,7 +2166,7 @@ fn run_result_verifier(
 
 fn verify_world_artifact(
     world: &CompiledWorld,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     name: &'static str,
     actual: &ArtifactId,
 ) -> Result<(), ArenaError> {
@@ -2257,7 +2276,7 @@ fn validate_run_event_id(value: &str) -> Result<(), ArenaError> {
 }
 
 fn verify_operator_artifact(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     artifact_id: &str,
 ) -> Result<Vec<u8>, ArenaError> {
     let id = ArtifactId::parse(artifact_id)?;

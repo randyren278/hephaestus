@@ -11,7 +11,7 @@
 
 use hephaestus_arena::{SelectionReceipt, verify_selection_event_in};
 use hephaestus_genome::RegisteredObjects;
-use hephaestus_ledger::{ArtifactStore, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, EventInput, StoredEvent};
 
 use super::champion::{
     self, ChampionRequest, champion_event_id, champion_projection, champion_transition_payload,
@@ -303,7 +303,7 @@ fn next_stage(stage: CanaryStage) -> Option<CanaryStage> {
 }
 
 fn load_selection_receipt(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     world_id: &str,
@@ -337,7 +337,7 @@ fn load_selection_receipt(
 /// `champion.transitioned` event through `champion::champion_transition_payload`.
 #[allow(clippy::too_many_lines)]
 pub(super) fn canary_transition_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
@@ -448,7 +448,7 @@ fn start_payload(
 }
 
 fn advance_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
@@ -557,7 +557,7 @@ fn advance_payload(
 }
 
 fn live_check_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
@@ -679,7 +679,7 @@ pub(super) fn rollback_payload_hash_placeholder() -> String {
 /// daemon's already-open artifact store, reused for every event instead of
 /// reopening it (see `TECH_DEBT.md` TD-16).
 pub(super) fn verify_canary_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -694,7 +694,7 @@ pub(super) fn verify_canary_history(
 /// Cache-aware counterpart of [`verify_canary_history`]; see `EvidenceCache`.
 #[allow(clippy::too_many_lines)]
 pub(super) fn verify_canary_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,

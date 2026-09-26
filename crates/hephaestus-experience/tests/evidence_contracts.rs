@@ -835,7 +835,8 @@ fn trusted_experience_rejects_missing_and_tampered_primary_artifact() {
         .expect("record hypothesis");
     let (events, artifacts) = recorder.into_stores();
     let artifact_id = ArtifactId::parse(receipt.artifact_id).expect("artifact ID");
-    std::fs::write(artifacts.path_for(&artifact_id), b"tampered").expect("tamper artifact");
+    let cas = ArtifactStore::open(directory.path().join("artifacts")).expect("reopen CAS root");
+    std::fs::write(cas.path_for(&artifact_id), b"tampered").expect("tamper artifact");
 
     assert!(rehydrate_experience(&events, &artifacts, "tamper-hypothesis").is_err());
     assert!(matches!(
@@ -958,7 +959,8 @@ fn trusted_experience_rejects_missing_source_and_evidence_artifacts() {
         } else {
             extra
         };
-        std::fs::remove_file(artifacts.path_for(&removed)).expect("remove evidence");
+        let cas = ArtifactStore::open(directory.path().join("artifacts")).expect("reopen CAS root");
+        std::fs::remove_file(cas.path_for(&removed)).expect("remove evidence");
         assert!(rehydrate_experience(&events, &artifacts, "transitive-hypothesis").is_err());
     }
 }
@@ -1053,8 +1055,8 @@ fn trusted_experience_rejects_forward_source_reference() {
         ))
         .expect("append forward-reference target");
     let mut recorder = EvidenceRecorder::from_stores(
-        events,
-        artifacts,
+        Box::new(events),
+        Box::new(artifacts),
         RedactionPolicy::new(["known-secret".to_owned()]),
         RetentionLimits::new(10, 16_384).expect("retention limits"),
     );

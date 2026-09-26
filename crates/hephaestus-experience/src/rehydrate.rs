@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventStore, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, ArtifactId, EventLedger, StoredEvent};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -56,8 +56,8 @@ struct ValidatedExperience {
 /// bytes, inconsistent receipt metadata, invalid provenance, and excessive or
 /// invalid source graphs.
 pub fn rehydrate_experience(
-    events: &EventStore,
-    artifacts: &ArtifactStore,
+    events: &dyn EventLedger,
+    artifacts: &dyn ArtifactBackend,
     experience_id: &str,
 ) -> Result<TrustedExperience, ExperienceError> {
     validate_identifier(experience_id, "experience ID is invalid")?;
@@ -76,7 +76,7 @@ pub fn rehydrate_experience(
 fn rehydrate_graph(
     target: &StoredEvent,
     history: &BTreeMap<&str, &StoredEvent>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
 ) -> Result<TrustedExperience, ExperienceError> {
     let mut pending = vec![target];
     let mut experiences = BTreeMap::<String, ValidatedExperience>::new();
@@ -153,7 +153,7 @@ fn rehydrate_graph(
 
 fn validate_experience_event(
     event: &StoredEvent,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
 ) -> Result<ValidatedExperience, ExperienceError> {
     let receipt: ExperienceReceipt = serde_json::from_slice(&event.payload)?;
     if serde_json::to_vec(&receipt)? != event.payload {
@@ -238,7 +238,7 @@ fn validate_experience_artifact(
 
 fn validate_trace_source(
     event: &StoredEvent,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
 ) -> Result<Provenance, ExperienceError> {
     let receipt: TraceReceipt = serde_json::from_slice(&event.payload)?;
     if serde_json::to_vec(&receipt)? != event.payload {
@@ -274,7 +274,7 @@ fn validate_trace_source(
 }
 
 fn verified_artifact(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     artifact_id: &str,
 ) -> Result<Vec<u8>, ExperienceError> {
     Ok(artifacts.get(&ArtifactId::parse(artifact_id.to_owned())?)?)

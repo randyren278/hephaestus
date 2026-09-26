@@ -2530,6 +2530,20 @@
       "invariant": "A strategy-bound evolve generation with CostWeighted mutation_prioritization orders candidate failure clusters by descending total_count instead of leaving them in Fifo signature order.",
       "find": "        if strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }",
       "replace": "        if false && strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }"
+    },
+    {
+      "id": "expired-worker-credential-accepted-for-arena-trial-lease",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A worker credential past its expires_at_millis is rejected before any job (a direct-run job or a remote-leased Arena reference-role trial) is leased or its result recorded.",
+      "find": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }",
+      "replace": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if false && now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }"
+    },
+    {
+      "id": "remote-arena-trial-result-recorded-without-credential-verification",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A remote worker's SubmitResult (for a direct-run job or a leased Arena reference-role trial) is recorded only after its credential re-verifies; an invalid, expired, or revoked credential must be refused before any output is signed and appended.",
+      "find": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                    return WorkerReply::Error {\n                        reason: reason.to_owned(),\n                    };\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {",
+      "replace": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if false {\n                    if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                        return WorkerReply::Error {\n                            reason: reason.to_owned(),\n                        };\n                    }\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {"
     }
   ]
 }

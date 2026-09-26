@@ -6,7 +6,7 @@
 
 use hephaestus_arena::verify_selection_event_in;
 use hephaestus_genome::RegisteredObjects;
-use hephaestus_ledger::{ArtifactStore, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, EventInput, StoredEvent};
 
 use super::canary::{
     CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
@@ -127,7 +127,7 @@ pub(super) fn existing_drift_record(
 
 /// Derives the only payload the policy admits for this drift request.
 pub(super) fn drift_record_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     drift_id: &str,
@@ -209,7 +209,7 @@ pub(super) fn drift_record_payload(
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 pub(super) fn verify_drift_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -223,7 +223,7 @@ pub(super) fn verify_drift_history(
 
 /// Cache-aware counterpart of [`verify_drift_history`]; see `EvidenceCache`.
 pub(super) fn verify_drift_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,

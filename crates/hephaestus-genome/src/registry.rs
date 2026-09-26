@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, error::Error, fmt};
 
-use hephaestus_ledger::{ArtifactId, ArtifactStore, LedgerError, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, ArtifactId, LedgerError, StoredEvent};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -224,7 +224,7 @@ impl RegisteredObjects {
     /// cross-World ancestry, changed immutable metadata, or compiler/storage failure.
     pub fn replay(
         events: &[StoredEvent],
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
     ) -> Result<Self, RegistrationError> {
         let mut registered = Self::default();
         for event in events {
@@ -284,7 +284,7 @@ impl RegisteredObjects {
     fn register_world(
         &mut self,
         event: &StoredEvent,
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::World;
         let record: WorldRecord = decode_canonical_payload(event, kind)?;
@@ -351,7 +351,7 @@ impl RegisteredObjects {
     fn register_genome(
         &mut self,
         event: &StoredEvent,
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::Genome;
         let record: GenomeRecord = decode_canonical_payload(event, kind)?;
@@ -404,7 +404,7 @@ impl RegisteredObjects {
     fn register_forge_child(
         &mut self,
         event: &StoredEvent,
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::Genome;
         let (payload, record) = Self::decode_canonical_child_envelope(event, kind)?;
@@ -430,7 +430,7 @@ impl RegisteredObjects {
     fn register_gene_transfer_child(
         &mut self,
         event: &StoredEvent,
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::Genome;
         let (payload, record) = Self::decode_canonical_child_envelope(event, kind)?;
@@ -457,7 +457,7 @@ impl RegisteredObjects {
         &mut self,
         event: &StoredEvent,
         record: GenomeRecord,
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
     ) -> Result<(), RegistrationError> {
         let kind = RegistrationKind::Genome;
         if event.event_type != "forge.proposed" && event.event_type != "gene.transfer_applied" {
@@ -596,7 +596,7 @@ fn require_aggregate(event: &StoredEvent, expected: &str) -> Result<(), Registra
 }
 
 fn artifact_bytes(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     artifact_id: &str,
 ) -> Result<Vec<u8>, RegistrationError> {
     Ok(artifacts.get(&ArtifactId::parse(artifact_id.to_owned())?)?)

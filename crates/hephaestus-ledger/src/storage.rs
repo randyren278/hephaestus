@@ -108,6 +108,27 @@ impl EventLedger for EventStore {
     }
 }
 
+/// Lets an owned, boxed ledger (how a backend-agnostic caller holds its
+/// canonical storage) satisfy `EventLedger` itself, so `&boxed_ledger`/
+/// `&mut boxed_ledger` coerce to `&dyn EventLedger`/`&mut dyn EventLedger` the
+/// same way a concrete backend's reference would. Without this, `&Box<dyn
+/// EventLedger>` does not coerce to `&dyn EventLedger`: reference coercion
+/// unsizes the pointee directly, it does not also deref through the box
+/// first.
+impl<T: EventLedger + ?Sized> EventLedger for Box<T> {
+    fn append(&mut self, input: EventInput) -> Result<StoredEvent, LedgerError> {
+        (**self).append(input)
+    }
+
+    fn replay_verified(&self) -> Result<Vec<StoredEvent>, LedgerError> {
+        (**self).replay_verified()
+    }
+
+    fn head(&self) -> Result<Option<StoredEvent>, LedgerError> {
+        (**self).head()
+    }
+}
+
 /// The content-addressed artifact store.
 pub trait ArtifactBackend {
     /// Stores bytes under their BLAKE3 content address, returning that address.
@@ -142,6 +163,43 @@ impl ArtifactBackend for crate::ArtifactStore {
 
     fn get(&self, id: &ArtifactId) -> Result<Vec<u8>, LedgerError> {
         Self::get(self, id)
+    }
+}
+
+/// Lets an owned, boxed artifact backend satisfy `ArtifactBackend` itself, for
+/// the same coercion reason as the `Box<T>` impl of [`EventLedger`] above.
+impl<T: ArtifactBackend + ?Sized> ArtifactBackend for Box<T> {
+    fn put(&self, bytes: &[u8]) -> Result<ArtifactId, LedgerError> {
+        (**self).put(bytes)
+    }
+
+    fn get(&self, id: &ArtifactId) -> Result<Vec<u8>, LedgerError> {
+        (**self).get(id)
+    }
+
+    fn contains(&self, id: &ArtifactId) -> bool {
+        (**self).contains(id)
+    }
+}
+
+/// Every [`ArtifactBackend`] method takes `&self`, so a backend that has no durable
+/// path of its own to reopen (e.g. [`crate::MemoryArtifactBackend`]) can still be
+/// handed out as a second independent handle onto the same store: wrap it in an
+/// `Arc` once and clone that `Arc` for each handle. This blanket impl makes the
+/// clone itself an `ArtifactBackend`, so callers needing a reopenable backend
+/// description (a path for a persisted backend, or an `Arc` clone for an in-process
+/// one) can treat both uniformly.
+impl<T: ArtifactBackend + ?Sized> ArtifactBackend for std::sync::Arc<T> {
+    fn put(&self, bytes: &[u8]) -> Result<ArtifactId, LedgerError> {
+        T::put(self, bytes)
+    }
+
+    fn get(&self, id: &ArtifactId) -> Result<Vec<u8>, LedgerError> {
+        T::get(self, id)
+    }
+
+    fn contains(&self, id: &ArtifactId) -> bool {
+        T::contains(self, id)
     }
 }
 
@@ -285,5 +343,28 @@ mod storage_contract {
         crate::contract::assert_artifact_backend_contract(&store, |id| {
             store.corrupt_for_test(id, b"substituted".to_vec());
         });
+    }
+
+    #[test]
+    fn arc_wrapped_memory_backend_shares_state_across_clones_and_satisfies_the_contract() {
+        use std::sync::Arc;
+
+        let shared: Arc<MemoryArtifactBackend> = Arc::new(MemoryArtifactBackend::new());
+        crate::contract::assert_artifact_backend_contract(&shared, |id| {
+            shared.corrupt_for_test(id, b"substituted".to_vec());
+        });
+
+        // A second handle cloned from the same Arc must observe what the first wrote:
+        // this is the exact "reopen a handle onto the same store" pattern a caller
+        // without a durable path (like this in-process backend) relies on.
+        let first_handle = Arc::clone(&shared);
+        let second_handle = Arc::clone(&shared);
+        let id = first_handle
+            .put(b"shared across handles")
+            .expect("put via first handle");
+        assert_eq!(
+            second_handle.get(&id).expect("get via second handle"),
+            b"shared across handles"
+        );
     }
 }

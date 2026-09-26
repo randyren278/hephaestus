@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::invariants::verified_submission_outputs;
 use crate::{
-    ArenaError, ArtifactStore, EvaluationStores, OperatorReceipt, TrustedManifest, Visibility,
+    ArenaError, ArtifactBackend, EvaluationStores, OperatorReceipt, TrustedManifest, Visibility,
     load_operator_evaluation, load_operator_evaluation_in,
 };
 
@@ -676,7 +676,7 @@ impl ClusterView {
 /// evidence.
 pub fn verify_cluster_event_in(
     index: &EventIndex<'_>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event: &StoredEvent,
     world: &CompiledWorld,
     current_operation: Option<&str>,
@@ -801,7 +801,7 @@ fn check(
 /// analysis) or its stored content cannot be read.
 fn peek_recorded_algorithm(
     history: &[StoredEvent],
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event_id: &str,
 ) -> ClusterAlgorithm {
     #[derive(Deserialize)]
@@ -831,7 +831,7 @@ fn compute_analysis(
     algorithm: ClusterAlgorithm,
     analysis_id: &str,
     receipt: &OperatorReceipt,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     index: &EventIndex<'_>,
     evaluation_event: &StoredEvent,
     world: &CompiledWorld,
@@ -957,7 +957,7 @@ pub fn cluster_event_references(
 }
 
 fn rehydrate_event(
-    artifacts: &crate::ArtifactStore,
+    artifacts: &dyn crate::ArtifactBackend,
     event: &StoredEvent,
     expected: &ClusterAnalysis,
 ) -> Result<ClusterEventPayload, ArenaError> {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hephaestus_core::authority::CapabilitySet;
-use hephaestus_ledger::{ArtifactId, ArtifactStore, LedgerError};
+use hephaestus_ledger::{ArtifactBackend, ArtifactId, LedgerError};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -112,7 +112,7 @@ pub fn compile_genome(
     format: SourceFormat,
     world: &CompiledWorld,
     parents: &BTreeMap<String, CompiledGenome>,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
 ) -> Result<CompiledGenome, CompileError> {
     let mut raw: RawGenome = parse_versioned(source, format)?;
     normalize_and_validate(&mut raw, world, parents, artifact_store)?;
@@ -125,7 +125,7 @@ pub(crate) fn normalize_and_validate(
     raw: &mut RawGenome,
     world: &CompiledWorld,
     parents: &BTreeMap<String, CompiledGenome>,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
 ) -> Result<(), CompileError> {
     require_text(&raw.name, "name")?;
     require_text(&raw.model.provider, "model.provider")?;
@@ -180,7 +180,7 @@ pub(crate) fn compiled_genome(raw: RawGenome, canonical_json: Vec<u8>) -> Compil
 
 pub(crate) fn resolve_artifacts(
     references: &BTreeMap<String, String>,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
 ) -> Result<(), CompileError> {
     for (name, artifact) in references {
         require_text(name, "artifact name")?;

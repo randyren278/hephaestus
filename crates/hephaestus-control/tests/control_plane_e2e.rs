@@ -2636,6 +2636,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             state: JobState,
             terminal: Option<JobTerminal>,
             evaluation: Option<hephaestus_control::EvaluationRecord>,
+            remote: bool,
         }
 
         let mismatch_daemon = Daemon::start_with_repository(&data_dir, &repository);
@@ -2731,6 +2732,7 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
             state: JobState::Admitted,
             terminal: None,
             evaluation: None,
+            remote: false,
         };
         let mut ledger = EventStore::open(data_dir.join("events.sqlite3")).unwrap();
         ledger
@@ -3447,6 +3449,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             evaluation_id: "deadline-pair".to_owned(),
             parent_genome_id: parent.genome_id.clone(),
             candidate_genome_id: candidate.genome_id.clone(),
+            remote: false,
         })
         .unwrap();
     assert!(matches!(
@@ -3521,6 +3524,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             evaluation_id: "cancelled-pair".to_owned(),
             parent_genome_id: parent.genome_id.clone(),
             candidate_genome_id: candidate.genome_id.clone(),
+            remote: false,
         })
         .unwrap();
     assert!(matches!(
@@ -3532,6 +3536,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             evaluation_id: "cancelled-pair".to_owned(),
             parent_genome_id: parent.genome_id.clone(),
             candidate_genome_id: candidate.genome_id.clone(),
+            remote: false,
         })
         .unwrap();
     assert!(matches!(
@@ -3543,6 +3548,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             evaluation_id: "cancelled-pair".to_owned(),
             parent_genome_id: candidate.genome_id.clone(),
             candidate_genome_id: parent.genome_id.clone(),
+            remote: false,
         })
         .unwrap();
     assert!(conflicting_pair.error.is_some());
@@ -3551,6 +3557,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             evaluation_id: "second-pair".to_owned(),
             parent_genome_id: parent.genome_id.clone(),
             candidate_genome_id: candidate.genome_id.clone(),
+            remote: false,
         })
         .unwrap();
     assert_eq!(
@@ -3612,6 +3619,7 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             evaluation_id: "stop-pair".to_owned(),
             parent_genome_id: parent.genome_id,
             candidate_genome_id: candidate.genome_id,
+            remote: false,
         })
         .unwrap();
     assert!(matches!(
@@ -5578,6 +5586,7 @@ fn local_api_fails_closed_for_bad_auth_versions_and_requests() {
                     evaluation_id: evaluation_id.to_owned(),
                     parent_genome_id: parent_genome_id.to_owned(),
                     candidate_genome_id: candidate_genome_id.to_owned(),
+                    remote: false,
                 },
             })
             .expect("encode invalid pair"),
@@ -5982,6 +5991,7 @@ fn authenticated_reference_and_arena_validation_rejects_invalid_inputs() {
             evaluation_id: "unpaired-evaluation".to_owned(),
             parent_genome_id: parent.genome_id,
             candidate_genome_id: candidate.genome_id,
+            remote: false,
         })
         .expect("unpaired evaluation response");
     let pair_error = rejected_pair.error.expect("unpaired evaluation error");

@@ -7,7 +7,7 @@
 
 use hephaestus_arena::verify_reference_output_invariant_event_in;
 use hephaestus_genome::RegisteredObjects;
-use hephaestus_ledger::{ArtifactStore, StoredEvent};
+use hephaestus_ledger::{ArtifactBackend, StoredEvent};
 
 use super::{
     ControlError, ExecuteError, OPERATOR_ACTOR, decode_forge_assessment, forge_assessment_event_id,
@@ -191,7 +191,7 @@ pub(super) fn existing_champion_transition(
 
 /// Derives the only payload the policy admits for `request` after `history`.
 pub(super) fn champion_transition_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     transition_id: &str,
@@ -275,7 +275,7 @@ fn seed_payload(
 }
 
 fn promote_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     transition_id: &str,
@@ -418,7 +418,7 @@ fn rollback_payload(
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 pub(super) fn verify_champion_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -432,7 +432,7 @@ pub(super) fn verify_champion_history(
 
 /// Cache-aware counterpart of [`verify_champion_history`]; see `EvidenceCache`.
 pub(super) fn verify_champion_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut super::EvidenceCache,

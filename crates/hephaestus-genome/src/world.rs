@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hephaestus_core::{authority::CapabilitySet, domain::MutationTarget};
-use hephaestus_ledger::ArtifactStore;
+use hephaestus_ledger::ArtifactBackend;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -159,7 +159,7 @@ struct PromotionPolicy {
 pub fn compile_world(
     source: &str,
     format: SourceFormat,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
 ) -> Result<CompiledWorld, CompileError> {
     let mut raw: RawWorld = parse_versioned(source, format)?;
     require_text(&raw.name, "name")?;

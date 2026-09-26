@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use hephaestus_ledger::ArtifactStore;
+use hephaestus_ledger::ArtifactBackend;
 
 use crate::{
     CompileError, CompiledGenome, CompiledWorld,
@@ -22,7 +22,7 @@ pub fn compile_markdown_genome(
     source: &str,
     world: &CompiledWorld,
     parents: &BTreeMap<String, CompiledGenome>,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
 ) -> Result<CompiledGenome, CompileError> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(CompileError::InputTooLarge {

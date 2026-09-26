@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, path::Path};
 
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore, StoredEvent};
+use hephaestus_ledger::{
+    ArtifactBackend, ArtifactId, ArtifactStore, EventInput, EventLedger, EventStore, StoredEvent,
+};
 use serde::Serialize;
 
 use crate::{
@@ -38,15 +40,19 @@ impl RetentionLimits {
 }
 
 /// Single-writer redaction and provenance boundary over the canonical ledger and CAS.
+///
+/// Holds its stores as boxed trait objects so any [`EventLedger`]/
+/// [`ArtifactBackend`] pair can back a recorder, not only the SQLite/CAS
+/// backends `open` builds for convenience.
 pub struct EvidenceRecorder {
-    events: EventStore,
-    artifacts: ArtifactStore,
+    events: Box<dyn EventLedger + Send>,
+    artifacts: Box<dyn ArtifactBackend + Send + Sync>,
     redaction: RedactionPolicy,
     limits: RetentionLimits,
 }
 
 impl EvidenceRecorder {
-    /// Opens durable evidence storage.
+    /// Opens durable evidence storage backed by SQLite and a filesystem CAS.
     ///
     /// # Errors
     ///
@@ -58,18 +64,18 @@ impl EvidenceRecorder {
         limits: RetentionLimits,
     ) -> Result<Self, ExperienceError> {
         Ok(Self {
-            events: EventStore::open(database)?,
-            artifacts: ArtifactStore::open(artifact_root)?,
+            events: Box::new(EventStore::open(database)?),
+            artifacts: Box::new(ArtifactStore::open(artifact_root)?),
             redaction,
             limits,
         })
     }
 
-    /// Takes ownership of already-open canonical stores.
+    /// Takes ownership of already-open canonical stores of any backend pair.
     #[must_use]
     pub fn from_stores(
-        events: EventStore,
-        artifacts: ArtifactStore,
+        events: Box<dyn EventLedger + Send>,
+        artifacts: Box<dyn ArtifactBackend + Send + Sync>,
         redaction: RedactionPolicy,
         limits: RetentionLimits,
     ) -> Self {
@@ -83,7 +89,12 @@ impl EvidenceRecorder {
 
     /// Returns the canonical stores to their single-writer composition root.
     #[must_use]
-    pub fn into_stores(self) -> (EventStore, ArtifactStore) {
+    pub fn into_stores(
+        self,
+    ) -> (
+        Box<dyn EventLedger + Send>,
+        Box<dyn ArtifactBackend + Send + Sync>,
+    ) {
         (self.events, self.artifacts)
     }
 

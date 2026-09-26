@@ -1,10 +1,11 @@
 # Remote Workers
 
-Authenticated remote execution of one isolated job kind: a bounded direct
-reference run. The daemon remains the sole canonical writer and the sole
-holder of the Ed25519 result-signing key; a remote worker only executes the
-existing isolated sandboxed transform and returns raw bytes for the daemon
-to sign and record.
+Authenticated remote execution of two job kinds: a bounded direct
+reference run, and (as of this lane) one reference-role trial of a paired
+Arena evaluation admitted with the remote opt-in. The daemon remains the
+sole canonical writer and the sole holder of the Ed25519 result-signing
+key; a remote worker only executes the existing isolated sandboxed
+transform and returns raw bytes for the daemon to sign and record.
 
 ## Architecture
 
@@ -111,6 +112,53 @@ that disappears mid-lease simply lets another worker (or the same one,
 retrying) pick the job back up. Only admission and the final signed result
 are canonical; this keeps a lost or crashed worker from wedging a job.
 
+## Leasing an Arena trial
+
+`hephaestus arena evaluate --remote` (equivalently, `submit_arena_job(...,
+remote: true)`) admits a paired evaluation with a per-evaluation remote
+opt-in recorded in its `ArenaJobRecord`. With the opt-in set, every
+reference-role trial (a role/task pair with no provider bound) is leased to
+a remote worker one at a time, in admitted order, instead of running in a
+local sandbox; a provider-bound trial in a mixed pair still always runs
+locally, since a remote worker only ever executes the same deterministic,
+no-filesystem, no-network reference transform a direct run does.
+
+The background thread that would otherwise call
+`hephaestus_runtime::execute_reference_worker_request` locally instead
+blocks on `RemoteArenaLeaseQueue::submit_and_wait` (never the daemon's
+single control-loop thread), registering the trial's identity as
+`arena:<evaluation_id>:trial:<index>` and its exact framed request — the
+same `frame_reference_instruction` construction the direct-run path uses.
+The daemon's existing worker.sock loop serves it from `lease_remote_job`
+and `record_remote_job_result` — the exact same handlers a direct-run job
+uses — so a remote worker cannot tell an Arena trial apart from a direct
+reference run, and `hephaestus-remote-worker` needed no changes at all.
+Once a worker submits a result, the daemon signs and records it through
+the identical `run.result_recorded` path a local trial takes, so the
+resulting selection receipt is indistinguishable from one computed
+entirely locally (proven by
+`remote_leased_arena_trial_matches_local_execution_and_is_idempotent_under_duplicate_delivery`
+in `crates/hephaestus-control/src/server_tests.rs`, which asserts the same
+`SelectionReceipt` decision fields for a remote-leased evaluation and the
+identical pair evaluated locally — every field except the two measured
+latencies and the latency-derived `candidate_pareto_dominates`, which are
+expected to differ between a local sandbox run and a leased round trip).
+
+Everything else about the lease queue mirrors the direct-run path:
+`Lease`/`SubmitResult` both re-verify the worker credential before doing
+anything, so an expired or revoked credential fails closed before a trial
+is leased or a result recorded and leaves the Arena job pending (not
+failed) until an operator lease becomes available again or the job is
+cancelled; duplicate delivery of an already-completed trial's result stays
+idempotent (the queue remembers completed trial identities); a lease that
+times out (`REMOTE_LEASE_TIMEOUT`, 60 s) simply becomes leasable again; and
+operator cancellation or the evaluation's overall deadline still
+terminalizes the job exactly like a local trial would, because both set
+the same `cancel` flag `submit_and_wait` polls. None of this is ledgered
+directly — like `remote_leases`, the lease queue is ephemeral, in-memory
+state; only admission (including the `remote` opt-in) and each trial's
+final signed result are canonical.
+
 ## Operator CLI
 
 ```sh
@@ -137,25 +185,26 @@ Besides the in-process tests in `crates/hephaestus-control/src/server_tests.rs`,
 `hephaestus-ledger::{EventLedger, ArtifactBackend}`
 (`crates/hephaestus-ledger/src/storage.rs`) name the exact operations the
 control plane needs from the canonical ledger and the artifact store. The
-existing SQLite-backed `EventStore` and filesystem-backed `ArtifactStore`
-implement these traits with no behavior change, and
-`storage::storage_contract` proves that implementation against a
-backend-agnostic contract test suite (append/replay/duplicate-rejection for
-the ledger; put/get/digest-verification for artifacts). A second backend
-can implement the same two traits and be proven with the same suite
-without changing any domain semantics in `hephaestus-control`,
-`hephaestus-arena`, or `hephaestus-genome`. **This slice introduces the
-trait boundary and proves the existing backend against it; `ControlPlane`'s
-internal call sites still use the concrete `EventStore`/`ArtifactStore`
-types directly** (migrating them is mechanical but out of scope here — see
-the tech-debt note in the final report).
+SQLite-backed `EventStore`/filesystem-backed `ArtifactStore` and the
+JSONL-backed `FileEventLedger`/in-process `MemoryArtifactBackend` all
+implement these traits, and `storage::storage_contract` proves all four
+against a backend-agnostic contract test suite (append/replay/duplicate-
+rejection for the ledger; put/get/digest-verification for artifacts).
+`ControlPlane`'s canonical storage (`crates/hephaestus-control/src/server.rs`)
+is now routed through these traits rather than the concrete types — see
+`docs/LEDGERS.md` for the daemon-facing details of what changed and what
+did not.
 
 ## Not in this slice
 
-- Only one job kind — a bounded direct reference run. Leasing one Arena
-  trial is not implemented.
 - No crash recovery for an in-flight lease beyond its 60-second timeout;
   a killed daemon simply loses the (non-canonical) lease table and any
   pending job becomes leasable again on restart.
-- `ControlPlane`'s local read/write call sites are not migrated onto the
-  new `EventLedger`/`ArtifactBackend` traits.
+- A remote worker leasing an Arena trial and a remote worker leasing a
+  direct run share one credential/lease vocabulary, but there is still no
+  way to reserve a worker for one job kind only, or to run several Arena
+  trials of the same evaluation concurrently across several remote
+  workers — trials are leased strictly one at a time, in admitted order.
+- No CI job or measured coverage yet for `hephaestus-mcp-gateway` or
+  `hephaestus-remote-worker`, including the new Arena-trial-lease code
+  paths (`TECH_DEBT.md` TD-19).

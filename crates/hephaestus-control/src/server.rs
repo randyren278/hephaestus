@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
     sync::{
-        Arc,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicUsize, Ordering},
         mpsc,
     },
@@ -20,6 +20,8 @@ use std::{
 };
 
 use fs2::FileExt;
+#[cfg(test)]
+use hephaestus_arena::load_recorded_evaluation;
 use hephaestus_arena::{
     ArenaError, CLUSTER_EVENT_PREFIX, ClusterAnalysis, ClusterEvent, EvaluationBinding,
     EvaluationInputs, EvaluationSources, EvaluationStores, FailureCluster, InvariantEvent,
@@ -28,8 +30,8 @@ use hephaestus_arena::{
     TrialPlan, TrustedManifest, Visibility, check_failure_clusters,
     check_reference_output_invariants, cluster_event_references, evaluate_and_record_scored,
     invariant_event_references, load_failure_clusters, load_operator_evaluation,
-    load_recorded_evaluation, load_recorded_evaluation_in, load_reference_output_invariants,
-    prepare_evaluation, select_and_record, selection_event_references, verify_cluster_event_in,
+    load_recorded_evaluation_in, load_reference_output_invariants, prepare_evaluation,
+    select_and_record, selection_event_references, verify_cluster_event_in,
     verify_reference_output_invariant_event, verify_reference_output_invariant_event_in,
     verify_selection_event, verify_selection_event_in,
 };
@@ -45,8 +47,11 @@ use hephaestus_genome::{
     compile_genome, compile_markdown_genome, compile_world,
 };
 use hephaestus_ledger::{
-    ArtifactId, ArtifactStore, EventIndex, EventInput, EventStore, StoredEvent,
+    ArtifactBackend, ArtifactId, ArtifactStore, EventIndex, EventInput, EventLedger, EventStore,
+    StoredEvent,
 };
+#[cfg(test)]
+use hephaestus_ledger::{FileEventLedger, MemoryArtifactBackend};
 use hephaestus_runtime::{
     Budget, CapabilityToken, CompletionReason, DeterministicRuntime, ExperimentContext,
     IsolationPolicy, MUTATION_CATALOG_VERSION, Provider, ReferenceInstruction, RunSpec, RunStatus,
@@ -171,6 +176,177 @@ pub enum WorkerReply {
         reason: String,
     },
 }
+
+/// Coordinates the background Arena-trial execution thread with the
+/// daemon's `worker.sock` `Lease`/`SubmitResult` loop (TD-12), so one
+/// reference-role trial admitted with the remote opt-in is executed by a
+/// remote worker exactly like a locally sandboxed one: the background
+/// thread registers the trial's framed request here and blocks on
+/// [`Self::submit_and_wait`]; `ControlPlane::lease_remote_job` and
+/// `record_remote_job_result` (the exact same handlers a direct remote-run
+/// job uses) serve it from the daemon's single control-loop thread.
+///
+/// Ephemeral and non-canonical, exactly like `ControlPlane::remote_leases`:
+/// nothing here is ledgered directly. The eventual `run.result_recorded`
+/// event is ledgered by the same code path a local trial's result takes,
+/// so it is byte-for-byte indistinguishable from local execution. A lease
+/// that a worker never returns simply times out and becomes leasable again
+/// (see [`REMOTE_LEASE_TIMEOUT`]); the Arena job's own overall deadline and
+/// operator cancellation both still terminalize the job because both set
+/// the same `cancel` flag [`Self::submit_and_wait`] polls.
+struct RemoteArenaLeaseQueue {
+    inner: Mutex<RemoteArenaLeaseQueueState>,
+}
+
+#[derive(Default)]
+struct RemoteArenaLeaseQueueState {
+    pending: BTreeMap<String, PendingArenaTrialJob>,
+    leased: HashMap<String, Instant>,
+    /// `job_id`s that already received a result, so a worker's retried
+    /// `SubmitResult` for the same trial (duplicate delivery) is accepted
+    /// idempotently instead of failing with "not recognized".
+    completed: BTreeSet<String>,
+}
+
+struct PendingArenaTrialJob {
+    genome_id: String,
+    frame: Vec<u8>,
+    result_sender: mpsc::SyncSender<RemoteArenaTrialOutcome>,
+}
+
+/// One remote worker's raw result for a leased Arena trial, handed back to
+/// the blocked background execution thread to turn into the same
+/// [`ReferenceExecution`] a local trial would have produced.
+struct RemoteArenaTrialOutcome {
+    output: Vec<u8>,
+    completion: RemoteCompletion,
+    latency_millis: u64,
+}
+
+impl RemoteArenaLeaseQueue {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            inner: Mutex::new(RemoteArenaLeaseQueueState::default()),
+        })
+    }
+
+    /// Registers one leasable trial and blocks the calling (background)
+    /// thread until a worker submits its result, `cancel` is set (operator
+    /// cancellation or the job's overall deadline), or `deadline` passes.
+    ///
+    /// # Errors
+    ///
+    /// Fails when cancelled or the deadline passes before a worker submits
+    /// a result; the pending entry is removed either way so a late,
+    /// stray `SubmitResult` for it is refused rather than silently
+    /// accepted.
+    fn submit_and_wait(
+        &self,
+        job_id: &str,
+        genome_id: &str,
+        frame: Vec<u8>,
+        cancel: &std::sync::atomic::AtomicBool,
+        deadline: Instant,
+    ) -> Result<RemoteArenaTrialOutcome, String> {
+        const POLL_INTERVAL: Duration = Duration::from_millis(200);
+        let (result_sender, result_receiver) = mpsc::sync_channel(1);
+        {
+            let mut state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            state.pending.insert(
+                job_id.to_owned(),
+                PendingArenaTrialJob {
+                    genome_id: genome_id.to_owned(),
+                    frame,
+                    result_sender,
+                },
+            );
+        }
+        let outcome = loop {
+            if cancel.load(Ordering::Acquire) {
+                break Err("paired evaluation was cancelled".to_owned());
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                break Err("remote Arena trial lease deadline expired".to_owned());
+            }
+            match result_receiver.recv_timeout(POLL_INTERVAL.min(deadline - now)) {
+                Ok(outcome) => break Ok(outcome),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    break Err("remote Arena trial lease queue was dropped".to_owned());
+                }
+            }
+        };
+        let mut state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        state.pending.remove(job_id);
+        state.leased.remove(job_id);
+        outcome
+    }
+
+    /// Leases the oldest unleased pending trial, if any.
+    fn lease(&self) -> Option<(String, String, Vec<u8>)> {
+        let mut state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        state
+            .leased
+            .retain(|_, leased_at| now.duration_since(*leased_at) < REMOTE_LEASE_TIMEOUT);
+        let job_id = state
+            .pending
+            .keys()
+            .find(|job_id| !state.leased.contains_key(job_id.as_str()))?
+            .clone();
+        state.leased.insert(job_id.clone(), now);
+        let job = state.pending.get(&job_id)?;
+        Some((job_id, job.genome_id.clone(), job.frame.clone()))
+    }
+
+    /// Reports whether `job_id` names a trial this queue currently owns
+    /// (pending or already completed), so the daemon's worker-request
+    /// dispatcher can route to this queue instead of the canonical
+    /// direct-run `remote_jobs` map.
+    fn owns(&self, job_id: &str) -> bool {
+        let state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        state.pending.contains_key(job_id) || state.completed.contains(job_id)
+    }
+
+    /// Delivers one worker's raw result for `job_id`.
+    ///
+    /// # Errors
+    ///
+    /// Fails only when `job_id` names neither a pending nor an already
+    /// completed trial this queue owns; the caller should treat that as
+    /// "`job_id` is not recognized", exactly like the direct-run path.
+    fn submit_result(
+        &self,
+        job_id: &str,
+        output: Vec<u8>,
+        completion: RemoteCompletion,
+    ) -> Result<(), &'static str> {
+        let mut state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.completed.contains(job_id) {
+            return Ok(());
+        }
+        let Some(sender) = state
+            .pending
+            .get(job_id)
+            .map(|job| job.result_sender.clone())
+        else {
+            return Err("job_id is not recognized");
+        };
+        let latency_millis = state.leased.get(job_id).map_or(0, |leased_at| {
+            u64::try_from(leased_at.elapsed().as_millis()).unwrap_or(u64::MAX)
+        });
+        state.completed.insert(job_id.to_owned());
+        drop(state);
+        let _ignored = sender.send(RemoteArenaTrialOutcome {
+            output,
+            completion,
+            latency_millis,
+        });
+        Ok(())
+    }
+}
+
 // Meta-evaluation run IDs derive two per-lineage evolve run IDs each
 // (`meta-{id}-a-{index}` / `meta-{id}-b-{index}`), which themselves derive
 // per-generation identifiers under `MAX_EVOLUTION_RUN_ID_BYTES`. Leaving 40
@@ -230,6 +406,19 @@ pub struct ControlPlane {
     run_result_signer: RunResultSigner,
     run_result_verifier: RunResultVerifier,
     storage: Option<CanonicalStorage>,
+    /// Reopens an independent ledger handle onto the same canonical storage:
+    /// for the default SQLite backend, a fresh connection to the same
+    /// database path (today's behavior, unchanged); for a caller-supplied
+    /// backend passed to [`Self::open_with_backends`], whatever that caller
+    /// gave to reconstruct or share a handle (e.g. reopening a JSONL path,
+    /// or cloning an `Arc` around an in-memory backend). Used both to
+    /// restore `storage` after an operation consumes it and fails, and by
+    /// read-only Arena verification helpers that need their own throwaway
+    /// handle without touching `storage`.
+    open_ledger: Arc<dyn Fn() -> Result<Box<dyn EventLedger + Send>, ControlError> + Send + Sync>,
+    /// Same reopening contract as `open_ledger`, for the artifact backend.
+    open_artifacts:
+        Arc<dyn Fn() -> Result<Box<dyn ArtifactBackend + Send + Sync>, ControlError> + Send + Sync>,
     state: ControlState,
     _lock: File,
     shutdown_requested: bool,
@@ -250,11 +439,20 @@ pub struct ControlPlane {
     // `REMOTE_LEASE_TIMEOUT`, and the daemon's signed result stays the only
     // durable fact.
     remote_leases: HashMap<String, Instant>,
+    /// Leasable reference-role Arena trials for evaluations admitted with
+    /// the remote opt-in (TD-12). Fresh and empty for every process; see
+    /// [`RemoteArenaLeaseQueue`].
+    remote_arena_lease: Arc<RemoteArenaLeaseQueue>,
 }
 
+/// Canonical durable storage behind [`EventLedger`]/[`ArtifactBackend`] trait
+/// objects. The default daemon (every `ControlPlane::open*` constructor)
+/// still boxes the SQLite [`EventStore`] and filesystem [`ArtifactStore`];
+/// [`ControlPlane::open_with_backends`] accepts any other backend pair (e.g.
+/// the JSONL ledger and in-memory artifact backend).
 struct CanonicalStorage {
-    ledger: EventStore,
-    artifacts: ArtifactStore,
+    ledger: Box<dyn EventLedger + Send>,
+    artifacts: Box<dyn ArtifactBackend + Send + Sync>,
 }
 
 #[derive(Clone)]
@@ -333,6 +531,12 @@ struct ArenaJobRecord {
     state: JobState,
     terminal: Option<JobTerminal>,
     evaluation: Option<EvaluationRecord>,
+    /// Per-evaluation opt-in, recorded at admission (TD-12): when true,
+    /// every reference-role trial in this evaluation is leased to a remote
+    /// worker instead of run in a local sandbox. `#[serde(default)]` keeps
+    /// every previously admitted job (all local) round-tripping unchanged.
+    #[serde(default)]
+    remote: bool,
 }
 
 impl ArenaJobRecord {
@@ -400,6 +604,12 @@ struct AsyncArenaTrialLaunch {
     messages: mpsc::SyncSender<ArenaWorkerMessage>,
     initial_sequence: u64,
     job_id: String,
+    /// `Some` when this evaluation was admitted with the remote opt-in
+    /// (TD-12): every reference-role trial is leased to a remote worker
+    /// through this queue instead of run in a local sandbox. `None` keeps
+    /// the pre-existing, fully local execution path.
+    remote_lease: Option<Arc<RemoteArenaLeaseQueue>>,
+    overall_deadline: Instant,
 }
 
 struct AsyncReferenceLaunch {
@@ -718,6 +928,78 @@ impl ControlPlane {
         reference_worker_executable: impl Into<PathBuf>,
     ) -> Result<Self, ControlError> {
         let data_dir = data_dir.into();
+        let ledger_dir = data_dir.clone();
+        let open_ledger = move || -> Result<Box<dyn EventLedger + Send>, ControlError> {
+            let database_path = ledger_dir.join("events.sqlite3");
+            prepare_private_directory(&ledger_dir)?;
+            prepare_private_file(&database_path)?;
+            Ok(Box::new(EventStore::open(&database_path)?))
+        };
+        let artifacts_dir = data_dir.clone();
+        let open_artifacts =
+            move || -> Result<Box<dyn ArtifactBackend + Send + Sync>, ControlError> {
+                let artifacts_path = artifacts_dir.join("blobs");
+                prepare_private_directory(&artifacts_path)?;
+                Ok(Box::new(ArtifactStore::open(artifacts_path)?))
+            };
+        Self::open_with_backends(
+            data_dir,
+            source_repository,
+            evaluator_executable,
+            reference_worker_executable,
+            open_ledger,
+            open_artifacts,
+        )
+    }
+
+    /// Opens canonical storage over any [`EventLedger`]/[`ArtifactBackend`]
+    /// pair, e.g. the JSONL ledger and in-memory artifact backend, instead of
+    /// the default SQLite/CAS backends `open_with_repository_evaluator_and_reference_worker`
+    /// uses. Every other constructor above delegates to this one after
+    /// building its own SQLite/CAS opener closures, so behavior is identical
+    /// for the default daemon: this method's storage-agnostic checks and
+    /// recovery are the sole source of truth for what "opening the control
+    /// plane" does.
+    ///
+    /// `open_ledger`/`open_artifacts` are called once here for the initial
+    /// handles, and stored to reopen an independent handle later: to restore
+    /// `storage` after an operation consumes it and fails, and for read-only
+    /// Arena verification helpers that need their own throwaway handle. For a
+    /// backend with a durable path (SQLite, the JSONL ledger, the filesystem
+    /// CAS) the closure simply reopens that path. For a backend with no
+    /// durable path of its own (e.g. an in-memory artifact backend), it
+    /// should close over an `Arc` and clone it, which is a valid
+    /// [`ArtifactBackend`] itself (see the blanket impl in
+    /// `hephaestus_ledger::storage`).
+    ///
+    /// # Errors
+    ///
+    /// Applies the same fail-closed repository, ledger-integrity, and
+    /// projection checks as [`Self::open_with_repository`].
+    #[allow(clippy::too_many_lines)]
+    pub fn open_with_backends(
+        data_dir: impl Into<PathBuf>,
+        source_repository: impl Into<PathBuf>,
+        evaluator_executable: impl Into<PathBuf>,
+        reference_worker_executable: impl Into<PathBuf>,
+        open_ledger: impl Fn() -> Result<Box<dyn EventLedger + Send>, ControlError>
+        + Send
+        + Sync
+        + 'static,
+        open_artifacts: impl Fn() -> Result<Box<dyn ArtifactBackend + Send + Sync>, ControlError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<Self, ControlError> {
+        let open_ledger: Arc<
+            dyn Fn() -> Result<Box<dyn EventLedger + Send>, ControlError> + Send + Sync,
+        > = Arc::new(open_ledger);
+        let open_artifacts: Arc<
+            dyn Fn() -> Result<Box<dyn ArtifactBackend + Send + Sync>, ControlError> + Send + Sync,
+        > = Arc::new(open_artifacts);
+        let mut ledger = open_ledger()?;
+        let artifacts = open_artifacts()?;
+        let data_dir = data_dir.into();
         let source_repository = validate_source_repository(&source_repository.into())?;
         let evaluator_executable = evaluator_executable.into();
         let reference_worker_executable = reference_worker_executable.into();
@@ -732,12 +1014,6 @@ impl ControlPlane {
         let lock = take_writer_lock(&data_dir.join("daemon.lock"))?;
         let (token_hex, token_bytes) = load_or_create_token(&data_dir.join("operator.token"))?;
         let operator_token = OperatorToken::from_bytes(token_bytes);
-        let database_path = data_dir.join("events.sqlite3");
-        prepare_private_file(&database_path)?;
-        let mut ledger = EventStore::open(&database_path)?;
-        let artifacts_path = data_dir.join("blobs");
-        prepare_private_directory(&artifacts_path)?;
-        let artifacts = ArtifactStore::open(artifacts_path)?;
         let history = ledger.replay_verified()?;
         reject_legacy_run_result_history(&history)?;
         let registered =
@@ -784,8 +1060,8 @@ impl ControlPlane {
         )?;
         recover_unfinished_arena_jobs(
             &mut ledger,
+            &artifacts,
             &mut state,
-            &data_dir,
             &operator_token,
             &run_result_verifier,
         )?;
@@ -806,6 +1082,8 @@ impl ControlPlane {
             run_result_signer,
             run_result_verifier,
             storage: Some(CanonicalStorage { ledger, artifacts }),
+            open_ledger,
+            open_artifacts,
             state,
             _lock: lock,
             shutdown_requested: false,
@@ -820,6 +1098,7 @@ impl ControlPlane {
             arena_message_receiver: None,
             arena_message_sender: None,
             remote_leases: HashMap::new(),
+            remote_arena_lease: RemoteArenaLeaseQueue::new(),
         })
     }
 
@@ -1069,7 +1348,13 @@ impl ControlPlane {
                 evaluation_id,
                 parent_genome_id,
                 candidate_genome_id,
-            } => self.submit_arena_job(&evaluation_id, &parent_genome_id, &candidate_genome_id),
+                remote,
+            } => self.submit_arena_job(
+                &evaluation_id,
+                &parent_genome_id,
+                &candidate_genome_id,
+                remote,
+            ),
             Command::ArenaSelect { evaluation_id } => self.select_arena_evaluation(&evaluation_id),
             Command::ArenaInvariants { evaluation_id } => {
                 self.check_arena_invariants(&evaluation_id)
@@ -2471,7 +2756,12 @@ impl ControlPlane {
             .and_then(|job| job.terminal)
         {
             None => {
-                self.submit_arena_job(&diagnostic_id, &run.baseline_genome_id, &champion_before)?;
+                self.submit_arena_job(
+                    &diagnostic_id,
+                    &run.baseline_genome_id,
+                    &champion_before,
+                    false,
+                )?;
                 return Ok(());
             }
             Some(JobTerminal::Succeeded) => {}
@@ -2521,7 +2811,12 @@ impl ControlPlane {
             .and_then(|job| job.terminal)
         {
             None => {
-                self.submit_arena_job(&child_evaluation_id, &champion_before, &child_genome_id)?;
+                self.submit_arena_job(
+                    &child_evaluation_id,
+                    &champion_before,
+                    &child_genome_id,
+                    false,
+                )?;
                 return Ok(());
             }
             Some(JobTerminal::Succeeded) => {}
@@ -3309,7 +3604,7 @@ impl ControlPlane {
         let now = Instant::now();
         self.remote_leases
             .retain(|_, leased_at| now.duration_since(*leased_at) < REMOTE_LEASE_TIMEOUT);
-        let Some((job_id, record)) = self
+        let direct_run_job = self
             .state
             .remote_jobs
             .iter()
@@ -3317,33 +3612,55 @@ impl ControlPlane {
                 !self.state.run_results.contains_key(&record.run_id)
                     && !self.remote_leases.contains_key(job_id.as_str())
             })
-            .map(|(job_id, record)| (job_id.clone(), record.clone()))
-        else {
-            return WorkerReply::NoWork;
-        };
-        let Ok(Some(instruction)) = self.reference_instruction(&record.genome_id) else {
-            return WorkerReply::NoWork;
-        };
-        let Ok(frame) = hephaestus_runtime::frame_reference_instruction(
-            instruction,
-            REMOTE_REFERENCE_PROMPT.as_bytes(),
-        ) else {
-            return WorkerReply::NoWork;
-        };
-        self.remote_leases.insert(job_id.clone(), now);
-        WorkerReply::Leased {
-            job_id,
-            genome_id: record.genome_id,
-            frame_hex: hex_encode_bytes(&frame),
+            .map(|(job_id, record)| (job_id.clone(), record.clone()));
+        if let Some((job_id, record)) = direct_run_job {
+            let Ok(Some(instruction)) = self.reference_instruction(&record.genome_id) else {
+                return WorkerReply::NoWork;
+            };
+            let Ok(frame) = hephaestus_runtime::frame_reference_instruction(
+                instruction,
+                REMOTE_REFERENCE_PROMPT.as_bytes(),
+            ) else {
+                return WorkerReply::NoWork;
+            };
+            self.remote_leases.insert(job_id.clone(), now);
+            return WorkerReply::Leased {
+                job_id,
+                genome_id: record.genome_id,
+                frame_hex: hex_encode_bytes(&frame),
+            };
         }
+        // No direct-run job is pending; offer a leasable Arena reference
+        // trial instead (TD-12). The exact same wire reply shape, so the
+        // remote worker binary needs no change either way.
+        if let Some((job_id, genome_id, frame)) = self.remote_arena_lease.lease() {
+            return WorkerReply::Leased {
+                job_id,
+                genome_id,
+                frame_hex: hex_encode_bytes(&frame),
+            };
+        }
+        WorkerReply::NoWork
     }
 
+    #[allow(clippy::too_many_lines)]
     fn record_remote_job_result(
         &mut self,
         job_id: &str,
         output_hex: &str,
         completion: RemoteCompletion,
     ) -> Result<(), String> {
+        if !self.state.remote_jobs.contains_key(job_id) && self.remote_arena_lease.owns(job_id) {
+            let output =
+                hex_decode_bytes(output_hex).map_err(|_| "output is not valid hex".to_owned())?;
+            if output.len() > 1_048_576 {
+                return Err("output exceeds the byte limit".to_owned());
+            }
+            return self
+                .remote_arena_lease
+                .submit_result(job_id, output, completion)
+                .map_err(ToOwned::to_owned);
+        }
         let record = self
             .state
             .remote_jobs
@@ -4657,6 +4974,7 @@ impl ControlPlane {
         evaluation_id: &str,
         parent_genome_id: &str,
         candidate_genome_id: &str,
+        remote: bool,
     ) -> Result<ResponseData, ExecuteError> {
         validate_job_id(evaluation_id)?;
         if let Some(existing) = self.state.arena_jobs.get(evaluation_id) {
@@ -4941,6 +5259,7 @@ impl ControlPlane {
             state: JobState::Admitted,
             terminal: None,
             evaluation: None,
+            remote,
         };
         self.append_arena_job_record(&admitted)?;
         admitted.phase = ArenaJobPhase::ParentTrials;
@@ -4969,6 +5288,8 @@ impl ControlPlane {
             messages: message_sender,
             initial_sequence: self.state.event_count,
             job_id: evaluation_id.to_owned(),
+            remote_lease: remote.then(|| Arc::clone(&self.remote_arena_lease)),
+            overall_deadline,
         };
         let thread_name = format!(
             "hephaestus-arena-{}",
@@ -5300,11 +5621,9 @@ impl ControlPlane {
     }
 
     fn open_arena_stores(&self) -> Result<EvaluationStores, ExecuteError> {
-        EvaluationStores::open(
-            self.data_dir.join("events.sqlite3"),
-            self.data_dir.join("blobs"),
-        )
-        .map_err(|_| ExecuteError::Internal)
+        let events = (self.open_ledger)().map_err(|_| ExecuteError::Internal)?;
+        let artifacts = (self.open_artifacts)().map_err(|_| ExecuteError::Internal)?;
+        Ok(EvaluationStores { events, artifacts })
     }
 
     fn registered_world(&self, world_id: &str) -> Result<CompiledWorld, ExecuteError> {
@@ -5563,10 +5882,8 @@ impl ControlPlane {
     }
 
     fn reopen_storage(&mut self) -> Result<(), ExecuteError> {
-        let ledger = EventStore::open(self.data_dir.join("events.sqlite3"))
-            .map_err(|_| ExecuteError::Internal)?;
-        let artifacts =
-            ArtifactStore::open(self.data_dir.join("blobs")).map_err(|_| ExecuteError::Internal)?;
+        let ledger = (self.open_ledger)().map_err(|_| ExecuteError::Internal)?;
+        let artifacts = (self.open_artifacts)().map_err(|_| ExecuteError::Internal)?;
         self.storage = Some(CanonicalStorage { ledger, artifacts });
         Ok(())
     }
@@ -6515,7 +6832,7 @@ impl EvidenceCache {
 /// `artifacts` store and the already-replayed `history` instead of reopening
 /// stores per job (see `TECH_DEBT.md` TD-16).
 fn verify_arena_evaluation_records(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     state: &ControlState,
 ) -> Result<(), ControlError> {
@@ -6532,7 +6849,7 @@ fn verify_arena_evaluation_records(
 /// not a relaxation: `verify_arena_evaluation_records`, startup, and
 /// `replay` always use a fresh cache and verify everything.
 fn verify_arena_evaluation_records_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     state: &ControlState,
     cache: &mut EvidenceCache,
@@ -6573,7 +6890,7 @@ fn arena_record_cache_key(
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_forge_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -6587,7 +6904,7 @@ fn verify_forge_history(
 
 /// Cache-aware counterpart of [`verify_forge_history`]; see [`EvidenceCache`].
 fn verify_forge_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
@@ -6651,7 +6968,7 @@ fn verify_forge_history_with(
 }
 
 fn verify_forge_child(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     registered: &RegisteredObjects,
     event: &StoredEvent,
     payload: &ForgeProposalPayload,
@@ -6686,7 +7003,7 @@ fn verify_forge_child(
 }
 
 fn verify_forge_prompt(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     payload: &ForgeProposalPayload,
 ) -> Result<(), ControlError> {
     let before_bytes = verified_prompt_bytes(artifacts, &payload.prompt_artifact_before)?;
@@ -6734,7 +7051,7 @@ fn verify_forge_prompt(
 }
 
 fn verify_forge_child_compiles(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     registered: &RegisteredObjects,
     payload: &ForgeProposalPayload,
     world: &CompiledWorld,
@@ -6853,7 +7170,7 @@ fn decode_forge_proposal(event: &StoredEvent) -> Result<ForgeProposalPayload, Co
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_forge_assessment_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -6867,7 +7184,7 @@ fn verify_forge_assessment_history(
 
 /// Cache-aware counterpart of [`verify_forge_assessment_history`]; see [`EvidenceCache`].
 fn verify_forge_assessment_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
@@ -6995,7 +7312,7 @@ fn existing_forge_assessment_response(
 }
 
 fn forge_assessment_payload(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     index: &EventIndex<'_>,
     registered: &RegisteredObjects,
     assessment_id: &str,
@@ -7133,7 +7450,7 @@ fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
 }
 
 fn verified_prompt_bytes(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     artifact_id: &str,
 ) -> Result<Vec<u8>, ControlError> {
     let id = ArtifactId::parse(artifact_id.to_owned())?;
@@ -7154,7 +7471,7 @@ fn reference_instruction_document(instruction: ReferenceInstruction) -> String {
 fn compile_forge_child(
     registered: &RegisteredObjects,
     world: &CompiledWorld,
-    artifact_store: &ArtifactStore,
+    artifact_store: &dyn ArtifactBackend,
     parent_genome_id: &str,
     world_id: &str,
     proposal_id: &str,
@@ -7203,7 +7520,7 @@ fn compile_forge_child(
 }
 
 fn verified_forge_source(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     selection_event_id: &str,
@@ -7271,7 +7588,7 @@ fn parse_reference_operation_name(operation: &str) -> Result<ReferenceInstructio
 /// independently re-verified against catalog edges and canonical bytes.
 fn genome_reference_instruction(
     registered: &RegisteredObjects,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     genome_id: &str,
 ) -> Option<ReferenceInstruction> {
     let genome = registered.genome(genome_id)?;
@@ -7336,7 +7653,7 @@ fn best_gene_target_operation(history: &[StoredEvent], current_operation: &str) 
 /// when the bound cluster names one. This never proposes, mutates, or
 /// promotes anything; it only reads and verifies already-recorded evidence.
 fn resolve_forge_hypothesis(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     world: &CompiledWorld,
@@ -7438,7 +7755,7 @@ fn resolve_forge_hypothesis(
 /// other current operation is rejected as outside Forge's default mutation
 /// (an explicit `target` is required to mutate a Gauntlet operation).
 fn forge_prompt_mutation(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     registered: &RegisteredObjects,
     parent_genome_id: &str,
     world: &CompiledWorld,
@@ -7530,7 +7847,7 @@ fn mutate_reference_instruction_document(
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_selection_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -7544,7 +7861,7 @@ fn verify_selection_history(
 
 /// Cache-aware counterpart of [`verify_selection_history`]; see [`EvidenceCache`].
 fn verify_selection_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
@@ -7589,7 +7906,7 @@ struct InvariantEventEnvelope {
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_invariant_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -7603,7 +7920,7 @@ fn verify_invariant_history(
 
 /// Cache-aware counterpart of [`verify_invariant_history`]; see [`EvidenceCache`].
 fn verify_invariant_history_with(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     cache: &mut EvidenceCache,
@@ -7670,7 +7987,7 @@ struct ClusterEventEnvelope {
 /// `artifacts` is the daemon's already-open artifact store, reused for every
 /// event instead of reopening it (see `TECH_DEBT.md` TD-16).
 fn verify_cluster_history(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
@@ -7817,6 +8134,7 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
         evaluation_id,
         parent_genome_id,
         candidate_genome_id,
+        remote: _,
     } = command
         && (evaluation_id.trim().is_empty()
             || parent_genome_id.trim().is_empty()
@@ -8401,6 +8719,8 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
         messages,
         mut initial_sequence,
         job_id,
+        remote_lease,
+        overall_deadline,
     } = launch;
     let mut outcome = Ok(());
     for (index, trial) in trials.iter().enumerate() {
@@ -8432,6 +8752,8 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
                 evidence.clone(),
                 initial_sequence,
             )
+        } else if let Some(lease) = remote_lease.as_deref() {
+            execute_arena_trial_remotely(lease, &job_id, index, trial, &cancel, overall_deadline)
         } else {
             execute_async_reference(
                 AsyncReferenceLaunch {
@@ -8475,6 +8797,52 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
         job_id,
         result: outcome,
     });
+}
+
+/// Executes one reference-role Arena trial by leasing it to a remote
+/// worker (TD-12) instead of running a local sandbox. The frame is the
+/// exact same `frame_reference_instruction` construction the direct-run
+/// remote-worker path uses, over the trial's own already-bound
+/// [`ReferenceInstruction`] and prompt, so a remote worker cannot tell this
+/// apart from a direct reference run. Blocks this background thread (never
+/// the daemon's single control-loop thread) until a worker submits a
+/// result, the trial is cancelled, or `deadline` passes.
+fn execute_arena_trial_remotely(
+    lease: &RemoteArenaLeaseQueue,
+    job_id: &str,
+    index: usize,
+    trial: &ArenaTrialSpec,
+    cancel: &std::sync::atomic::AtomicBool,
+    deadline: Instant,
+) -> Result<ReferenceExecution, String> {
+    let instruction = trial
+        .spec
+        .reference_instruction()
+        .ok_or_else(|| "remote Arena trial has no reference instruction".to_owned())?;
+    let frame = hephaestus_runtime::frame_reference_instruction(
+        instruction,
+        trial.spec.prompt().as_bytes(),
+    )
+    .map_err(|_| "remote Arena trial frame could not be built".to_owned())?;
+    let trial_job_id = format!("arena:{job_id}:trial:{index}");
+    let outcome = lease.submit_and_wait(
+        &trial_job_id,
+        &trial.genome.genome_id,
+        frame,
+        cancel,
+        deadline,
+    )?;
+    Ok(ReferenceExecution {
+        completion_reason: match outcome.completion {
+            RemoteCompletion::Success => RunCompletionReason::Success,
+            RemoteCompletion::ProviderFailure => RunCompletionReason::ProviderFailure,
+        },
+        latency_millis: outcome.latency_millis,
+        stdout: outcome.output,
+        stderr: Vec::new(),
+        trace_artifact_ids: Vec::new(),
+        actual_cost_microusd: 0,
+    })
 }
 
 fn map_run_completion_reason(reason: CompletionReason) -> RunCompletionReason {
@@ -8868,7 +9236,7 @@ fn executable_digest(path: &Path) -> Result<String, ControlError> {
 }
 
 fn persist_reference_output(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     run_id: &str,
     genome: &GenomeRecord,
     source_revision: &str,
@@ -9561,7 +9929,7 @@ impl ControlState {
 
     fn verify_artifacts(
         history: &[StoredEvent],
-        artifacts: &ArtifactStore,
+        artifacts: &dyn ArtifactBackend,
         run_result_verifier: &RunResultVerifier,
     ) -> Result<(), ControlError> {
         for event in history {
@@ -9585,7 +9953,7 @@ impl ControlState {
 }
 
 fn recover_unfinished_jobs(
-    ledger: &mut EventStore,
+    ledger: &mut dyn EventLedger,
     state: &mut ControlState,
     operator_token: &OperatorToken,
     run_result_verifier: &RunResultVerifier,
@@ -9646,9 +10014,9 @@ fn recover_unfinished_jobs(
 }
 
 fn recover_unfinished_arena_jobs(
-    ledger: &mut EventStore,
+    ledger: &mut dyn EventLedger,
+    artifacts: &dyn ArtifactBackend,
     state: &mut ControlState,
-    data_dir: &Path,
     operator_token: &OperatorToken,
     run_result_verifier: &RunResultVerifier,
 ) -> Result<(), ControlError> {
@@ -9688,14 +10056,13 @@ fn recover_unfinished_arena_jobs(
                     "Arena receipt is missing complete signed trial evidence".to_owned(),
                 ));
             }
-            let stores =
-                EvaluationStores::open(data_dir.join("events.sqlite3"), data_dir.join("blobs"))
-                    .map_err(|_| {
-                        ControlError::Projection("Arena evidence stores are unavailable".into())
-                    })?;
-            let recorded = load_recorded_evaluation(stores, &job.evaluation_id).map_err(|_| {
-                ControlError::Projection("Arena recovery receipt failed verification".to_owned())
-            })?;
+            let index = EventIndex::build(&history);
+            let recorded = load_recorded_evaluation_in(&index, artifacts, &job.evaluation_id)
+                .map_err(|_| {
+                    ControlError::Projection(
+                        "Arena recovery receipt failed verification".to_owned(),
+                    )
+                })?;
             let evaluation = evaluation_record_from_recorded(&recorded);
             if evaluation.world_id != job.world_id
                 || evaluation.parent_genome_id != job.parent_genome_id
@@ -10295,7 +10662,7 @@ fn reject_legacy_run_result_history(history: &[StoredEvent]) -> Result<(), Contr
 
 fn anchored_world_verifier(
     registered: &RegisteredObjects,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
 ) -> Result<Option<[u8; 32]>, ControlError> {
     let mut anchored = None;
     for world in registered.worlds() {

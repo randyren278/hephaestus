@@ -22,7 +22,7 @@ use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultSigner,
 };
 use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
-use hephaestus_ledger::{ArtifactId, EventInput, StoredEvent};
+use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, StoredEvent};
 use hephaestus_runtime::{Budget, ExperimentContext, IsolationPolicy, RunSpec, WorkerLimits};
 use tempfile::TempDir;
 
@@ -1851,9 +1851,8 @@ fn stored_v1_selection_receipt_still_verifies_under_the_strict_dominance_rule() 
     let original_artifact_id = ArtifactId::parse(original_artifact.clone()).unwrap();
     let artifact_root = directory.path().join("blobs");
     let original_bytes = fs::read(
-        EvaluationStores::open(directory.path().join("events.sqlite3"), &artifact_root)
+        ArtifactStore::open(&artifact_root)
             .unwrap()
-            .artifacts
             .path_for(&original_artifact_id),
     )
     .unwrap();
@@ -2019,7 +2018,8 @@ fn selection_rehydration_requires_the_receipt_cas_blob() {
     .unwrap();
     let receipt_id = ArtifactId::parse(selected.event().receipt_artifact_id.clone()).unwrap();
     let stores = selected.into_stores();
-    fs::remove_file(stores.artifacts.path_for(&receipt_id)).unwrap();
+    let cas = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    fs::remove_file(cas.path_for(&receipt_id)).unwrap();
     assert!(matches!(
         load_selection(stores, "evaluation-001", &world),
         Err(ArenaError::Ledger(_))
@@ -2053,9 +2053,8 @@ fn selection_rehydration_rejects_hash_valid_forged_receipt_and_event() {
     let original_artifact_id = ArtifactId::parse(original_artifact.clone()).unwrap();
     let artifact_root = directory.path().join("blobs");
     let original_bytes = fs::read(
-        EvaluationStores::open(directory.path().join("events.sqlite3"), &artifact_root)
+        ArtifactStore::open(&artifact_root)
             .unwrap()
-            .artifacts
             .path_for(&original_artifact_id),
     )
     .unwrap();
@@ -2128,7 +2127,8 @@ fn restart_rehydration_requires_world_bound_evaluator_evidence() {
     let operator = evaluate(make_fixture(&directory)).unwrap();
     let evaluator_id = ArtifactId::parse(operator.selection_evidence().evaluator_id()).unwrap();
     let stores = operator.into_stores();
-    fs::remove_file(stores.artifacts.path_for(&evaluator_id)).unwrap();
+    let cas = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    fs::remove_file(cas.path_for(&evaluator_id)).unwrap();
 
     assert!(matches!(
         load_operator_evaluation(stores, "evaluation-001"),
@@ -2155,7 +2155,8 @@ fn restart_rehydration_requires_transitive_run_artifacts() {
         })
         .unwrap();
     let stdout_id = ArtifactId::parse(stdout_id).unwrap();
-    fs::remove_file(stores.artifacts.path_for(&stdout_id)).unwrap();
+    let cas = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    fs::remove_file(cas.path_for(&stdout_id)).unwrap();
 
     assert!(matches!(
         load_operator_evaluation(stores, "evaluation-001"),
@@ -2603,7 +2604,8 @@ fn corrupt_or_missing_output_is_rejected_without_evaluation_writes() {
     )
     .unwrap();
     let id = ArtifactId::parse(receipt.stdout_artifact_id).unwrap();
-    fs::write(fixture.stores.artifacts.path_for(&id), b"tampered").unwrap();
+    let cas = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    fs::write(cas.path_for(&id), b"tampered").unwrap();
     assert!(matches!(evaluate(fixture), Err(ArenaError::Ledger(_))));
 
     let directory = TempDir::new().unwrap();

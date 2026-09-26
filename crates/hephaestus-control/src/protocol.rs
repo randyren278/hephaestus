@@ -164,6 +164,14 @@ pub enum Command {
         parent_genome_id: String,
         /// Immutable registered candidate Genome identity.
         candidate_genome_id: String,
+        /// Opt-in, recorded into the admission record: when true, each
+        /// reference-role (role, task) trial is leased to a remote worker
+        /// over `worker.sock` instead of executed in a locally sandboxed
+        /// subprocess. A provider-role trial is unaffected either way.
+        /// Defaults to `false` so every existing caller's wire shape is
+        /// unchanged.
+        #[serde(default)]
+        remote: bool,
     },
     /// Select from one exact persisted Arena evaluation using its registered World's policy.
     ArenaSelect {
@@ -2330,6 +2338,7 @@ mod tests {
                 evaluation_id: "evaluation-1".to_owned(),
                 parent_genome_id: "parent-1".to_owned(),
                 candidate_genome_id: "candidate-1".to_owned(),
+                remote: false,
             },
         };
 
@@ -2340,13 +2349,30 @@ mod tests {
                 "command": "evaluate_pair",
                 "evaluation_id": "evaluation-1",
                 "parent_genome_id": "parent-1",
-                "candidate_genome_id": "candidate-1"
+                "candidate_genome_id": "candidate-1",
+                "remote": false
             })
         );
         assert_eq!(
             serde_json::from_value::<ApiRequest>(encoded).expect("request deserializes"),
             request
         );
+        // An old caller's request, omitting `remote` entirely, must still
+        // deserialize and default to local (non-remote) execution.
+        let legacy = serde_json::json!({
+            "version": API_VERSION,
+            "request_id": "request-2",
+            "token": "secret",
+            "command": {
+                "command": "evaluate_pair",
+                "evaluation_id": "evaluation-1",
+                "parent_genome_id": "parent-1",
+                "candidate_genome_id": "candidate-1"
+            }
+        });
+        let decoded_legacy =
+            serde_json::from_value::<ApiRequest>(legacy).expect("legacy request deserializes");
+        assert_eq!(decoded_legacy.command, request.command);
     }
 
     #[test]

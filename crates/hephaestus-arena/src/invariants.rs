@@ -9,7 +9,7 @@ use hephaestus_runtime::ExperimentContext;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ArenaError, ArtifactStore, EvaluationStores, OperatorReceipt, load_operator_evaluation,
+    ArenaError, ArtifactBackend, EvaluationStores, OperatorReceipt, load_operator_evaluation,
     load_operator_evaluation_in, run_result_verifier, verify_operator_artifact,
 };
 
@@ -243,7 +243,7 @@ impl InvariantView {
 /// receipt content that does not recompute from the signed paired trial evidence.
 pub fn verify_reference_output_invariant_event_in(
     index: &EventIndex<'_>,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     event: &StoredEvent,
     world: &CompiledWorld,
 ) -> Result<InvariantView, ArenaError> {
@@ -363,7 +363,7 @@ fn check(
 
 fn compute_receipt(
     receipt: &OperatorReceipt,
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     index: &EventIndex<'_>,
     evaluation_event: &StoredEvent,
     world: &CompiledWorld,
@@ -472,7 +472,7 @@ fn compute_receipt(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn verified_submission_outputs(
-    artifacts: &ArtifactStore,
+    artifacts: &dyn ArtifactBackend,
     index: &EventIndex<'_>,
     operator_receipt: &OperatorReceipt,
     submission_artifact_id: &str,
@@ -590,7 +590,7 @@ fn aggregate_predicate(
 
 fn load_invariant_manifest(
     world: &CompiledWorld,
-    artifacts: &super::ArtifactStore,
+    artifacts: &dyn super::ArtifactBackend,
 ) -> Result<(InvariantManifest, String), ArenaError> {
     let artifact_id = world
         .evaluator_artifact(MANIFEST_KEY)
@@ -642,7 +642,7 @@ pub fn invariant_event_references(event: &StoredEvent) -> Result<(String, String
 }
 
 fn rehydrate_event(
-    artifacts: &super::ArtifactStore,
+    artifacts: &dyn super::ArtifactBackend,
     event: &StoredEvent,
     expected: &InvariantReceipt,
 ) -> Result<InvariantEventPayload, ArenaError> {
