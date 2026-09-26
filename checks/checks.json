@@ -352,7 +352,7 @@
     },
     {
       "id": "replay-divergence-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "The replay command fails if fresh canonical projection differs from live state.",
       "find": "        if replayed.snapshot() != self.state.snapshot() {\n            return Err(ExecuteError::Internal);\n        }",
       "replace": "        if false && replayed.snapshot() != self.state.snapshot() {\n            return Err(ExecuteError::Internal);\n        }",
@@ -360,10 +360,10 @@
     },
     {
       "id": "frozen-reference-run-started",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "The persistent operator freeze blocks all new reference execution.",
-      "find": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
-      "replace": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if false && self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
+      "find": "    pub(super) fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
+      "replace": "    pub(super) fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if false && self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
       "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence"
     },
     {
@@ -376,7 +376,7 @@
     },
     {
       "id": "reference-runtime-workspace-authority-widened",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "The offline reference runtime receives read-only and offline authority regardless of Genome ceiling.",
       "find": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(false, false),\n            budget,",
       "replace": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(true, false),\n            budget,",
@@ -957,7 +957,7 @@
     },
     {
       "id": "control-operator-interrupt-marked-cancelled",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "A runtime OperatorInterrupt without a durable cancellation request recovers as Interrupted, not Cancelled.",
       "find": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Interrupted",
       "replace": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Cancelled",
@@ -1134,7 +1134,7 @@
     },
     {
       "id": "control-evaluation-task-context-hardcoded",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "Evaluation receipts commit to the exact task supplied to the daemon command.",
       "find": "        let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), seed, environment_id)",
       "replace": "        let experiment = ExperimentContext::new(\"repository-inventory-v1\", prompt.as_bytes(), seed, environment_id)",
@@ -1182,7 +1182,7 @@
     },
     {
       "id": "control-world-cost-law-bypassed",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "Every evaluation cost ceiling is no greater than the immutable registered World Law.",
       "find": "        if maximum_cost_microusd > world_cost_ceiling {\n            return Err(ExecuteError::Invalid(\n                \"evaluation cost exceeds registered World Law\",\n            ));\n        }",
       "replace": "        if false && maximum_cost_microusd > world_cost_ceiling {\n            return Err(ExecuteError::Invalid(\n                \"evaluation cost exceeds registered World Law\",\n            ));\n        }",
@@ -1344,7 +1344,7 @@
     },
     {
       "id": "control-self-pair-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "A Genome cannot serve as both sides of a claimed parent-versus-candidate comparison.",
       "find": "        if parent_genome_id == candidate_genome_id {",
       "replace": "        if false && parent_genome_id == candidate_genome_id {",
@@ -1352,7 +1352,7 @@
     },
     {
       "id": "control-world-bound-evaluator-bypassed",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "The daemon verifies the exact World-bound evaluator executable before candidate scheduling.",
       "find": "        let evaluator = Arc::new(self.open_evaluator(&evaluator_id, evaluator_limits)?);",
       "replace": "        let evaluator = Arc::new(\n            IsolatedEvaluator::in_process_for_testing(evaluator_id.clone())\n                .map_err(|_| ExecuteError::Internal)?,\n        );",
@@ -1360,7 +1360,7 @@
     },
     {
       "id": "control-sealed-tasks-not-scheduled",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "The trusted scheduler runs every sealed task without exposing its expectation.",
       "find": "            .chain(sealed.operator_tasks())",
       "replace": "            .chain(Vec::new())",
@@ -1368,7 +1368,7 @@
     },
     {
       "id": "control-paired-retry-reruns-candidates",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "A retried paired evaluation reuses authenticated deterministic run events instead of duplicating candidate work.",
       "find": "        if let Some(existing) = self.state.arena_jobs.get(evaluation_id) {",
       "replace": "        if let Some(existing) = Option::<&ArenaJobRecord>::None {",
@@ -1376,7 +1376,7 @@
     },
     {
       "id": "control-paired-seed-diverges",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "Every candidate trial uses the same daemon-owned seed committed by the paired evaluation binding.",
       "find": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    PAIRED_EVALUATION_SEED,",
       "replace": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    0,",
@@ -1665,7 +1665,7 @@
     },
     {
       "id": "world-register-foreign-verifier-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
       "invariant": "A live World registration cannot anchor a runtime verifier other than the daemon's producer key.",
       "find": "            if verifier != self.run_result_verifier.public_key_bytes() {",
       "replace": "            if false && verifier != self.run_result_verifier.public_key_bytes() {",
@@ -1681,7 +1681,7 @@
     },
     {
       "id": "manifest-put-stores-source-bytes",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
       "invariant": "Operator manifests are stored only in their canonical evaluator encoding.",
       "find": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .and_then(|manifest| manifest.canonical_bytes())",
       "replace": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .map(|_| bytes.clone())",
@@ -1697,7 +1697,7 @@
     },
     {
       "id": "genome-content-reused-across-worlds",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
       "invariant": "A Genome content identity is registered under exactly one World; asking for another World is refused, not silently answered with the first.",
       "find": "            if existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!(",
       "replace": "            if false && existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!(",
@@ -1867,7 +1867,7 @@
     },
     {
       "id": "control-selection-history-unverified-on-replay",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
       "find": "        verify_selection_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
       "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
@@ -1910,7 +1910,7 @@
     },
     {
       "id": "markdown-registration-route-bypassed",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
       "invariant": "The daemon registers .md Genome sources through the Markdown compiler under the registered World.",
       "find": "if Path::new(path).extension().and_then(|value| value.to_str()) == Some(\"md\") {",
       "replace": "if false {",
@@ -1918,7 +1918,7 @@
     },
     {
       "id": "genome-prompt-not-scoped-to-registered-record",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
       "invariant": "Genome prompt inspection resolves only the reserved artifact referenced by the selected registered Genome.",
       "find": "            .artifact_id(\"agent.prompt\")",
       "replace": "            .artifact_id(\"agent.untrusted_prompt\")",
@@ -1983,7 +1983,7 @@
     },
     {
       "id": "reference-worker-changed-after-startup-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "The worker executable digest remains bound to reference execution environment receipts.",
       "find": "        if digest != self.reference_worker_digest {",
       "replace": "        if false {",
@@ -1991,7 +1991,7 @@
     },
     {
       "id": "pinned-reference-worker-reuse-skips-per-use-digest-reverification",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "A cached, daemon-lifetime pinned reference worker is re-verified against its recorded digest before every reuse, not trusted unconditionally.",
       "find": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return match existing.verify() {\n                Ok(()) => Ok(existing),\n                Err(err) => {\n                    *self.pinned_reference_worker.borrow_mut() = None;\n                    Err(err)\n                }\n            };\n        }",
       "replace": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return Ok(existing);\n        }",
@@ -1999,7 +1999,7 @@
     },
     {
       "id": "reference-instruction-cas-not-interpreted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "The daemon parses only the verified registered prompt CAS as a reference instruction.",
       "find": "        ReferenceInstruction::parse(body).map(Some).map_err(|_| {\n            ExecuteError::Rejected(\"registered reference instruction is invalid\".to_owned())\n        })",
       "replace": "        Ok(Some(ReferenceInstruction::Identity))",
@@ -2022,7 +2022,7 @@
     },
     {
       "id": "reference-evaluation-uses-private-pinned-worker",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
       "invariant": "Every reference evaluation executes the private worker snapshot whose digest is bound into its environment identity.",
       "find": "                    &worker.executable,\n                    [],\n                    &self.guardian_executable,",
       "replace": "                    &self.reference_worker_executable,\n                    [],\n                    &self.guardian_executable,",
@@ -2053,7 +2053,7 @@
     },
     {
       "id": "async-wall-timeout-not-classified-as-failure",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "A supervised wall-budget timeout is persisted as a failed job and never a successful terminal.",
       "find": "            if completion_reason == RunCompletionReason::Success {",
       "replace": "            if completion_reason == RunCompletionReason::Success || completion_reason == RunCompletionReason::WallBudgetExceeded {",
@@ -2068,7 +2068,7 @@
     },
     {
       "id": "arena-scorer-launch-terminal-not-persisted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "A scorer thread launch failure after signed trials is persisted as an interrupted Arena terminal before releasing the active slot.",
       "find": "            self.append_arena_job_record(&terminal).map_err(|_| {\n                ControlError::Projection(\n                    \"Arena scorer launch failure could not be recorded\".to_owned(),\n                )\n            })?;",
       "replace": "            let _ = terminal; // mutation: skip terminal append after scorer launch failure",
@@ -2076,7 +2076,7 @@
     },
     {
       "id": "arena-deadline-append-failure-not-retried",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
       "invariant": "An expired Arena deadline remains retryable until its cancellation transition is durably appended.",
       "find": "            !active.overall_timed_out\n                && active.record.state == JobState::Running",
       "replace": "            !active.cancel.load(Ordering::Acquire)\n                && active.record.state == JobState::Running",
@@ -2107,7 +2107,7 @@
     },
     {
       "id": "forge-proposal-forbidden-while-frozen",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
       "invariant": "Forge proposal admission fails while operator evolution is frozen.",
       "find": "        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }\n        validate_job_id(proposal_id)",
       "replace": "        validate_job_id(proposal_id)",
@@ -2242,7 +2242,7 @@
     },
     {
       "id": "control-arena-invariants-allowed-during-active-job",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/worker_remote.rs",
       "invariant": "Invariant checks cannot consume canonical storage while a direct or Arena job is active.",
       "find": "                | Command::ArenaInvariants { .. }\n                | Command::GenomeRegister { .. }",
       "replace": "                // mutation: allow invariant check during active work\n                | Command::GenomeRegister { .. }",
@@ -2338,7 +2338,7 @@
     },
     {
       "id": "control-evidence-runs-newest-first",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "Run listings are ordered newest first before truncation.",
       "find": "        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {",
       "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {",
@@ -2346,7 +2346,7 @@
     },
     {
       "id": "control-evidence-denials-newest-first",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "Denial listings are ordered newest first before truncation.",
       "find": "        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {",
       "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {",
@@ -2354,7 +2354,7 @@
     },
     {
       "id": "control-evidence-evaluations-newest-first",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "Evaluation listings are ordered newest first before truncation.",
       "find": "        evaluation_ids.sort_by_key(|entry| std::cmp::Reverse(entry.0));",
       "replace": "        evaluation_ids.sort_by_key(|entry| entry.0);",
@@ -2362,7 +2362,7 @@
     },
     {
       "id": "control-evolve-freeze-halts-runs",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "A frozen daemon never advances an evolution run.",
       "find": "        if self.state.freeze.is_frozen() {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection",
       "replace": "        if false {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection",
@@ -2370,7 +2370,7 @@
     },
     {
       "id": "control-evolve-budget-enforced",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "An evolution run stops before exceeding its paired-trial budget.",
       "find": "        if run.trials_consumed.saturating_add(TRIALS_PER_GENERATION) > run.max_paired_trials {",
       "replace": "        if false {",
@@ -2378,7 +2378,7 @@
     },
     {
       "id": "control-evolve-generation-ceiling",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "An evolution run stops at its generation ceiling.",
       "find": "        if generation_index >= run.max_generations {",
       "replace": "        if false {",
@@ -2634,7 +2634,7 @@
     },
     {
       "id": "evolve-strategy-cost-weighted-ordering-skipped",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "A strategy-bound evolve generation with CostWeighted mutation_prioritization orders candidate failure clusters by descending total_count instead of leaving them in Fifo signature order.",
       "find": "        if strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }",
       "replace": "        if false && strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }",
@@ -2642,7 +2642,7 @@
     },
     {
       "id": "expired-worker-credential-accepted-for-arena-trial-lease",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/worker_remote.rs",
       "invariant": "A worker credential past its expires_at_millis is rejected before any job (a direct-run job or a remote-leased Arena reference-role trial) is leased or its result recorded.",
       "find": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }",
       "replace": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if false && now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }",
@@ -2650,7 +2650,7 @@
     },
     {
       "id": "remote-arena-trial-result-recorded-without-credential-verification",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/worker_remote.rs",
       "invariant": "A remote worker's SubmitResult (for a direct-run job or a leased Arena reference-role trial) is recorded only after its credential re-verifies; an invalid, expired, or revoked credential must be refused before any output is signed and appended.",
       "find": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                    return WorkerReply::Error {\n                        reason: reason.to_owned(),\n                    };\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {",
       "replace": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if false {\n                    if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                        return WorkerReply::Error {\n                            reason: reason.to_owned(),\n                        };\n                    }\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {",
@@ -2658,7 +2658,7 @@
     },
     {
       "id": "drift-adaptation-starts-without-law-opt-in",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "The automatic drift-to-canary adaptation loop only picks up a drift whose World opted in via laws.auto_canary_on_drift; without the Law it must never start.",
       "find": "            if world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }",
       "replace": "            if false && world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }",
@@ -2666,7 +2666,7 @@
     },
     {
       "id": "drift-adaptation-canary-abort-not-recorded-as-abort",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/handlers_evolve_meta.rs",
       "invariant": "An automatic adaptation whose staged canary aborts on a genuine regression must finish with reason CanaryAborted, not silently report Promoted.",
       "find": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::CanaryAborted,\n                    Some(&canary_id),\n                );\n            }",
       "replace": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::Promoted,\n                    Some(&canary_id),\n                );\n            }",
