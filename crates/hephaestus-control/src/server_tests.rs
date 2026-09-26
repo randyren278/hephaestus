@@ -12726,6 +12726,7 @@ fn drift_history_with_payload_edit(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
+    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("canary fixture");
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
@@ -13142,7 +13143,7 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion() {
-    let _reference_delay_slot = hold_reference_delay_slot();
+    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("canary live-check fixture");
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
@@ -13308,6 +13309,7 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_injected_regression_during_staged_advance_automatically_aborts_and_replays() {
+    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("canary regression fixture");
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
@@ -13482,7 +13484,7 @@ fn assert_drift_error(result: Result<DriftRecord, ApiError>, message: &str) {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn drift_record_derives_from_verified_evidence_and_replays() {
-    let _reference_delay_slot = hold_reference_delay_slot();
+    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("drift fixture");
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
@@ -17767,4 +17769,17 @@ impl Drop for ReferenceDelaySlot {
         hephaestus_runtime::clear_test_reference_delay();
         hephaestus_runtime::set_test_reference_baseline_delay(0);
     }
+}
+
+/// Baseline delay for tests whose canary or drift checks go through the 20%
+/// latency gate: few-millisecond reference trials let scheduling noise (CI
+/// coverage instrumentation, parallel tests) cross that gate on its own.
+const LATENCY_GATED_BASELINE_DELAY_MILLIS: u64 = 100;
+
+/// Holds the reference delay slot and gives every reference trial a fixed
+/// baseline latency for the life of the test.
+fn hold_latency_gated_reference_slot() -> ReferenceDelaySlot {
+    let slot = hold_reference_delay_slot();
+    hephaestus_runtime::set_test_reference_baseline_delay(LATENCY_GATED_BASELINE_DELAY_MILLIS);
+    slot
 }
