@@ -625,11 +625,40 @@ struct AsyncArenaTrialLaunch {
 }
 
 struct AsyncReferenceLaunch {
-    data_dir: PathBuf,
+    sandboxes: SandboxManagerSource,
     guardian: PathBuf,
     protected_paths: Vec<PathBuf>,
     worker: Arc<PinnedReferenceWorker>,
     cancel: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Where a trial gets its `SandboxManager` from: opened fresh (the original,
+/// still-used behavior for the one-off single-run path), or an already-open
+/// manager shared across every trial of one paired Arena evaluation.
+/// `SandboxManager::open` re-validates the sandbox root's device/inode
+/// identity and re-applies its permissions on every call; a paired
+/// evaluation's handful of trials share the same root for the life of one
+/// job, so opening it once instead of once per trial drops that repeated,
+/// always-identical setup work from the critical path. `SandboxManager` has
+/// no interior mutability, so sharing one across trials changes nothing
+/// about isolation: every trial still calls `create()` itself and gets its
+/// own fresh, independently validated `git worktree add --detach`.
+enum SandboxManagerSource {
+    OpenFresh(PathBuf),
+    Shared(Arc<SandboxManager>),
+}
+
+impl SandboxManagerSource {
+    fn resolve(self) -> Result<Arc<SandboxManager>, String> {
+        match self {
+            Self::OpenFresh(data_dir) => {
+                SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30))
+                    .map(Arc::new)
+                    .map_err(|_| "sandbox could not be opened".to_owned())
+            }
+            Self::Shared(manager) => Ok(manager),
+        }
+    }
 }
 
 struct PinnedReferenceWorker {
@@ -4472,7 +4501,7 @@ impl ControlPlane {
             Box::new(move || {
                 let output = execute_async_provider(
                     AsyncProviderLaunch {
-                        data_dir,
+                        sandboxes: SandboxManagerSource::OpenFresh(data_dir),
                         guardian,
                         protected_paths: protected,
                         provider,
@@ -4500,7 +4529,7 @@ impl ControlPlane {
             Box::new(move || {
                 let output = execute_async_reference(
                     AsyncReferenceLaunch {
-                        data_dir,
+                        sandboxes: SandboxManagerSource::OpenFresh(data_dir),
                         guardian,
                         protected_paths: protected,
                         worker: worker_copy,
@@ -9151,7 +9180,7 @@ fn execute_async_reference(
     initial_sequence: u64,
 ) -> Result<ReferenceExecution, String> {
     let AsyncReferenceLaunch {
-        data_dir,
+        sandboxes,
         guardian,
         protected_paths,
         worker,
@@ -9160,8 +9189,7 @@ fn execute_async_reference(
     worker
         .verify()
         .map_err(|_| "reference worker identity check failed".to_owned())?;
-    let manager = SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30))
-        .map_err(|_| "sandbox could not be opened".to_owned())?;
+    let manager = sandboxes.resolve()?;
     let (sandbox, token) = manager
         .create(spec)
         .map_err(|_| "sandbox could not be created".to_owned())?;
@@ -9231,7 +9259,7 @@ fn execute_async_reference(
 }
 
 struct AsyncProviderLaunch {
-    data_dir: PathBuf,
+    sandboxes: SandboxManagerSource,
     guardian: PathBuf,
     protected_paths: Vec<PathBuf>,
     provider: Provider,
@@ -9253,7 +9281,7 @@ fn execute_async_provider(
     initial_sequence: u64,
 ) -> Result<ReferenceExecution, String> {
     let AsyncProviderLaunch {
-        data_dir,
+        sandboxes,
         guardian,
         protected_paths,
         provider,
@@ -9262,8 +9290,7 @@ fn execute_async_provider(
         redaction,
         cancel,
     } = launch;
-    let manager = SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30))
-        .map_err(|_| "sandbox could not be opened".to_owned())?;
+    let manager = sandboxes.resolve()?;
     let (sandbox, token) = manager
         .create(spec)
         .map_err(|_| "sandbox could not be created".to_owned())?;
@@ -9330,6 +9357,30 @@ fn execute_async_provider(
     result
 }
 
+/// Opens one `SandboxManager` to share across every local trial of a paired
+/// Arena evaluation, unless the job runs on a remote lease (which never
+/// touches a local sandbox). `SandboxManager::open` re-validates the sandbox
+/// root's device/inode identity and re-applies its permissions on every
+/// call; a paired evaluation's handful of trials share the same root for the
+/// life of one job, so opening it once instead of once per trial drops that
+/// repeated, always-identical setup work from the critical path. `create()`
+/// -- which still runs once per trial, exactly as before -- keeps its own
+/// per-trial `validate_root` check, so every trial still gets its own
+/// independently validated, freshly created sandbox. If this open fails
+/// (never observed in practice: the sandbox root lives under the daemon's
+/// own data directory), each trial falls back to opening its own manager
+/// exactly as it did previously, so that unreachable path's behavior is
+/// unchanged.
+fn open_shared_sandboxes(
+    needs_local_sandbox: bool,
+    data_dir: &Path,
+) -> Option<Arc<SandboxManager>> {
+    needs_local_sandbox
+        .then(|| SandboxManager::open(data_dir.join("sandboxes"), Duration::from_secs(30)).ok())
+        .flatten()
+        .map(Arc::new)
+}
+
 fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
     let AsyncArenaTrialLaunch {
         data_dir,
@@ -9350,11 +9401,16 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
         overall_deadline,
     } = launch;
     let mut outcome = Ok(());
+    let shared_sandboxes = open_shared_sandboxes(remote_lease.is_none(), &data_dir);
     for (index, trial) in trials.iter().enumerate() {
         if cancel.load(Ordering::Acquire) {
             outcome = Err("paired evaluation was cancelled".to_owned());
             break;
         }
+        let sandboxes = shared_sandboxes.clone().map_or_else(
+            || SandboxManagerSource::OpenFresh(data_dir.clone()),
+            SandboxManagerSource::Shared,
+        );
         let output = if let Some(provider) = trial.provider {
             let executable = match provider {
                 Provider::Codex => codex_executable.clone(),
@@ -9366,7 +9422,7 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
             };
             execute_async_provider(
                 AsyncProviderLaunch {
-                    data_dir: data_dir.clone(),
+                    sandboxes,
                     guardian: guardian.clone(),
                     protected_paths: protected_paths.clone(),
                     provider,
@@ -9384,7 +9440,7 @@ fn execute_async_arena_trials(launch: AsyncArenaTrialLaunch) {
         } else if let Some(worker) = worker.as_ref() {
             execute_async_reference(
                 AsyncReferenceLaunch {
-                    data_dir: data_dir.clone(),
+                    sandboxes,
                     guardian: guardian.clone(),
                     protected_paths: protected_paths.clone(),
                     worker: Arc::clone(worker),
