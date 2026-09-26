@@ -40,7 +40,7 @@ use hephaestus_core::domain::MutationTarget;
 use hephaestus_experience::{
     EvidenceRecorder, EvidenceRequest, RUN_RESULT_SCHEMA_VERSION, RecordedRuntime, RedactionPolicy,
     RetentionLimits, RunBudgetReceipt, RunResultReceipt, RunResultSigner, RunResultVerifier,
-    TraceKind, TraceReceipt,
+    TraceKind, TraceReceipt, count_records_per_run,
 };
 use hephaestus_genome::{
     CompiledGenome, CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat,
@@ -445,6 +445,13 @@ pub struct ControlPlane {
     /// the remote opt-in (TD-12). Fresh and empty for every process; see
     /// [`RemoteArenaLeaseQueue`].
     remote_arena_lease: Arc<RemoteArenaLeaseQueue>,
+    /// Per-run trace/experience record counts, threaded through the durable writer
+    /// loop's per-event [`EvidenceRecorder`] reconstructions via
+    /// [`EvidenceRecorder::from_stores_with_run_counts`]/`into_stores_with_run_counts`
+    /// so retention enforcement stays O(1) per event instead of replaying the whole
+    /// ledger to recount every time (see `TECH_DEBT.md` TD-20). Seeded once from the
+    /// startup replay; kept current by every evidence request the writer loop persists.
+    evidence_run_record_counts: BTreeMap<String, usize>,
 }
 
 /// Canonical durable storage behind [`EventLedger`]/[`ArtifactBackend`] trait
@@ -1021,6 +1028,7 @@ impl ControlPlane {
         let operator_token = OperatorToken::from_bytes(token_bytes);
         let history = ledger.replay_verified()?;
         reject_legacy_run_result_history(&history)?;
+        let evidence_run_record_counts = count_records_per_run(&history);
         let registered =
             RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;
         verify_selection_history(&artifacts, &history, &registered)?;
@@ -1105,6 +1113,7 @@ impl ControlPlane {
             arena_message_sender: None,
             remote_leases: HashMap::new(),
             remote_arena_lease: RemoteArenaLeaseQueue::new(),
+            evidence_run_record_counts,
         })
     }
 
@@ -4756,6 +4765,32 @@ impl ControlPlane {
         Ok(())
     }
 
+    /// Builds a per-event [`EvidenceRecorder`] around `storage`, threading through the
+    /// per-run record-count cache (see [`Self::evidence_run_record_counts`]'s doc
+    /// comment) instead of reseeding it with a full ledger replay every event.
+    fn evidence_recorder_for(
+        &mut self,
+        storage: CanonicalStorage,
+    ) -> Result<EvidenceRecorder, ControlError> {
+        Ok(EvidenceRecorder::from_stores_with_run_counts(
+            storage.ledger,
+            storage.artifacts,
+            RedactionPolicy::new([self.token_hex.clone()]),
+            RetentionLimits::new(10_000, 65_536)
+                .map_err(|_| ControlError::Protocol("trace limits are invalid"))?,
+            std::mem::take(&mut self.evidence_run_record_counts),
+        ))
+    }
+
+    /// Returns `recorder`'s stores and updated per-run counts to `self` after a
+    /// persisted (or rejected) evidence request, the counterpart to
+    /// [`Self::evidence_recorder_for`].
+    fn restore_after_evidence_recorder(&mut self, recorder: EvidenceRecorder) {
+        let (ledger, artifacts, run_record_counts) = recorder.into_stores_with_run_counts();
+        self.storage = Some(CanonicalStorage { ledger, artifacts });
+        self.evidence_run_record_counts = run_record_counts;
+    }
+
     fn service_async_messages(&mut self) -> Result<(), ControlError> {
         self.enforce_arena_deadline()?;
         for _ in 0..8 {
@@ -4802,16 +4837,9 @@ impl ControlPlane {
                 }
                 continue;
             };
-            let mut recorder = EvidenceRecorder::from_stores(
-                storage.ledger,
-                storage.artifacts,
-                RedactionPolicy::new([self.token_hex.clone()]),
-                RetentionLimits::new(10_000, 65_536)
-                    .map_err(|_| ControlError::Protocol("trace limits are invalid"))?,
-            );
+            let mut recorder = self.evidence_recorder_for(storage)?;
             let result = request.persist(&mut recorder);
-            let (ledger, artifacts) = recorder.into_stores();
-            self.storage = Some(CanonicalStorage { ledger, artifacts });
+            self.restore_after_evidence_recorder(recorder);
             if result.is_err() {
                 if let Some(active) = &self.active_job {
                     active.cancel.store(true, Ordering::Release);
@@ -7057,6 +7085,27 @@ impl ControlPlane {
     /// hash-chain-verified `history`, the first time it is seen or whenever
     /// its recorded content changes. Startup (`Self::open*`) and explicit
     /// `replay` use a fresh, empty cache and verify everything.
+    ///
+    /// Rebuilding `ControlState`/`RegisteredObjects` incrementally from only the
+    /// new tail of `history` (instead of `from_events`'s full rebuild) was tried
+    /// and reverted: several call sites elsewhere in this file append one event
+    /// and apply it to `self.state` directly (`append_run_result`,
+    /// `append_job_record`, `append_arena_job_record`, `append_audit`,
+    /// `worker_credential_mint`, remote-job admission) without going through a
+    /// refresh first, including after the synchronous run path holds `storage`
+    /// (and so cannot refresh) through an entire run's worth of recorder-written
+    /// trace events. That advances `self.state.event_count` past those trace
+    /// events without ever applying them, so a later refresh keyed off
+    /// `event_count` treats them as already covered and never applies them
+    /// (`completed_runs` observably never gains the run - see the reverted
+    /// commit's failing `synchronous_*_run_*_persists_signed_provenance_and_replays`
+    /// tests). Naively replaying the "new" tail again isn't safe either: several
+    /// of those same event types are rejected as duplicates or invalid
+    /// transitions on a second `apply` (e.g. `remote_worker.job_admitted`'s
+    /// duplicate-job-id check), so double-applying an already-directly-applied
+    /// event errors instead of being a no-op. A safe incremental rebuild needs a
+    /// cursor that is provably contiguous despite those shortcuts (or removing
+    /// the shortcuts), which is a bigger, separate change (TD-20).
     fn refresh_projection(&mut self) -> Result<(), ExecuteError> {
         let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
         let history = storage

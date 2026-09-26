@@ -612,8 +612,8 @@
       "id": "terminal-evidence-slot-not-reserved",
       "file": "crates/hephaestus-experience/src/recorder.rs",
       "invariant": "Non-terminal observations cannot consume the slot reserved for terminal lifecycle evidence.",
-      "find": "            reserved_after.saturating_add(1),",
-      "replace": "            1,"
+      "find": "self.enforce_available(count, reserved_after.saturating_add(1))?;",
+      "replace": "self.enforce_available(count, 1)?;"
     },
     {
       "id": "oversized-experience-artifact-accepted",

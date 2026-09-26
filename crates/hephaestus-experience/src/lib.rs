@@ -15,7 +15,7 @@ pub use record::{
     ExperienceInput, ExperienceKind, ExperienceReceipt, Provenance, TraceInput, TraceKind,
     TraceReceipt, TrustedExperience,
 };
-pub use recorder::{EvidenceRecorder, RetentionLimits};
+pub use recorder::{EvidenceRecorder, RetentionLimits, count_records_per_run};
 pub use redaction::RedactionPolicy;
 pub use rehydrate::rehydrate_experience;
 pub use run_result::{

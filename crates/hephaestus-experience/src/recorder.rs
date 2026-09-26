@@ -49,6 +49,13 @@ pub struct EvidenceRecorder {
     artifacts: Box<dyn ArtifactBackend + Send + Sync>,
     redaction: RedactionPolicy,
     limits: RetentionLimits,
+    /// Per-run count of already-recorded trace/experience records, seeded by one
+    /// full replay at construction and kept current by every successful append
+    /// this (sole-writer) recorder makes. `ensure_capacity`/`record_trace_reserving`
+    /// read this instead of replaying the whole ledger per call (see `TECH_DEBT.md`
+    /// TD-20): since this recorder is the only writer for its ledger handle's
+    /// lifetime, an append it makes is the only thing that can change a run's count.
+    run_record_counts: BTreeMap<String, usize>,
 }
 
 impl EvidenceRecorder {
@@ -63,15 +70,24 @@ impl EvidenceRecorder {
         redaction: RedactionPolicy,
         limits: RetentionLimits,
     ) -> Result<Self, ExperienceError> {
+        let events: Box<dyn EventLedger + Send> = Box::new(EventStore::open(database)?);
+        let run_record_counts = count_records_per_run(&events.replay_verified()?);
         Ok(Self {
-            events: Box::new(EventStore::open(database)?),
+            events,
             artifacts: Box::new(ArtifactStore::open(artifact_root)?),
             redaction,
             limits,
+            run_record_counts,
         })
     }
 
     /// Takes ownership of already-open canonical stores of any backend pair.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `events` fails hash-chain verification; callers already hold an
+    /// opened ledger handle, so a failure here means the handle was constructed
+    /// from an already-corrupt or torn store, which is a caller bug.
     #[must_use]
     pub fn from_stores(
         events: Box<dyn EventLedger + Send>,
@@ -79,11 +95,43 @@ impl EvidenceRecorder {
         redaction: RedactionPolicy,
         limits: RetentionLimits,
     ) -> Self {
+        let run_record_counts = count_records_per_run(
+            &events
+                .replay_verified()
+                .expect("caller-supplied ledger handle must already be verified"),
+        );
         Self {
             events,
             artifacts,
             redaction,
             limits,
+            run_record_counts,
+        }
+    }
+
+    /// Takes ownership of already-open canonical stores along with an already-computed
+    /// per-run record count (from [`count_records_per_run`] over a verified history the
+    /// caller already replayed), skipping the seeding replay [`Self::from_stores`] does.
+    ///
+    /// A caller that reconstructs a recorder around the same long-lived ledger handle
+    /// once per trace event (the durable writer loop) would otherwise pay a full ledger
+    /// replay per event just to reseed a count every construction already has cached
+    /// (see `TECH_DEBT.md` TD-20); this constructor lets it thread that cache through
+    /// instead, alongside [`Self::into_stores_with_run_counts`].
+    #[must_use]
+    pub fn from_stores_with_run_counts(
+        events: Box<dyn EventLedger + Send>,
+        artifacts: Box<dyn ArtifactBackend + Send + Sync>,
+        redaction: RedactionPolicy,
+        limits: RetentionLimits,
+        run_record_counts: BTreeMap<String, usize>,
+    ) -> Self {
+        Self {
+            events,
+            artifacts,
+            redaction,
+            limits,
+            run_record_counts,
         }
     }
 
@@ -96,6 +144,21 @@ impl EvidenceRecorder {
         Box<dyn ArtifactBackend + Send + Sync>,
     ) {
         (self.events, self.artifacts)
+    }
+
+    /// Returns the canonical stores along with this recorder's current per-run record
+    /// counts, for a caller that reconstructs a recorder per event via
+    /// [`Self::from_stores_with_run_counts`] and needs to carry the updated counts
+    /// forward to the next construction.
+    #[must_use]
+    pub fn into_stores_with_run_counts(
+        self,
+    ) -> (
+        Box<dyn EventLedger + Send>,
+        Box<dyn ArtifactBackend + Send + Sync>,
+        BTreeMap<String, usize>,
+    ) {
+        (self.events, self.artifacts, self.run_record_counts)
     }
 
     /// Redacts, bounds, content-addresses, and canonically appends one runtime trace.
@@ -112,12 +175,13 @@ impl EvidenceRecorder {
         input: TraceInput,
         reserved_after: usize,
     ) -> Result<TraceReceipt, ExperienceError> {
-        let history = self.events.replay_verified()?;
-        self.enforce_available(
-            &history,
-            input.provenance.run_id(),
-            reserved_after.saturating_add(1),
-        )?;
+        let run_id = input.provenance.run_id().to_owned();
+        let count = self
+            .run_record_counts
+            .get(run_id.as_str())
+            .copied()
+            .unwrap_or(0);
+        self.enforce_available(count, reserved_after.saturating_add(1))?;
         let aggregate = format!("run:{}", input.provenance.run_id());
         let redacted = self.redaction.redact(&input.fields);
         let artifact = TraceArtifact {
@@ -145,6 +209,7 @@ impl EvidenceRecorder {
             input.timestamp_millis,
             &receipt,
         )?;
+        *self.run_record_counts.entry(run_id).or_insert(0) += 1;
         Ok(receipt)
     }
 
@@ -153,8 +218,8 @@ impl EvidenceRecorder {
         run_id: &str,
         required_records: usize,
     ) -> Result<(), ExperienceError> {
-        let history = self.events.replay_verified()?;
-        self.enforce_available(&history, run_id, required_records)
+        let count = self.run_record_counts.get(run_id).copied().unwrap_or(0);
+        self.enforce_available(count, required_records)
     }
 
     /// Records an unverified structured lesson linked to canonical source events.
@@ -168,7 +233,12 @@ impl EvidenceRecorder {
         input: ExperienceInput,
     ) -> Result<ExperienceReceipt, ExperienceError> {
         let history = self.events.replay_verified()?;
-        self.enforce_available(&history, input.provenance.run_id(), 1)?;
+        let run_id = input.provenance.run_id().to_owned();
+        let count = count_records_per_run(&history)
+            .get(run_id.as_str())
+            .copied()
+            .unwrap_or(0);
+        self.enforce_available(count, 1)?;
         let known_events: BTreeMap<_, _> = history
             .iter()
             .map(|event| (&event.event_id, event))
@@ -221,6 +291,7 @@ impl EvidenceRecorder {
             input.timestamp_millis,
             &receipt,
         )?;
+        *self.run_record_counts.entry(run_id).or_insert(0) += 1;
         Ok(receipt)
     }
 
@@ -255,15 +326,9 @@ impl EvidenceRecorder {
 
     fn enforce_available(
         &self,
-        history: &[StoredEvent],
-        run_id: &str,
+        count: usize,
         required_records: usize,
     ) -> Result<(), ExperienceError> {
-        let count = history
-            .iter()
-            .filter_map(|event| source_provenance(event).ok())
-            .filter(|provenance| provenance.run_id() == run_id)
-            .count();
         if required_records == 0
             || count
                 .checked_add(required_records)
@@ -295,6 +360,23 @@ impl EvidenceRecorder {
         ))?;
         Ok(())
     }
+}
+
+/// Counts, per `run_id`, how many `trace.recorded`/`experience.recorded` events
+/// already-verified `history` contains.
+///
+/// Used to seed [`EvidenceRecorder::from_stores_with_run_counts`]'s incremental
+/// retention-limit cache from one full replay, instead of every trace record
+/// repeating this scan over the whole ledger (see `TECH_DEBT.md` TD-20).
+#[must_use]
+pub fn count_records_per_run(history: &[StoredEvent]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for event in history {
+        if let Ok(provenance) = source_provenance(event) {
+            *counts.entry(provenance.run_id().to_owned()).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 fn source_provenance(event: &StoredEvent) -> Result<Provenance, ExperienceError> {
