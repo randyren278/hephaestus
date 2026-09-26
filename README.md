@@ -376,7 +376,7 @@ scopes it to one crate while iterating.
 - [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md)
 - [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md)
 - [Evolution runs](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md)
-- [Roadmap](ROADMAP.md) · [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
+- [Feature audit](AUDIT.md) · [Master plan](HEPHAESTUS_MASTER_PLAN.md)
 
 ## License
 

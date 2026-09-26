@@ -4,3 +4,6 @@ __pycache__/
 *.profraw
 *lcov.info
 /.quickstart/
+
+# Internal planning document; kept out of the published tree.
+/ROADMAP.md

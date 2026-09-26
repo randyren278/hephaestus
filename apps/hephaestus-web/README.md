@@ -127,5 +127,5 @@ proxied and a disallowed one never reaches the socket.
 
 No mutating action from the browser (seed/promote/rollback a Champion,
 register a Genome or World, submit or kill a job); no drift/canary state
-(not part of this lane's base); no full evidence/experiment views. See
-[ROADMAP.md](../../ROADMAP.md).
+(not part of this lane's base); no full evidence/experiment views. See [AUDIT.md](../../AUDIT.md) for the
+current slice status.
