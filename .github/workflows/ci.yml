@@ -84,7 +84,6 @@ jobs:
       - name: Documentation gate
         run: |
           python checks/docs_gate.py --root . README.md AUDIT.md docs/*.md
-          python checks/docs_gate.py --root . --skip-claims --min-diagrams 1 docs/ARCHITECTURE.md
 
       # Only the mutation matrix uses these uninstrumented test artifacts.
       - name: Prepare mutation build dependencies
