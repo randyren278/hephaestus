@@ -1210,15 +1210,29 @@ mod tests {
             snapshot.completion_reason,
             Some(CompletionReason::OperatorInterrupt)
         );
-        assert!(
-            !Command::new("/bin/kill")
-                .args(["-0", &child_pid])
-                .output()
-                .expect("probe child")
-                .status
-                .success()
-        );
+        assert!(!process_is_alive(&child_pid));
         sandbox.cleanup().expect("clean sandbox");
+    }
+
+    /// Whether `pid` still names a live process. `kill -0` alone reports
+    /// success for a zombie (an exited orphan PID 1 has not reaped yet); a
+    /// zombie has already terminated, so it does not count as alive.
+    fn process_is_alive(pid: &str) -> bool {
+        let signalable = Command::new("/bin/kill")
+            .args(["-0", pid])
+            .output()
+            .expect("probe child")
+            .status
+            .success();
+        if !signalable {
+            return false;
+        }
+        let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return true;
+        };
+        stat.rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+            != Some("Z")
     }
 
     #[test]
