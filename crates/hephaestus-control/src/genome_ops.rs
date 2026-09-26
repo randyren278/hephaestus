@@ -3,10 +3,10 @@
 
 use super::{
     ArtifactBackend, ArtifactId, BTreeMap, ControlPlane, ControlState, EventIndex, EventInput,
-    EventLedger, ExecuteError, ForgeHypothesisSource, ForgeProposalPayload, GenomeRecord,
-    MAX_ARTIFACT_FILE_BYTES, MAX_SOURCE_FILE_BYTES, MUTATION_CATALOG_VERSION, OPERATOR_ACTOR, Path,
-    RegisteredObjects, ResponseData, TrustedManifest, WorldRecord, compile_forge_child,
-    compile_genome, compile_markdown_genome, compile_world, existing_forge_assessment_response,
+    EventLedger, ExecuteError, ForgeProposalPayload, GenomeRecord, MAX_ARTIFACT_FILE_BYTES,
+    MAX_SOURCE_FILE_BYTES, MUTATION_CATALOG_VERSION, OPERATOR_ACTOR, Path, RegisteredObjects,
+    ResponseData, TrustedManifest, WorldRecord, compile_forge_child, compile_genome,
+    compile_markdown_genome, compile_world, existing_forge_assessment_response,
     existing_forge_response, forge_aggregate_id, forge_assessment_event_id,
     forge_assessment_payload, forge_assessment_record, forge_event_id, forge_prompt_mutation,
     forge_proposal_record, hex_encode, mutation_edge_kind, read_bounded_file, read_source_text,
@@ -18,6 +18,8 @@ use super::{
     verify_forge_history_with, verify_gene_bank_history_with, verify_invariant_history_with,
     verify_meta_evolution_history, verify_selection_history_with,
 };
+
+use super::verification::ForgeHypothesisSource;
 
 impl ControlPlane {
     pub(super) fn register_world(&mut self, path: &str) -> Result<ResponseData, ExecuteError> {

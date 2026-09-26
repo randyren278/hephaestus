@@ -10,6 +10,7 @@ use hephaestus_genome::{SourceFormat, compile_world};
 use hephaestus_ledger::{EventInput, EventStore};
 use tempfile::{TempDir, tempdir};
 
+use super::verification::{reference_instruction_document, verify_forge_prompt};
 use super::*;
 use crate::{
     ApiError, CanaryRecord, CanaryStage, CanaryTransitionKind, CanaryTransitionPayload,

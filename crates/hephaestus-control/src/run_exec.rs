@@ -15,14 +15,13 @@ use super::{
     RunSpec, SandboxCleanupGuard, SandboxManager, SupervisedRuntime, TempDirBuilder, TrialPlan,
     TrustedManifest, Visibility, WorkerLimits, candidate_isolation, check_failure_clusters,
     check_reference_output_invariants, env, executable_digest, execute_async_arena_trials,
-    execute_candidate_runtime, execute_provider_runtime, execute_reference_runtime,
-    forge_analysis_record, fs, genome_reference_instruction, invariant_record,
-    load_failure_clusters, load_operator_evaluation, load_reference_output_invariants,
-    map_cluster_error, map_invariant_error, map_selection_error, mpsc, paired_run_id,
-    paired_run_prefix, persist_reference_output, provider_execution_environment,
-    reference_environment_id, resolve_provider_extra_env, resolve_source_revision,
-    select_and_record, selection_record, timestamp_millis, validate_job_id,
-    validated_evaluation_budget,
+    execute_candidate_runtime, execute_provider_runtime, execute_reference_runtime, fs,
+    genome_reference_instruction, invariant_record, load_failure_clusters,
+    load_operator_evaluation, load_reference_output_invariants, map_cluster_error,
+    map_invariant_error, map_selection_error, mpsc, paired_run_id, paired_run_prefix,
+    persist_reference_output, provider_execution_environment, reference_environment_id,
+    resolve_provider_extra_env, resolve_source_revision, select_and_record, selection_record,
+    timestamp_millis, validate_job_id, validated_evaluation_budget,
 };
 
 #[cfg(not(test))]
@@ -33,6 +32,8 @@ use super::{IsolationPolicy, TEST_ARENA_OVERALL_WALL_ENV, test_overall_wall};
 
 #[cfg(test)]
 use super::spawn_named_thread;
+
+use super::verification::forge_analysis_record;
 
 impl ControlPlane {
     pub(super) fn run_reference(

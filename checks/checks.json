@@ -2091,7 +2091,7 @@
     },
     {
       "id": "forge-proposal-parent-not-bound-to-selected-candidate",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "A Forge child proposal can use only the candidate authenticated by its exact selection receipt.",
       "find": "        || receipt.candidate_genome_id() != parent_genome_id",
       "replace": "            || false",
@@ -2099,7 +2099,7 @@
     },
     {
       "id": "forge-parent-prompt-mutation-preserves-only-operation-token",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Forge changes only the operation token in the supported compact instruction document while preserving framing.",
       "find": "    if normalized != canonical && normalized != format!(\"{canonical}\\n\") {\n        return Err(());",
       "replace": "    if false {\n        return Err(());",
@@ -2115,7 +2115,7 @@
     },
     {
       "id": "forge-replay-selection-event-hash-not-verified",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Forge replay binds every proposal to the exact canonical selection event hash.",
       "find": "        if payload.selection_event_hash != expected_hash\n",
       "replace": "        if false && payload.selection_event_hash != expected_hash\n",
@@ -2123,7 +2123,7 @@
     },
     {
       "id": "forge-assessment-replay-payload-comparison-weakened",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Assessment replay compares every recorded field with the recomputed proposal and verified selection evidence.",
       "find": "        if selection_event.sequence >= event.sequence || payload != expected {",
       "replace": "        if selection_event.sequence >= event.sequence || payload.assessment_id != expected.assessment_id {",
@@ -2131,7 +2131,7 @@
     },
     {
       "id": "forge-assessment-directed-child-check-skipped",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "An assessment selection must identify the exact proposed child Genome.",
       "find": "        || receipt.candidate_genome_id() != proposal.child.genome_id",
       "replace": "        || false",
@@ -2139,7 +2139,7 @@
     },
     {
       "id": "forge-assessment-conflicting-retry-condition-weakened",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "An assessment id cannot be reused with a different proposal or selection event.",
       "find": "                || existing.selection_event_id != selection_event_id",
       "replace": "                && existing.selection_event_id != selection_event_id",
@@ -2147,7 +2147,7 @@
     },
     {
       "id": "forge-assessment-outcome-eligibility-inverted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Assessment outcome is derived from verified receipt metrics eligibility.",
       "find": "        outcome: if receipt.metrics_eligible() {",
       "replace": "        outcome: if !receipt.metrics_eligible() {",
@@ -2155,7 +2155,7 @@
     },
     {
       "id": "forge-assessment-promotion-authorized",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "A metrics-only Forge assessment never verifies invariant evidence or authorizes promotion.",
       "find": "        invariant_gate_verified: false,\n        promotion_eligible: false,",
       "replace": "        invariant_gate_verified: false,\n        promotion_eligible: true,",
@@ -2163,7 +2163,7 @@
     },
     {
       "id": "forge-assessment-evidence-order-bypassed",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "The proposal must precede its evaluated child selection in canonical event history.",
       "find": "    if proposal_event.sequence >= evaluation_event.sequence\n        || evaluation_event.sequence >= selection_sequence\n    {",
       "replace": "    if false {",
@@ -2330,7 +2330,7 @@
     },
     {
       "id": "control-evidence-list-limit-validated",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Evidence list requests outside 1..=200 are refused.",
       "find": "        && (*limit == 0 || *limit > MAX_LIST_LIMIT)",
       "replace": "        && *limit == 0",
@@ -2618,7 +2618,7 @@
     },
     {
       "id": "forge-harness-mutation-scope-skipped",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Forge refuses to propose an agent.prompt mutation unless the target World's mutation_scope authorizes MutationTarget::Harness.",
       "find": "    if !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }",
       "replace": "    if false && !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }",
@@ -2626,7 +2626,7 @@
     },
     {
       "id": "forge-catalog-edge-check-skipped-on-replay",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "Replay of a forge.proposed event rejects a recorded operation_before -> operation_after edge that is not a representable mutation-catalog edge.",
       "find": "    if mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }",
       "replace": "    if false && mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }",

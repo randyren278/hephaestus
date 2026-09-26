@@ -4,20 +4,22 @@
 use super::{
     CHAMPION_EVENT_TYPE, CONTRADICTION_EVENT_TYPE, CanaryRequest, CanaryStage,
     CanaryTransitionKind, ChampionRequest, Command, ControlPlane, DriftKind, EventInput,
-    EventLedger, ExecuteError, ForgeHypothesisSource, GENE_EVENT_TYPE, OPERATOR_ACTOR,
-    ResponseData, SPECIES_EVENT_TYPE, TRANSFER_APPLIED_EVENT_TYPE, TRANSFER_RECORDED_EVENT_TYPE,
-    canary, canary_transition_payload, champion_aggregate_id, champion_event_id,
-    champion_projection, champion_transition_payload, champion_transition_record,
-    contradiction_event_id, decode_transfer_applied, detect_contradiction, drift,
-    drift_event_input, drift_record_payload, existing_canary_transition,
-    existing_champion_transition, existing_contradiction, existing_drift_record, existing_gene,
-    existing_species, existing_transfer_applied, existing_transfer_recorded, gene_aggregate,
-    gene_aggregate_id, gene_event_id, gene_extraction_payload, gene_record, gene_summaries,
-    hex_encode, speciation_payload, species_aggregate_id, species_event_id, species_record,
-    timestamp_millis, transfer_aggregate_id, transfer_applied_event_id, transfer_applied_payload,
-    transfer_record, transfer_recorded_event_id, transfer_recorded_payload, validate_job_id,
-    verify_canary_history, verify_champion_history, verify_drift_history,
+    EventLedger, ExecuteError, GENE_EVENT_TYPE, OPERATOR_ACTOR, ResponseData, SPECIES_EVENT_TYPE,
+    TRANSFER_APPLIED_EVENT_TYPE, TRANSFER_RECORDED_EVENT_TYPE, canary, canary_transition_payload,
+    champion_aggregate_id, champion_event_id, champion_projection, champion_transition_payload,
+    champion_transition_record, contradiction_event_id, decode_transfer_applied,
+    detect_contradiction, drift, drift_event_input, drift_record_payload,
+    existing_canary_transition, existing_champion_transition, existing_contradiction,
+    existing_drift_record, existing_gene, existing_species, existing_transfer_applied,
+    existing_transfer_recorded, gene_aggregate, gene_aggregate_id, gene_event_id,
+    gene_extraction_payload, gene_record, gene_summaries, hex_encode, speciation_payload,
+    species_aggregate_id, species_event_id, species_record, timestamp_millis,
+    transfer_aggregate_id, transfer_applied_event_id, transfer_applied_payload, transfer_record,
+    transfer_recorded_event_id, transfer_recorded_payload, validate_job_id, verify_canary_history,
+    verify_champion_history, verify_drift_history,
 };
+
+use super::verification::ForgeHypothesisSource;
 
 impl ControlPlane {
     pub(super) fn propose_genome_command(
