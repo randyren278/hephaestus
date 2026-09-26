@@ -75,6 +75,8 @@ struct SharedRun {
     interrupt: AtomicBool,
     output_exceeded: AtomicBool,
     io_failed: AtomicBool,
+    /// The child closed its stdin (broken pipe) before the prompt was delivered.
+    stdin_closed_early: AtomicBool,
     guarded: bool,
     cancel: Mutex<Option<SyncSender<GuardianControl>>>,
 }
@@ -270,6 +272,7 @@ impl SupervisedRuntime {
             interrupt: AtomicBool::new(false),
             output_exceeded: AtomicBool::new(false),
             io_failed: AtomicBool::new(false),
+            stdin_closed_early: AtomicBool::new(false),
             guarded,
             cancel: Mutex::new(cancel_sender),
         });
@@ -571,7 +574,11 @@ fn spawn_stdin_writer(
     shared: Arc<SharedRun>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        if stdin.write_all(&bytes).is_err() {
+        if let Err(error) = stdin.write_all(&bytes) {
+            shared.stdin_closed_early.store(
+                error.kind() == std::io::ErrorKind::BrokenPipe,
+                Ordering::Release,
+            );
             shared.io_failed.store(true, Ordering::Release);
             return;
         }
@@ -672,6 +679,7 @@ fn execute_supervised_process_inner(
         interrupt: AtomicBool::new(false),
         output_exceeded: AtomicBool::new(false),
         io_failed: AtomicBool::new(false),
+        stdin_closed_early: AtomicBool::new(false),
         guarded,
         cancel: Mutex::new(None),
     });
@@ -802,7 +810,13 @@ fn spawn_monitor(
         let reason = outcome.1.or_else(|| {
             if shared.output_exceeded.load(Ordering::Acquire) {
                 Some(StopReason::OutputExceeded)
-            } else if shared.io_failed.load(Ordering::Acquire) {
+            } else if shared.io_failed.load(Ordering::Acquire)
+                && !(shared.stdin_closed_early.load(Ordering::Acquire)
+                    && outcome.0.is_some_and(|status| !status.success()))
+            {
+                // A child that exits nonzero before reading its prompt is a
+                // provider failure; one that exits successfully without
+                // reading it is still an I/O failure, never a success.
                 Some(StopReason::IoFailed)
             } else {
                 None
@@ -940,6 +954,48 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    struct ErrorKindWriter(io::ErrorKind);
+
+    impl Write for ErrorKindWriter {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from(self.0))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn stdin_writer_records_a_broken_pipe_separately_from_other_failures() {
+        let closed = shared_run();
+        spawn_stdin_writer(
+            ErrorKindWriter(io::ErrorKind::BrokenPipe),
+            b"prompt".to_vec(),
+            None,
+            Arc::clone(&closed),
+        )
+        .join()
+        .expect("join stdin writer");
+        assert!(closed.io_failed.load(Ordering::Acquire));
+        assert!(
+            closed.stdin_closed_early.load(Ordering::Acquire),
+            "a broken pipe is recorded so a nonzero exit can be judged by its status"
+        );
+
+        let failed = shared_run();
+        spawn_stdin_writer(
+            ErrorKindWriter(io::ErrorKind::PermissionDenied),
+            b"prompt".to_vec(),
+            None,
+            Arc::clone(&failed),
+        )
+        .join()
+        .expect("join stdin writer");
+        assert!(failed.io_failed.load(Ordering::Acquire));
+        assert!(!failed.stdin_closed_early.load(Ordering::Acquire));
     }
 
     #[test]
@@ -1420,6 +1476,7 @@ mod tests {
             interrupt: AtomicBool::new(false),
             output_exceeded: AtomicBool::new(false),
             io_failed: AtomicBool::new(false),
+            stdin_closed_early: AtomicBool::new(false),
             guarded: false,
             cancel: Mutex::new(None),
         })

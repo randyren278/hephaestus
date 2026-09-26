@@ -526,7 +526,7 @@
       "id": "supervisor-stdin-delivery-failure-ignored",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "A child that does not receive the complete prompt cannot be reported as successful.",
-      "find": "        if stdin.write_all(&bytes).is_err() {\n            shared.io_failed.store(true, Ordering::Release);\n            return;\n        }",
+      "find": "        if let Err(error) = stdin.write_all(&bytes) {\n            shared.stdin_closed_early.store(\n                error.kind() == std::io::ErrorKind::BrokenPipe,\n                Ordering::Release,\n            );\n            shared.io_failed.store(true, Ordering::Release);\n            return;\n        }",
       "replace": "        let _ignored = stdin.write_all(&bytes);"
     },
     {
