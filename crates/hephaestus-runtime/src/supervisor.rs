@@ -1268,6 +1268,63 @@ mod tests {
     }
 
     #[test]
+    fn launch_rejects_a_wall_deadline_that_overflows_the_clock() {
+        let repository = repository_fixture();
+        let root = tempdir().expect("sandbox root");
+        let manager = SandboxManager::open(root.path(), Duration::from_secs(30))
+            .expect("open sandbox manager");
+        let run_spec = spec(
+            "unit-wall-overflow",
+            repository.path(),
+            Duration::MAX,
+            1_000,
+        );
+        let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+        let marker = sandbox.execution_dir().join("process-started");
+        let mut runtime = test_runtime("/usr/bin/touch", [marker.to_string_lossy().into_owned()]);
+
+        assert!(matches!(
+            runtime.start(&run_spec, &sandbox, &token),
+            Err(RuntimeError::InvalidSpec("wall budget exceeds clock range"))
+        ));
+        assert!(
+            !marker.exists(),
+            "an unrepresentable deadline must be rejected before any child starts"
+        );
+        sandbox.cleanup().expect("clean sandbox");
+    }
+
+    #[test]
+    fn extra_env_reaches_the_child_process() {
+        let repository = repository_fixture();
+        let root = tempdir().expect("sandbox root");
+        let manager = SandboxManager::open(root.path(), Duration::from_secs(30))
+            .expect("open sandbox manager");
+        let run_spec = spec(
+            "unit-extra-env",
+            repository.path(),
+            Duration::from_secs(2),
+            10_000,
+        );
+        let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+        let mut runtime = test_runtime("/usr/bin/env", []);
+        runtime.extra_env = vec![("HEPHAESTUS_TEST_EXTRA_ENV".to_owned(), "present".to_owned())];
+        runtime
+            .start(&run_spec, &sandbox, &token)
+            .expect("start env");
+        let variables =
+            fs::read_to_string(wait_for_terminal(&mut runtime, run_spec.run_id()).stdout_path)
+                .expect("read environment");
+        assert!(
+            variables
+                .lines()
+                .any(|line| line == "HEPHAESTUS_TEST_EXTRA_ENV=present"),
+            "operator-named extra environment must reach the child: {variables:?}"
+        );
+        sandbox.cleanup().expect("clean sandbox");
+    }
+
+    #[test]
     fn a_child_that_exits_nonzero_without_reading_its_prompt_is_a_provider_failure() {
         let repository = repository_fixture();
         let root = tempdir().expect("sandbox root");
