@@ -58,6 +58,9 @@ jobs:
       - name: macOS package builder and installer contracts
         run: python -m unittest discover -s scripts/tests -p 'test_macos_package.py' -v
 
+      - name: Source install contracts (Senate-only and full modes)
+        run: python -m unittest discover -s scripts/tests -p 'test_source_install.py' -v
+
       - name: Tests with coverage
         # Two test threads: the control suite's Arena tests each spawn worker,
         # guardian, evaluator, and git processes, and four at once on this
