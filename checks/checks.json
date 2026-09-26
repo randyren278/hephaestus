@@ -57,7 +57,9 @@
     "crates/hephaestus-arena/src/clusters.rs",
     "crates/hephaestus-control/src/drift.rs",
     "crates/hephaestus-runtime/src/provider_events.rs",
-    "crates/hephaestus-control/src/gene_bank.rs"
+    "crates/hephaestus-control/src/gene_bank.rs",
+    "crates/hephaestus-control/src/canary.rs",
+    "crates/hephaestus-control/src/evolve.rs"
   ],
   "mutations": [
     {
