@@ -399,7 +399,7 @@
     },
     {
       "id": "reference-runtime-cost-falsified",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
       "invariant": "The reference-worker execution path always signs a zero-cost run result.",
       "find": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 0,",
       "replace": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 1,",
@@ -1384,7 +1384,7 @@
     },
     {
       "id": "control-candidate-process-not-supervised",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
       "invariant": "Paired candidate trials execute through the supervised offline process adapter.",
       "find": "    let runtime = SupervisedRuntime::deterministic_guarded(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n        &guardian,\n    )",
       "replace": "    let _guardian = guardian;\n    let runtime = SupervisedRuntime::deterministic(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n    )",
@@ -1673,7 +1673,7 @@
     },
     {
       "id": "source-format-unknown-extension-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
       "invariant": "Registration sources are parsed only from declared JSON or YAML extensions.",
       "find": "        _ => Err(ExecuteError::Invalid(\n            \"source path must end in .json, .yaml, or .yml\",\n        )),",
       "replace": "        _ => Ok(SourceFormat::Json),",
@@ -1689,7 +1689,7 @@
     },
     {
       "id": "relative-registration-path-accepted",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
       "invariant": "The daemon refuses to resolve registration paths relative to its own working directory.",
       "find": "    if !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }",
       "replace": "    if false && !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }",
@@ -2007,7 +2007,7 @@
     },
     {
       "id": "reference-worker-bypassed-for-arena-candidates",
-      "file": "crates/hephaestus-control/src/server.rs",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
       "invariant": "Paired Arena candidates execute through the configured bounded reference worker.",
       "find": "        &worker.executable,\n        [],\n        &guardian,",
       "replace": "        \"/bin/cat\",\n        [],\n        &guardian,",
