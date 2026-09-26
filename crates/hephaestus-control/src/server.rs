@@ -10476,22 +10476,13 @@ impl ControlState {
                 "job event crossed its runtime boundary".to_owned(),
             ));
         }
-        if event.event_type == "job.terminal" {
-            let receipt = self.run_results.get(&record.run_id);
-            let matches = receipt.is_some_and(|receipt| receipt_matches_job(receipt, record));
-            if record.state == JobState::Succeeded
-                && (!matches
-                    || !self.completed_runs.contains(&record.run_id)
-                    || !receipt.is_some_and(|receipt| {
-                        receipt.completion_reason == RunCompletionReason::Success
-                    }))
-            {
-                return Err(ControlError::Projection(
-                    "successful job terminal lacks matching signed result and lifecycle completion"
-                        .to_owned(),
-                ));
-            }
-        }
+        // A successful `job.terminal` record's binding to its signed result and
+        // completed lifecycle trace is `job_transition_is_valid`'s sole
+        // responsibility (its `Some(JobTerminal::Succeeded)` arm below re-derives
+        // the identical `receipt_matches && completed_runs.contains(..) &&
+        // completion_reason == Success` conjunction); duplicating it here made
+        // that arm's own invariant unfalsifiable, since this check always ran
+        // first and rejected every input the other check could otherwise catch.
         Ok(())
     }
 

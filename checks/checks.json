@@ -1118,7 +1118,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A daemon with canonical results or a registered World verifier never silently replaces a missing producer signing key.",
       "find": "            !has_run_results && anchored_verifier.is_none(),",
-      "replace": "            true,"
+      "replace": "            true,",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- missing_producer_key_is_not_silently_regenerated_under_an_anchored_world_verifier"
     },
     {
       "id": "control-evaluation-task-context-hardcoded",
@@ -1149,7 +1150,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A registered World verifier prevents a replaced daemon producer key from starting even before the first result.",
       "find": "        if anchored_verifier\n            .as_ref()\n            .is_some_and(|key| key != &run_result_verifier.public_key_bytes())",
-      "replace": "        if false && anchored_verifier\n            .as_ref()\n            .is_some_and(|key| key != &run_result_verifier.public_key_bytes())"
+      "replace": "        if false && anchored_verifier\n            .as_ref()\n            .is_some_and(|key| key != &run_result_verifier.public_key_bytes())",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- producer_key_mismatched_with_an_anchored_world_verifier_is_rejected_before_first_result"
     },
     {
       "id": "control-evaluation-cost-ceiling-unbounded",
@@ -1164,14 +1166,16 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The control cleanup guard removes a successful sandbox before returning its result.",
       "find": "        let sandbox = self.sandbox.take().ok_or(ExecuteError::Internal)?;\n        sandbox.cleanup().map_err(|_| ExecuteError::Internal)",
-      "replace": "        self.sandbox.take();\n        Ok(())"
+      "replace": "        self.sandbox.take();\n        Ok(())",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- sandbox_cleanup_guard_removes_the_materialized_worktree_on_success"
     },
     {
       "id": "control-world-cost-law-bypassed",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Every evaluation cost ceiling is no greater than the immutable registered World Law.",
       "find": "        if maximum_cost_microusd > world_cost_ceiling {\n            return Err(ExecuteError::Invalid(\n                \"evaluation cost exceeds registered World Law\",\n            ));\n        }",
-      "replace": "        if false && maximum_cost_microusd > world_cost_ceiling {\n            return Err(ExecuteError::Invalid(\n                \"evaluation cost exceeds registered World Law\",\n            ));\n        }"
+      "replace": "        if false && maximum_cost_microusd > world_cost_ceiling {\n            return Err(ExecuteError::Invalid(\n                \"evaluation cost exceeds registered World Law\",\n            ));\n        }",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- run_evaluation_cost_ceiling_enforces_the_registered_world_law"
     },
     {
       "id": "run-result-latency-shared-limit-bypassed",
@@ -1332,7 +1336,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A Genome cannot serve as both sides of a claimed parent-versus-candidate comparison.",
       "find": "        if parent_genome_id == candidate_genome_id {",
-      "replace": "        if false && parent_genome_id == candidate_genome_id {"
+      "replace": "        if false && parent_genome_id == candidate_genome_id {",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- evaluate_pair_rejects_a_genome_paired_against_itself"
     },
     {
       "id": "control-world-bound-evaluator-bypassed",
@@ -1355,7 +1360,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A retried paired evaluation reuses authenticated deterministic run events instead of duplicating candidate work.",
       "find": "        if let Some(existing) = self.state.arena_jobs.get(evaluation_id) {",
-      "replace": "        if let Some(existing) = Option::<&ArenaJobRecord>::None {"
+      "replace": "        if let Some(existing) = Option::<&ArenaJobRecord>::None {",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- retried_paired_evaluation_reuses_the_completed_arena_job_without_rerunning_it"
     },
     {
       "id": "control-paired-seed-diverges",
@@ -1370,7 +1376,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Paired candidate trials execute through the supervised offline process adapter.",
       "find": "    let runtime = SupervisedRuntime::deterministic_guarded(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n        &guardian,\n    )",
-      "replace": "    let _guardian = guardian;\n    let runtime = SupervisedRuntime::deterministic(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n    )"
+      "replace": "    let _guardian = guardian;\n    let runtime = SupervisedRuntime::deterministic(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n    )",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- direct_reference_execution_requires_the_supervised_guarded_runtime"
     },
     {
       "id": "arena-evaluator-reliability-ignored",
@@ -1844,7 +1851,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Daemon startup revalidates every recorded selection against exact World and canonical evidence.",
       "find": "        verify_selection_history(&artifacts, &history, &registered)?;",
-      "replace": "        // mutation: skip selection history verification at startup"
+      "replace": "        // mutation: skip selection history verification at startup",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- startup_revalidates_recorded_selections_against_canonical_evidence"
     },
     {
       "id": "control-selection-history-unverified-on-replay",
@@ -2029,7 +2037,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A succeeded async job must be backed by its exact signed successful result and completed lifecycle trace.",
       "find": "                        receipt_matches\n                            && self.completed_runs.contains(&record.run_id)\n                            && signed_result.is_some_and(|receipt| {\n                                receipt.completion_reason == RunCompletionReason::Success\n                            })",
-      "replace": "                        true"
+      "replace": "                        true",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- signed_success_result_without_completed_run_rejects_job_terminal"
     },
     {
       "id": "async-wall-timeout-not-classified-as-failure",
@@ -2090,7 +2099,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Forge proposal admission fails while operator evolution is frozen.",
       "find": "        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }\n        validate_job_id(proposal_id)",
-      "replace": "        validate_job_id(proposal_id)"
+      "replace": "        validate_job_id(proposal_id)",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- forge_proposal_is_rejected_while_evolution_is_frozen"
     },
     {
       "id": "forge-replay-selection-event-hash-not-verified",
@@ -2224,7 +2234,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Invariant checks cannot consume canonical storage while a direct or Arena job is active.",
       "find": "                | Command::ArenaInvariants { .. }\n                | Command::GenomeRegister { .. }",
-      "replace": "                // mutation: allow invariant check during active work\n                | Command::GenomeRegister { .. }"
+      "replace": "                // mutation: allow invariant check during active work\n                | Command::GenomeRegister { .. }",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- arena_invariants_check_is_blocked_while_a_direct_job_is_active"
     },
     {
       "id": "control-champion-promotion-requires-metrics-pass",
@@ -2522,7 +2533,8 @@
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "Reusing a gene_id with a different promotion_transition_id fails closed instead of returning the original Gene.",
       "find": "    if payload.promotion_transition_id != promotion_transition_id {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --lib -- gene_transfer_trials_record_contradiction_and_speciation"
     },
     {
       "id": "control-gene-transfer-requires-origin-operation",

@@ -55,8 +55,8 @@ class MutationShardingTests(unittest.TestCase):
         # TD-26: a targeted `test_cmd` reruns only the test(s) that exercise
         # one invariant instead of the whole ~4-minute control suite, so
         # control mutations no longer need 15 CI shards of up to 60 minutes.
-        # This is a floor, not a ceiling -- raise it as more mutations gain a
-        # targeted command, never lower it.
+        # All 99 control mutations now carry one -- this is a floor, not a
+        # ceiling; raise it if the control mutation count grows, never lower it.
         manifest_path = CHECKS / "checks.json"
         control = [
             entry
@@ -64,7 +64,8 @@ class MutationShardingTests(unittest.TestCase):
             if entry["file"].startswith("crates/hephaestus-control/")
         ]
         targeted = [entry for entry in control if entry.get("test_cmd")]
-        self.assertGreaterEqual(len(targeted), 87)
+        self.assertEqual(len(targeted), len(control))
+        self.assertGreaterEqual(len(targeted), 99)
         for entry in targeted:
             self.assertIn("cargo test -p hephaestus-control", entry["test_cmd"])
 

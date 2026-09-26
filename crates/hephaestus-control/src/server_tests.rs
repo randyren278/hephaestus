@@ -3708,7 +3708,7 @@ fn reject_success_terminal_without_lifecycle(plane: &mut ControlPlane, base: &Jo
             .state
             .apply(&event, &plane.operator_token, &plane.run_result_verifier),
         Err(ControlError::Projection(message))
-            if message == "successful job terminal lacks matching signed result and lifecycle completion"
+            if message == "job lifecycle transition is invalid"
     ));
 }
 
@@ -3927,7 +3927,7 @@ fn signed_interrupted_result_recovers_once_and_preserves_cancellation() {
                 .state
                 .apply(&event, &plane.operator_token, &plane.run_result_verifier),
             Err(ControlError::Projection(message))
-                if message == "successful job terminal lacks matching signed result and lifecycle completion"
+                if message == "job lifecycle transition is invalid"
         ));
         assert!(plane.state.snapshot() == before_forged_terminal);
         drop(plane);
@@ -18502,4 +18502,461 @@ fn forge_refuses_harness_mutations_when_the_world_scope_excludes_them() {
         ),
         "an empty mutation scope must refuse any agent.prompt mutation: {result:?}"
     );
+}
+
+// ---------------------------------------------------------------------
+// TD-26: targeted kill tests for control mutations that previously had
+// no `test_cmd` and fell back to the full suite.
+// ---------------------------------------------------------------------
+
+/// Seeds `data_dir` with a registered World whose `arena.runtime_verifier`
+/// anchors `verifier_public_key`, bypassing `register_world` (which itself
+/// refuses a verifier that isn't the daemon's own current key). This lets a
+/// test construct the "canonical history anchors a different producer key"
+/// scenario `ControlPlane::open_with_backends` must reconcile at startup.
+fn seed_anchored_world(data_dir: &Path, verifier_public_key: [u8; 32]) {
+    let artifacts = ArtifactStore::open(data_dir.join("blobs"))
+        .expect("open canonical artifacts for anchor seed");
+    let verifier_artifact = artifacts
+        .put(&verifier_public_key)
+        .expect("store anchor verifier artifact");
+    let source = format!(
+        r#"{{"schema_version":1,"name":"anchor-world","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["coverage"],"evaluator_artifacts":{{"arena.runtime_verifier":"{}"}}}}"#,
+        verifier_artifact.as_str()
+    );
+    let compiled =
+        compile_world(&source, SourceFormat::Json, &artifacts).expect("compile anchor World");
+    let artifact = artifacts
+        .put(compiled.canonical_json())
+        .expect("store canonical anchor World artifact");
+    let record = WorldRecord {
+        world_id: compiled.id().to_owned(),
+        name: compiled.name().to_owned(),
+        artifact_id: artifact.as_str().to_owned(),
+    };
+    drop(artifacts);
+    let mut ledger =
+        EventStore::open(data_dir.join("events.sqlite3")).expect("open ledger for anchor seed");
+    ledger
+        .append(EventInput::new(
+            format!("world:{}:registered", record.world_id),
+            &record.world_id,
+            "world.registered",
+            "test-fixture",
+            1,
+            serde_json::to_vec(&record).expect("encode anchor World record"),
+        ))
+        .expect("append anchor world.registered");
+}
+
+#[test]
+fn missing_producer_key_is_not_silently_regenerated_under_an_anchored_world_verifier() {
+    let directory = tempdir().expect("daemon directory");
+    let anchor_signer = RunResultSigner::from_seed([61; 32]);
+    seed_anchored_world(
+        directory.path(),
+        anchor_signer.verifier().public_key_bytes(),
+    );
+    let Err(error) = ControlPlane::open(directory.path()) else {
+        panic!("opening with no producer key under an anchored World verifier must fail closed");
+    };
+    assert!(
+        format!("{error}").contains("runtime producer key is missing"),
+        "unexpected error: {error}"
+    );
+    assert!(
+        !directory.path().join("runtime-producer.key").exists(),
+        "a fail-closed rejection must not create a new producer key"
+    );
+}
+
+#[test]
+fn producer_key_mismatched_with_an_anchored_world_verifier_is_rejected_before_first_result() {
+    let directory = tempdir().expect("daemon directory");
+    let anchor_signer = RunResultSigner::from_seed([62; 32]);
+    seed_anchored_world(
+        directory.path(),
+        anchor_signer.verifier().public_key_bytes(),
+    );
+    let producer_key_path = directory.path().join("runtime-producer.key");
+    fs::write(&producer_key_path, [63_u8; 32]).expect("write mismatched producer key");
+    fs::set_permissions(&producer_key_path, fs::Permissions::from_mode(0o600))
+        .expect("restrict producer key permissions");
+    let Err(error) = ControlPlane::open(directory.path()) else {
+        panic!(
+            "opening with a producer key that contradicts the anchored World verifier must fail"
+        );
+    };
+    assert!(
+        format!("{error}")
+            .contains("runtime producer key does not match registered World verifier"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn sandbox_cleanup_guard_removes_the_materialized_worktree_on_success() {
+    let directory = tempdir().expect("sandbox cleanup fixture");
+    let (repository, _) = committed_reference_fixture(directory.path());
+    let spec = RunSpec::new(
+        "cleanup-guard-run",
+        "genome-fixture",
+        "world-fixture",
+        repository,
+        "exercise sandbox cleanup guard",
+        CapabilitySet::new(false, false),
+        Budget::new(Duration::from_secs(5), 1024, 0).expect("valid run budget"),
+    )
+    .expect("valid run spec");
+    let sandbox_root = directory.path().join("sandboxes");
+    let manager =
+        SandboxManager::open(&sandbox_root, Duration::from_secs(30)).expect("open sandbox manager");
+    let (sandbox, _token) = manager.create(&spec).expect("materialize sandbox");
+    let run_root = sandbox
+        .worktree()
+        .parent()
+        .expect("sandbox run directory")
+        .to_path_buf();
+    assert!(run_root.exists(), "sandbox materializes its run directory");
+    let guard = SandboxCleanupGuard::new(sandbox);
+    guard.cleanup().expect("cleanup succeeds");
+    assert!(
+        !run_root.exists(),
+        "a successful cleanup must remove the materialized sandbox"
+    );
+}
+
+#[test]
+fn run_evaluation_cost_ceiling_enforces_the_registered_world_law() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "cost-over-law",
+        Command::RunEvaluation {
+            genome_id: genome.genome_id,
+            task_id: "task".to_owned(),
+            input: "input".to_owned(),
+            seed: 0,
+            wall_millis: 10_000,
+            maximum_output_bytes: 1_048_576,
+            maximum_cost_microusd: 1,
+        },
+    );
+    let error = response
+        .error
+        .expect("cost above the registered World Law is rejected");
+    assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+    assert!(
+        error
+            .message
+            .contains("evaluation cost exceeds registered World Law")
+    );
+    assert!(
+        plane.state.jobs.is_empty(),
+        "no job is admitted when the cost ceiling is violated"
+    );
+}
+
+#[test]
+fn evaluate_pair_rejects_a_genome_paired_against_itself() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    let genome_id = format!("hephaestus:genome:{}", "a".repeat(64));
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "self-pair",
+        Command::EvaluatePair {
+            evaluation_id: "self-pair-eval".to_owned(),
+            parent_genome_id: genome_id.clone(),
+            candidate_genome_id: genome_id,
+            remote: false,
+        },
+    );
+    let error = response
+        .error
+        .expect("a Genome cannot be paired against itself");
+    assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+    assert!(
+        error
+            .message
+            .contains("parent and candidate Genomes must differ")
+    );
+    assert!(plane.state.arena_jobs.is_empty());
+}
+
+#[test]
+fn retried_paired_evaluation_reuses_the_completed_arena_job_without_rerunning_it() {
+    let directory = tempdir().expect("Arena retry fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let evaluation_id = "paired-retry";
+    complete_arena_test_job(
+        &mut plane,
+        evaluation_id,
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let completed = plane.state.arena_jobs[evaluation_id].clone();
+    assert_eq!(completed.state, JobState::Succeeded);
+    let expected = ControlPlane::arena_job_response(&completed);
+
+    let history_before = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history before retry")
+        .len();
+
+    let retried = plane
+        .submit_arena_job(
+            evaluation_id,
+            &parent.genome_id,
+            &candidate.genome_id,
+            false,
+        )
+        .expect("a retried admission of a completed pair must reuse the recorded job");
+    assert_eq!(
+        retried, expected,
+        "retry must return the exact same recorded job instead of rerunning it"
+    );
+
+    let history_after = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after retry")
+        .len();
+    assert_eq!(
+        history_after, history_before,
+        "a retried admission for an already-recorded pair must not append new canonical events"
+    );
+}
+
+#[test]
+fn direct_reference_execution_requires_the_supervised_guarded_runtime() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    // Break the guardian executable: a supervised (guarded) runtime must
+    // fail to configure the guard and fail the run; an unguarded runtime
+    // never consults this path and would succeed regardless.
+    plane.guardian_executable = directory.path().join("missing-guardian");
+
+    plane
+        .submit_job("guardian-required", &genome.genome_id)
+        .expect("admit direct reference job");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist worker evidence");
+        assert!(Instant::now() < deadline, "direct reference job stalled");
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_eq!(
+        plane.state.jobs["guardian-required"].state,
+        JobState::Failed,
+        "a broken guardian must fail the supervised run rather than silently running unguarded"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn startup_revalidates_recorded_selections_against_canonical_evidence() {
+    let directory = tempdir().expect("Arena selection fixture");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Arena selection fixture\n")
+        .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(
+        cargo_evaluator.is_file(),
+        "missing evaluator {cargo_evaluator:?}"
+    );
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(worker.is_file(), "missing worker {worker:?}");
+
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open real worker fixture");
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) = register_dispatch_arena_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    let evaluation_id = "selection-startup-check";
+    complete_arena_test_job(
+        &mut plane,
+        evaluation_id,
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(evaluation_id)
+        .expect("record a selection receipt")
+    else {
+        panic!("selection should return its receipt");
+    };
+    let selection_event_id = selection.event.event_id.clone();
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history before corrupting selection evidence");
+    let selection_event = history
+        .iter()
+        .find(|event| event.event_id == selection_event_id)
+        .expect("selection event recorded")
+        .clone();
+    let payload: serde_json::Value =
+        serde_json::from_slice(&selection_event.payload).expect("decode selection payload");
+    let receipt_artifact_id = ArtifactId::parse(
+        payload["receipt_artifact_id"]
+            .as_str()
+            .expect("selection payload carries its receipt artifact id")
+            .to_owned(),
+    )
+    .expect("parse receipt artifact id");
+    drop(plane);
+
+    let artifacts = ArtifactStore::open(data_dir.join("blobs")).expect("open canonical artifacts");
+    let receipt_path = artifacts.path_for(&receipt_artifact_id);
+    fs::remove_file(&receipt_path).expect("remove the selection receipt artifact");
+    drop(artifacts);
+
+    let Err(error) = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    ) else {
+        panic!("startup must fail closed when a recorded selection's evidence is missing");
+    };
+    assert!(
+        matches!(error, ControlError::Projection(_)),
+        "unexpected error: {error:?}"
+    );
+}
+
+#[test]
+fn arena_invariants_check_is_blocked_while_a_direct_job_is_active() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    plane
+        .submit_job("active-job", &genome.genome_id)
+        .expect("admit direct reference job");
+    assert!(plane.active_job.is_some());
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "invariants-while-active",
+        Command::ArenaInvariants {
+            evaluation_id: "missing-evaluation".to_owned(),
+        },
+    );
+    assert_eq!(
+        response
+            .error
+            .expect("an active job blocks Arena invariant checks")
+            .code,
+        ApiErrorCode::Busy
+    );
+}
+
+#[test]
+fn forge_proposal_is_rejected_while_evolution_is_frozen() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    assert!(
+        plane.state.freeze.is_frozen(),
+        "a fresh daemon starts frozen"
+    );
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "propose-while-frozen",
+        Command::GenomePropose {
+            proposal_id: "proposal-frozen".to_owned(),
+            selection_event_id: "missing-selection".to_owned(),
+            parent_genome_id: format!("hephaestus:genome:{}", "9".repeat(64)),
+            hypothesis: Some("noop".to_owned()),
+            analysis_id: None,
+            cluster_index: None,
+        },
+    );
+    let error = response
+        .error
+        .expect("forge proposal admission fails while evolution is frozen");
+    assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+    assert!(error.message.contains("evolution is frozen"));
 }
