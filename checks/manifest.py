@@ -22,6 +22,7 @@ Schema:
         invariant: "One sentence, in English, of what must always hold."
         find: "exact source substring, must match EXACTLY once"
         replace: "the broken version"
+        test_cmd: "npm test -- auth.spec.ts"   # optional, narrowest command wins
 """
 from __future__ import annotations
 
@@ -91,4 +92,8 @@ def mutations(data: dict, path: pathlib.Path) -> list[dict]:
             raise ManifestError(
                 f"mutation {entry['id']!r}: 'find' and 'replace' are identical, so "
                 f"nothing is broken and the KILLED verdict would be meaningless")
+        test_cmd = entry.get("test_cmd")
+        if test_cmd is not None and (not isinstance(test_cmd, str) or not test_cmd.strip()):
+            raise ManifestError(
+                f"mutation {entry['id']!r}: 'test_cmd' must be a non-empty string")
     return entries

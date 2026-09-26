@@ -32,7 +32,7 @@ from mutation_guard import (  # noqa: E402
 
 
 class MutationShardingTests(unittest.TestCase):
-    def test_control_mutations_are_partitioned_once_across_fifteen_shards(self) -> None:
+    def test_control_mutations_are_partitioned_once_across_five_shards(self) -> None:
         manifest_path = CHECKS / "checks.json"
         control = [
             entry
@@ -43,13 +43,30 @@ class MutationShardingTests(unittest.TestCase):
         self.assertEqual(len(expected_ids), 99)
         self.assertEqual(len(set(expected_ids)), len(expected_ids))
 
-        shards = [shard_entries(control, index, 15) for index in range(15)]
+        shards = [shard_entries(control, index, 5) for index in range(5)]
         sharded_ids = [entry["id"] for shard in shards for entry in shard]
 
-        self.assertEqual([len(shard) for shard in shards], [7] * 9 + [6] * 6)
+        self.assertEqual([len(shard) for shard in shards], [20] * 4 + [19])
         self.assertCountEqual(sharded_ids, expected_ids)
         self.assertEqual(len(sharded_ids), len(set(sharded_ids)))
-        self.assertEqual(shards, [shard_entries(control, index, 15) for index in range(15)])
+        self.assertEqual(shards, [shard_entries(control, index, 5) for index in range(5)])
+
+    def test_most_control_mutations_now_carry_a_targeted_test_cmd(self) -> None:
+        # TD-26: a targeted `test_cmd` reruns only the test(s) that exercise
+        # one invariant instead of the whole ~4-minute control suite, so
+        # control mutations no longer need 15 CI shards of up to 60 minutes.
+        # This is a floor, not a ceiling -- raise it as more mutations gain a
+        # targeted command, never lower it.
+        manifest_path = CHECKS / "checks.json"
+        control = [
+            entry
+            for entry in mutations(load(manifest_path), manifest_path)
+            if entry["file"].startswith("crates/hephaestus-control/")
+        ]
+        targeted = [entry for entry in control if entry.get("test_cmd")]
+        self.assertGreaterEqual(len(targeted), 87)
+        for entry in targeted:
+            self.assertIn("cargo test -p hephaestus-control", entry["test_cmd"])
 
     def test_unsharded_selection_preserves_entries_and_invalid_shards_fail(self) -> None:
         entries = [{"id": "one"}, {"id": "two"}]
@@ -65,6 +82,36 @@ class MutationShardingTests(unittest.TestCase):
             with self.subTest(shard_index=shard_index, shard_count=shard_count):
                 with self.assertRaises(ManifestError):
                     shard_entries(entries, shard_index, shard_count)
+
+
+class MutationManifestTestCmdTests(unittest.TestCase):
+    def base_entry(self, **overrides: object) -> dict:
+        entry = {
+            "id": "example",
+            "file": "src/example.rs",
+            "invariant": "example invariant",
+            "find": "old",
+            "replace": "new",
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_optional_test_cmd_is_accepted(self) -> None:
+        data = {"mutations": [self.base_entry(test_cmd="cargo test narrow")]}
+        [entry] = mutations(data, pathlib.Path("checks.json"))
+        self.assertEqual(entry["test_cmd"], "cargo test narrow")
+
+    def test_missing_test_cmd_is_fine(self) -> None:
+        data = {"mutations": [self.base_entry()]}
+        [entry] = mutations(data, pathlib.Path("checks.json"))
+        self.assertNotIn("test_cmd", entry)
+
+    def test_blank_or_non_string_test_cmd_is_rejected(self) -> None:
+        for invalid in ("", "   ", 1, True, ["cargo", "test"]):
+            with self.subTest(invalid=invalid):
+                data = {"mutations": [self.base_entry(test_cmd=invalid)]}
+                with self.assertRaises(ManifestError):
+                    mutations(data, pathlib.Path("checks.json"))
 
 
 class MutationTimeoutTests(unittest.TestCase):
@@ -107,6 +154,52 @@ class MutationTimeoutTests(unittest.TestCase):
         ])
         self.assertEqual(
             mutation_command(entry, data, override, allow_scoped=False),
+            override,
+        )
+
+    def test_entry_test_cmd_wins_over_prefix_command_and_default(self) -> None:
+        entry = {
+            "file": "crates/hephaestus-control/src/server.rs",
+            "test_cmd": "cargo test -p hephaestus-control --lib narrow_test",
+        }
+        data = {
+            "mutation_test_commands": {
+                "crates/hephaestus-control/": "cargo test -p hephaestus-control"
+            }
+        }
+        default = ["python3", "-m", "pytest"]
+
+        self.assertEqual(
+            mutation_command(entry, data, default),
+            ["cargo", "test", "-p", "hephaestus-control", "--lib", "narrow_test"],
+        )
+
+    def test_entry_without_test_cmd_falls_back_to_prefix_then_default(self) -> None:
+        data = {
+            "mutation_test_commands": {
+                "crates/hephaestus-control/": "cargo test -p hephaestus-control"
+            }
+        }
+        default = ["python3", "-m", "pytest"]
+
+        prefixed = {"file": "crates/hephaestus-control/src/server.rs"}
+        self.assertEqual(
+            mutation_command(prefixed, data, default),
+            ["cargo", "test", "-p", "hephaestus-control"],
+        )
+
+        unprefixed = {"file": "crates/other/src/lib.rs"}
+        self.assertEqual(mutation_command(unprefixed, data, default), default)
+
+    def test_cli_override_disables_entry_test_cmd_too(self) -> None:
+        entry = {
+            "file": "crates/hephaestus-control/src/server.rs",
+            "test_cmd": "cargo test -p hephaestus-control --lib narrow_test",
+        }
+        override = ["python3", "override.py"]
+
+        self.assertEqual(
+            mutation_command(entry, {}, override, allow_scoped=False),
             override,
         )
 

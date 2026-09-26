@@ -1063,6 +1063,60 @@ fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
     ));
 }
 
+/// TD-26: replay of a `forge.proposed` event must independently re-derive
+/// the mutation's `before -> after` edge from the recorded prompt artifacts
+/// and reject one that is not a representable [`mutation_catalog`] edge
+/// (`before == after`, or either side an unknown operation) -- not merely
+/// trust the payload's `operation_before`/`operation_after` strings, which
+/// `verify_forge_prompt`'s later field-agreement check already covers (see
+/// `forge_proposal_replays_and_rejects_tampered_selection_and_metadata`'s
+/// `wrong_operation` case). No genuine proposal can ever record `before ==
+/// after` (Forge always targets a distinct reference operation), so this
+/// exercises `verify_forge_prompt` directly with a payload whose `before`
+/// and `after` prompt artifacts are the exact same stored document.
+#[test]
+fn verify_forge_prompt_rejects_a_before_after_edge_that_is_not_a_representable_catalog_edge() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (world, genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+
+    let storage = plane.storage.as_ref().expect("canonical storage");
+    let identity_document = reference_instruction_document(ReferenceInstruction::Identity);
+    let prompt_artifact = storage
+        .artifacts
+        .put(identity_document.as_bytes())
+        .expect("store identity prompt document");
+
+    let payload = ForgeProposalPayload {
+        schema_version: 1,
+        proposal_id: "forge-catalog-edge-check".to_owned(),
+        selection_event_id: "selection:unused".to_owned(),
+        selection_event_hash: "0".repeat(64),
+        evaluation_id: "evaluation:unused".to_owned(),
+        world_id: world.world_id.clone(),
+        parent_genome_id: genome.genome_id.clone(),
+        child: genome,
+        hypothesis: "Flip the supported reference operation.".to_owned(),
+        artifact_name: "agent.prompt".to_owned(),
+        prompt_artifact_before: prompt_artifact.as_str().to_owned(),
+        prompt_artifact_after: prompt_artifact.as_str().to_owned(),
+        operation_before: "identity".to_owned(),
+        operation_after: "identity".to_owned(),
+        analysis_binding: None,
+        catalog_version: None,
+        mutation_kind: None,
+    };
+    assert!(
+        matches!(
+            verify_forge_prompt(&storage.artifacts, &payload),
+            Err(ControlError::Protocol(message))
+                if message == "Forge prompt mutation is not a representable catalog edge"
+        ),
+        "a before-after edge with no actual mutation must be rejected on replay"
+    );
+}
+
 #[cfg(feature = "test-support")]
 #[test]
 fn test_arena_wall_override_only_lowers_the_admitted_bound() {
@@ -11407,6 +11461,301 @@ fn evolve_history_replay_rejects_a_forged_candidates_list() {
         verify_evolution_history(&forged_history, &plane.state.registered).is_err(),
         "a candidates list must not let the top-level fields describe a non-highest-ranked, \
          non-promoted candidate"
+    );
+}
+
+/// Like [`register_gauntlet_objects`], but the visible manifest carries
+/// several tasks instead of exactly one, so `failure-cluster-v2` produces
+/// more than one distinctly-signatured cluster from a single evaluation.
+/// `context_loss_naive` always answers `"UNKNOWN"` regardless of its input
+/// (`crates/hephaestus-runtime/src/reference_instruction.rs`), so the
+/// expected output of each visible task alone controls which shape bucket
+/// its failure lands in: an expected output that differs from `"UNKNOWN"`
+/// only by letter case buckets as `shape_case_mismatch`, and one that
+/// differs only by whitespace buckets as `shape_whitespace`.
+#[allow(clippy::too_many_lines)]
+fn register_gauntlet_objects_with_visible_tasks(
+    plane: &mut ControlPlane,
+    token: &str,
+    directory: &TempDir,
+    mode: &str,
+    visible_tasks: &[(&str, &str)],
+    bad_operation: &str,
+    good_operation: &str,
+) -> (WorldRecord, GenomeRecord, GenomeRecord) {
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        format!("{mode}-visible"),
+        Visibility::Visible,
+        visible_tasks
+            .iter()
+            .enumerate()
+            .map(|(index, (input, expected))| {
+                TrustedTask::new(format!("{mode}-visible-task-{index}"), *input, *expected)
+                    .expect("visible task")
+            })
+            .collect(),
+    )
+    .expect("visible manifest");
+    // The sealed task is engineered to pass (expected output exactly
+    // matches `context_loss_naive`'s fixed answer), so no sealed cluster
+    // forms and this fixture stays focused on the visible-side ordering.
+    let sealed = TrustedManifest::new(
+        format!("{mode}-sealed"),
+        Visibility::Sealed,
+        vec![
+            TrustedTask::new(format!("{mode}-sealed-task"), "{\"turns\":[]}", "UNKNOWN")
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator = env::current_exe()
+        .expect("locate test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("locate Cargo binary directory")
+        .join(format!(
+            "hephaestus-reference-evaluator{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+    let evaluator_id = artifacts
+        .put(&fs::read(evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    let invariant_id = artifacts
+        .put(CLEAN_INVARIANTS)
+        .expect("store invariant manifest");
+    drop(artifacts);
+    let world_path = directory.path().join(format!("gauntlet-{mode}-world.json"));
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"gauntlet-{mode}","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+            invariant_id.as_str(),
+        ),
+    )
+    .expect("write Gauntlet World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        plane,
+        token,
+        &format!("gauntlet-{mode}-world"),
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Gauntlet World registration should succeed");
+    };
+    let register_genome = |plane: &mut ControlPlane,
+                           token: &str,
+                           name: &str,
+                           parents: &str,
+                           operation: &str| {
+        let path = directory.path().join(format!("gauntlet-{mode}-{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: gauntlet-{mode}-{name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{operation}\"}}\n```\n"
+            ),
+        )
+        .expect("write Gauntlet Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            &format!("gauntlet-{mode}-{name}"),
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Gauntlet Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(plane, token, "parent", "[]", bad_operation);
+    let candidate = register_genome(
+        plane,
+        token,
+        "candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+        good_operation,
+    );
+    (world, parent, candidate)
+}
+
+/// Like [`real_worker_gauntlet_fixture`], but for
+/// [`register_gauntlet_objects_with_visible_tasks`]'s multi-task manifest.
+fn real_worker_gauntlet_fixture_with_visible_tasks(
+    directory: &TempDir,
+    mode: &str,
+    visible_tasks: &[(&str, &str)],
+    bad_operation: &str,
+    good_operation: &str,
+) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(repository.join("fixture.txt"), b"Gauntlet fixture\n").expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open Gauntlet fixture");
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) = register_gauntlet_objects_with_visible_tasks(
+        &mut plane,
+        &token,
+        directory,
+        mode,
+        visible_tasks,
+        bad_operation,
+        good_operation,
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "gauntlet-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    (plane, parent, candidate)
+}
+
+/// TD-26: a strategy-bound evolve generation with `CostWeighted`
+/// `mutation_prioritization` must order the Champion's failure clusters by
+/// descending `total_count`, not leave them in `Fifo` signature order. This
+/// fixture gives the context-loss Champion (`context_loss_naive`, which
+/// always answers `"UNKNOWN"`) three visible tasks that fail into the
+/// `shape_whitespace` cluster (`total_count == 3`) and one that fails into
+/// the alphabetically-earlier `shape_case_mismatch` cluster
+/// (`total_count == 1`). Both clusters suggest the same primary mutation
+/// (the paired fix, `context_loss_aware` -- every cluster of a known
+/// Gauntlet bad operation does, regardless of shape), so with `Fifo`'s
+/// stable signature order the proposal would bind to `shape_case_mismatch`
+/// (`c` sorts before `w`) either way; only `CostWeighted`'s descending
+/// `total_count` sort puts `shape_whitespace` first. Recorded
+/// `forge.proposed` events name their exact source cluster via
+/// `analysis_binding.cluster_signature` (`crates/hephaestus-control/src/protocol.rs`),
+/// so that field on the generation's `forge.proposed` event is this
+/// invariant's direct, ledger-recorded witness.
+#[test]
+fn evolve_cost_weighted_strategy_orders_clusters_by_descending_total_count() {
+    let directory = tempdir().expect("Gauntlet evolve fixture directory");
+    let (mut plane, parent, _candidate) = real_worker_gauntlet_fixture_with_visible_tasks(
+        &directory,
+        "cost-weighted",
+        &[
+            (r#"{"turns":[]}"#, "UNKNOWN "),
+            (r#"{"turns":[]}"#, "UNKNOWN "),
+            (r#"{"turns":[]}"#, "UNKNOWN "),
+            (r#"{"turns":[]}"#, "unknown"),
+        ],
+        "context_loss_naive",
+        "context_loss_aware",
+    );
+    let token = plane.token_hex.clone();
+    let strategy_id = register_test_strategy(
+        &mut plane,
+        &token,
+        &directory,
+        "cost-weighted",
+        "cost_weighted",
+        "none",
+    );
+
+    let run_id = "evolve-cost-weighted";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-cost-weighted-start",
+        evolve_start_command_with_strategy(
+            run_id,
+            &parent.world_id,
+            &parent.genome_id,
+            1,
+            TRIALS_PER_GENERATION,
+            Some(&strategy_id),
+        ),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start should succeed: {:?}",
+        start.error
+    );
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.generations.len(), 1);
+    let generation = &run.generations[0].payload;
+    assert!(
+        generation.candidates.is_empty(),
+        "a candidate_count == 1 strategy omits the per-candidate list"
+    );
+
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical ledger")
+        .ledger
+        .replay_verified()
+        .expect("verified history");
+    let proposal_id = &generation.proposal_id;
+    let event = history
+        .iter()
+        .find(|event| event.event_id == forge_event_id(proposal_id))
+        .expect("forge.proposed event for the promoted candidate");
+    let payload: ForgeProposalPayload =
+        serde_json::from_slice(&event.payload).expect("decode forge proposal payload");
+    let binding = payload
+        .analysis_binding
+        .expect("cluster-derived proposal carries an analysis binding");
+    assert_eq!(
+        binding.cluster_signature, "shape_whitespace",
+        "CostWeighted must prefer the 3-task shape_whitespace cluster over \
+         the 1-task shape_case_mismatch cluster, even though Fifo's stable \
+         signature order would put shape_case_mismatch first"
     );
 }
 

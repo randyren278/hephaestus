@@ -277,56 +277,64 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The local API bounds every request before JSON deserialization.",
       "find": "        if total_bytes > MAX_REQUEST_BYTES {",
-      "replace": "        if false && total_bytes > MAX_REQUEST_BYTES {"
+      "replace": "        if false && total_bytes > MAX_REQUEST_BYTES {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e local_api_fails_closed_for_bad_auth_versions_and_requests"
     },
     {
       "id": "unknown-control-api-version-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon rejects local API versions it does not implement.",
       "find": "        if request.version != API_VERSION {",
-      "replace": "        if false && request.version != API_VERSION {"
+      "replace": "        if false && request.version != API_VERSION {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e local_api_fails_closed_for_bad_auth_versions_and_requests"
     },
     {
       "id": "operator-api-authentication-bypassed",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Consequential local API commands require the owner-only operator token.",
       "find": "        if !constant_time_equal(request.token.as_bytes(), self.token_hex.as_bytes()) {",
-      "replace": "        if false && !constant_time_equal(request.token.as_bytes(), self.token_hex.as_bytes()) {"
+      "replace": "        if false && !constant_time_equal(request.token.as_bytes(), self.token_hex.as_bytes()) {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e local_api_fails_closed_for_bad_auth_versions_and_requests"
     },
     {
       "id": "forged-control-actor-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Replayed control events must originate at the canonical operator aggregate and actor.",
       "find": "            if event.aggregate_id != CONTROL_AGGREGATE || event.actor != OPERATOR_ACTOR {",
-      "replace": "            if false && (event.aggregate_id != CONTROL_AGGREGATE || event.actor != OPERATOR_ACTOR) {"
+      "replace": "            if false && (event.aggregate_id != CONTROL_AGGREGATE || event.actor != OPERATOR_ACTOR) {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_rejects_forged_operator_history_and_unverifiable_genomes"
     },
     {
       "id": "control-command-event-mismatch-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A replayed control event type must match its audited typed command.",
       "find": "                if event_type(&recorded.command) != event.event_type {",
-      "replace": "                if false && event_type(&recorded.command) != event.event_type {"
+      "replace": "                if false && event_type(&recorded.command) != event.event_type {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib projection_rejects_mismatched_commands_and_mutable_genome_metadata"
     },
     {
       "id": "persistent-freeze-event-ignored",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A canonical freeze remains engaged across process restart and replay.",
       "find": "            \"control.freeze\" => self.freeze = FreezeState::frozen(operator_token),",
-      "replace": "            \"control.freeze\" => {}"
+      "replace": "            \"control.freeze\" => {}",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze"
     },
     {
       "id": "operator-unfreeze-event-ignored",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An authenticated operator unfreeze is durable across restart.",
       "find": "            \"control.unfreeze\" => self\n                .freeze\n                .unfreeze(operator_token)\n                .map_err(|_| ControlError::Projection(\"operator proof rejected\".to_owned()))?,",
-      "replace": "            \"control.unfreeze\" => {}"
+      "replace": "            \"control.unfreeze\" => {}",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_cli_controls_and_replays_real_daemon_state_across_restarts"
     },
     {
       "id": "kill-all-event-ignored",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Kill-all requests cancellation of the active job before acknowledging control.",
       "find": "                self.request_active_job_cancellation()?;",
-      "replace": "                // Active job cancellation incorrectly omitted."
+      "replace": "                // Active job cancellation incorrectly omitted.",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib kill_all_signals_active_runtime_and_replays_confirmed_cancellation"
     },
     {
       "id": "released-genome-metadata-overwritten",
@@ -347,35 +355,40 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The replay command fails if fresh canonical projection differs from live state.",
       "find": "        if replayed.snapshot() != self.state.snapshot() {\n            return Err(ExecuteError::Internal);\n        }",
-      "replace": "        if false && replayed.snapshot() != self.state.snapshot() {\n            return Err(ExecuteError::Internal);\n        }"
+      "replace": "        if false && replayed.snapshot() != self.state.snapshot() {\n            return Err(ExecuteError::Internal);\n        }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib authenticated_failures_are_safe_and_replay_divergence_is_detected"
     },
     {
       "id": "frozen-reference-run-started",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The persistent operator freeze blocks all new reference execution.",
       "find": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
-      "replace": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if false && self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }"
+      "replace": "    fn runnable_genome(&self, genome_id: &str) -> Result<GenomeRecord, ExecuteError> {\n        if false && self.state.freeze.is_frozen() {\n            return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n        }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence"
     },
     {
       "id": "unregistered-world-executed",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Daemon startup fails closed when registration replay rejects history instead of serving an empty registry.",
       "find": "        let registered =\n            RegisteredObjects::replay(&history, &artifacts).map_err(registration_control_error)?;",
-      "replace": "        let registered = RegisteredObjects::replay(&history, &artifacts).unwrap_or_default();"
+      "replace": "        let registered = RegisteredObjects::replay(&history, &artifacts).unwrap_or_default();",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_rejects_a_genome_without_a_registered_world_during_replay"
     },
     {
       "id": "reference-runtime-workspace-authority-widened",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The offline reference runtime receives read-only and offline authority regardless of Genome ceiling.",
       "find": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(false, false),\n            budget,",
-      "replace": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(true, false),\n            budget,"
+      "replace": "        let spec = RunSpec::new_for_experiment(\n            run_id,\n            &genome.genome_id,\n            &genome.world_id,\n            &self.source_repository,\n            prompt,\n            CapabilitySet::new(true, false),\n            budget,",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib async_reference_spec_uses_read_only_offline_authority"
     },
     {
       "id": "trace-completion-projection-ignored",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Canonical terminal trace evidence removes the run from the daemon active projection.",
       "find": "                    TraceKind::LifecycleCompleted => {\n                        self.active_runs.remove(receipt.provenance.run_id());\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }",
-      "replace": "                    TraceKind::LifecycleCompleted => {\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }"
+      "replace": "                    TraceKind::LifecycleCompleted => {\n                        self.completed_runs\n                            .insert(receipt.provenance.run_id().to_owned());\n                    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib projection_rejects_mismatched_commands_and_mutable_genome_metadata"
     },
     {
       "id": "registered-world-artifact-unverified",
@@ -389,7 +402,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The reference-worker execution path always signs a zero-cost run result.",
       "find": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 0,",
-      "replace": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 1,"
+      "replace": "fn execute_reference_runtime(\n    recorder: EvidenceRecorder,\n    spec: &RunSpec,\n    sandbox: &Sandbox,\n    token: &CapabilityToken,\n    run_id: &str,\n) -> (Result<ReferenceExecution, ExecuteError>, EvidenceRecorder) {\n    let mut runtime =\n        match RecordedRuntime::new_recoverable(DeterministicRuntime::default(), recorder) {\n            Ok(runtime) => runtime,\n            Err(recovery) => {\n                let (_, _, recorder) = *recovery;\n                return (Err(ExecuteError::Internal), recorder);\n            }\n        };\n    let execution = (|| {\n        runtime\n            .start(spec, sandbox, token)\n            .map_err(|_| ExecuteError::Internal)?;\n        let snapshot = runtime\n            .snapshot(run_id)\n            .map_err(|_| ExecuteError::Internal)?;\n        if snapshot.status == RunStatus::Running {\n            return Err(ExecuteError::Internal);\n        }\n        let completion_reason = snapshot\n            .completion_reason\n            .ok_or(ExecuteError::Internal)\n            .map(run_completion_reason)?;\n        let latency_millis =\n            u64::try_from(snapshot.elapsed.as_millis()).map_err(|_| ExecuteError::Internal)?;\n        let stdout = fs::read(&snapshot.stdout_path).map_err(|_| ExecuteError::Internal)?;\n        let stderr = fs::read(&snapshot.stderr_path).map_err(|_| ExecuteError::Internal)?;\n        let history = runtime\n            .evidence()\n            .replay_verified()\n            .map_err(|_| ExecuteError::Internal)?;\n        Ok(ReferenceExecution {\n            completion_reason,\n            latency_millis,\n            stdout,\n            stderr,\n            trace_artifact_ids: trace_artifacts_for_run(&history, run_id)?,\n            actual_cost_microusd: 1,",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence"
     },
     {
       "id": "workspace-capability-report-inverted",
@@ -935,7 +949,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A runtime OperatorInterrupt without a durable cancellation request recovers as Interrupted, not Cancelled.",
       "find": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Interrupted",
-      "replace": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Cancelled"
+      "replace": "            } else if completion_reason == RunCompletionReason::OperatorInterrupt {\n                record.state = JobState::Interrupted;\n                JobTerminal::Cancelled",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib non_cancellation_operator_interrupt_completes_as_interrupted"
     },
     {
       "id": "run-result-supervisor-timeout-and-io-failure-rejected",
@@ -1110,21 +1125,24 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Evaluation receipts commit to the exact task supplied to the daemon command.",
       "find": "        let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), seed, environment_id)",
-      "replace": "        let experiment = ExperimentContext::new(\"repository-inventory-v1\", prompt.as_bytes(), seed, environment_id)"
+      "replace": "        let experiment = ExperimentContext::new(\"repository-inventory-v1\", prompt.as_bytes(), seed, environment_id)",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events"
     },
     {
       "id": "control-evaluation-environment-arch-forgotten",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The runtime-owned environment fingerprint binds the host architecture.",
       "find": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        std::env::consts::ARCH",
-      "replace": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        \"unknown-arch\""
+      "replace": "fn reference_environment_id() -> String {\n    format!(\n        \"deterministic-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git\",\n        env!(\"CARGO_PKG_VERSION\"),\n        RUN_RESULT_SCHEMA_VERSION,\n        std::env::consts::OS,\n        \"unknown-arch\"",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events"
     },
     {
       "id": "control-legacy-unsigned-history-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Legacy unsigned run-result history fails with an actionable backup-and-reinitialize incompatibility.",
       "find": "        reject_legacy_run_result_history(&history)?;",
-      "replace": ""
+      "replace": "",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib legacy_unsigned_run_results_fail_with_actionable_incompatibility"
     },
     {
       "id": "control-world-verifier-mismatch-accepted",
@@ -1138,7 +1156,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon rejects an evaluation cost ceiling above its bounded protocol limit before creating a sandbox.",
       "find": "        || maximum_cost_microusd > MAX_EVALUATION_COST_MICROUSD",
-      "replace": ""
+      "replace": "",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evaluation_budget_boundaries_are_validated_before_execution"
     },
     {
       "id": "control-successful-sandbox-cleanup-skipped",
@@ -1320,14 +1339,16 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon verifies the exact World-bound evaluator executable before candidate scheduling.",
       "find": "        let evaluator = Arc::new(self.open_evaluator(&evaluator_id, evaluator_limits)?);",
-      "replace": "        let evaluator = Arc::new(\n            IsolatedEvaluator::in_process_for_testing(evaluator_id.clone())\n                .map_err(|_| ExecuteError::Internal)?,\n        );"
+      "replace": "        let evaluator = Arc::new(\n            IsolatedEvaluator::in_process_for_testing(evaluator_id.clone())\n                .map_err(|_| ExecuteError::Internal)?,\n        );",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events"
     },
     {
       "id": "control-sealed-tasks-not-scheduled",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The trusted scheduler runs every sealed task without exposing its expectation.",
       "find": "            .chain(sealed.operator_tasks())",
-      "replace": "            .chain(Vec::new())"
+      "replace": "            .chain(Vec::new())",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides_sealed_data"
     },
     {
       "id": "control-paired-retry-reruns-candidates",
@@ -1341,7 +1362,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Every candidate trial uses the same daemon-owned seed committed by the paired evaluation binding.",
       "find": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    PAIRED_EVALUATION_SEED,",
-      "replace": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    0,"
+      "replace": "                let experiment = ExperimentContext::new(\n                    &task.task_id,\n                    task.input.as_bytes(),\n                    0,",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_reference_instructions_use_one_pinned_worker_for_paired_trials"
     },
     {
       "id": "control-candidate-process-not-supervised",
@@ -1628,35 +1650,40 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A live World registration cannot anchor a runtime verifier other than the daemon's producer key.",
       "find": "            if verifier != self.run_result_verifier.public_key_bytes() {",
-      "replace": "            if false && verifier != self.run_result_verifier.public_key_bytes() {"
+      "replace": "            if false && verifier != self.run_result_verifier.public_key_bytes() {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them"
     },
     {
       "id": "source-format-unknown-extension-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Registration sources are parsed only from declared JSON or YAML extensions.",
       "find": "        _ => Err(ExecuteError::Invalid(\n            \"source path must end in .json, .yaml, or .yml\",\n        )),",
-      "replace": "        _ => Ok(SourceFormat::Json),"
+      "replace": "        _ => Ok(SourceFormat::Json),",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib command_audit_types_and_source_extensions_are_stable"
     },
     {
       "id": "manifest-put-stores-source-bytes",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Operator manifests are stored only in their canonical evaluator encoding.",
       "find": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .and_then(|manifest| manifest.canonical_bytes())",
-      "replace": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .map(|_| bytes.clone())"
+      "replace": "        let canonical = TrustedManifest::from_source_json(&bytes)\n            .map(|_| bytes.clone())",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them"
     },
     {
       "id": "relative-registration-path-accepted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon refuses to resolve registration paths relative to its own working directory.",
       "find": "    if !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }",
-      "replace": "    if false && !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }"
+      "replace": "    if false && !path.is_absolute() {\n        return Err(ExecuteError::Invalid(\"path must be absolute\"));\n    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them"
     },
     {
       "id": "genome-content-reused-across-worlds",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A Genome content identity is registered under exactly one World; asking for another World is refused, not silently answered with the first.",
       "find": "            if existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!(",
-      "replace": "            if false && existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!("
+      "replace": "            if false && existing.record().world_id != world_id {\n                return Err(ExecuteError::Rejected(format!(",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them"
     },
     {
       "id": "selection-bootstrap-seed-ignored",
@@ -1824,7 +1851,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Explicit replay rejects selections whose canonical receipt is missing or inconsistent.",
       "find": "        verify_selection_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
-      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events("
+      "replace": "        // mutation: skip selection history verification during replay\n        verify_forge_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_forge_assessment_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_invariant_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_cluster_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_champion_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_drift_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_canary_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        verify_gene_bank_history(&storage.artifacts, &history, &registered)\n            .map_err(|_| ExecuteError::Internal)?;\n        let replayed = ControlState::from_events(",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events"
     },
     {
       "id": "markdown-frontmatter-duplicates-overwritten",
@@ -1866,21 +1894,24 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon registers .md Genome sources through the Markdown compiler under the registered World.",
       "find": "if Path::new(path).extension().and_then(|value| value.to_str()) == Some(\"md\") {",
-      "replace": "if false {"
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon"
     },
     {
       "id": "genome-prompt-not-scoped-to-registered-record",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Genome prompt inspection resolves only the reserved artifact referenced by the selected registered Genome.",
       "find": "            .artifact_id(\"agent.prompt\")",
-      "replace": "            .artifact_id(\"agent.untrusted_prompt\")"
+      "replace": "            .artifact_id(\"agent.untrusted_prompt\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon"
     },
     {
       "id": "maximum-markdown-prompt-response-rejected",
       "file": "crates/hephaestus-control/src/client.rs",
       "invariant": "The bounded owner client accepts the worst-case escaped response for a maximum-size Markdown prompt.",
       "find": "const MAX_RESPONSE_BYTES: usize = 7 * 1_048_576;",
-      "replace": "const MAX_RESPONSE_BYTES: usize = 1_048_576;"
+      "replace": "const MAX_RESPONSE_BYTES: usize = 1_048_576;",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e maximum_markdown_prompt_round_trips_through_the_bounded_client"
     },
     {
       "id": "markdown-frontmatter-merges-accepted",
@@ -1936,28 +1967,32 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The worker executable digest remains bound to reference execution environment receipts.",
       "find": "        if digest != self.reference_worker_digest {",
-      "replace": "        if false {"
+      "replace": "        if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib pin_reference_worker_rejects_a_public_executable_replaced_before_first_pin"
     },
     {
       "id": "pinned-reference-worker-reuse-skips-per-use-digest-reverification",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A cached, daemon-lifetime pinned reference worker is re-verified against its recorded digest before every reuse, not trusted unconditionally.",
       "find": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return match existing.verify() {\n                Ok(()) => Ok(existing),\n                Err(err) => {\n                    *self.pinned_reference_worker.borrow_mut() = None;\n                    Err(err)\n                }\n            };\n        }",
-      "replace": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return Ok(existing);\n        }"
+      "replace": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return Ok(existing);\n        }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib pinned_reference_worker_cache_fails_closed_on_corruption_and_recovers_on_next_use"
     },
     {
       "id": "reference-instruction-cas-not-interpreted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon parses only the verified registered prompt CAS as a reference instruction.",
       "find": "        ReferenceInstruction::parse(body).map(Some).map_err(|_| {\n            ExecuteError::Rejected(\"registered reference instruction is invalid\".to_owned())\n        })",
-      "replace": "        Ok(Some(ReferenceInstruction::Identity))"
+      "replace": "        Ok(Some(ReferenceInstruction::Identity))",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_reference_instructions_use_one_pinned_worker_for_paired_trials"
     },
     {
       "id": "reference-worker-bypassed-for-arena-candidates",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Paired Arena candidates execute through the configured bounded reference worker.",
       "find": "        &worker.executable,\n        [],\n        &guardian,",
-      "replace": "        \"/bin/cat\",\n        [],\n        &guardian,"
+      "replace": "        \"/bin/cat\",\n        [],\n        &guardian,",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib submitted_job_and_paired_arena_evaluation_reuse_the_same_pinned_reference_worker"
     },
     {
       "id": "reference-task-input-bound-checked-before-run",
@@ -1971,14 +2006,16 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Every reference evaluation executes the private worker snapshot whose digest is bound into its environment identity.",
       "find": "                    &worker.executable,\n                    [],\n                    &self.guardian_executable,",
-      "replace": "                    &self.reference_worker_executable,\n                    [],\n                    &self.guardian_executable,"
+      "replace": "                    &self.reference_worker_executable,\n                    [],\n                    &self.guardian_executable,",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e synchronous_reference_run_uses_private_worker_snapshot_after_public_replacement"
     },
     {
       "id": "async-job-kill-request-skips-runtime-cancellation",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An operator kill request signals the active job and does not claim termination before confirmation.",
       "find": "                self.request_active_job_cancellation()?;",
-      "replace": "                // mutation: omit active job cancellation"
+      "replace": "                // mutation: omit active job cancellation",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e async_job_status_and_cancellation_remain_responsive_and_confirm_process_death"
     },
     {
       "id": "guardian-leader-exit-leaves-descendants-running",
@@ -1999,7 +2036,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A supervised wall-budget timeout is persisted as a failed job and never a successful terminal.",
       "find": "            if completion_reason == RunCompletionReason::Success {",
-      "replace": "            if completion_reason == RunCompletionReason::Success || completion_reason == RunCompletionReason::WallBudgetExceeded {"
+      "replace": "            if completion_reason == RunCompletionReason::Success || completion_reason == RunCompletionReason::WallBudgetExceeded {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e async_wall_timeout_is_durable_replayable_and_keeps_daemon_available"
     },
     {
       "id": "experience-capacity-failure-acknowledged-as-success",
@@ -2013,14 +2051,16 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A scorer thread launch failure after signed trials is persisted as an interrupted Arena terminal before releasing the active slot.",
       "find": "            self.append_arena_job_record(&terminal).map_err(|_| {\n                ControlError::Projection(\n                    \"Arena scorer launch failure could not be recorded\".to_owned(),\n                )\n            })?;",
-      "replace": "            let _ = terminal; // mutation: skip terminal append after scorer launch failure"
+      "replace": "            let _ = terminal; // mutation: skip terminal append after scorer launch failure",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib injected_arena_scoring_failure_persists_failed_terminal_and_replays"
     },
     {
       "id": "arena-deadline-append-failure-not-retried",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An expired Arena deadline remains retryable until its cancellation transition is durably appended.",
       "find": "            !active.overall_timed_out\n                && active.record.state == JobState::Running",
-      "replace": "            !active.cancel.load(Ordering::Acquire)\n                && active.record.state == JobState::Running"
+      "replace": "            !active.cancel.load(Ordering::Acquire)\n                && active.record.state == JobState::Running",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib injected_arena_scoring_failure_persists_failed_terminal_and_replays"
     },
     {
       "id": "registry-forge-noncanonical-envelope-accepted",
@@ -2034,14 +2074,16 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A Forge child proposal can use only the candidate authenticated by its exact selection receipt.",
       "find": "        || receipt.candidate_genome_id() != parent_genome_id",
-      "replace": "            || false"
+      "replace": "            || false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_proposal_replays_and_rejects_tampered_selection_and_metadata"
     },
     {
       "id": "forge-parent-prompt-mutation-preserves-only-operation-token",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Forge changes only the operation token in the supported compact instruction document while preserving framing.",
       "find": "    if normalized != canonical && normalized != format!(\"{canonical}\\n\") {\n        return Err(());",
-      "replace": "    if false {\n        return Err(());"
+      "replace": "    if false {\n        return Err(());",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_mutation_changes_only_the_supported_compact_instruction_token"
     },
     {
       "id": "forge-proposal-forbidden-while-frozen",
@@ -2055,49 +2097,56 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Forge replay binds every proposal to the exact canonical selection event hash.",
       "find": "        if payload.selection_event_hash != expected_hash\n",
-      "replace": "        if false && payload.selection_event_hash != expected_hash\n"
+      "replace": "        if false && payload.selection_event_hash != expected_hash\n",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_proposal_replays_and_rejects_tampered_selection_and_metadata"
     },
     {
       "id": "forge-assessment-replay-payload-comparison-weakened",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Assessment replay compares every recorded field with the recomputed proposal and verified selection evidence.",
       "find": "        if selection_event.sequence >= event.sequence || payload != expected {",
-      "replace": "        if selection_event.sequence >= event.sequence || payload.assessment_id != expected.assessment_id {"
+      "replace": "        if selection_event.sequence >= event.sequence || payload.assessment_id != expected.assessment_id {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays"
     },
     {
       "id": "forge-assessment-directed-child-check-skipped",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An assessment selection must identify the exact proposed child Genome.",
       "find": "        || receipt.candidate_genome_id() != proposal.child.genome_id",
-      "replace": "        || false"
+      "replace": "        || false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays"
     },
     {
       "id": "forge-assessment-conflicting-retry-condition-weakened",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An assessment id cannot be reused with a different proposal or selection event.",
       "find": "                || existing.selection_event_id != selection_event_id",
-      "replace": "                && existing.selection_event_id != selection_event_id"
+      "replace": "                && existing.selection_event_id != selection_event_id",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays"
     },
     {
       "id": "forge-assessment-outcome-eligibility-inverted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Assessment outcome is derived from verified receipt metrics eligibility.",
       "find": "        outcome: if receipt.metrics_eligible() {",
-      "replace": "        outcome: if !receipt.metrics_eligible() {"
+      "replace": "        outcome: if !receipt.metrics_eligible() {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_references_forge_assessment_and_orders_newest_first"
     },
     {
       "id": "forge-assessment-promotion-authorized",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A metrics-only Forge assessment never verifies invariant evidence or authorizes promotion.",
       "find": "        invariant_gate_verified: false,\n        promotion_eligible: false,",
-      "replace": "        invariant_gate_verified: false,\n        promotion_eligible: true,"
+      "replace": "        invariant_gate_verified: false,\n        promotion_eligible: true,",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_references_forge_assessment_and_orders_newest_first"
     },
     {
       "id": "forge-assessment-evidence-order-bypassed",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The proposal must precede its evaluated child selection in canonical event history.",
       "find": "    if proposal_event.sequence >= evaluation_event.sequence\n        || evaluation_event.sequence >= selection_sequence\n    {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_references_forge_assessment_and_orders_newest_first"
     },
     {
       "id": "arena-invariant-successful-terminal-required",
@@ -2167,7 +2216,8 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Daemon startup verifies every invariant receipt against its exact canonical event, World, and evaluation evidence.",
       "find": "        verify_invariant_history(&artifacts, &history, &registered)?;",
-      "replace": "        // mutation: skip invariant history verification at startup"
+      "replace": "        // mutation: skip invariant history verification at startup",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib cluster_and_invariant_histories_reject_tampered_events"
     },
     {
       "id": "control-arena-invariants-allowed-during-active-job",
@@ -2181,126 +2231,144 @@
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Promotion requires a metrics_passed Forge assessment.",
       "find": "    if assessment.outcome != ForgeAssessmentOutcome::MetricsPassed {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-promotion-rejects-stale-parent",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Promotion requires the assessment parent to be the current Champion.",
       "find": "    if assessment.parent_genome_id != current {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-promotion-requires-invariant-contract",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Promotion requires invariant regressions within budget and a satisfied candidate contract.",
       "find": "    if !(receipt.regressions_within_budget && receipt.candidate_contract_satisfied) {",
-      "replace": "    if !receipt.regressions_within_budget {"
+      "replace": "    if !receipt.regressions_within_budget {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_promotion_requires_satisfied_invariant_contract"
     },
     {
       "id": "control-champion-promotion-refused-while-frozen",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Promotion is refused while evolution is frozen.",
       "find": "        .map_err(|_| ExecuteError::Invalid(\"assessment_id is invalid\"))?;\n    if frozen_after(history) {",
-      "replace": "        .map_err(|_| ExecuteError::Invalid(\"assessment_id is invalid\"))?;\n    if false {"
+      "replace": "        .map_err(|_| ExecuteError::Invalid(\"assessment_id is invalid\"))?;\n    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib canary_staged_rollout_promotes_through_champion_path_and_replays"
     },
     {
       "id": "control-champion-seed-requires-empty-history",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "A World can be seeded only before any Champion transition.",
       "find": "    if !projection.transitions.is_empty() {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-rollback-quarantines-replaced",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Rollback quarantines the replaced Champion so it can never be promoted again.",
       "find": "                if let Some(removed) = lineage.pop() {\n                    quarantined.push(removed);\n                }",
-      "replace": "                if let Some(_removed) = lineage.pop() {}"
+      "replace": "                if let Some(_removed) = lineage.pop() {}",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-replay-recomputes-transition",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Replay rejects a transition that differs from its recomputation.",
       "find": "        if payload != expected {",
-      "replace": "        if false {"
+      "replace": "        if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-replay-detects-retyped-events",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Replay recognizes Champion events by identity, not only by event type.",
       "find": "    event.event_type == CHAMPION_EVENT_TYPE\n        || event.event_id.starts_with(CHAMPION_PREFIX)\n        || event.aggregate_id.starts_with(CHAMPION_PREFIX)",
-      "replace": "    event.event_type == CHAMPION_EVENT_TYPE"
+      "replace": "    event.event_type == CHAMPION_EVENT_TYPE",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-transition-binds-previous-hash",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "Each transition binds the prior transition event hash.",
       "find": "            Some(last.event.event_hash.clone()),",
-      "replace": "            Some(last.event.event_id.clone()),"
+      "replace": "            Some(last.event.event_id.clone()),",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay"
     },
     {
       "id": "control-champion-child-cannot-regain-role",
       "file": "crates/hephaestus-control/src/champion.rs",
       "invariant": "A quarantined or former Champion cannot be promoted again.",
       "find": "            .quarantined_genome_ids\n            .contains(&assessment.child_genome_id)",
-      "replace": "            .quarantined_genome_ids\n            .is_empty()"
+      "replace": "            .quarantined_genome_ids\n            .is_empty()",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays"
     },
     {
       "id": "control-evidence-list-limit-validated",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Evidence list requests outside 1..=200 are refused.",
       "find": "        && (*limit == 0 || *limit > MAX_LIST_LIMIT)",
-      "replace": "        && *limit == 0"
+      "replace": "        && *limit == 0",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_denial_list_limit_is_bounded"
     },
     {
       "id": "control-evidence-runs-newest-first",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Run listings are ordered newest first before truncation.",
       "find": "        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {",
-      "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {"
+      "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::RunList {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_run_list_is_newest_first_and_merges_jobs_with_verified_results"
     },
     {
       "id": "control-evidence-denials-newest-first",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Denial listings are ordered newest first before truncation.",
       "find": "        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {",
-      "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {"
+      "replace": "        entries.sort_by_key(|entry| entry.0);\n        entries.truncate(limit);\n        Ok(ResponseData::DenialList {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_denial_list_records_request_rejected_and_runtime_capability_denials_newest_first"
     },
     {
       "id": "control-evidence-evaluations-newest-first",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Evaluation listings are ordered newest first before truncation.",
       "find": "        evaluation_ids.sort_by_key(|entry| std::cmp::Reverse(entry.0));",
-      "replace": "        evaluation_ids.sort_by_key(|entry| entry.0);"
+      "replace": "        evaluation_ids.sort_by_key(|entry| entry.0);",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_references_forge_assessment_and_orders_newest_first"
     },
     {
       "id": "control-evolve-freeze-halts-runs",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A frozen daemon never advances an evolution run.",
       "find": "        if self.state.freeze.is_frozen() {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection",
-      "replace": "        if false {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection"
+      "replace": "        if false {\n            return;\n        }\n        let Ok(Some(run)) = evolution_projection",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_respects_freeze_and_resumes_only_after_explicit_unfreeze"
     },
     {
       "id": "control-evolve-budget-enforced",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An evolution run stops before exceeding its paired-trial budget.",
       "find": "        if run.trials_consumed.saturating_add(TRIALS_PER_GENERATION) > run.max_paired_trials {",
-      "replace": "        if false {"
+      "replace": "        if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_budget_exhaustion_stops_a_run_before_its_generation_limit"
     },
     {
       "id": "control-evolve-generation-ceiling",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An evolution run stops at its generation ceiling.",
       "find": "        if generation_index >= run.max_generations {",
-      "replace": "        if false {"
+      "replace": "        if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_coding_bundled_world_completes_three_generations_from_the_example_fixture"
     },
     {
       "id": "control-evolve-replay-requires-promotion-evidence",
       "file": "crates/hephaestus-control/src/evolve.rs",
       "invariant": "Replay rejects a generation that claims promotion without a matching evidence-bound Champion promotion.",
       "find": "                    if !promoted {\n                        return Err(bad());\n                    }",
-      "replace": "                    if false {\n                        return Err(bad());\n                    }"
+      "replace": "                    if false {\n                        return Err(bad());\n                    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations_with_one_promotion_and_replays"
     },
     {
       "id": "selection-latency-tolerance-uses-min-not-max",
@@ -2370,35 +2438,40 @@
       "file": "crates/hephaestus-control/src/drift.rs",
       "invariant": "A drift record is refused unless the cited kind's measured shift actually crosses its fixed, documented threshold.",
       "find": "    if !crossed {",
-      "replace": "    if crossed {"
+      "replace": "    if crossed {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_replay_rejects_a_forged_promotion_claim"
     },
     {
       "id": "canary-correctness-regression-detected",
       "file": "crates/hephaestus-control/src/canary.rs",
       "invariant": "A candidate-vs-parent correctness drop at or beyond the documented threshold counts as a regression.",
       "find": "        || deltas.correctness_bps <= -CORRECTNESS_REGRESSION_BPS",
-      "replace": "        || (false && deltas.correctness_bps <= -CORRECTNESS_REGRESSION_BPS)"
+      "replace": "        || (false && deltas.correctness_bps <= -CORRECTNESS_REGRESSION_BPS)",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary"
     },
     {
       "id": "canary-advance-refused-while-frozen",
       "file": "crates/hephaestus-control/src/canary.rs",
       "invariant": "A staged canary advance that would move to a healthy next stage is refused while frozen.",
       "find": "    }\n\n    if frozen_after(history) {\n        return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n    }\n\n    let champion_promotion = if target_stage == CanaryStage::Completed {",
-      "replace": "    }\n\n    if false && frozen_after(history) {\n        return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n    }\n\n    let champion_promotion = if target_stage == CanaryStage::Completed {"
+      "replace": "    }\n\n    if false && frozen_after(history) {\n        return Err(ExecuteError::Invalid(\"evolution is frozen\"));\n    }\n\n    let champion_promotion = if target_stage == CanaryStage::Completed {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib canary_staged_rollout_promotes_through_champion_path_and_replays"
     },
     {
       "id": "canary-completion-joins-champion-promotion",
       "file": "crates/hephaestus-control/src/canary.rs",
       "invariant": "A canary reaching 100% joins real Champion promotion evidence through the existing, unchanged promotion policy; it never completes silently without it.",
       "find": "    let champion_promotion = if target_stage == CanaryStage::Completed {",
-      "replace": "    let champion_promotion = if target_stage == CanaryStage::Stage50 {"
+      "replace": "    let champion_promotion = if target_stage == CanaryStage::Stage50 {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib canary_staged_rollout_promotes_through_champion_path_and_replays"
     },
     {
       "id": "canary-verify-excludes-companion-champion-event",
       "file": "crates/hephaestus-control/src/canary.rs",
       "invariant": "Replay verification of a completing or rolling-back canary event must recompute its expected payload from the history as it stood before its companion Champion transition was appended, not after.",
       "find": "                derivation_bound = derivation_bound.min(position);",
-      "replace": "                derivation_bound = derivation_bound.max(position);"
+      "replace": "                derivation_bound = derivation_bound.max(position);",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays"
     },
     {
       "id": "provider-extra-env-not-applied",
@@ -2433,14 +2506,16 @@
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "A Gene can only be extracted from a Champion transition whose kind is Promoted, never a seed or rollback.",
       "find": "    if promotion_payload.kind != ChampionTransitionKind::Promoted {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib gene_extraction_refuses_below_the_evidence_threshold_and_bad_input"
     },
     {
       "id": "control-gene-extraction-requires-minimum-evidence",
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "Extraction refuses a promotion whose verified selection receipt has fewer measured paired trials than the deterministic minimum-evidence threshold.",
       "find": "    if evidence_trials < GENE_MIN_EVIDENCE_TRIALS {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib gene_extraction_refuses_below_the_evidence_threshold_and_bad_input"
     },
     {
       "id": "control-gene-extraction-idempotency-rejects-mismatched-promotion",
@@ -2454,35 +2529,40 @@
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "A transfer trial can only be applied to a recipient Genome that currently carries the Gene's exact origin (pre-mutation) operation.",
       "find": "    if reference_instruction_operation(current) != gene.operation_before {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib gene_transfer_trials_record_contradiction_and_speciation"
     },
     {
       "id": "control-gene-transfer-positive-requires-lower-bound",
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "A transfer trial is classified positive only when the paired correctness delta's lower confidence bound is above zero.",
       "find": "    let outcome = if receipt.lower_bps() > 0 {",
-      "replace": "    let outcome = if false {"
+      "replace": "    let outcome = if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon"
     },
     {
       "id": "control-gene-transfer-negative-requires-upper-bound",
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "A transfer trial is classified negative only when the paired correctness delta's upper confidence bound is below zero; negative transfer is retained, never dropped.",
       "find": "    } else if receipt.upper_bps() < 0 {",
-      "replace": "    } else if false {"
+      "replace": "    } else if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib gene_transfer_trials_record_contradiction_and_speciation"
     },
     {
       "id": "control-gene-speciation-requires-no-negative-in-domain",
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "Speciation refuses a domain that has any recorded negative transfer; a specialist species requires a persistent advantage.",
       "find": "    if has_negative_in_domain {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib gene_transfer_trials_record_contradiction_and_speciation"
     },
     {
       "id": "control-gene-speciation-requires-minimum-lineages",
       "file": "crates/hephaestus-control/src/gene_bank.rs",
       "invariant": "Speciation refuses a domain with fewer than the deterministic minimum count of distinct positive recipient lineages.",
       "find": "    if lineages.len() < SPECIATION_MIN_LINEAGES {",
-      "replace": "    if false {"
+      "replace": "    if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon"
     },
     {
       "id": "jsonl-chain-link-ignored",
@@ -2517,49 +2597,56 @@
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Forge refuses to propose an agent.prompt mutation unless the target World's mutation_scope authorizes MutationTarget::Harness.",
       "find": "    if !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }",
-      "replace": "    if false && !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }"
+      "replace": "    if false && !world.mutation_scope().contains(&MutationTarget::Harness) {\n        return Err(ExecuteError::Rejected(\n            \"World mutation scope does not authorize harness mutations\".to_owned(),\n        ));\n    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_refuses_harness_mutations_when_the_world_scope_excludes_them"
     },
     {
       "id": "forge-catalog-edge-check-skipped-on-replay",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "Replay of a forge.proposed event rejects a recorded operation_before -> operation_after edge that is not a representable mutation-catalog edge.",
       "find": "    if mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }",
-      "replace": "    if false && mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }"
+      "replace": "    if false && mutation_edge_kind(before.operation_name(), after.operation_name()).is_none() {\n        return Err(ControlError::Protocol(\n            \"Forge prompt mutation is not a representable catalog edge\",\n        ));\n    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib verify_forge_prompt_rejects_a_before_after_edge_that_is_not_a_representable_catalog_edge"
     },
     {
       "id": "evolve-strategy-cost-weighted-ordering-skipped",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A strategy-bound evolve generation with CostWeighted mutation_prioritization orders candidate failure clusters by descending total_count instead of leaving them in Fifo signature order.",
       "find": "        if strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }",
-      "replace": "        if false && strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }"
+      "replace": "        if false && strategy.config.mutation_prioritization == MutationPrioritization::CostWeighted {\n            clusters.sort_by(|(_, left), (_, right)| {\n                right\n                    .total_count\n                    .cmp(&left.total_count)\n                    .then_with(|| left.signature.cmp(&right.signature))\n            });\n        }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_cost_weighted_strategy_orders_clusters_by_descending_total_count"
     },
     {
       "id": "expired-worker-credential-accepted-for-arena-trial-lease",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A worker credential past its expires_at_millis is rejected before any job (a direct-run job or a remote-leased Arena reference-role trial) is leased or its result recorded.",
       "find": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }",
-      "replace": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if false && now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }"
+      "replace": "        let now = timestamp_millis().map_err(|_| \"clock error\")?;\n        if false && now >= record.expires_at_millis {\n            return Err(\"credential has expired\");\n        }\n        Ok(())\n    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_local_path_unaffected"
     },
     {
       "id": "remote-arena-trial-result-recorded-without-credential-verification",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "A remote worker's SubmitResult (for a direct-run job or a leased Arena reference-role trial) is recorded only after its credential re-verifies; an invalid, expired, or revoked credential must be refused before any output is signed and appended.",
       "find": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                    return WorkerReply::Error {\n                        reason: reason.to_owned(),\n                    };\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {",
-      "replace": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if false {\n                    if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                        return WorkerReply::Error {\n                            reason: reason.to_owned(),\n                        };\n                    }\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {"
+      "replace": "            WorkerRequest::SubmitResult {\n                worker_id,\n                token,\n                job_id,\n                output_hex,\n                completion,\n            } => {\n                if false {\n                    if let Err(reason) = self.verify_worker_credential(&worker_id, &token) {\n                        return WorkerReply::Error {\n                            reason: reason.to_owned(),\n                        };\n                    }\n                }\n                match self.record_remote_job_result(&job_id, &output_hex, completion) {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_local_path_unaffected"
     },
     {
       "id": "drift-adaptation-starts-without-law-opt-in",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The automatic drift-to-canary adaptation loop only picks up a drift whose World opted in via laws.auto_canary_on_drift; without the Law it must never start.",
       "find": "            if world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }",
-      "replace": "            if false && world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }"
+      "replace": "            if false && world.compiled().evaluation_policy().auto_canary_on_drift() {\n                return Some(payload.drift_id);\n            }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched"
     },
     {
       "id": "drift-adaptation-canary-abort-not-recorded-as-abort",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "An automatic adaptation whose staged canary aborts on a genuine regression must finish with reason CanaryAborted, not silently report Promoted.",
       "find": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::CanaryAborted,\n                    Some(&canary_id),\n                );\n            }",
-      "replace": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::Promoted,\n                    Some(&canary_id),\n                );\n            }"
+      "replace": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::Promoted,\n                    Some(&canary_id),\n                );\n            }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched"
     }
   ]
 }

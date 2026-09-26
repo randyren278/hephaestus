@@ -253,9 +253,20 @@ def mutation_command(
     *,
     allow_scoped: bool = True,
 ) -> list[str]:
-    """Select the narrowest declared suite that owns the mutated source file."""
+    """Select this mutation's suite: its own `test_cmd`, else the narrowest
+    declared prefix command that owns the mutated source file, else the
+    default suite.
+
+    A mutation's own `test_cmd` is the narrowest possible scope -- a filter
+    that runs only the test(s) that exercise this exact invariant -- so it
+    always wins over a path-prefix command, which runs every test under a
+    whole crate or directory.
+    """
     if not allow_scoped:
         return default
+    own_command = entry.get("test_cmd")
+    if own_command:
+        return shlex.split(own_command)
     configured = data.get("mutation_test_commands", {})
     matches = [
         (prefix, command)
