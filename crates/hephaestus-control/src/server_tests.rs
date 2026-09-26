@@ -17783,3 +17783,34 @@ fn latency_gated_delay_scope(directory: &Path) -> ReferenceDelayScope {
     );
     reference_delay_scope(directory)
 }
+
+#[test]
+fn forge_refuses_harness_mutations_when_the_world_scope_excludes_them() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    // This fixture's World declares `"mutation_scope":[]`.
+    let (world, parent, _) = register_thread_failure_arena_objects(&mut plane, &token, &directory);
+    let registered_world = plane
+        .state
+        .registered
+        .world(&world.world_id)
+        .expect("registered World");
+    assert!(registered_world.compiled().mutation_scope().is_empty());
+    let storage = plane.storage.as_ref().expect("canonical storage");
+    let result = forge_prompt_mutation(
+        &*storage.artifacts,
+        &plane.state.registered,
+        &parent.genome_id,
+        registered_world.compiled(),
+        None,
+    );
+    assert!(
+        matches!(
+            &result,
+            Err(ExecuteError::Rejected(message))
+                if message == "World mutation scope does not authorize harness mutations"
+        ),
+        "an empty mutation scope must refuse any agent.prompt mutation: {result:?}"
+    );
+}

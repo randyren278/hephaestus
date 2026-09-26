@@ -32,7 +32,7 @@ from mutation_guard import (  # noqa: E402
 
 
 class MutationShardingTests(unittest.TestCase):
-    def test_control_mutations_are_partitioned_once_across_ten_shards(self) -> None:
+    def test_control_mutations_are_partitioned_once_across_fifteen_shards(self) -> None:
         manifest_path = CHECKS / "checks.json"
         control = [
             entry
@@ -43,13 +43,13 @@ class MutationShardingTests(unittest.TestCase):
         self.assertEqual(len(expected_ids), 99)
         self.assertEqual(len(set(expected_ids)), len(expected_ids))
 
-        shards = [shard_entries(control, index, 10) for index in range(10)]
+        shards = [shard_entries(control, index, 15) for index in range(15)]
         sharded_ids = [entry["id"] for shard in shards for entry in shard]
 
-        self.assertEqual([len(shard) for shard in shards], [10] * 9 + [9])
+        self.assertEqual([len(shard) for shard in shards], [7] * 9 + [6] * 6)
         self.assertCountEqual(sharded_ids, expected_ids)
         self.assertEqual(len(sharded_ids), len(set(sharded_ids)))
-        self.assertEqual(shards, [shard_entries(control, index, 10) for index in range(10)])
+        self.assertEqual(shards, [shard_entries(control, index, 15) for index in range(15)])
 
     def test_unsharded_selection_preserves_entries_and_invalid_shards_fail(self) -> None:
         entries = [{"id": "one"}, {"id": "two"}]
