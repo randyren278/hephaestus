@@ -29,11 +29,13 @@ use hephaestus_ledger::StoredEvent;
 
 use super::{ControlError, hex_encode};
 use crate::protocol::{
-    EvolutionEventRecord, EvolverStrategyConfig, MetaBootstrapInterval, MetaEvaluationPayload,
-    MetaReceiptRecord, MetaStrategyRecord, MetaStrategyRegisteredPayload,
+    EvolutionEventRecord, EvolverStrategyConfig, MetaBootstrapInterval,
+    MetaEvaluationAdmittedPayload, MetaEvaluationPayload, MetaReceiptRecord, MetaStrategyRecord,
+    MetaStrategyRegisteredPayload,
 };
 
 pub(super) const META_STRATEGY_EVENT_TYPE: &str = "meta_strategy.registered";
+pub(super) const META_EVALUATION_ADMITTED_EVENT_TYPE: &str = "meta_evolution.admitted";
 pub(super) const META_EVALUATION_EVENT_TYPE: &str = "meta_evolution.evaluated";
 const META_STRATEGY_PREFIX: &str = "meta-strategy:";
 const META_EVALUATION_PREFIX: &str = "meta-evolution:";
@@ -62,6 +64,10 @@ pub(super) fn meta_strategy_aggregate_id(strategy_id: &str) -> String {
     format!("{META_STRATEGY_PREFIX}{strategy_id}")
 }
 
+pub(super) fn meta_evaluation_admitted_event_id(meta_run_id: &str) -> String {
+    format!("{META_EVALUATION_PREFIX}{meta_run_id}:admitted")
+}
+
 pub(super) fn meta_evaluation_event_id(meta_run_id: &str) -> String {
     format!("{META_EVALUATION_PREFIX}{meta_run_id}:evaluated")
 }
@@ -81,7 +87,8 @@ fn is_meta_strategy_event(event: &StoredEvent) -> bool {
 }
 
 fn is_meta_evaluation_event(event: &StoredEvent) -> bool {
-    event.event_type == META_EVALUATION_EVENT_TYPE
+    event.event_type == META_EVALUATION_ADMITTED_EVENT_TYPE
+        || event.event_type == META_EVALUATION_EVENT_TYPE
         || event.aggregate_id.starts_with(META_EVALUATION_PREFIX)
 }
 
@@ -91,6 +98,17 @@ fn decode_strategy(event: &StoredEvent) -> Result<MetaStrategyRegisteredPayload,
     if canonical_bytes(&payload)? != event.payload {
         return Err(ControlError::Projection(
             "meta strategy payload is not canonical".to_owned(),
+        ));
+    }
+    Ok(payload)
+}
+
+fn decode_admitted(event: &StoredEvent) -> Result<MetaEvaluationAdmittedPayload, ControlError> {
+    let payload = serde_json::from_slice::<MetaEvaluationAdmittedPayload>(&event.payload)
+        .map_err(|_| ControlError::Projection("meta evaluation admission is invalid".to_owned()))?;
+    if canonical_bytes(&payload)? != event.payload {
+        return Err(ControlError::Projection(
+            "meta evaluation admission is not canonical".to_owned(),
         ));
     }
     Ok(payload)
@@ -159,6 +177,40 @@ pub(super) fn meta_strategy_list(
     Ok(strategies)
 }
 
+/// Reconstructs one meta-evaluation's durable admission record from verified
+/// history (TD-14): the exact request `MetaEvaluate` recorded before any
+/// lineage work runs. `None` when the meta-evaluation was never admitted.
+pub(super) fn meta_evaluation_admitted_projection(
+    history: &[StoredEvent],
+    meta_run_id: &str,
+) -> Result<Option<MetaEvaluationAdmittedPayload>, ControlError> {
+    for event in history {
+        if event.event_type != META_EVALUATION_ADMITTED_EVENT_TYPE {
+            continue;
+        }
+        let payload = decode_admitted(event)?;
+        if payload.meta_run_id == meta_run_id {
+            return Ok(Some(payload));
+        }
+    }
+    Ok(None)
+}
+
+/// Every admitted meta-evaluation's run id, oldest first (TD-14): used by the
+/// daemon's reconciliation loop to find the next one needing advancement.
+pub(super) fn meta_evaluation_admitted_ids(
+    history: &[StoredEvent],
+) -> Result<Vec<String>, ControlError> {
+    let mut ids = Vec::new();
+    for event in history {
+        if event.event_type != META_EVALUATION_ADMITTED_EVENT_TYPE {
+            continue;
+        }
+        ids.push(decode_admitted(event)?.meta_run_id);
+    }
+    Ok(ids)
+}
+
 /// Reconstructs one meta-evaluation's durable receipt from verified history.
 pub(super) fn meta_evaluation_projection(
     history: &[StoredEvent],
@@ -209,6 +261,8 @@ pub(super) fn verify_meta_evolution_history(history: &[StoredEvent]) -> Result<(
     let bad = || ControlError::Projection("meta evolution history is invalid".to_owned());
     let mut seen_strategies: std::collections::BTreeMap<String, MetaStrategyRegisteredPayload> =
         std::collections::BTreeMap::new();
+    let mut seen_admitted: std::collections::BTreeMap<String, MetaEvaluationAdmittedPayload> =
+        std::collections::BTreeMap::new();
     let mut seen_evaluations: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
     for (index, event) in history.iter().enumerate() {
@@ -240,95 +294,151 @@ pub(super) fn verify_meta_evolution_history(history: &[StoredEvent]) -> Result<(
             }
             seen_strategies.insert(payload.strategy_id.clone(), payload);
         } else if is_meta_evaluation_event(event) {
-            if event.event_type != META_EVALUATION_EVENT_TYPE {
-                return Err(bad());
-            }
-            let payload = decode_evaluation(event)?;
-            if event.event_id != meta_evaluation_event_id(&payload.meta_run_id)
-                || event.aggregate_id != meta_evaluation_aggregate_id(&payload.meta_run_id)
-                || payload.schema_version != 1
-                || payload.algorithm != BOOTSTRAP_ALGORITHM
-                || payload.bootstrap_resamples != u32::try_from(RESAMPLES).map_err(|_| bad())?
-                || !seen_evaluations.insert(payload.meta_run_id.clone())
-                || payload.lineages.len() < 2
-                || payload.strategy_a_id == payload.strategy_b_id
-            {
-                return Err(bad());
-            }
-            let strategy_a = seen_strategies
-                .get(&payload.strategy_a_id)
-                .ok_or_else(bad)?;
-            let strategy_b = seen_strategies
-                .get(&payload.strategy_b_id)
-                .ok_or_else(bad)?;
-            let mut quality_deltas = Vec::with_capacity(payload.lineages.len());
-            let mut cost_deltas = Vec::with_capacity(payload.lineages.len());
-            for lineage in &payload.lineages {
-                let run_a =
-                    super::evolution_projection(&history[..index], &lineage.strategy_a_run_id)
+            match event.event_type.as_str() {
+                META_EVALUATION_ADMITTED_EVENT_TYPE => {
+                    let payload = decode_admitted(event)?;
+                    if event.event_id != meta_evaluation_admitted_event_id(&payload.meta_run_id)
+                        || event.aggregate_id != meta_evaluation_aggregate_id(&payload.meta_run_id)
+                        || payload.schema_version != 1
+                        || payload.lineages.len() < 2
+                        || payload.strategy_a_id == payload.strategy_b_id
+                        || !seen_strategies.contains_key(&payload.strategy_a_id)
+                        || !seen_strategies.contains_key(&payload.strategy_b_id)
+                        || payload.confidence_bps == 0
+                        || payload.confidence_bps >= 10_000
+                        || seen_admitted.contains_key(&payload.meta_run_id)
+                    {
+                        return Err(bad());
+                    }
+                    let mut worlds: std::collections::BTreeSet<String> =
+                        std::collections::BTreeSet::new();
+                    for lineage in &payload.lineages {
+                        if !worlds.insert(lineage.world_id.clone()) {
+                            return Err(bad());
+                        }
+                    }
+                    seen_admitted.insert(payload.meta_run_id.clone(), payload);
+                }
+                META_EVALUATION_EVENT_TYPE => {
+                    let payload = decode_evaluation(event)?;
+                    if event.event_id != meta_evaluation_event_id(&payload.meta_run_id)
+                        || event.aggregate_id != meta_evaluation_aggregate_id(&payload.meta_run_id)
+                        || payload.schema_version != 1
+                        || payload.algorithm != BOOTSTRAP_ALGORITHM
+                        || payload.bootstrap_resamples
+                            != u32::try_from(RESAMPLES).map_err(|_| bad())?
+                        || !seen_evaluations.insert(payload.meta_run_id.clone())
+                        || payload.lineages.len() < 2
+                        || payload.strategy_a_id == payload.strategy_b_id
+                    {
+                        return Err(bad());
+                    }
+                    // Must match the meta-evaluation's own admission record
+                    // exactly on every field the admission fixed up front
+                    // (TD-14): a forged receipt cannot claim different
+                    // strategies, bootstrap parameters, or lineages than what
+                    // was durably admitted before any lineage work ran.
+                    let admitted = seen_admitted.get(&payload.meta_run_id).ok_or_else(bad)?;
+                    if admitted.strategy_a_id != payload.strategy_a_id
+                        || admitted.strategy_b_id != payload.strategy_b_id
+                        || admitted.confidence_bps != payload.confidence_bps
+                        || admitted.bootstrap_seed != payload.bootstrap_seed
+                        || admitted.lineages.len() != payload.lineages.len()
+                        || admitted.lineages.iter().zip(payload.lineages.iter()).any(
+                            |(spec, outcome)| {
+                                spec.world_id != outcome.world_id
+                                    || spec.from_genome_id != outcome.from_genome_id
+                            },
+                        )
+                    {
+                        return Err(bad());
+                    }
+                    let strategy_a = seen_strategies
+                        .get(&payload.strategy_a_id)
+                        .ok_or_else(bad)?;
+                    let strategy_b = seen_strategies
+                        .get(&payload.strategy_b_id)
+                        .ok_or_else(bad)?;
+                    let mut quality_deltas = Vec::with_capacity(payload.lineages.len());
+                    let mut cost_deltas = Vec::with_capacity(payload.lineages.len());
+                    for lineage in &payload.lineages {
+                        let run_a = super::evolution_projection(
+                            &history[..index],
+                            &lineage.strategy_a_run_id,
+                        )
                         .map_err(|_| bad())?
                         .ok_or_else(bad)?;
-                let run_b =
-                    super::evolution_projection(&history[..index], &lineage.strategy_b_run_id)
+                        let run_b = super::evolution_projection(
+                            &history[..index],
+                            &lineage.strategy_b_run_id,
+                        )
                         .map_err(|_| bad())?
                         .ok_or_else(bad)?;
-                if run_a.world_id != lineage.world_id
-                    || run_b.world_id != lineage.world_id
-                    || run_a.from_genome_id != lineage.from_genome_id
-                    || run_b.from_genome_id != lineage.from_genome_id
-                    || run_a.max_generations != strategy_a.config.generation_count
-                    || run_a.max_paired_trials != strategy_a.config.experiment_allocation
-                    || run_b.max_generations != strategy_b.config.generation_count
-                    || run_b.max_paired_trials != strategy_b.config.experiment_allocation
-                    || run_a.state != crate::protocol::EvolutionRunState::Finished
-                    || run_b.state != crate::protocol::EvolutionRunState::Finished
-                {
-                    return Err(bad());
-                }
-                let promotions_a = promotions_of(&run_a);
-                let promotions_b = promotions_of(&run_b);
-                let champion_a = champion_after(&run_a);
-                let champion_b = champion_after(&run_b);
-                if lineage.strategy_a_promotions != promotions_a
-                    || lineage.strategy_b_promotions != promotions_b
-                    || lineage.strategy_a_trials_consumed != run_a.trials_consumed
-                    || lineage.strategy_b_trials_consumed != run_b.trials_consumed
-                    || lineage.strategy_a_champion_genome_id != champion_a
-                    || lineage.strategy_b_champion_genome_id != champion_b
-                {
-                    return Err(bad());
-                }
-                quality_deltas.push(i64::from(promotions_b) - i64::from(promotions_a));
-                cost_deltas.push(
-                    i64::try_from(run_b.trials_consumed)
-                        .ok()
-                        .zip(i64::try_from(run_a.trials_consumed).ok())
-                        .map(|(b, a)| b - a)
-                        .ok_or_else(bad)?,
-                );
-            }
-            let expected_quality = paired_bootstrap(
-                &quality_deltas,
-                payload.bootstrap_seed,
-                payload.confidence_bps,
-            )
-            .map_err(|_| bad())?;
-            let expected_cost =
-                paired_bootstrap(&cost_deltas, payload.bootstrap_seed, payload.confidence_bps)
+                        if run_a.world_id != lineage.world_id
+                            || run_b.world_id != lineage.world_id
+                            || run_a.from_genome_id != lineage.from_genome_id
+                            || run_b.from_genome_id != lineage.from_genome_id
+                            || run_a.max_generations != strategy_a.config.generation_count
+                            || run_a.max_paired_trials != strategy_a.config.experiment_allocation
+                            || run_b.max_generations != strategy_b.config.generation_count
+                            || run_b.max_paired_trials != strategy_b.config.experiment_allocation
+                            || run_a.state != crate::protocol::EvolutionRunState::Finished
+                            || run_b.state != crate::protocol::EvolutionRunState::Finished
+                        {
+                            return Err(bad());
+                        }
+                        let promotions_a = promotions_of(&run_a);
+                        let promotions_b = promotions_of(&run_b);
+                        let champion_a = champion_after(&run_a);
+                        let champion_b = champion_after(&run_b);
+                        if lineage.strategy_a_promotions != promotions_a
+                            || lineage.strategy_b_promotions != promotions_b
+                            || lineage.strategy_a_trials_consumed != run_a.trials_consumed
+                            || lineage.strategy_b_trials_consumed != run_b.trials_consumed
+                            || lineage.strategy_a_champion_genome_id != champion_a
+                            || lineage.strategy_b_champion_genome_id != champion_b
+                        {
+                            return Err(bad());
+                        }
+                        quality_deltas.push(i64::from(promotions_b) - i64::from(promotions_a));
+                        cost_deltas.push(
+                            i64::try_from(run_b.trials_consumed)
+                                .ok()
+                                .zip(i64::try_from(run_a.trials_consumed).ok())
+                                .map(|(b, a)| b - a)
+                                .ok_or_else(bad)?,
+                        );
+                    }
+                    let expected_quality = paired_bootstrap(
+                        &quality_deltas,
+                        payload.bootstrap_seed,
+                        payload.confidence_bps,
+                    )
                     .map_err(|_| bad())?;
-            if payload.quality_delta != expected_quality || payload.cost_delta != expected_cost {
-                return Err(bad());
-            }
-            let expected_verdict = descendant_verdict(
-                &payload.strategy_a_id,
-                &strategy_a.config,
-                &payload.strategy_b_id,
-                &strategy_b.config,
-                &expected_quality,
-                &expected_cost,
-            );
-            if payload.descendant_cheaper_at_equal_quality != expected_verdict {
-                return Err(bad());
+                    let expected_cost = paired_bootstrap(
+                        &cost_deltas,
+                        payload.bootstrap_seed,
+                        payload.confidence_bps,
+                    )
+                    .map_err(|_| bad())?;
+                    if payload.quality_delta != expected_quality
+                        || payload.cost_delta != expected_cost
+                    {
+                        return Err(bad());
+                    }
+                    let expected_verdict = descendant_verdict(
+                        &payload.strategy_a_id,
+                        &strategy_a.config,
+                        &payload.strategy_b_id,
+                        &strategy_b.config,
+                        &expected_quality,
+                        &expected_cost,
+                    );
+                    if payload.descendant_cheaper_at_equal_quality != expected_verdict {
+                        return Err(bad());
+                    }
+                }
+                _ => return Err(bad()),
             }
         }
     }

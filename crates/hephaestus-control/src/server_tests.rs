@@ -16,7 +16,7 @@ use crate::{
     CanaryTransitionRecord, ChampionRecord, ChampionTransitionKind, ChampionTransitionPayload,
     ChampionTransitionRecord, DriftAdaptationFinishReason, DriftKind, DriftRecord,
     DriftRecordPayload, GeneExtractedPayload, GeneRecord, GeneTransferAppliedPayload,
-    GeneTransferOutcome, GeneTransferRecordedPayload, MetaLineageSpec,
+    GeneTransferOutcome, GeneTransferRecordedPayload, MetaLineageSpec, MetaReceiptRecord,
 };
 
 #[test]
@@ -14580,6 +14580,34 @@ fn register_meta_strategy_ex(
     strategy.strategy_id
 }
 
+/// Polls the reconciliation loop (TD-14) until the named meta-evaluation's
+/// receipt is recorded, the same way `evolve_drain_active_run` polls a plain
+/// evolve run. `meta evaluate` (and `meta status`) return immediately once
+/// admitted; the daemon's own tick loop drives every lineage's paired
+/// strategy runs to completion.
+fn meta_drain(plane: &mut ControlPlane, meta_run_id: &str) -> MetaReceiptRecord {
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        plane
+            .service_async_messages()
+            .expect("advance the meta-evaluation reconciliation loop");
+        let history = plane
+            .storage
+            .as_ref()
+            .expect("open canonical storage")
+            .ledger
+            .replay_verified()
+            .expect("replay verified history");
+        if let Some(receipt) =
+            meta_evaluation_projection(&history, meta_run_id).expect("meta-evaluation projection")
+        {
+            return receipt;
+        }
+        assert!(Instant::now() < deadline, "meta-evaluation did not finish");
+        thread::sleep(Duration::from_millis(2));
+    }
+}
+
 #[test]
 #[allow(clippy::too_many_lines, clippy::similar_names)]
 fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
@@ -14625,9 +14653,15 @@ fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
         "meta evaluate failed: {:?}",
         evaluate.error
     );
-    let Some(ResponseData::MetaEvaluation { receipt }) = evaluate.data else {
-        panic!("meta evaluate should return the recorded receipt");
+    let Some(ResponseData::MetaStatus { status }) = evaluate.data else {
+        panic!("meta evaluate should admit and return the current status");
     };
+    assert!(status.receipt.is_none(), "admission alone is not finished");
+    assert_eq!(status.lineages_total, 2);
+
+    // The daemon's own reconciliation loop (TD-14) drives both lineages'
+    // paired strategy runs to completion; `meta evaluate` never blocks.
+    let receipt = meta_drain(&mut plane, "meta-1");
     assert_eq!(receipt.payload.meta_run_id, "meta-1");
     assert_eq!(receipt.payload.lineages.len(), 2);
     // Both strategies declare the identical generation/budget knobs and only
@@ -14661,7 +14695,13 @@ fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
         },
     );
     assert!(repeat.error.is_none());
-    assert_eq!(repeat.data, Some(ResponseData::MetaEvaluation { receipt }));
+    let Some(ResponseData::MetaStatus {
+        status: repeat_status,
+    }) = repeat.data
+    else {
+        panic!("repeat meta evaluate should return the current status");
+    };
+    assert_eq!(repeat_status.receipt, Some(Box::new(receipt)));
 
     // The meta-evaluation left each lineage's Champion exactly where it
     // found it.
@@ -14954,9 +14994,11 @@ fn meta_evaluate_shows_a_descendant_strategy_reaching_equal_champions_at_lower_c
         "meta evaluate failed: {:?}",
         evaluate.error
     );
-    let Some(ResponseData::MetaEvaluation { receipt }) = evaluate.data else {
-        panic!("meta evaluate should return the recorded receipt");
-    };
+    assert!(
+        matches!(evaluate.data, Some(ResponseData::MetaStatus { .. })),
+        "meta evaluate should admit and return the current status"
+    );
+    let receipt = meta_drain(&mut plane, "meta-descendant-1");
     assert_eq!(
         receipt.payload.lineages.len(),
         3,
@@ -15112,9 +15154,11 @@ fn meta_evaluate_isolates_candidate_count_as_the_only_differing_knob() {
         "meta evaluate failed: {:?}",
         evaluate.error
     );
-    let Some(ResponseData::MetaEvaluation { receipt }) = evaluate.data else {
-        panic!("meta evaluate should return the recorded receipt");
-    };
+    assert!(
+        matches!(evaluate.data, Some(ResponseData::MetaStatus { .. })),
+        "meta evaluate should admit and return the current status"
+    );
+    let receipt = meta_drain(&mut plane, "meta-candidate-count");
     assert_eq!(receipt.payload.lineages.len(), 2);
 
     for lineage in &receipt.payload.lineages {
@@ -17585,6 +17629,14 @@ const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 /// Baseline delay added to every reference trial in the auto-canary fixture.
 const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 150;
 
+/// Per-trial delay for the Gauntlet drift-adaptation fixture: larger than
+/// [`AUTO_CANARY_REGRESSION_DELAY_MILLIS`] because, unlike the simple
+/// `identity`/`ascii_uppercase` fixture, a Gauntlet multi-turn task's own
+/// reference-worker runtime is itself non-trivial and noisier under parallel
+/// test load, so the injected delay must dominate that noise as well as the
+/// fixed baseline to reliably cross the 20% latency gate.
+const GAUNTLET_DRIFT_REGRESSION_DELAY_MILLIS: u64 = 3_000;
+
 /// Like `real_worker_arena_fixture_with_invariants`, but the registered World
 /// opts in to `laws.auto_canary_on_drift`, and both registered Genomes start
 /// on the `identity` reference operation against these uppercase-expecting
@@ -18438,6 +18490,308 @@ fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
         reopened
             .replay_response()
             .expect("replay after resumed promotion"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+/// Like [`real_worker_gauntlet_fixture`], but the registered World opts into
+/// `laws.auto_canary_on_drift` and every reference trial carries the same
+/// fixed baseline delay `auto_canary_arena_fixture` uses, so a driven canary's
+/// 20% latency gate compares real work rather than scheduling noise (TD-18).
+#[allow(clippy::too_many_lines)]
+fn real_worker_gauntlet_fixture_with_auto_canary(
+    directory: &TempDir,
+    mode: &str,
+    task_input: &str,
+    expected_output: &str,
+    bad_operation: &str,
+    good_operation: &str,
+) -> (ControlPlane, GenomeRecord, GenomeRecord) {
+    hephaestus_runtime::set_test_reference_baseline_delay_in(
+        directory.path(),
+        AUTO_CANARY_BASELINE_DELAY_MILLIS,
+    );
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(&repository).expect("create source repository");
+    fixture_git(&repository, &["init", "-q"]);
+    fixture_git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    fixture_git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    fs::write(
+        repository.join("fixture.txt"),
+        b"Gauntlet drift-adaptation fixture\n",
+    )
+    .expect("write source fixture");
+    fixture_git(&repository, &["add", "."]);
+    fixture_git(&repository, &["commit", "-m", "fixture", "-q"]);
+
+    let bin_directory = env::current_exe()
+        .expect("test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("Cargo binary directory")
+        .to_owned();
+    let cargo_evaluator = bin_directory.join(format!(
+        "hephaestus-reference-evaluator{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let evaluator = directory.path().join("fixture-evaluator");
+    fs::copy(&cargo_evaluator, &evaluator).expect("copy evaluator into private inode");
+    fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+        .expect("make evaluator executable");
+    let worker = bin_directory.join(format!(
+        "hephaestus-reference-worker{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("open Gauntlet drift-adaptation fixture");
+    let token = plane.token_hex.clone();
+
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
+    let visible = TrustedManifest::new(
+        format!("{mode}-visible"),
+        Visibility::Visible,
+        vec![
+            TrustedTask::new(format!("{mode}-visible-task"), task_input, expected_output)
+                .expect("visible task"),
+        ],
+    )
+    .expect("visible manifest");
+    let sealed = TrustedManifest::new(
+        format!("{mode}-sealed"),
+        Visibility::Sealed,
+        vec![
+            TrustedTask::new(format!("{mode}-sealed-task"), task_input, expected_output)
+                .expect("sealed task"),
+        ],
+    )
+    .expect("sealed manifest");
+    let visible_id = artifacts
+        .put(&serde_json::to_vec(&visible).expect("encode visible manifest"))
+        .expect("store visible manifest");
+    let sealed_id = artifacts
+        .put(&serde_json::to_vec(&sealed).expect("encode sealed manifest"))
+        .expect("store sealed manifest");
+    let evaluator_id = artifacts
+        .put(&fs::read(&evaluator).expect("read reference evaluator"))
+        .expect("store evaluator identity");
+    let verifier_id = artifacts
+        .put(&plane.run_result_verifier.public_key_bytes())
+        .expect("store result verifier");
+    let invariant_id = artifacts
+        .put(CLEAN_INVARIANTS)
+        .expect("store invariant manifest");
+    drop(artifacts);
+    let world_path = directory
+        .path()
+        .join(format!("gauntlet-{mode}-auto-canary-world.json"));
+    fs::write(
+        &world_path,
+        format!(
+            r#"{{"schema_version":1,"name":"gauntlet-{mode}-auto-canary","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0,"auto_canary_on_drift":true}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":["harness"],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}","arena.invariant_manifest":"{}"}}}}"#,
+            visible_id.as_str(),
+            sealed_id.as_str(),
+            evaluator_id.as_str(),
+            verifier_id.as_str(),
+            invariant_id.as_str(),
+        ),
+    )
+    .expect("write Gauntlet World");
+    let Some(ResponseData::World { world }) = dispatch_call(
+        &mut plane,
+        &token,
+        &format!("gauntlet-{mode}-auto-canary-world"),
+        Command::WorldRegister {
+            path: world_path.display().to_string(),
+        },
+    )
+    .data
+    else {
+        panic!("Gauntlet World registration should succeed");
+    };
+    assert!(
+        plane
+            .state
+            .registered
+            .world(&world.world_id)
+            .expect("registered Gauntlet World")
+            .compiled()
+            .evaluation_policy()
+            .auto_canary_on_drift(),
+        "the registered World must carry the opted-in Law"
+    );
+    let register_genome = |plane: &mut ControlPlane,
+                           token: &str,
+                           name: &str,
+                           parents: &str,
+                           operation: &str| {
+        let path = directory.path().join(format!("gauntlet-{mode}-{name}.md"));
+        fs::write(
+            &path,
+            format!(
+                "---\nschema_version: 1\nname: gauntlet-{mode}-{name}\nparents: {parents}\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n```hephaestus-reference-v1\n{{\"schema_version\":1,\"operation\":\"{operation}\"}}\n```\n"
+            ),
+        )
+        .expect("write Gauntlet Genome source");
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            plane,
+            token,
+            &format!("gauntlet-{mode}-{name}"),
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("Gauntlet Genome registration should succeed");
+        };
+        genome
+    };
+    let parent = register_genome(&mut plane, &token, "parent", "[]", bad_operation);
+    let candidate = register_genome(
+        &mut plane,
+        &token,
+        "candidate",
+        &format!("[\"{}\"]", parent.genome_id),
+        good_operation,
+    );
+    assert!(
+        dispatch_call(&mut plane, &token, "gauntlet-unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    (plane, parent, candidate)
+}
+
+/// TD-18: an automatic drift-to-canary adaptation whose Champion runs a
+/// Gauntlet bad operation derives its adaptation mutation from the diagnostic
+/// evaluation's own failure-cluster analysis, through the same mutation
+/// catalog path a strategy-bound `evolve` run uses
+/// (`choose_adaptation_hypothesis_source`), rather than the historical
+/// `identity`/`ascii_uppercase` flip: that flip does not apply to a Gauntlet
+/// operation, so before this fix the pipeline could only ever finish
+/// `NoCandidateMutation` here.
+#[test]
+fn auto_canary_on_drift_derives_a_gauntlet_fix_from_failure_clusters_and_replays() {
+    let directory = tempdir().expect("gauntlet drift-adaptation fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
+    let mode = "context-loss";
+    let task_input = r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#;
+    let expected_output = " the deploy key is banana";
+    let bad_operation = "context_loss_naive";
+    let good_operation = "context_loss_aware";
+
+    let (mut plane, parent, candidate) = real_worker_gauntlet_fixture_with_auto_canary(
+        &directory,
+        mode,
+        task_input,
+        expected_output,
+        bad_operation,
+        good_operation,
+    );
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: parent.genome_id.clone(),
+            reason: "seed the Gauntlet-misconfigured Champion".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    // Trigger evidence, exactly like
+    // `auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays`:
+    // a genuine latency regression on an unrelated Genome is what the drift
+    // records, regardless of which mutation the automatic adaptation later
+    // derives for the Champion itself. `candidate` (the paired Gauntlet fix)
+    // is deterministically slowed so it measures as a real latency
+    // regression against the bad-operation Champion, independent of
+    // correctness.
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
+        candidate.genome_id.clone(),
+        GAUNTLET_DRIFT_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "gauntlet-drift-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &parent.genome_id,
+        &candidate.genome_id,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    assert!(
+        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
+        "the injected delay should make the fix Genome measurably slower"
+    );
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "gauntlet-drift",
+        Command::DriftRecord {
+            drift_id: "gauntlet-drift".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+    assert!(!recorded.adaptation.started);
+
+    let finished = drain_drift_adaptation(&mut plane, "gauntlet-drift");
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Promoted),
+        "the adaptation should discover and promote the Gauntlet fix on its own"
+    );
+    let promoted_child = finished
+        .adaptation
+        .child_genome_id
+        .clone()
+        .expect("a promoted adaptation records its child Genome");
+    let promoted_operation = plane
+        .reference_instruction(&promoted_child)
+        .expect("promoted child should have a readable reference operation");
+    assert_eq!(
+        promoted_operation.map(ReferenceInstruction::operation_name),
+        Some(good_operation),
+        "the automatic adaptation should have derived the Gauntlet fix from failure clusters, \
+         not the identity/ascii_uppercase flip"
+    );
+
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(promoted_child.as_str()),
+    );
+
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay after automatic promotion"),
         ResponseData::Replay { .. }
     ));
 }

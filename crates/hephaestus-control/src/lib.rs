@@ -27,11 +27,11 @@ pub use protocol::{
     GeneExtractedPayload, GeneRecord, GeneSelectionPolicy, GeneSpeciesPayload, GeneSpeciesRecord,
     GeneSummary, GeneTransferAppliedPayload, GeneTransferOutcome, GeneTransferRecord,
     GeneTransferRecordedPayload, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaBootstrapInterval, MetaEvaluationPayload,
-    MetaLineageOutcome, MetaLineageSpec, MetaReceiptRecord, MetaStrategyRecord,
-    MetaStrategyRegisteredPayload, MutationPrioritization, MutationSlot, RemoteJobState,
-    ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord,
-    WorkerScope, WorldRecord,
+    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaBootstrapInterval, MetaEvaluationAdmittedPayload,
+    MetaEvaluationPayload, MetaEvaluationStatus, MetaLineageOutcome, MetaLineageProgress,
+    MetaLineageSpec, MetaReceiptRecord, MetaStrategyRecord, MetaStrategyRegisteredPayload,
+    MutationPrioritization, MutationSlot, RemoteJobState, ResponseData, RunCompletionReason,
+    RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
 };
 pub use server::{
     ControlPlane, RemoteCompletion, WorkerReply, WorkerRequest, data_dir_from_environment,

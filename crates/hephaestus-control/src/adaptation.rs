@@ -77,6 +77,14 @@ pub(super) fn adaptation_shadow_evaluation_id(drift_id: &str) -> String {
     format!("adapt-{drift_id}-shadow")
 }
 
+/// Deterministic `forge.clustered` analysis identity for one drift's
+/// diagnostic evaluation, mirroring `evolution_analysis_id` (TD-18): the
+/// failure-cluster analysis this adaptation's proposal step derives its
+/// mutation from.
+pub(super) fn adaptation_analysis_id(drift_id: &str) -> String {
+    format!("adapt-{drift_id}-analysis")
+}
+
 /// Deterministic Forge assessment identity binding the shadow evaluation.
 pub(super) fn adaptation_assessment_id(drift_id: &str) -> String {
     format!("adapt-{drift_id}-assessment")

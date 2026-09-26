@@ -110,7 +110,8 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus evolve coding --budget <n>` | Convenience: registers the bundled Gauntlet "coding" World/Genomes and drives a 3-generation evolve run to completion |
 | `hephaestus meta strategy register <file>` | Register a versioned, content-addressed Evolver strategy Genome ([META_EVOLUTION.md](META_EVOLUTION.md)) |
 | `hephaestus meta strategy show <id>` / `list` | Inspect one or every registered Evolver strategy |
-| `hephaestus meta evaluate <id> --strategy-a <g> --strategy-b <g> --lineage-world <w> --lineage-genome <g> ... --lineages <n>` | Run a paired meta-evaluation of two Evolver strategies over held-out base lineages using the existing evolve engine; records a replay-verified receipt with a bootstrap confidence interval |
+| `hephaestus meta evaluate <id> --strategy-a <g> --strategy-b <g> --lineage-world <w> --lineage-genome <g> ... --lineages <n>` | Admits a paired meta-evaluation of two Evolver strategies over held-out base lineages; the daemon's own reconciliation loop drives the existing evolve engine and records a replay-verified receipt with a bootstrap confidence interval. Does not block; returns the current progress |
+| `hephaestus meta status <id>` | Poll one meta-evaluation's progress: per-lineage status while in flight, or the recorded receipt once finished |
 | `hephaestus meta show <id>` / `list` | Inspect one meta-evaluation receipt, or list recent receipts |
 | `hephaestus forge analyze <id> --evaluation <evaluation>` | Record deterministic failure clusters with hypotheses and suggested minimal mutations; never promotes |
 | `hephaestus champion seed <id> --world <world> --genome <genome> --reason <text>` | Bootstrap a World's first Champion by operator authority |

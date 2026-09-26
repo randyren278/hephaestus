@@ -369,10 +369,16 @@ pub enum Command {
     },
     /// List every registered Evolver strategy Genome, oldest first.
     MetaStrategyList,
-    /// Run a paired meta-evaluation of two Evolver strategies over held-out
-    /// base lineages, driving the existing evolve engine once per strategy
-    /// per lineage, then record a replay-verified meta-receipt with a
-    /// bootstrap confidence interval over the per-lineage paired deltas.
+    /// Admits a paired meta-evaluation of two Evolver strategies over
+    /// held-out base lineages (TD-14): idempotent on `meta_run_id`, and does
+    /// not block on any lineage's evolve run. The daemon's own
+    /// reconciliation loop (`ControlPlane::advance_meta_evaluations`, called
+    /// every tick, exactly like `evolve` and drift adaptation) drives the
+    /// existing evolve engine once per strategy per lineage and records a
+    /// replay-verified receipt with a bootstrap confidence interval over the
+    /// per-lineage paired deltas once every lineage finishes. Returns the
+    /// current [`MetaEvaluationStatus`] immediately; poll it (or
+    /// `MetaStatus`) for progress.
     MetaEvaluate {
         /// Stable caller-selected idempotency key for this meta-evaluation.
         meta_run_id: String,
@@ -392,6 +398,13 @@ pub enum Command {
     },
     /// Inspect one meta-evaluation's durable, replay-verified receipt.
     MetaShow {
+        /// Stable meta-evaluation identity returned by `MetaEvaluate`.
+        meta_run_id: String,
+    },
+    /// Poll one meta-evaluation's progress (TD-14): admitted-but-unfinished
+    /// per-lineage progress, or the recorded receipt once every lineage's
+    /// paired runs have finished.
+    MetaStatus {
         /// Stable meta-evaluation identity returned by `MetaEvaluate`.
         meta_run_id: String,
     },
@@ -761,6 +774,13 @@ pub enum ResponseData {
     MetaEvaluationList {
         /// Entries in newest-first order.
         receipts: Vec<MetaReceiptRecord>,
+    },
+    /// Durable, replay-verified progress of one meta-evaluation (TD-14):
+    /// still in flight or finished. Returned by both `MetaEvaluate` (on
+    /// admission or a repeat poll) and `MetaStatus`.
+    MetaStatus {
+        /// Per-lineage progress, or the recorded receipt once finished.
+        status: Box<MetaEvaluationStatus>,
     },
     /// Result of a fresh verified replay.
     Replay {
@@ -2494,6 +2514,70 @@ pub struct MetaReceiptRecord {
     pub payload: MetaEvaluationPayload,
     /// Canonical event metadata for `meta_evolution.evaluated`.
     pub event: EvolutionEventRecord,
+}
+
+/// Canonical payload of the one `meta_evolution.admitted` event that starts a
+/// meta-evaluation (TD-14): the exact request recorded before any lineage
+/// work runs, so a daemon restart mid-evaluation resumes driving it from
+/// durable history alone, exactly like `evolution.started`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaEvaluationAdmittedPayload {
+    /// Admission payload schema.
+    pub schema_version: u16,
+    /// Stable caller-selected idempotency key for this meta-evaluation.
+    pub meta_run_id: String,
+    /// Registered Evolver strategy Genome, the "A" side of the comparison.
+    pub strategy_a_id: String,
+    /// Registered Evolver strategy Genome, the "B" side of the comparison.
+    pub strategy_b_id: String,
+    /// Held-out base lineages, in request order.
+    pub lineages: Vec<MetaLineageSpec>,
+    /// Bootstrap confidence, in basis points.
+    pub confidence_bps: u16,
+    /// Deterministic bootstrap resampling seed.
+    pub bootstrap_seed: u64,
+}
+
+/// One held-out lineage's progress, as the daemon's own reconciliation loop
+/// (`ControlPlane::advance_meta_evaluations`) drives it forward one durable
+/// step at a time (TD-14).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetaLineageProgress {
+    /// Strategy A's run has not yet been admitted for this lineage.
+    Pending,
+    /// Strategy A's run is admitted and driving toward completion.
+    RunningStrategyA,
+    /// Strategy B's run is admitted and driving toward completion.
+    RunningStrategyB,
+    /// Both runs finished and this lineage's Champion was restored.
+    Done,
+}
+
+/// Durable, replay-verified progress of one meta-evaluation (TD-14): either
+/// still in flight, with per-lineage progress, or finished, with the
+/// recorded receipt. `hephaestus meta status <id>` and the polling tail of
+/// `hephaestus meta evaluate` both return this.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetaEvaluationStatus {
+    /// Stable caller-selected idempotency key for this meta-evaluation.
+    pub meta_run_id: String,
+    /// Registered Evolver strategy Genome, the "A" side of the comparison.
+    pub strategy_a_id: String,
+    /// Registered Evolver strategy Genome, the "B" side of the comparison.
+    pub strategy_b_id: String,
+    /// Total number of held-out lineages this meta-evaluation compares.
+    pub lineages_total: u32,
+    /// Number of lineages whose paired runs have both finished and been
+    /// rolled back.
+    pub lineages_completed: u32,
+    /// Per-lineage progress, in request order.
+    pub lineage_progress: Vec<MetaLineageProgress>,
+    /// The durable receipt, once every lineage is done and the bootstrapped
+    /// deltas have been recorded.
+    pub receipt: Option<Box<MetaReceiptRecord>>,
 }
 
 #[cfg(test)]

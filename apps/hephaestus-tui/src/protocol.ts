@@ -192,6 +192,13 @@ export type MetaEvaluation = {
 	descendant_cheaper_at_equal_quality: boolean | null;
 	event_id: string; sequence: number;
 };
+export type MetaLineageProgress = 'pending' | 'running_strategy_a' | 'running_strategy_b' | 'done';
+export type MetaEvaluationStatus = {
+	meta_run_id: string; strategy_a_id: string; strategy_b_id: string;
+	lineages_total: number; lineages_completed: number;
+	lineage_progress: MetaLineageProgress[];
+	receipt: MetaEvaluation | null;
+};
 export type DenialEntry = {
 	kind: 'request_rejected' | 'runtime_capability_denied' | 'mcp_call_denied'; timestamp_millis: number;
 	request_id: string | null; command: string | null;
@@ -228,6 +235,7 @@ export type ResponseData =
 	| {type: 'meta_strategies'; strategies: MetaStrategy[]}
 	| {type: 'meta_evaluation'; receipt: MetaEvaluation}
 	| {type: 'meta_evaluation_list'; receipts: MetaEvaluation[]}
+	| {type: 'meta_status'; status: MetaEvaluationStatus}
 	| {type: 'run_list'; runs: RunListEntry[]}
 	| {type: 'evaluation_list'; evaluations: EvaluationListEntry[]}
 	| {type: 'denial_list'; denials: DenialEntry[]};
@@ -684,6 +692,30 @@ function parseMetaEvaluation(value: unknown): MetaEvaluation | undefined {
 	};
 }
 
+const META_LINEAGE_PROGRESS: MetaLineageProgress[] = ['pending', 'running_strategy_a', 'running_strategy_b', 'done'];
+
+function parseMetaEvaluationStatus(value: unknown): MetaEvaluationStatus | undefined {
+	if (!record(value) || !identifier(value['meta_run_id']) || !identifier(value['strategy_a_id'])
+		|| !identifier(value['strategy_b_id']) || !boundedCount(value['lineages_total'])
+		|| !boundedCount(value['lineages_completed']) || !Array.isArray(value['lineage_progress'])
+		|| value['lineage_progress'].length > MAX_META_LINEAGES
+		|| !value['lineage_progress'].every((entry: unknown) =>
+			typeof entry === 'string' && (META_LINEAGE_PROGRESS as string[]).includes(entry))) return undefined;
+	const receiptValue = value['receipt'];
+	let receipt: MetaEvaluation | null = null;
+	if (receiptValue !== null) {
+		const parsed = parseMetaEvaluation(receiptValue);
+		if (!parsed) return undefined;
+		receipt = parsed;
+	}
+	return {
+		meta_run_id: value['meta_run_id'], strategy_a_id: value['strategy_a_id'], strategy_b_id: value['strategy_b_id'],
+		lineages_total: value['lineages_total'], lineages_completed: value['lineages_completed'],
+		lineage_progress: value['lineage_progress'] as MetaLineageProgress[],
+		receipt,
+	};
+}
+
 const RUN_STATES: JobState[] = ['admitted', 'running', 'cancellation_requested', 'succeeded', 'failed', 'interrupted'];
 const COMPLETION_REASONS = ['success', 'provider_failure', 'operator_interrupt', 'wall_budget_exceeded', 'output_budget_exceeded', 'io_failure'];
 const FORGE_OUTCOMES = ['metrics_passed', 'metrics_rejected'];
@@ -950,6 +982,11 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			const receipts = data['receipts'].map(parseMetaEvaluation);
 			if (receipts.some(receipt => receipt === undefined)) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'meta_evaluation_list', receipts: receipts as MetaEvaluation[]}};
+		}
+		case 'meta_status': {
+			const status = parseMetaEvaluationStatus(data['status']);
+			if (!status) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'meta_status', status}};
 		}
 		case 'run_list': {
 			const runs = data['runs'];

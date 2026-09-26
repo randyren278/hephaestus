@@ -74,10 +74,10 @@ use crate::{
     ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
     ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GeneSelectionPolicy,
     GeneTransferOutcome, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationPayload, MetaLineageOutcome,
-    MetaStrategyRegisteredPayload, MutationPrioritization, MutationSlot, RemoteJobState,
-    ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord, SelectionRecord,
-    WorkerScope, WorldRecord,
+    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationAdmittedPayload, MetaEvaluationPayload,
+    MetaEvaluationStatus, MetaLineageOutcome, MetaLineageProgress, MetaStrategyRegisteredPayload,
+    MutationPrioritization, MutationSlot, RemoteJobState, ResponseData, RunCompletionReason,
+    RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -1448,6 +1448,7 @@ impl ControlPlane {
             Command::MetaStrategyList => self.meta_strategy_list_response(),
             command @ Command::MetaEvaluate { .. } => self.meta_evaluate(command),
             Command::MetaShow { meta_run_id } => self.meta_show(&meta_run_id),
+            Command::MetaStatus { meta_run_id } => self.meta_status(&meta_run_id),
             Command::MetaList { limit } => self.meta_list(limit),
             Command::Replay => self.replay_response(),
             Command::RunList { limit } => self.run_list(limit),
@@ -2469,54 +2470,6 @@ impl ControlPlane {
         Ok(ResponseData::MetaStrategies { strategies })
     }
 
-    /// Drives one lineage's evolve run to completion using exactly the
-    /// existing evolve engine (`evolve_start` plus the same reconciliation
-    /// step `service_async_messages` calls every tick), never a bespoke
-    /// meta-only code path. Blocks the calling connection until the run
-    /// finishes or a generous deadline elapses.
-    fn drive_evolve_run(
-        &mut self,
-        run_id: &str,
-        world_id: &str,
-        from_genome_id: &str,
-        generations: u32,
-        budget: u64,
-        strategy_id: &str,
-    ) -> Result<EvolutionRunRecord, ExecuteError> {
-        self.evolve_start(Command::EvolveStart {
-            run_id: run_id.to_owned(),
-            world_id: world_id.to_owned(),
-            from_genome_id: from_genome_id.to_owned(),
-            generations,
-            budget,
-            strategy_id: Some(strategy_id.to_owned()),
-        })?;
-        let deadline = Instant::now() + Duration::from_secs(600);
-        loop {
-            let history = self
-                .storage
-                .as_ref()
-                .ok_or(ExecuteError::Internal)?
-                .ledger
-                .replay_verified()
-                .map_err(|_| ExecuteError::Internal)?;
-            let run = evolution_projection(&history, run_id)
-                .map_err(|_| ExecuteError::Internal)?
-                .ok_or(ExecuteError::Internal)?;
-            if run.state == EvolutionRunState::Finished {
-                return Ok(run);
-            }
-            if Instant::now() >= deadline {
-                return Err(ExecuteError::Rejected(format!(
-                    "meta-evaluation lineage run {run_id} did not finish before its deadline"
-                )));
-            }
-            self.service_async_messages()
-                .map_err(|_| ExecuteError::Internal)?;
-            thread::sleep(Duration::from_millis(2));
-        }
-    }
-
     /// Cooperatively rolls a World's Champion back to `target_genome_id`,
     /// one promotion at a time, so a second strategy's run starts from
     /// exactly the same lineage state as the first. Used only between and
@@ -2555,11 +2508,14 @@ impl ControlPlane {
         Err(ExecuteError::Internal)
     }
 
-    /// Runs a paired meta-evaluation of two Evolver strategies over the
-    /// requested held-out base lineages, driving the existing evolve engine
-    /// unmodified and recording one replay-verified receipt. Idempotent on
-    /// `meta_run_id`.
-    #[allow(clippy::too_many_lines, clippy::similar_names)]
+    /// Admits a paired meta-evaluation of two Evolver strategies over the
+    /// requested held-out base lineages (TD-14). Idempotent on
+    /// `meta_run_id`: never blocks on any lineage's evolve run. The daemon's
+    /// own reconciliation loop (`advance_meta_evaluations`, called every
+    /// tick alongside `evolve` and drift adaptation) drives the existing
+    /// evolve engine unmodified and records one replay-verified receipt once
+    /// every lineage finishes; poll this command again, or `MetaStatus`, for
+    /// progress.
     fn meta_evaluate(&mut self, command: Command) -> Result<ResponseData, ExecuteError> {
         let Command::MetaEvaluate {
             meta_run_id,
@@ -2579,46 +2535,267 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        if let Some(existing) = meta_evaluation_projection(&history, &meta_run_id)
+        if let Some(existing) = meta_evaluation_admitted_projection(&history, &meta_run_id)
             .map_err(|_| ExecuteError::Internal)?
         {
-            return Ok(ResponseData::MetaEvaluation {
-                receipt: Box::new(existing),
-            });
+            if existing.strategy_a_id != strategy_a_id
+                || existing.strategy_b_id != strategy_b_id
+                || existing.lineages != lineages
+                || existing.confidence_bps != confidence_bps
+                || existing.bootstrap_seed != bootstrap_seed
+            {
+                return Err(ExecuteError::Rejected(
+                    "meta_run_id is already bound to a different meta-evaluation".to_owned(),
+                ));
+            }
+            return self.meta_status(&meta_run_id);
         }
-        let strategy_a = meta_strategy_projection(&history, &strategy_a_id)
+        meta_strategy_projection(&history, &strategy_a_id)
             .map_err(|_| ExecuteError::Internal)?
             .ok_or(ExecuteError::NotFound)?;
-        let strategy_b = meta_strategy_projection(&history, &strategy_b_id)
+        meta_strategy_projection(&history, &strategy_b_id)
             .map_err(|_| ExecuteError::Internal)?
             .ok_or(ExecuteError::NotFound)?;
 
-        let mut outcomes = Vec::with_capacity(lineages.len());
-        for (index, lineage) in lineages.iter().enumerate() {
+        let payload = MetaEvaluationAdmittedPayload {
+            schema_version: 1,
+            meta_run_id: meta_run_id.clone(),
+            strategy_a_id,
+            strategy_b_id,
+            lineages,
+            confidence_bps,
+            bootstrap_seed,
+        };
+        let payload_value = serde_json::to_value(&payload).map_err(|_| ExecuteError::Internal)?;
+        let payload_bytes =
+            serde_json::to_vec(&payload_value).map_err(|_| ExecuteError::Internal)?;
+        self.storage
+            .as_mut()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .append(EventInput::new(
+                meta_evaluation_admitted_event_id(&meta_run_id),
+                meta_evaluation_aggregate_id(&meta_run_id),
+                META_EVALUATION_ADMITTED_EVENT_TYPE,
+                OPERATOR_ACTOR,
+                timestamp_millis().map_err(|_| ExecuteError::Internal)?,
+                payload_bytes,
+            ))
+            .map_err(|_| ExecuteError::Internal)?;
+        self.refresh_projection()?;
+        self.meta_status(&meta_run_id)
+    }
+
+    /// Read-only, replay-verified lookup of one meta-evaluation receipt.
+    fn meta_show(&self, meta_run_id: &str) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let receipt = meta_evaluation_projection(&history, meta_run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(ResponseData::MetaEvaluation {
+            receipt: Box::new(receipt),
+        })
+    }
+
+    /// Read-only, replay-verified progress of one meta-evaluation (TD-14):
+    /// the recorded receipt once finished, or per-lineage progress while the
+    /// daemon's reconciliation loop is still driving it.
+    #[allow(clippy::similar_names)]
+    fn meta_status(&self, meta_run_id: &str) -> Result<ResponseData, ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if let Some(receipt) =
+            meta_evaluation_projection(&history, meta_run_id).map_err(|_| ExecuteError::Internal)?
+        {
+            let lineage_count = receipt.payload.lineages.len();
+            return Ok(ResponseData::MetaStatus {
+                status: Box::new(MetaEvaluationStatus {
+                    meta_run_id: meta_run_id.to_owned(),
+                    strategy_a_id: receipt.payload.strategy_a_id.clone(),
+                    strategy_b_id: receipt.payload.strategy_b_id.clone(),
+                    lineages_total: u32::try_from(lineage_count)
+                        .map_err(|_| ExecuteError::Internal)?,
+                    lineages_completed: u32::try_from(lineage_count)
+                        .map_err(|_| ExecuteError::Internal)?,
+                    lineage_progress: vec![MetaLineageProgress::Done; lineage_count],
+                    receipt: Some(Box::new(receipt)),
+                }),
+            });
+        }
+        let admitted = meta_evaluation_admitted_projection(&history, meta_run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::NotFound)?;
+        let mut lineage_progress = Vec::with_capacity(admitted.lineages.len());
+        let mut lineages_completed: u32 = 0;
+        for index in 0..admitted.lineages.len() {
+            let run_a_state =
+                evolution_projection(&history, &format!("meta-{meta_run_id}-a-{index}"))
+                    .map_err(|_| ExecuteError::Internal)?
+                    .map(|run| run.state);
+            let run_b_state =
+                evolution_projection(&history, &format!("meta-{meta_run_id}-b-{index}"))
+                    .map_err(|_| ExecuteError::Internal)?
+                    .map(|run| run.state);
+            let progress = match (run_a_state, run_b_state) {
+                (None, _) => MetaLineageProgress::Pending,
+                (Some(EvolutionRunState::Running), _) => MetaLineageProgress::RunningStrategyA,
+                (Some(EvolutionRunState::Finished), None | Some(EvolutionRunState::Running)) => {
+                    MetaLineageProgress::RunningStrategyB
+                }
+                (Some(EvolutionRunState::Finished), Some(EvolutionRunState::Finished)) => {
+                    lineages_completed += 1;
+                    MetaLineageProgress::Done
+                }
+            };
+            lineage_progress.push(progress);
+        }
+        Ok(ResponseData::MetaStatus {
+            status: Box::new(MetaEvaluationStatus {
+                meta_run_id: meta_run_id.to_owned(),
+                strategy_a_id: admitted.strategy_a_id,
+                strategy_b_id: admitted.strategy_b_id,
+                lineages_total: u32::try_from(admitted.lineages.len())
+                    .map_err(|_| ExecuteError::Internal)?,
+                lineages_completed,
+                lineage_progress,
+                receipt: None,
+            }),
+        })
+    }
+
+    /// Drives every admitted-but-unfinished meta-evaluation forward, one
+    /// durable step at a time, exactly like `advance_evolution` and
+    /// `advance_drift_adaptations` (TD-14). Never called from a client
+    /// connection.
+    fn advance_meta_evaluations(&mut self) {
+        if self.active_job.is_some() || self.active_arena_job.is_some() {
+            return;
+        }
+        let Some(storage) = self.storage.as_ref() else {
+            return;
+        };
+        let Ok(history) = storage.ledger.replay_verified() else {
+            return;
+        };
+        let Some(meta_run_id) = Self::next_meta_evaluation_needing_advancement(&history) else {
+            return;
+        };
+        if self.state.freeze.is_frozen() {
+            return;
+        }
+        // Busy means another admitted meta-evaluation's lineage run (or an
+        // unrelated evolve/Arena job) already claimed this tick's one active
+        // job slot; a genuine failure has no terminal "failed" receipt to
+        // record today, so it is left to retry on a later tick rather than
+        // silently discarding the admission.
+        let _ = self.advance_one_meta_evaluation(&meta_run_id);
+    }
+
+    /// The oldest admitted meta-evaluation with no recorded receipt yet.
+    fn next_meta_evaluation_needing_advancement(history: &[StoredEvent]) -> Option<String> {
+        for meta_run_id in meta_evaluation_admitted_ids(history).ok()? {
+            if meta_evaluation_projection(history, &meta_run_id)
+                .ok()?
+                .is_none()
+            {
+                return Some(meta_run_id);
+            }
+        }
+        None
+    }
+
+    /// Drives one meta-evaluation forward by exactly one durable step
+    /// (TD-14): admits the next held-out lineage's next strategy run
+    /// (returning `Ok(())` to let `advance_evolution` drive it to completion
+    /// on later ticks), rolls a finished run's lineage Champion back to its
+    /// starting Genome, or -- once every lineage's paired runs are finished
+    /// and rolled back -- computes and appends the final replay-verified
+    /// receipt, exactly the computation the previous synchronous
+    /// implementation performed inline. Every gate re-derives from
+    /// `history`, so a daemon restart mid-evaluation resumes idempotently,
+    /// exactly like `evolve` and the drift adaptation pipeline.
+    #[allow(clippy::too_many_lines, clippy::similar_names)]
+    fn advance_one_meta_evaluation(&mut self, meta_run_id: &str) -> Result<(), ExecuteError> {
+        let history = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        if meta_evaluation_projection(&history, meta_run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .is_some()
+        {
+            return Ok(());
+        }
+        let admitted = meta_evaluation_admitted_projection(&history, meta_run_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::Internal)?;
+        let strategy_a = meta_strategy_projection(&history, &admitted.strategy_a_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::Internal)?;
+        let strategy_b = meta_strategy_projection(&history, &admitted.strategy_b_id)
+            .map_err(|_| ExecuteError::Internal)?
+            .ok_or(ExecuteError::Internal)?;
+
+        let mut outcomes = Vec::with_capacity(admitted.lineages.len());
+        for (index, lineage) in admitted.lineages.iter().enumerate() {
             let run_a_id = format!("meta-{meta_run_id}-a-{index}");
             let run_b_id = format!("meta-{meta_run_id}-b-{index}");
-            let run_a = self.drive_evolve_run(
-                &run_a_id,
-                &lineage.world_id,
-                &lineage.from_genome_id,
-                strategy_a.config.generation_count,
-                strategy_a.config.experiment_allocation,
-                &strategy_a_id,
-            )?;
+
+            let run_a = match evolution_projection(&history, &run_a_id)
+                .map_err(|_| ExecuteError::Internal)?
+            {
+                None => {
+                    self.evolve_start(Command::EvolveStart {
+                        run_id: run_a_id,
+                        world_id: lineage.world_id.clone(),
+                        from_genome_id: lineage.from_genome_id.clone(),
+                        generations: strategy_a.config.generation_count,
+                        budget: strategy_a.config.experiment_allocation,
+                        strategy_id: Some(admitted.strategy_a_id.clone()),
+                    })?;
+                    return Ok(());
+                }
+                Some(run) if run.state != EvolutionRunState::Finished => return Ok(()),
+                Some(run) => run,
+            };
             self.rollback_champion_to(
                 &run_a_id,
                 &lineage.world_id,
                 &lineage.from_genome_id,
                 strategy_a.config.generation_count,
             )?;
-            let run_b = self.drive_evolve_run(
-                &run_b_id,
-                &lineage.world_id,
-                &lineage.from_genome_id,
-                strategy_b.config.generation_count,
-                strategy_b.config.experiment_allocation,
-                &strategy_b_id,
-            )?;
+
+            let run_b = match evolution_projection(&history, &run_b_id)
+                .map_err(|_| ExecuteError::Internal)?
+            {
+                None => {
+                    self.evolve_start(Command::EvolveStart {
+                        run_id: run_b_id,
+                        world_id: lineage.world_id.clone(),
+                        from_genome_id: lineage.from_genome_id.clone(),
+                        generations: strategy_b.config.generation_count,
+                        budget: strategy_b.config.experiment_allocation,
+                        strategy_id: Some(admitted.strategy_b_id.clone()),
+                    })?;
+                    return Ok(());
+                }
+                Some(run) if run.state != EvolutionRunState::Finished => return Ok(()),
+                Some(run) => run,
+            };
             self.rollback_champion_to(
                 &run_b_id,
                 &lineage.world_id,
@@ -2654,14 +2831,22 @@ impl ControlPlane {
                 b - a
             })
             .collect();
-        let quality_delta = paired_bootstrap(&quality_deltas, bootstrap_seed, confidence_bps)
-            .map_err(|_| ExecuteError::Internal)?;
-        let cost_delta = paired_bootstrap(&cost_deltas, bootstrap_seed, confidence_bps)
-            .map_err(|_| ExecuteError::Internal)?;
+        let quality_delta = paired_bootstrap(
+            &quality_deltas,
+            admitted.bootstrap_seed,
+            admitted.confidence_bps,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        let cost_delta = paired_bootstrap(
+            &cost_deltas,
+            admitted.bootstrap_seed,
+            admitted.confidence_bps,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         let descendant_cheaper_at_equal_quality = descendant_verdict(
-            &strategy_a_id,
+            &admitted.strategy_a_id,
             &strategy_a.config,
-            &strategy_b_id,
+            &admitted.strategy_b_id,
             &strategy_b.config,
             &quality_delta,
             &cost_delta,
@@ -2669,11 +2854,11 @@ impl ControlPlane {
 
         let payload = MetaEvaluationPayload {
             schema_version: 1,
-            meta_run_id: meta_run_id.clone(),
-            strategy_a_id,
-            strategy_b_id,
-            confidence_bps,
-            bootstrap_seed,
+            meta_run_id: meta_run_id.to_owned(),
+            strategy_a_id: admitted.strategy_a_id,
+            strategy_b_id: admitted.strategy_b_id,
+            confidence_bps: admitted.confidence_bps,
+            bootstrap_seed: admitted.bootstrap_seed,
             bootstrap_resamples: u32::try_from(RESAMPLES).map_err(|_| ExecuteError::Internal)?,
             algorithm: BOOTSTRAP_ALGORITHM.to_owned(),
             lineages: outcomes,
@@ -2689,33 +2874,15 @@ impl ControlPlane {
             .ok_or(ExecuteError::Internal)?
             .ledger
             .append(EventInput::new(
-                meta_evaluation_event_id(&meta_run_id),
-                meta_evaluation_aggregate_id(&meta_run_id),
+                meta_evaluation_event_id(meta_run_id),
+                meta_evaluation_aggregate_id(meta_run_id),
                 META_EVALUATION_EVENT_TYPE,
                 OPERATOR_ACTOR,
                 timestamp_millis().map_err(|_| ExecuteError::Internal)?,
                 payload_bytes,
             ))
             .map_err(|_| ExecuteError::Internal)?;
-        self.refresh_projection()?;
-        self.meta_show(&meta_run_id)
-    }
-
-    /// Read-only, replay-verified lookup of one meta-evaluation receipt.
-    fn meta_show(&self, meta_run_id: &str) -> Result<ResponseData, ExecuteError> {
-        let history = self
-            .storage
-            .as_ref()
-            .ok_or(ExecuteError::Internal)?
-            .ledger
-            .replay_verified()
-            .map_err(|_| ExecuteError::Internal)?;
-        let receipt = meta_evaluation_projection(&history, meta_run_id)
-            .map_err(|_| ExecuteError::Internal)?
-            .ok_or(ExecuteError::NotFound)?;
-        Ok(ResponseData::MetaEvaluation {
-            receipt: Box::new(receipt),
-        })
+        self.refresh_projection()
     }
 
     /// Recent meta-evaluation receipts, newest first, bounded by `limit`.
@@ -3278,35 +3445,72 @@ impl ControlPlane {
         None
     }
 
-    /// Chooses the mutation Forge proposes for a drift-triggered adaptation
-    /// of the Champion. Exists as its own function so a later Forge mutation
-    /// catalog (selecting a mutation from failure clusters and the World's
-    /// mutation scope) can be substituted here without changing the
-    /// adaptation pipeline's control flow; today it is the same
-    /// `identity`/`ascii_uppercase` flip every other proposal path (`evolve`,
-    /// direct `genome propose`) performs. Read-only: never mutates anything.
-    fn choose_adaptation_mutation(
-        &self,
-        champion_genome_id: &str,
-        world_id: &str,
-    ) -> Result<bool, ExecuteError> {
-        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
-        let world = self
-            .state
-            .registered
-            .world(world_id)
-            .ok_or(ExecuteError::Internal)?;
-        match forge_prompt_mutation(
-            &storage.artifacts,
-            &self.state.registered,
-            champion_genome_id,
-            world.compiled(),
-            None,
-        ) {
-            Ok(_) => Ok(true),
-            Err(ExecuteError::Rejected(_) | ExecuteError::NotFound) => Ok(false),
-            Err(other) => Err(other),
+    /// Chooses the Forge hypothesis source a drift-triggered adaptation
+    /// proposes from, deriving it from the diagnostic evaluation's own
+    /// failure-cluster analysis through the same mutation catalog path a
+    /// strategy-bound `evolve` run uses (TD-18; see
+    /// `choose_evolution_hypothesis_sources`): the first cluster (in stable
+    /// signature order) with a `SuggestedMutation::ReferenceOperation`, or
+    /// else the historical `identity`/`ascii_uppercase` flip when the
+    /// Champion runs one of those two operations and no cluster suggested
+    /// anything. `Ok(None)` means no candidate mutation exists at all.
+    fn choose_adaptation_hypothesis_source(
+        &mut self,
+        drift_id: &str,
+        diagnostic_id: &str,
+        drift_kind: DriftKind,
+        champion_before: &str,
+    ) -> Result<Option<ForgeHypothesisSource>, ExecuteError> {
+        let analysis_id = adaptation_analysis_id(drift_id);
+        let ResponseData::ForgeAnalysis { analysis } =
+            self.analyze_forge_clusters(&analysis_id, diagnostic_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+
+        let is_operation_suggestion = |mutation: Option<&SuggestedMutation>| {
+            matches!(mutation, Some(SuggestedMutation::ReferenceOperation { .. }))
+        };
+
+        let mut chosen: Option<(u32, bool)> = None;
+        for (index, cluster) in analysis.analysis.clusters.iter().enumerate() {
+            if is_operation_suggestion(cluster.suggested_mutation.as_ref()) {
+                chosen = Some((
+                    u32::try_from(index).map_err(|_| ExecuteError::Internal)?,
+                    false,
+                ));
+                break;
+            }
         }
+        if chosen.is_none() {
+            for (index, cluster) in analysis.analysis.clusters.iter().enumerate() {
+                if is_operation_suggestion(cluster.secondary_suggested_mutation.as_ref()) {
+                    chosen = Some((
+                        u32::try_from(index).map_err(|_| ExecuteError::Internal)?,
+                        true,
+                    ));
+                    break;
+                }
+            }
+        }
+
+        let Some((cluster_index, use_secondary)) = chosen else {
+            let champion_operation = self
+                .reference_instruction(champion_before)?
+                .map(ReferenceInstruction::operation_name);
+            if matches!(champion_operation, Some("identity" | "ascii_uppercase")) {
+                return Ok(Some(ForgeHypothesisSource::Operator(format!(
+                    "Drift adaptation for drift {drift_id} ({drift_kind:?}): flip the reference \
+                     operation of Champion {champion_before} to address the recorded drift."
+                ))));
+            }
+            return Ok(None);
+        };
+        Ok(Some(ForgeHypothesisSource::Analysis {
+            analysis_id,
+            cluster_index,
+            use_secondary,
+        }))
     }
 
     /// Advances one drift's adaptation by exactly one durable step: submits
@@ -3357,14 +3561,6 @@ impl ControlPlane {
             return Ok(());
         }
 
-        if !self.choose_adaptation_mutation(&started.champion_genome_id, &started.world_id)? {
-            return self.finish_drift_adaptation(
-                drift_id,
-                DriftAdaptationFinishReason::NoCandidateMutation,
-                None,
-            );
-        }
-
         // Diagnostic evaluation: establishes the Champion as the verified
         // selected candidate `propose_genome_from_source` requires, exactly
         // the role `evolve`'s own diagnostic evaluation plays. Paired
@@ -3412,16 +3608,24 @@ impl ControlPlane {
                 .child
                 .genome_id
         } else {
-            let hypothesis = format!(
-                "Drift adaptation for drift {drift_id} ({:?}): flip the reference operation of \
-                 Champion {} to address the recorded drift.",
-                drift.payload.kind, started.champion_genome_id
-            );
+            let Some(hypothesis_source) = self.choose_adaptation_hypothesis_source(
+                drift_id,
+                &diagnostic_id,
+                drift.payload.kind,
+                &started.champion_genome_id,
+            )?
+            else {
+                return self.finish_drift_adaptation(
+                    drift_id,
+                    DriftAdaptationFinishReason::NoCandidateMutation,
+                    None,
+                );
+            };
             let ResponseData::ForgeProposal { proposal } = self.propose_genome_from_source(
                 &started.proposal_id,
                 &selection_event_id,
                 &started.champion_genome_id,
-                ForgeHypothesisSource::Operator(hypothesis),
+                hypothesis_source,
             )?
             else {
                 return Err(ExecuteError::Internal);
@@ -4913,6 +5117,7 @@ impl ControlPlane {
         }
         self.service_arena_message()?;
         self.advance_evolution();
+        self.advance_meta_evaluations();
         self.advance_drift_adaptations();
         Ok(())
     }
@@ -8969,7 +9174,7 @@ fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
             ));
         }
     }
-    if let Command::MetaShow { meta_run_id } = command
+    if let Command::MetaShow { meta_run_id } | Command::MetaStatus { meta_run_id } = command
         && validate_job_id(meta_run_id).is_err()
     {
         return Err(ExecuteError::Invalid("meta_run_id is invalid"));
@@ -11136,6 +11341,7 @@ fn event_type(command: &Command) -> &'static str {
         Command::MetaStrategyList => "control.meta_strategy_list",
         Command::MetaEvaluate { .. } => "control.meta_evaluate",
         Command::MetaShow { .. } => "control.meta_show",
+        Command::MetaStatus { .. } => "control.meta_status",
         Command::MetaList { .. } => "control.meta_list",
         Command::Replay => "control.replay",
         Command::RunList { .. } => "control.run_list",
@@ -11493,8 +11699,10 @@ use evolve::{
 mod meta_evolve;
 
 use meta_evolve::{
-    BOOTSTRAP_ALGORITHM, META_EVALUATION_EVENT_TYPE, META_STRATEGY_EVENT_TYPE, RESAMPLES,
-    champion_after, descendant_verdict, meta_evaluation_aggregate_id, meta_evaluation_event_id,
+    BOOTSTRAP_ALGORITHM, META_EVALUATION_ADMITTED_EVENT_TYPE, META_EVALUATION_EVENT_TYPE,
+    META_STRATEGY_EVENT_TYPE, RESAMPLES, champion_after, descendant_verdict,
+    meta_evaluation_admitted_event_id, meta_evaluation_admitted_ids,
+    meta_evaluation_admitted_projection, meta_evaluation_aggregate_id, meta_evaluation_event_id,
     meta_evaluation_list, meta_evaluation_projection, meta_strategy_aggregate_id,
     meta_strategy_event_id, meta_strategy_id, meta_strategy_list, meta_strategy_projection,
     paired_bootstrap, promotions_of, verify_meta_evolution_history,
@@ -11520,8 +11728,8 @@ use canary::{
 mod adaptation;
 
 use adaptation::{
-    adaptation_assessment_id, adaptation_canary_id, adaptation_diagnostic_evaluation_id,
-    adaptation_projection, adaptation_proposal_id, adaptation_shadow_evaluation_id,
-    adaptation_stage_evaluation_id, finished_event_input, started_event_input,
-    verify_drift_adaptation_history,
+    adaptation_analysis_id, adaptation_assessment_id, adaptation_canary_id,
+    adaptation_diagnostic_evaluation_id, adaptation_projection, adaptation_proposal_id,
+    adaptation_shadow_evaluation_id, adaptation_stage_evaluation_id, finished_event_input,
+    started_event_input, verify_drift_adaptation_history,
 };

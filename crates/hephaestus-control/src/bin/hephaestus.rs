@@ -14,9 +14,10 @@ use hephaestus_control::{
     DriftKind, DriftRecord, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord,
     EvolutionRunState, ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord,
     ForgeProposalRecord, GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord,
-    GenomeRecord, InvariantRecord, JobState, MetaBootstrapInterval, MetaLineageOutcome,
-    MetaLineageSpec, MetaReceiptRecord, MetaStrategyRecord, ResponseData, RunListEntry,
-    SelectionRecord, WorldRecord, data_dir_from_environment,
+    GenomeRecord, InvariantRecord, JobState, MetaBootstrapInterval, MetaEvaluationStatus,
+    MetaLineageOutcome, MetaLineageProgress, MetaLineageSpec, MetaReceiptRecord,
+    MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
+    data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -569,8 +570,13 @@ enum MetaCommand {
         #[command(subcommand)]
         command: MetaStrategyCommand,
     },
-    /// Run a paired meta-evaluation of two Evolver strategies over held-out
-    /// base lineages, driving the existing evolve engine unmodified.
+    /// Admits a paired meta-evaluation of two Evolver strategies over
+    /// held-out base lineages, driving the existing evolve engine
+    /// unmodified. Does not block: the daemon's own reconciliation loop
+    /// drives every lineage's paired strategy runs forward on its own tick,
+    /// and this returns the current progress immediately. Poll `status` (or
+    /// run `evaluate` again with the same arguments) until it reports the
+    /// recorded receipt.
     ///
     /// Each lineage is one already-registered World together with the
     /// Genome installed as its generation-zero Champion (exactly what
@@ -607,6 +613,13 @@ enum MetaCommand {
     },
     /// Show one meta-evaluation's durable, replay-verified receipt.
     Show {
+        /// Stable meta-evaluation identity returned by `evaluate`.
+        meta_run_id: String,
+    },
+    /// Poll one meta-evaluation's progress: admitted-but-unfinished
+    /// per-lineage progress, or the recorded receipt once every lineage's
+    /// paired runs have finished.
+    Status {
         /// Stable meta-evaluation identity returned by `evaluate`.
         meta_run_id: String,
     },
@@ -1645,6 +1658,7 @@ fn meta_command_from_cli(command: MetaCommand) -> Result<Command, &'static str> 
             }
         }
         MetaCommand::Show { meta_run_id } => Command::MetaShow { meta_run_id },
+        MetaCommand::Status { meta_run_id } => Command::MetaStatus { meta_run_id },
         MetaCommand::List { limit } => Command::MetaList { limit },
     })
 }
@@ -1842,6 +1856,9 @@ fn print_human(response: &ApiResponse) {
         }
         (Some(ResponseData::MetaEvaluation { receipt }), None) => {
             println!("{}", meta_receipt_human(receipt));
+        }
+        (Some(ResponseData::MetaStatus { status }), None) => {
+            println!("{}", meta_status_human(status));
         }
         (Some(ResponseData::MetaEvaluationList { receipts }), None) => {
             for receipt in receipts {
@@ -2171,6 +2188,30 @@ fn meta_receipt_human(receipt: &MetaReceiptRecord) -> String {
             )
     ));
     lines.extend(receipt.payload.lineages.iter().map(meta_lineage_human));
+    lines.join("\n")
+}
+
+fn meta_status_human(status: &MetaEvaluationStatus) -> String {
+    if let Some(receipt) = &status.receipt {
+        return meta_receipt_human(receipt);
+    }
+    let mut lines = vec![format!(
+        "meta_run={} strategy_a={} strategy_b={} lineages_completed={}/{}",
+        status.meta_run_id,
+        status.strategy_a_id,
+        status.strategy_b_id,
+        status.lineages_completed,
+        status.lineages_total,
+    )];
+    for (index, progress) in status.lineage_progress.iter().enumerate() {
+        let label = match progress {
+            MetaLineageProgress::Pending => "pending",
+            MetaLineageProgress::RunningStrategyA => "running strategy A",
+            MetaLineageProgress::RunningStrategyB => "running strategy B",
+            MetaLineageProgress::Done => "done",
+        };
+        lines.push(format!("lineage[{index}]={label}"));
+    }
     lines.join("\n")
 }
 
@@ -2785,6 +2826,12 @@ mod tests {
                 ],
                 confidence_bps: 9_000,
                 bootstrap_seed: 7,
+            }
+        );
+        assert_eq!(
+            parse(&["hephaestus", "meta", "status", "meta-run-1"]),
+            Command::MetaStatus {
+                meta_run_id: "meta-run-1".to_owned(),
             }
         );
         assert_eq!(

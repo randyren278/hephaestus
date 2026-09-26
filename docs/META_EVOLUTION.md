@@ -15,6 +15,13 @@ per strategy over each of a set of held-out base lineages, then recording a
 replay-verified receipt with a bootstrap confidence interval over the
 per-lineage Champion-quality and experiment-cost deltas.
 
+`meta evaluate` admits the comparison and returns immediately; it never
+blocks on any lineage's evolve run. The daemon's own reconciliation loop
+drives every lineage's paired strategy runs forward on its own tick, exactly
+like a plain `evolve` run or the automatic drift adaptation pipeline. Poll
+`meta status` (or run `meta evaluate` again with the same arguments) for
+per-lineage progress until it reports the recorded receipt.
+
 ```sh
 hephaestus meta strategy register <strategy.json>
 hephaestus meta strategy show <strategy-id>
@@ -25,6 +32,7 @@ hephaestus meta evaluate <meta-run-id> \
   --lineage-world <world-id> --lineage-genome <genome-id> \
   --lineage-world <world-id> --lineage-genome <genome-id> \
   --lineages <n> [--confidence-bps 9500] [--seed 0]
+hephaestus meta status <meta-run-id>
 hephaestus meta show <meta-run-id>
 hephaestus meta list
 ```
