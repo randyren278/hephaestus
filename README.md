@@ -84,7 +84,7 @@ the operator is authorized to see.
 
 ## Why you can trust it
 
-- **349 deliberate source mutations** run in CI after the test suite passes, each disabling one documented invariant; the suite must go red for every single one, or the build fails.
+- **353 deliberate source mutations** run in CI after the test suite passes, each disabling one documented invariant; the suite must go red for every single one, or the build fails.
 - An 80% per-module coverage floor across 37 production-critical modules, `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a docs gate that fails if any path this documentation mentions stops existing.
 - The threat model is written down, not implied: a candidate is assumed hostile, the evaluator is assumed to leak if it can, and the daemon would rather not start than start with a ledger it cannot verify. See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), including how to verify all of this yourself.
 
