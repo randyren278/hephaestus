@@ -37,6 +37,8 @@ def write_package(directory: Path, architecture: str = "arm64", version: str = "
     (share / "architecture").write_text(architecture + "\n", encoding="utf-8")
     (share / "tui").mkdir()
     (share / "tui/main.mjs").write_text("process.exit(0)\n", encoding="utf-8")
+    for name, relative in PACKAGE_BUILDER.FIXTURES.items():
+        PACKAGE_BUILDER.copy_tree(ROOT / relative, share / "fixtures" / name)
     installer = root / "install.sh"
     shutil.copy2(ROOT / "scripts/package/install.sh", installer)
     installer.chmod(0o755)
@@ -72,6 +74,35 @@ class MacosPackageTests(unittest.TestCase):
 
     def test_version_comes_from_workspace_metadata(self) -> None:
         self.assertEqual(PACKAGE_BUILDER.workspace_version(ROOT), "0.1.0")
+
+    def test_senate_binary_is_bundled(self) -> None:
+        self.assertIn("senate", PACKAGE_BUILDER.BINARIES)
+
+    def test_bundled_fixtures_cover_quickstart_gauntlet_coding_and_gauntlet_reference(self) -> None:
+        self.assertEqual(
+            PACKAGE_BUILDER.FIXTURES,
+            {
+                "quickstart": "examples/quickstart",
+                "gauntlet-coding": "examples/gauntlet/coding",
+                "gauntlet-reference": "examples/gauntlet-reference",
+            },
+        )
+        for relative in PACKAGE_BUILDER.FIXTURES.values():
+            self.assertTrue((ROOT / relative).is_dir(), f"missing fixture source: {relative}")
+
+    def test_bundle_fixtures_copies_every_named_fixture_by_its_installed_name(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="hephaestus-fixture-bundle-") as temporary:
+            share = Path(temporary) / "share/hephaestus"
+            share.mkdir(parents=True)
+            PACKAGE_BUILDER.bundle_fixtures(ROOT, share)
+            for name, relative in PACKAGE_BUILDER.FIXTURES.items():
+                installed = share / "fixtures" / name
+                self.assertTrue(installed.is_dir())
+                source_entries = {p.relative_to(ROOT / relative) for p in (ROOT / relative).rglob("*")}
+                installed_entries = {p.relative_to(installed) for p in installed.rglob("*")}
+                self.assertEqual(source_entries, installed_entries)
+            self.assertTrue((share / "fixtures/gauntlet-coding/world.template.json").is_file())
+            self.assertTrue((share / "fixtures/gauntlet-reference/world.template.json").is_file())
 
     def test_installer_survives_relocation_and_keeps_binaries_adjacent(self) -> None:
         with tempfile.TemporaryDirectory(prefix="hephaestus-install-contract-") as temporary:

@@ -32,6 +32,7 @@ BINARIES = (
     "hephaestus-reference-worker",
     "hephaestus-reference-evaluator",
     "hephaestus-process-guardian",
+    "senate",
 )
 
 
@@ -140,6 +141,24 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, symlinks=False)
 
 
+# Bundled example fixtures, keyed by their installed name under
+# `share/hephaestus/fixtures/`. `hephaestus init --fixture quickstart` and
+# `hephaestus evolve coding` locate these by name at runtime (see
+# `fixture_source_dir`/`gauntlet_coding_fixture_dir` in
+# `crates/hephaestus-control/src/bin/hephaestus.rs`); `gauntlet-reference` has
+# no CLI-level loader and is driven directly by `scripts/gauntlet_reference.py`.
+FIXTURES = {
+    "quickstart": "examples/quickstart",
+    "gauntlet-coding": "examples/gauntlet/coding",
+    "gauntlet-reference": "examples/gauntlet-reference",
+}
+
+
+def bundle_fixtures(root: Path, share: Path) -> None:
+    for name, relative in FIXTURES.items():
+        copy_tree(root / relative, share / "fixtures" / name)
+
+
 # Fixed epoch used for every tar entry and the gzip header so two builds from
 # identical inputs produce a byte-identical archive regardless of wall-clock
 # build time. This is the reproducible-builds convention (SOURCE_DATE_EPOCH=0).
@@ -236,7 +255,7 @@ def build(args: argparse.Namespace) -> Path:
         if not bundled_code.is_file():
             raise RuntimeError("TUI JavaScript payload was not produced")
         shutil.copy2(bundled_code, share / "tui/main.bundle.mjs")
-        copy_tree(root / "examples/quickstart", share / "fixtures/quickstart")
+        bundle_fixtures(root, share)
         collect_tui_notices(root, share / "licenses/THIRD_PARTY_NOTICES.txt")
         metadata = {
             "version": version,

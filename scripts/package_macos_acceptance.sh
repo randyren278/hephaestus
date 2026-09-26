@@ -49,10 +49,14 @@ export PATH="$WORK/tools:$PREFIX/bin:/usr/bin:/bin"
 CLI="$PREFIX/bin/hephaestus"
 DAEMON="$PREFIX/bin/hephaestusd"
 EVALUATOR="$PREFIX/share/hephaestus/current/bin/hephaestus-reference-evaluator"
+WORKER="$PREFIX/bin/hephaestus-reference-worker"
+SENATE="$PREFIX/bin/senate"
+FIXTURES_DIR="$PREFIX/share/hephaestus/current/share/hephaestus/fixtures"
 DATA="$WORK/home/data"
 FIXTURE="$WORK/home/quickstart"
 
 "$CLI" --version
+"$SENATE" personas | grep -q "^turing " || { echo "packaged senate binary did not list its embedded personas" >&2; exit 1; }
 [[ "$("$PREFIX/share/hephaestus/current/bin/node" --version)" == v24.21.0 ]] || { echo "bundled Node version is wrong" >&2; exit 1; }
 if command -v npm >/dev/null 2>&1 || command -v node >/dev/null 2>&1; then
   echo "acceptance PATH unexpectedly exposes a host Node/npm" >&2
@@ -117,7 +121,25 @@ printf '%s\n' "$SELECTION"
 }
 "$CLI" --data-dir "$DATA" replay
 "$WORK/tools/python3" "$ROOT/scripts/package/tui_acceptance.py" "$CLI" "$DATA" "$HOME" "$PATH"
+
+CODING=$("$CLI" --data-dir "$DATA" --json evolve coding --budget 6)
+printf '%s\n' "$CODING"
+printf '%s\n' "$CODING" | grep -q '"state":"finished"' || {
+  echo "packaged bundled gauntlet-coding fixture did not finish its evolve run" >&2
+  exit 1
+}
+
 "$CLI" --data-dir "$DATA" daemon stop
 wait "$DAEMON_PID"
 DAEMON_PID=""
-echo "Isolated-home macOS package install, relocation, fixture init, offline Arena, replay, and bundled TUI acceptance passed (host Git prerequisite)."
+
+GAUNTLET_REFERENCE=$("$WORK/tools/python3" "$ROOT/scripts/gauntlet_reference.py" \
+  --daemon-bin "$DAEMON" --cli-bin "$CLI" --evaluator-bin "$EVALUATOR" --worker-bin "$WORKER" \
+  --fixture-root "$FIXTURES_DIR/gauntlet-reference")
+printf '%s\n' "$GAUNTLET_REFERENCE"
+printf '%s\n' "$GAUNTLET_REFERENCE" | grep -q '"status":"complete"' || {
+  echo "packaged bundled gauntlet-reference fixture did not complete" >&2
+  exit 1
+}
+
+echo "Isolated-home macOS package install, relocation, fixture init, offline Arena, replay, bundled TUI, gauntlet-coding evolve, and gauntlet-reference acceptance passed (host Git prerequisite)."

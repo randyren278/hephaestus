@@ -43,3 +43,14 @@ The package contains no hosted model credentials and does not invoke a paid prov
 ## Platform and release limits
 
 Archives are single-architecture. The installer checks that the archive architecture matches the current process architecture; install the matching `arm64` or `x86_64` archive. The acceptance script verifies install relocation and the offline fixture with Git present, while hiding host Node and npm. It is not proof of operation on a machine without Git. The package is not signed or notarized by this repository, and CI does not publish GitHub Releases automatically. Use a trusted archive source and verify its SHA-256 before installation when distributing it outside the local acceptance flow.
+
+## Local development: first-launch scan of new test binaries (macOS)
+
+This affects building and testing from a source checkout, not the packaged release above. On macOS, every freshly linked binary (in particular, a `cargo test`/`cargo build` output that changed since it last ran) is scanned by the system before it is allowed to execute. The scan is often 30-90 seconds per binary and shows up as a process parked in `_dyld_start` at 0% CPU rather than a hang. A full local workspace test run can take several times longer than the equivalent CI run for this reason alone.
+
+This is host security policy, not project code, so it cannot be fixed here. Two remedies:
+
+- Add your terminal application under **System Settings -> Privacy & Security -> Developer Tools**. This exempts binaries launched *directly* by that terminal, but does not cover a binary spawned by a supervising process (for example, an agent or IDE task runner) that itself is not the terminal in that list.
+- Run heavy suites (`cargo test --workspace`, mutation shards) from a Developer Tools-exempted terminal, or on Linux/CI, where this scan does not apply.
+
+Tracked as TD-24 in `TECH_DEBT.md`: accepted as a host policy limitation, not fixed.

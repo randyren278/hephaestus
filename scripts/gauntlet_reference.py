@@ -397,6 +397,11 @@ def run_fixture(args: argparse.Namespace) -> dict[str, Any]:
     _require_waitid()
     if sys.platform != "darwin":
         raise RunnerError("candidate execution requires macOS Seatbelt isolation")
+    global FIXTURE_ROOT
+    if args.fixture_root is not None:
+        FIXTURE_ROOT = Path(args.fixture_root).expanduser().resolve(strict=True)
+        if not (FIXTURE_ROOT / "world.template.json").is_file():
+            raise RunnerError(f"--fixture-root is missing world.template.json: {FIXTURE_ROOT}")
     daemon = _binary(args.daemon_bin, "--daemon-bin")
     cli = _binary(args.cli_bin, "--cli-bin")
     evaluator = _binary(args.evaluator_bin, "--evaluator-bin")
@@ -551,6 +556,9 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--worker-bin", required=True,
                         help="absolute path to hephaestus-reference-worker")
     parser.add_argument("--work-dir", help="new scratch path to create; contents are retained")
+    parser.add_argument("--fixture-root",
+                        help="directory holding the fixture files (default: the source checkout's "
+                             "examples/gauntlet-reference; pass the packaged copy to exercise an install)")
     parser.add_argument("--timeout-seconds", type=int, default=90,
                         help=f"per-evaluation command deadline (1..{MAX_EVALUATION_SECONDS})")
     return parser.parse_args()

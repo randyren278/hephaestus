@@ -49,7 +49,7 @@ STAGING="$(mktemp -d "$RELEASES/.install-$RELEASE.XXXXXX")"
 cleanup() { rm -rf "$STAGING"; }
 trap cleanup EXIT HUP INT TERM
 
-for binary in hephaestus hephaestusd hephaestus-reference-worker hephaestus-reference-evaluator hephaestus-process-guardian; do
+for binary in hephaestus hephaestusd hephaestus-reference-worker hephaestus-reference-evaluator hephaestus-process-guardian senate; do
     LINK="$PREFIX/bin/$binary"
     EXPECTED="../share/hephaestus/current/bin/$binary"
     if [ -e "$LINK" ] || [ -L "$LINK" ]; then
@@ -71,7 +71,7 @@ CURRENT_TEMP="$PREFIX/share/hephaestus/.current-$$"
 ln -s "releases/$RELEASE" "$CURRENT_TEMP"
 mv -fh "$CURRENT_TEMP" "$PREFIX/share/hephaestus/current"
 
-for binary in hephaestus hephaestusd hephaestus-reference-worker hephaestus-reference-evaluator hephaestus-process-guardian; do
+for binary in hephaestus hephaestusd hephaestus-reference-worker hephaestus-reference-evaluator hephaestus-process-guardian senate; do
     LINK="$PREFIX/bin/$binary"
     EXPECTED="../share/hephaestus/current/bin/$binary"
     ln -sfn "$EXPECTED" "$LINK"
