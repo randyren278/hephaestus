@@ -1486,7 +1486,27 @@ fn real_listener_services_status_and_shutdown_through_the_socket_writer() {
         thread::sleep(Duration::from_millis(1));
     }
     drop(slow_clients);
-    let status = send_test_api_request(&socket, &token, "status-1", Command::Status);
+    // Dropping the slow clients only closes their end of the sockets; the
+    // handler thread the daemon spawned for each one still has to notice the
+    // disconnect and decrement `active_handlers` on its own schedule before a
+    // fresh connection has a free slot again. Under heavy parallel load that
+    // can take longer than the OS takes to hand this thread its next
+    // scheduling slice, so a single immediate status request can still land
+    // on a daemon that considers itself at its connection limit (TD-3).
+    // Poll for genuine readiness -- a real, non-`Busy` response -- instead of
+    // assuming the first attempt lands after a fixed sleep.
+    let handler_reap_deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        let status = send_test_api_request(&socket, &token, "status-1", Command::Status);
+        if matches!(status.data, Some(ResponseData::Status { .. })) {
+            break status;
+        }
+        assert!(
+            Instant::now() < handler_reap_deadline,
+            "daemon never reaped the dropped slow-client handlers: {status:?}"
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
     assert!(matches!(status.data, Some(ResponseData::Status { .. })));
     let stopped = send_test_api_request(&socket, &token, "stop-1", Command::DaemonStop);
     assert!(matches!(
