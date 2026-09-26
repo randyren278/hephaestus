@@ -6928,6 +6928,9 @@ fn evidence_cli_lists_runs_and_denials_newest_first_and_bounded() {
 
     daemon.stop();
 }
+/// Baseline delay injected into every reference trial of the canary end-to-end daemon.
+const CANARY_E2E_BASELINE_DELAY_MILLIS: u64 = 150;
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary() {
@@ -6947,7 +6950,13 @@ fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary(
     let quickstart = Path::new(QUICKSTART);
     let scratch = directory.path().join("scratch");
     fs::create_dir_all(&scratch).expect("create scratch directory");
-    let daemon = Daemon::start_with_reference_baseline_delay(&data_dir, &repository, 40);
+    // Two tasks per role make each side's latency a sum of just two trials,
+    // so a large baseline keeps CI scheduling noise under the 20% gate.
+    let daemon = Daemon::start_with_reference_baseline_delay(
+        &data_dir,
+        &repository,
+        CANARY_E2E_BASELINE_DELAY_MILLIS,
+    );
     let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
     let data = |arguments: &[&str]| {
         let output = cli(&data_dir, arguments);
@@ -7144,7 +7153,16 @@ fn canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary(
             &parent_id,
             &good_child.genome_id,
         ]);
-        data(&["arena", "select", &evaluation]);
+        let ResponseData::Selection { selection } = data(&["arena", "select", &evaluation]) else {
+            panic!("canary stage selection expected");
+        };
+        // The baseline must actually reach the daemon's reference trials,
+        // or this test silently falls back to noise-dominated latency.
+        assert!(
+            selection.receipt.parent_latency_millis() >= 2 * CANARY_E2E_BASELINE_DELAY_MILLIS,
+            "stage latency {} ms does not include the injected baseline",
+            selection.receipt.parent_latency_millis()
+        );
         evidence_ids.push(evaluation.clone());
         let advanced = data(&["canary", "advance", "canary-e2e", "--evidence", &evaluation]);
         let ResponseData::CanaryTransition { transition } = advanced else {
