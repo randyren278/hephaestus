@@ -96,6 +96,21 @@ class SourceInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("choose one of --senate-only and --full", result.stderr)
 
+    def test_non_tty_output_has_no_escape_codes(self) -> None:
+        result = self.install("--full")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("\033", result.stderr)
+
+    def test_force_color_emits_truecolor_escapes(self) -> None:
+        env = dict(self.env, FORCE_COLOR="1")
+        result = subprocess.run(
+            ["sh", str(INSTALLER), "--prefix", str(self.prefix), "--full"],
+            env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("\033[", result.stderr)
+        self.assertIn("Run: heph", result.stderr)
+
     def test_interactive_run_asks_and_yes_means_senate_only(self) -> None:
         for answer, expected in (("y\n", {"senate"}), ("\n", FULL)):
             with self.subTest(answer=answer):
