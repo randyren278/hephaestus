@@ -9,7 +9,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/randyren278/hephaestus/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/randyren278/hephaestus/ci.yml?label=CI&logo=github&labelColor=161B22" alt="CI status"></a>
   <img src="https://img.shields.io/badge/rust-1.85%2B-E8590C?logo=rust&logoColor=white&labelColor=161B22" alt="Rust 1.85 or newer">
   <img src="https://img.shields.io/badge/isolation-macOS%20Seatbelt-E8590C?logo=apple&logoColor=white&labelColor=161B22" alt="macOS Seatbelt isolation">
   <img src="https://img.shields.io/badge/license-MIT-E8590C?labelColor=161B22" alt="MIT license">
