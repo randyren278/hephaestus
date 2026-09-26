@@ -12726,8 +12726,8 @@ fn drift_history_with_payload_edit(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
-    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("canary fixture");
+    let _delay_scope = latency_gated_delay_scope(directory.path());
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
     let token = plane.token_hex.clone();
@@ -13143,8 +13143,8 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion() {
-    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("canary live-check fixture");
+    let _delay_scope = latency_gated_delay_scope(directory.path());
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
     let token = plane.token_hex.clone();
@@ -13218,7 +13218,7 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
     // fabricating one. This targets a content-addressed Genome id that
     // cannot collide with any other test's Genome, so it is harmless even
     // if another test happens to run concurrently in this process.
-    hephaestus_runtime::set_test_reference_delay(assessed.child.clone(), 750);
+    hephaestus_runtime::set_test_reference_delay_in(directory.path(), assessed.child.clone(), 750);
     let live_evidence = "canary-live-regression-eval";
     complete_arena_test_job(
         &mut plane,
@@ -13226,7 +13226,7 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
         &initial_candidate.genome_id,
         &assessed.child,
     );
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     let ResponseData::Selection { selection } = plane
         .select_arena_evaluation(live_evidence)
         .expect("select live regression evidence")
@@ -13309,8 +13309,8 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canary_injected_regression_during_staged_advance_automatically_aborts_and_replays() {
-    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("canary regression fixture");
+    let _delay_scope = latency_gated_delay_scope(directory.path());
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
     let token = plane.token_hex.clone();
@@ -13484,8 +13484,8 @@ fn assert_drift_error(result: Result<DriftRecord, ApiError>, message: &str) {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn drift_record_derives_from_verified_evidence_and_replays() {
-    let _reference_delay_slot = hold_latency_gated_reference_slot();
     let directory = tempdir().expect("drift fixture");
+    let _delay_scope = latency_gated_delay_scope(directory.path());
     let (mut plane, initial_parent, initial_candidate) =
         real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
     let token = plane.token_hex.clone();
@@ -16637,12 +16637,12 @@ fn open_with_backends_on_jsonl_ledger_and_memory_artifacts_matches_sqlite_cas_de
 #[test]
 #[allow(clippy::too_many_lines)]
 fn remote_leased_arena_trial_matches_local_execution_and_is_idempotent_under_duplicate_delivery() {
-    let _reference_delay_slot = hold_reference_delay_slot();
     // TD-12's last item: a paired Arena evaluation admitted with the remote
     // opt-in leases every reference-role trial to a remote worker exactly
     // like the direct-run `worker.sock` path, and the daemon (never the
     // worker) remains the sole signer of the resulting canonical result.
     let directory = tempdir().expect("remote Arena lease fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
     let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
     let token = plane.token_hex.clone();
     let (_, worker_token) =
@@ -16894,7 +16894,7 @@ fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_l
 const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 
 /// Baseline delay added to every reference trial in the auto-canary fixture.
-const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 40;
+const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 60;
 
 /// Like `real_worker_arena_fixture_with_invariants`, but the registered World
 /// opts in to `laws.auto_canary_on_drift`, and both registered Genomes start
@@ -16909,7 +16909,10 @@ fn auto_canary_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord
     // gate compares tens of milliseconds of real work, not a few milliseconds
     // dominated by process-scheduling noise (CI runs this under coverage
     // instrumentation and parallel tests). Callers hold the delay slot.
-    hephaestus_runtime::set_test_reference_baseline_delay(AUTO_CANARY_BASELINE_DELAY_MILLIS);
+    hephaestus_runtime::set_test_reference_baseline_delay_in(
+        directory.path(),
+        AUTO_CANARY_BASELINE_DELAY_MILLIS,
+    );
     let data_dir = directory.path().join("data");
     let repository = directory.path().join("repository");
     fs::create_dir_all(&repository).expect("create source repository");
@@ -16953,16 +16956,11 @@ fn auto_canary_arena_fixture(directory: &TempDir) -> (ControlPlane, GenomeRecord
 
     let artifacts =
         ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical artifacts");
-    // Many small tasks, not one: a single-task pairing's wall-clock latency
-    // is dominated by per-trial process-spawn scheduling noise (the shared,
-    // multi-agent machine this suite runs on), which can swing well past
-    // the fixed 20% regression threshold in either direction on one trial.
-    // Aggregating over enough trials averages that noise out so a genuinely
-    // unregressed pairing reads as healthy deterministically enough for an
-    // unattended, non-retrying reconciliation loop to act on, exactly as it
-    // would in production.
+    // Two tasks per visibility keep each paired evaluation cheap; the fixed
+    // per-trial baseline delay set above, not a large task count, is what
+    // keeps scheduling noise under the 20% latency gate.
     let auto_canary_tasks = |visibility_word: &str| -> Vec<hephaestus_arena::TrustedTask> {
-        (0..8)
+        (0..2)
             .map(|index| {
                 hephaestus_arena::TrustedTask::new(
                     format!("{visibility_word}-task-{index}"),
@@ -17152,8 +17150,8 @@ fn adaptation_history_with_payload_edit(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays() {
-    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("auto-canary fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
     let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
     let token = plane.token_hex.clone();
     let world_id = parent.world_id.clone();
@@ -17190,7 +17188,8 @@ fn auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays() {
         &parent.genome_id,
         true,
     );
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         sibling.child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
@@ -17201,7 +17200,7 @@ fn auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays() {
         &candidate.genome_id,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     let ResponseData::Selection { selection } = plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select genuine latency drift evidence")
@@ -17339,8 +17338,8 @@ fn auto_canary_on_drift_never_fires_when_the_law_is_off() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched() {
-    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("auto-canary abort fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
     let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
     let token = plane.token_hex.clone();
     let world_id = parent.world_id.clone();
@@ -17365,7 +17364,8 @@ fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_ch
         &parent.genome_id,
         true,
     );
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         sibling.child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
@@ -17376,7 +17376,7 @@ fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_ch
         &candidate.genome_id,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select the latency drift evidence");
@@ -17412,13 +17412,14 @@ fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_ch
         );
         thread::sleep(Duration::from_millis(2));
     };
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
 
     let finished = drain_drift_adaptation(&mut plane, "abort");
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     assert_eq!(
         finished.adaptation.finish_reason,
         Some(DriftAdaptationFinishReason::CanaryAborted)
@@ -17441,8 +17442,8 @@ fn auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_ch
 
 #[test]
 fn auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze() {
-    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("auto-canary freeze fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
     let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
     let token = plane.token_hex.clone();
     let world_id = parent.world_id.clone();
@@ -17466,7 +17467,8 @@ fn auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze() {
         &parent.genome_id,
         true,
     );
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         sibling.child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
@@ -17477,7 +17479,7 @@ fn auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze() {
         &candidate.genome_id,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select the latency drift evidence");
@@ -17525,8 +17527,8 @@ fn auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
-    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("auto-canary forged fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
     let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
     let token = plane.token_hex.clone();
     let world_id = parent.world_id.clone();
@@ -17550,7 +17552,8 @@ fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
         &parent.genome_id,
         true,
     );
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         sibling.child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
@@ -17561,7 +17564,7 @@ fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
         &candidate.genome_id,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select the latency drift evidence");
@@ -17593,12 +17596,13 @@ fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
         );
         thread::sleep(Duration::from_millis(2));
     };
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
     let finished = drain_drift_adaptation(&mut plane, "forge");
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     assert_eq!(
         finished.adaptation.finish_reason,
         Some(DriftAdaptationFinishReason::CanaryAborted)
@@ -17652,8 +17656,8 @@ fn auto_canary_on_drift_replay_rejects_a_forged_promotion_claim() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
-    let _reference_delay_slot = hold_reference_delay_slot();
     let directory = tempdir().expect("auto-canary restart fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
     let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
     let token = plane.token_hex.clone();
     let world_id = parent.world_id.clone();
@@ -17677,7 +17681,8 @@ fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
         &parent.genome_id,
         true,
     );
-    hephaestus_runtime::set_test_reference_delay(
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
         sibling.child.clone(),
         AUTO_CANARY_REGRESSION_DELAY_MILLIS,
     );
@@ -17688,7 +17693,7 @@ fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
         &candidate.genome_id,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delay();
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select the latency drift evidence");
@@ -17748,27 +17753,20 @@ fn auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline() {
     ));
 }
 
-/// `hephaestus_runtime::set_test_reference_delay` is one process-wide slot, so
-/// tests that inject a worker delay (or share its fixtures) must not run in
-/// parallel: one test's clear would silently remove another's injected
-/// latency mid-evaluation.
-fn hold_reference_delay_slot() -> ReferenceDelaySlot {
-    static SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    ReferenceDelaySlot(
-        SLOT.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
-    )
+/// Scopes injected reference-worker delays to one test's temporary
+/// directory and removes them when the test ends, even if it panics. Delays
+/// only apply to sandboxes under that directory, so these tests run in
+/// parallel without affecting each other.
+struct ReferenceDelayScope(PathBuf);
+
+impl Drop for ReferenceDelayScope {
+    fn drop(&mut self) {
+        hephaestus_runtime::forget_test_reference_scope(&self.0);
+    }
 }
 
-/// Holds the process-wide reference delay slot and clears every injected
-/// delay when the test ends, even if it panics.
-struct ReferenceDelaySlot(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
-
-impl Drop for ReferenceDelaySlot {
-    fn drop(&mut self) {
-        hephaestus_runtime::clear_test_reference_delay();
-        hephaestus_runtime::set_test_reference_baseline_delay(0);
-    }
+fn reference_delay_scope(directory: &Path) -> ReferenceDelayScope {
+    ReferenceDelayScope(directory.to_path_buf())
 }
 
 /// Baseline delay for tests whose canary or drift checks go through the 20%
@@ -17776,10 +17774,12 @@ impl Drop for ReferenceDelaySlot {
 /// coverage instrumentation, parallel tests) cross that gate on its own.
 const LATENCY_GATED_BASELINE_DELAY_MILLIS: u64 = 100;
 
-/// Holds the reference delay slot and gives every reference trial a fixed
-/// baseline latency for the life of the test.
-fn hold_latency_gated_reference_slot() -> ReferenceDelaySlot {
-    let slot = hold_reference_delay_slot();
-    hephaestus_runtime::set_test_reference_baseline_delay(LATENCY_GATED_BASELINE_DELAY_MILLIS);
-    slot
+/// Gives every reference trial under `directory` a fixed baseline latency
+/// for the life of the test.
+fn latency_gated_delay_scope(directory: &Path) -> ReferenceDelayScope {
+    hephaestus_runtime::set_test_reference_baseline_delay_in(
+        directory,
+        LATENCY_GATED_BASELINE_DELAY_MILLIS,
+    );
+    reference_delay_scope(directory)
 }

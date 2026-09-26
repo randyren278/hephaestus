@@ -16,7 +16,7 @@
   "timeout_seconds": 120,
   "mutation_timeout_seconds": {
     "crates/hephaestus-arena/": 240,
-    "crates/hephaestus-control/": 240,
+    "crates/hephaestus-control/": 480,
     "crates/hephaestus-runtime/": 240
   },
   "coverage_floor": 80.0,

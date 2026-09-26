@@ -322,7 +322,8 @@ impl SupervisedRuntime {
                 let stdin = if let Some(instruction) = spec.reference_instruction() {
                     #[cfg(feature = "test-support")]
                     {
-                        match test_reference_delay_millis_for_genome(spec.genome_id()) {
+                        match test_reference_delay_millis_for(spec.genome_id(), sandbox.worktree())
+                        {
                             Some(delay_millis) => instruction
                                 .frame_with_test_delay(spec.prompt().as_bytes(), delay_millis)?,
                             None => instruction.frame(spec.prompt().as_bytes())?,
@@ -432,18 +433,108 @@ pub fn set_test_reference_baseline_delay(delay_millis: u64) {
     TEST_REFERENCE_BASELINE_DELAY.store(delay_millis, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Test-only delays scoped to a directory: they apply only to runs whose
+/// sandbox lives under that directory, so tests that each own a temporary
+/// directory can inject delays in parallel without affecting one another.
 #[cfg(feature = "test-support")]
-fn test_reference_delay_millis_for_genome(genome_id: &str) -> Option<u64> {
-    let guard = TEST_REFERENCE_DELAY
+#[derive(Default)]
+struct ScopedTestDelays {
+    /// (scope, per-run baseline milliseconds)
+    baselines: Vec<(std::path::PathBuf, u64)>,
+    /// (scope, genome id, milliseconds)
+    genomes: Vec<(std::path::PathBuf, String, u64)>,
+}
+
+#[cfg(feature = "test-support")]
+static SCOPED_TEST_DELAYS: std::sync::Mutex<Option<ScopedTestDelays>> = std::sync::Mutex::new(None);
+
+#[cfg(feature = "test-support")]
+fn canonical_scope(scope: &std::path::Path) -> std::path::PathBuf {
+    scope.canonicalize().unwrap_or_else(|_| scope.to_path_buf())
+}
+
+#[cfg(feature = "test-support")]
+fn with_scoped_delays<T>(action: impl FnOnce(&mut ScopedTestDelays) -> T) -> T {
+    let mut guard = SCOPED_TEST_DELAYS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let specific = guard
+    action(guard.get_or_insert_with(ScopedTestDelays::default))
+}
+
+/// Test-only: every reference-worker run whose sandbox is under `scope`
+/// sleeps `delay_millis` (bounded) in addition to any Genome delay.
+#[cfg(feature = "test-support")]
+pub fn set_test_reference_baseline_delay_in(scope: &std::path::Path, delay_millis: u64) {
+    let scope = canonical_scope(scope);
+    with_scoped_delays(|delays| {
+        delays.baselines.retain(|(existing, _)| *existing != scope);
+        delays.baselines.push((scope, delay_millis));
+    });
+}
+
+/// Test-only: reference-worker runs of `genome_id` whose sandbox is under
+/// `scope` sleep `delay_millis` (bounded) on top of any baseline.
+#[cfg(feature = "test-support")]
+pub fn set_test_reference_delay_in(
+    scope: &std::path::Path,
+    genome_id: impl Into<String>,
+    delay_millis: u64,
+) {
+    let scope = canonical_scope(scope);
+    let genome_id = genome_id.into();
+    with_scoped_delays(|delays| {
+        delays
+            .genomes
+            .retain(|(existing, genome, _)| !(*existing == scope && *genome == genome_id));
+        delays.genomes.push((scope, genome_id, delay_millis));
+    });
+}
+
+/// Test-only: clears the per-Genome delays under `scope`, keeping its baseline.
+#[cfg(feature = "test-support")]
+pub fn clear_test_reference_delays_in(scope: &std::path::Path) {
+    let scope = canonical_scope(scope);
+    with_scoped_delays(|delays| delays.genomes.retain(|(existing, _, _)| *existing != scope));
+}
+
+/// Test-only: removes every delay registered under `scope`.
+#[cfg(feature = "test-support")]
+pub fn forget_test_reference_scope(scope: &std::path::Path) {
+    let scope = canonical_scope(scope);
+    with_scoped_delays(|delays| {
+        delays.baselines.retain(|(existing, _)| *existing != scope);
+        delays.genomes.retain(|(existing, _, _)| *existing != scope);
+    });
+}
+
+#[cfg(feature = "test-support")]
+fn test_reference_delay_millis_for(genome_id: &str, sandbox_path: &std::path::Path) -> Option<u64> {
+    let global_specific = TEST_REFERENCE_DELAY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_ref()
         .and_then(|(target, millis)| (target == genome_id).then_some(*millis))
         .unwrap_or(0);
+    let sandbox_path = canonical_scope(sandbox_path);
+    let scoped = with_scoped_delays(|delays| {
+        let baseline: u64 = delays
+            .baselines
+            .iter()
+            .filter(|(scope, _)| sandbox_path.starts_with(scope))
+            .map(|(_, millis)| *millis)
+            .sum();
+        let genome: u64 = delays
+            .genomes
+            .iter()
+            .filter(|(scope, genome, _)| sandbox_path.starts_with(scope) && genome == genome_id)
+            .map(|(_, _, millis)| *millis)
+            .sum();
+        baseline.saturating_add(genome)
+    });
     let total = TEST_REFERENCE_BASELINE_DELAY
         .load(std::sync::atomic::Ordering::SeqCst)
-        .saturating_add(specific);
+        .saturating_add(global_specific)
+        .saturating_add(scoped);
     (total > 0).then_some(total)
 }
 

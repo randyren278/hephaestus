@@ -41,6 +41,8 @@ pub use spec::{Budget, ExperimentContext, RunSpec};
 pub use supervisor::SupervisedRuntime;
 #[cfg(feature = "test-support")]
 pub use supervisor::{
-    clear_test_reference_delay, set_test_reference_baseline_delay, set_test_reference_delay,
+    clear_test_reference_delay, clear_test_reference_delays_in, forget_test_reference_scope,
+    set_test_reference_baseline_delay, set_test_reference_baseline_delay_in,
+    set_test_reference_delay, set_test_reference_delay_in,
 };
 pub use worker::{IsolatedWorker, WorkerDomain, WorkerLimits, WorkerOutput};
