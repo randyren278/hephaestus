@@ -1937,6 +1937,13 @@
       "replace": "        if false {"
     },
     {
+      "id": "pinned-reference-worker-reuse-skips-per-use-digest-reverification",
+      "file": "crates/hephaestus-control/src/server.rs",
+      "invariant": "A cached, daemon-lifetime pinned reference worker is re-verified against its recorded digest before every reuse, not trusted unconditionally.",
+      "find": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return match existing.verify() {\n                Ok(()) => Ok(existing),\n                Err(err) => {\n                    *self.pinned_reference_worker.borrow_mut() = None;\n                    Err(err)\n                }\n            };\n        }",
+      "replace": "        let cached = self.pinned_reference_worker.borrow().clone();\n        if let Some(existing) = cached {\n            return Ok(existing);\n        }"
+    },
+    {
       "id": "reference-instruction-cas-not-interpreted",
       "file": "crates/hephaestus-control/src/server.rs",
       "invariant": "The daemon parses only the verified registered prompt CAS as a reference instruction.",

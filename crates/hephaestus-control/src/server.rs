@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     fs::{self, File, OpenOptions},
@@ -202,6 +203,16 @@ pub struct ControlPlane {
     evaluator_executable: PathBuf,
     reference_worker_executable: PathBuf,
     reference_worker_digest: String,
+    /// Cached private snapshot of the reference worker executable, pinned
+    /// once per daemon lifetime and shared by every direct reference run,
+    /// synchronous `RunEvaluation`, and Arena job admission. `RefCell`
+    /// interior mutability keeps `pin_reference_worker` callable from `&self`
+    /// call sites that predate this cache; `ControlPlane` is owned by a
+    /// single thread for its whole lifetime, so no synchronization is needed.
+    /// A failed re-verification (see [`PinnedReferenceWorker::verify`]) both
+    /// fails this call closed and clears the cache, so the *next* call pins a
+    /// fresh snapshot rather than silently reusing or masking a corrupted one.
+    pinned_reference_worker: RefCell<Option<Arc<PinnedReferenceWorker>>>,
     guardian_executable: PathBuf,
     /// Operator-configured Codex CLI binary. A daemon flag or environment
     /// variable, never a hardcoded path, so offline tests can point it at a
@@ -785,6 +796,7 @@ impl ControlPlane {
             evaluator_executable,
             reference_worker_executable,
             reference_worker_digest,
+            pinned_reference_worker: RefCell::new(None),
             guardian_executable,
             codex_executable,
             claude_executable,
@@ -3544,7 +3556,7 @@ impl ControlPlane {
         // its cost by the Genome's registered World Law, matching the
         // already-working synchronous `run` path (`run_with_context`).
         let worker = if selected_provider.is_none() {
-            Some(Arc::new(self.pin_reference_worker()?))
+            Some(self.pin_reference_worker()?)
         } else {
             None
         };
@@ -4774,7 +4786,7 @@ impl ControlPlane {
         // The reference worker is pinned unconditionally: even a fully
         // provider paired trial keeps the same admission shape, and a mixed
         // pair needs it for whichever role stays on the reference path.
-        let worker = Arc::new(self.pin_reference_worker()?);
+        let worker = self.pin_reference_worker()?;
         let reference_environment_id = Self::reference_execution_environment(&worker);
         let provider_environment_id = |provider: Provider| -> Result<String, ExecuteError> {
             let executable = self.provider_executable(provider)?;
@@ -5329,7 +5341,42 @@ impl ControlPlane {
         })
     }
 
-    fn pin_reference_worker(&self) -> Result<PinnedReferenceWorker, ExecuteError> {
+    /// Returns the daemon-lifetime pinned reference worker, creating it on
+    /// first use and re-verifying it before every subsequent use.
+    ///
+    /// The private snapshot is content-addressed and pinned exactly once per
+    /// daemon lifetime: every direct reference run, synchronous
+    /// `RunEvaluation`, and Arena job admission shares the same `Arc`-held
+    /// `TempDir` and executable copy instead of writing (and `fsync`-ing) a
+    /// fresh one per call. A cached pin is re-verified — re-hashed and
+    /// compared against `reference_worker_digest` — before every reuse; a
+    /// mismatch fails this call closed with the existing rejection and clears
+    /// the cache so the next call pins a fresh snapshot rather than reusing a
+    /// tampered one.
+    fn pin_reference_worker(&self) -> Result<Arc<PinnedReferenceWorker>, ExecuteError> {
+        // The borrow is taken and released in its own statement (rather than
+        // directly in an `if let` condition) so the immutable `Ref` is
+        // dropped before a mismatch below needs `borrow_mut`; otherwise the
+        // temporary's extended lifetime would panic with "already borrowed".
+        let cached = self.pinned_reference_worker.borrow().clone();
+        if let Some(existing) = cached {
+            return match existing.verify() {
+                Ok(()) => Ok(existing),
+                Err(err) => {
+                    *self.pinned_reference_worker.borrow_mut() = None;
+                    Err(err)
+                }
+            };
+        }
+        let worker = Arc::new(self.pin_fresh_reference_worker()?);
+        *self.pinned_reference_worker.borrow_mut() = Some(Arc::clone(&worker));
+        Ok(worker)
+    }
+
+    /// Writes and verifies a brand-new private snapshot of the reference
+    /// worker executable. Called only by `pin_reference_worker`, on first use
+    /// or after a cached pin failed re-verification.
+    fn pin_fresh_reference_worker(&self) -> Result<PinnedReferenceWorker, ExecuteError> {
         let bytes =
             fs::read(&self.reference_worker_executable).map_err(|_| ExecuteError::Internal)?;
         let digest = blake3::hash(&bytes).to_hex().to_string();
@@ -5665,9 +5712,7 @@ impl ControlPlane {
             } else {
                 execute_reference_runtime(recorder, &spec, sandbox.sandbox()?, &token, run_id)
             };
-            let worker_integrity = worker
-                .as_ref()
-                .map_or(Ok(()), PinnedReferenceWorker::verify);
+            let worker_integrity = worker.as_ref().map_or(Ok(()), |worker| worker.verify());
             let (ledger, artifacts) = recorder.into_stores();
             let execution = execution.and_then(|output| {
                 worker_integrity?;
