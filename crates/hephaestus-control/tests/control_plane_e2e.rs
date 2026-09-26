@@ -34,6 +34,7 @@ use tempfile::tempdir;
 const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
 const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
 const REFERENCE_EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
+const HEPH: &str = env!("CARGO_BIN_EXE_heph");
 const REFERENCE_WORKER: &str = env!("CARGO_BIN_EXE_hephaestus-reference-worker");
 const PROCESS_GUARDIAN: &str = env!("CARGO_BIN_EXE_hephaestus-process-guardian");
 const MCP_GATEWAY: &str = env!("CARGO_BIN_EXE_hephaestus-mcp-gateway");
@@ -7720,4 +7721,39 @@ fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
     println!("{}", String::from_utf8_lossy(&author_output.stdout));
 
     daemon.stop();
+}
+
+#[test]
+fn heph_no_daemon_fails_fast_with_no_daemon_running() {
+    let data_dir = tempdir().expect("temp data dir");
+    let output = ProcessCommand::new(HEPH)
+        .arg("--data-dir")
+        .arg(data_dir.path())
+        .arg("--no-daemon")
+        .output()
+        .expect("run heph --no-daemon");
+    assert!(
+        !output.status.success(),
+        "heph --no-daemon should fail when no daemon is running"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no daemon is running"),
+        "expected a plain explanation, got: {stderr}"
+    );
+}
+
+#[test]
+fn heph_stop_reports_a_clean_error_when_nothing_is_running() {
+    let data_dir = tempdir().expect("temp data dir");
+    let output = ProcessCommand::new(HEPH)
+        .arg("--data-dir")
+        .arg(data_dir.path())
+        .arg("stop")
+        .output()
+        .expect("run heph stop");
+    assert!(
+        !output.status.success(),
+        "heph stop should fail when no daemon is running for this data dir"
+    );
 }

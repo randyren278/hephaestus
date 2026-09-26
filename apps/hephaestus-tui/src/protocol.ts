@@ -9,6 +9,12 @@ export type Command =
 	| {command: 'genome_show'; genome_id: string}
 	| {command: 'genome_register'; path: string; world_id: string}
 	| {command: 'world_list'}
+	| {command: 'world_register'; path: string}
+	| {command: 'manifest_put'; path: string}
+	| {command: 'artifact_put'; path: string}
+	| {command: 'verifier_show'}
+	| {command: 'run_submit'; job_id: string; genome_id: string}
+	| {command: 'replay'}
 	| {command: 'genome_prompt'; genome_id: string}
 	| {command: 'champion_show'; world_id: string}
 	| {command: 'champion_rollback'; transition_id: string; world_id: string; reason: string}
@@ -194,6 +200,10 @@ export type ResponseData =
 	| {type: 'genome'; genome: Genome}
 	| {type: 'genomes'; genomes: Genome[]}
 	| {type: 'worlds'; worlds: World[]}
+	| {type: 'world'; world: World}
+	| {type: 'artifact'; artifact_id: string; bytes: number}
+	| {type: 'verifier'; artifact_id: string; public_key_hex: string}
+	| {type: 'replay'; event_count: number; frozen: boolean; active_runs: number; projection_hash: string}
 	| {type: 'genome_prompt'; genome_id: string; prompt: string}
 	| {type: 'champion'; champion: Champion}
 	| {type: 'champion_transition'; transition: ChampionTransition}
@@ -811,6 +821,20 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 			if (worlds.some(world => world === undefined)) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'worlds', worlds: worlds as World[]}};
 		}
+		case 'world': {
+			const world = parseWorld(data['world']);
+			if (!world) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'world', world}};
+		}
+		case 'artifact':
+			if (!identifier(data['artifact_id']) || !boundedCount(data['bytes'])) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'artifact', artifact_id: data['artifact_id'], bytes: data['bytes']}};
+		case 'verifier':
+			if (!identifier(data['artifact_id']) || !boundedString(data['public_key_hex'], 128) || !/^[0-9a-f]+$/.test(data['public_key_hex'])) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'verifier', artifact_id: data['artifact_id'], public_key_hex: data['public_key_hex']}};
+		case 'replay':
+			if (typeof data['frozen'] !== 'boolean' || !safeInteger(data['event_count']) || !safeInteger(data['active_runs']) || !identifier(data['projection_hash'])) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'replay', event_count: data['event_count'], frozen: data['frozen'], active_runs: data['active_runs'], projection_hash: data['projection_hash']}};
 		case 'genome_prompt':
 			if (!identifier(data['genome_id']) || typeof data['prompt'] !== 'string' || data['prompt'].length > MAX_FRAME_BYTES) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'genome_prompt', genome_id: data['genome_id'], prompt: data['prompt']}};

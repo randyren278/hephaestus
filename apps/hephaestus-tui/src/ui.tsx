@@ -12,9 +12,10 @@ import {CanaryDetailPanel, CanaryListPanel, DriftDetailPanel, DriftListPanel} fr
 import {MetaEvaluationDetailPanel, MetaEvaluationListPanel, MetaStrategyDetailPanel, MetaStrategyListPanel} from './meta-view.js';
 import {CelebrationBurst, CrestClash, ProgressBar, TorchFlicker, Typewriter, type FrameOptions} from './motion.js';
 import {BANNER_CHAR_TOKEN, borderColorProps, colorProps, HOME_BANNER_ROWS, TOKEN_ROLE, TUI_BANNER, useTheme, type Role, type Theme} from './theme.js';
+import {TourScreen} from './tour-view.js';
 import {safeText, type ApiResponse, type ArenaJobProgress, type Canary, type Champion, type Command, type DenialEntry, type Drift, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type MetaEvaluation, type MetaStrategy, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
-const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent'] as const;
+const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent', 'Take the tour'] as const;
 const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
 const OPERATE_MENU = ['Drift records', 'Canaries', 'Evolver strategies', 'Meta-evaluations'] as const;
 type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
@@ -23,7 +24,8 @@ type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' |
 	| 'genes' | 'gene-detail'
 	| 'operate-menu' | 'drifts' | 'drift-detail' | 'canaries' | 'canary-detail'
 	| 'meta-strategies' | 'meta-strategy-detail' | 'meta-evaluations' | 'meta-evaluation-detail'
-	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent';
+	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent'
+	| 'tour';
 const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
 const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
 const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
@@ -33,7 +35,7 @@ const OPERATE_VIEWS: View[] = ['operate-menu', ...OPERATE_LIST_VIEWS, 'drift-det
 const AUTHOR_VIEWS: View[] = ['author-world', 'author-path', 'author-register', 'author-test-parent'];
 const LIST_LIMIT = 200;
 type TuiClient = Pick<ControlClient, 'request'>;
-type Props = {client?: TuiClient; pollMs?: number};
+type Props = {client?: TuiClient; pollMs?: number; forceTour?: boolean};
 
 function waitForPoll(ms: number, signal: AbortSignal): Promise<void> {
 	if (signal.aborted) return Promise.reject(new Error('daemon request aborted'));
@@ -126,13 +128,13 @@ export function ArenaProgressPanel({job, stale, notice, compact = false, animate
 	</Box>;
 }
 
-export function App({client: providedClient, pollMs = 1500}: Props) {
+export function App({client: providedClient, pollMs = 1500, forceTour = false}: Props) {
 	const {exit} = useApp();
 	const theme = useTheme();
 	const {columns = 80, rows = 24} = useWindowSize();
 	const [client] = useState(() => providedClient ?? new ControlClient());
 	const [selected, setSelected] = useState(0);
-	const [view, setView] = useState<View>('home');
+	const [view, setView] = useState<View>(forceTour ? 'tour' : 'home');
 	const [jobId, setJobId] = useState('');
 	const [jobPromptAction, setJobPromptAction] = useState<'inspect' | 'cancel'>('inspect');
 	const [arenaInput, setArenaInput] = useState('');
@@ -504,6 +506,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	};
 
 	useInput((input, key) => {
+		if (view === 'tour') return; // TourScreen owns its own input while active.
 		if (view === 'home' && input.toLowerCase().includes('q')) { quit(); return; }
 		if (view === 'job-id') {
 			if (key.escape) { setView('home'); return; }
@@ -815,6 +818,7 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 				case 9: setGeneIndex(0); setGeneDetail(undefined); setView('genes'); void loadGenes(); break;
 				case 10: setOperateMenuIndex(0); setView('operate-menu'); break;
 				case 11: setAuthorGenome(undefined); setAuthorPath(''); setAuthorNotice(''); setView('author-world'); void loadWorlds(); break;
+				case 12: setView('tour'); break;
 			}
 		}
 	});
@@ -840,12 +844,15 @@ export function App({client: providedClient, pollMs = 1500}: Props) {
 	const detailParent = detail ? genomes.find(genome => detail.parent_ids.includes(genome.genome_id)) : undefined;
 	const statusText = statusOf(status?.data);
 	const statusRole: Role = stale ? 'danger' : statusText === 'FROZEN' ? 'judge' : status ? 'success' : 'muted';
+	if (view === 'tour') {
+		return <TourScreen client={client} onExit={() => { setView('home'); void refresh(); }} />;
+	}
 	return <Box flexDirection="column" width={Math.max(1, columns)} height={Math.max(1, rows)} paddingX={1}>
 		<Box justifyContent="space-between">
 			<Text bold><Typewriter text="HEPHAESTUS" color={theme.color('judge')} bold /> <Text {...colorProps(theme.color('challengerDim'))}>/ OPERATOR</Text></Text>
 			<Text {...colorProps(theme.color(statusRole))}>{stale ? '● STALE' : `● ${statusText}`}</Text>
 		</Box>
-		<Box marginTop={1} flexDirection="column">
+		<Box marginTop={0} flexDirection="column">
 			{!compact && <HomeBanner theme={theme} />}
 			<Text bold {...colorProps(theme.color('ink'))}>  LOCAL CONTROL · SCHEMA 1 · OWNER SOCKET</Text>
 		</Box>

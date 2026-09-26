@@ -171,7 +171,11 @@ enum CliCommand {
         path: PathBuf,
     },
     /// Open the local interactive terminal operator interface.
-    Tui,
+    Tui {
+        /// Force the first-run tour to play even if it was already completed.
+        #[arg(long)]
+        tour: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -751,11 +755,11 @@ fn main() -> ExitCode {
 
 fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
     match &arguments.command {
-        CliCommand::Tui if arguments.json => {
+        CliCommand::Tui { .. } if arguments.json => {
             eprintln!("hephaestus: --json does not apply to the interactive TUI");
             Some(ExitCode::FAILURE)
         }
-        CliCommand::Tui => Some(launch_tui(arguments.data_dir.clone())),
+        CliCommand::Tui { tour } => Some(launch_tui(arguments.data_dir.clone(), *tour)),
         CliCommand::Init { fixture, path } => {
             Some(initialize_fixture(fixture, path, arguments.json))
         }
@@ -763,10 +767,13 @@ fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
     }
 }
 
-fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
+fn launch_tui(data_dir: Option<PathBuf>, tour: bool) -> ExitCode {
     let mut command = if let Some((node, entrypoint)) = packaged_tui_paths(&current_executable()) {
         let mut command = ProcessCommand::new(node);
         command.arg(entrypoint);
+        if tour {
+            command.arg("--tour");
+        }
         command
     } else {
         let package = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -781,6 +788,9 @@ fn launch_tui(data_dir: Option<PathBuf>) -> ExitCode {
         };
         let mut command = ProcessCommand::new("npm");
         command.arg("--prefix").arg(package).args(["run", "start"]);
+        if tour {
+            command.arg("--").arg("--tour");
+        }
         command
     };
     if let Some(data_dir) =
@@ -1410,7 +1420,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             command: WorkerCommand::Status { job_id },
         } => Command::RemoteJobStatus { job_id },
         CliCommand::Init { .. } => return Err("init is a local command"),
-        CliCommand::Tui => return Err("tui is a local interactive command"),
+        CliCommand::Tui { .. } => return Err("tui is a local interactive command"),
     })
 }
 
@@ -2840,6 +2850,22 @@ mod tests {
             matches!(arguments.command, super::CliCommand::Init { fixture, path }
             if fixture == "quickstart" && path.as_path() == Path::new("/tmp/quickstart"))
         );
+    }
+
+    #[test]
+    fn tui_cli_defaults_to_no_forced_tour_and_accepts_the_flag() {
+        let plain = Arguments::try_parse_from(["hephaestus", "tui"]).expect("tui parses");
+        assert!(matches!(
+            plain.command,
+            super::CliCommand::Tui { tour: false }
+        ));
+
+        let forced =
+            Arguments::try_parse_from(["hephaestus", "tui", "--tour"]).expect("tui --tour parses");
+        assert!(matches!(
+            forced.command,
+            super::CliCommand::Tui { tour: true }
+        ));
     }
 
     #[test]
