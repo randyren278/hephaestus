@@ -241,7 +241,7 @@ impl SupervisedRuntime {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
-        let mut child = command.spawn()?;
+        let mut child = spawn_retrying_busy_executable(&mut command)?;
         let child_stdin = child
             .stdin
             .take()
@@ -567,6 +567,24 @@ fn send_guardian_control(shared: &SharedRun, control: GuardianControl) {
     }
 }
 
+/// Spawns `command`, retrying briefly when Linux reports the executable as
+/// busy (ETXTBSY). That happens when another thread forked while a freshly
+/// written executable (a pinned worker snapshot, a test's fake CLI) still had
+/// a write handle open; the handle disappears once that child execs.
+fn spawn_retrying_busy_executable(command: &mut Command) -> std::io::Result<std::process::Child> {
+    let mut backoff = Duration::from_millis(5);
+    for _ in 0..6 {
+        match command.spawn() {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                thread::sleep(backoff);
+                backoff = backoff.saturating_mul(2);
+            }
+            result => return result,
+        }
+    }
+    command.spawn()
+}
+
 fn spawn_stdin_writer(
     mut stdin: impl Write + Send + 'static,
     bytes: Vec<u8>,
@@ -655,7 +673,7 @@ fn execute_supervised_process_inner(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
-    let mut child = command.spawn()?;
+    let mut child = spawn_retrying_busy_executable(&mut command)?;
     let child_stdin = child
         .stdin
         .take()
@@ -787,7 +805,12 @@ fn spawn_monitor(
             if shared.output_exceeded.load(Ordering::Acquire) {
                 break stop_supervised_child(&mut child, &shared, StopReason::OutputExceeded);
             }
-            if shared.io_failed.load(Ordering::Acquire) {
+            // A broken stdin pipe alone does not stop the child: its exit
+            // status decides whether this was a provider failure or an
+            // undelivered prompt (see the completion classification below).
+            if shared.io_failed.load(Ordering::Acquire)
+                && !shared.stdin_closed_early.load(Ordering::Acquire)
+            {
                 break stop_supervised_child(&mut child, &shared, StopReason::IoFailed);
             }
             if Instant::now() >= deadline {
@@ -1150,6 +1173,36 @@ mod tests {
             Err(RuntimeError::CapabilityDenied)
         ));
         assert!(!marker.exists());
+        sandbox.cleanup().expect("clean sandbox");
+    }
+
+    #[test]
+    fn a_child_that_exits_nonzero_without_reading_its_prompt_is_a_provider_failure() {
+        let repository = repository_fixture();
+        let root = tempdir().expect("sandbox root");
+        let manager = SandboxManager::open(root.path(), Duration::from_secs(30))
+            .expect("open sandbox manager");
+        // A 2 MiB prompt cannot fit in the pipe buffer, so the write always
+        // meets a broken pipe after `false` exits.
+        let prompt = "x".repeat(2 * 1024 * 1024);
+        let run_spec = spec_with_prompt(
+            "unit-stdin-nonzero",
+            repository.path(),
+            Duration::from_secs(2),
+            1_000,
+            prompt,
+        );
+        let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+        let mut runtime = test_runtime("/usr/bin/false", []);
+        runtime
+            .start(&run_spec, &sandbox, &token)
+            .expect("start early-exit child");
+        let snapshot = wait_for_terminal(&mut runtime, run_spec.run_id());
+        assert_eq!(snapshot.status, RunStatus::Failed);
+        assert_eq!(
+            snapshot.completion_reason,
+            Some(CompletionReason::ProviderFailure)
+        );
         sandbox.cleanup().expect("clean sandbox");
     }
 
