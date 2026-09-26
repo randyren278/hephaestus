@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640" role="img" aria-labelledby="t d">
+<title id="t">How Hephaestus decides whether a change made your agent better</title>
+<desc id="d">Six steps. 1, write the agent: a Genome is the agent's sealed recipe. 2, set the rules: a World is the exam, its limits, and what is forbidden. 3, try a change: a child Genome remembers its parent. 4, fair fight: the Arena runs old and new on the same tasks in separate sandboxes. 5, sealed judge: an Evaluator the agents can never read scores both. 6, write it down: the verdict is a receipt in a tamper-evident Ledger, and a clear winner can become Champion.</desc>
+<rect width="960" height="640" rx="18" fill="#10131a"/>
+<rect x="1" y="1" width="958" height="638" rx="17" fill="none" stroke="#3a3f4d"/>
+<text x="40" y="58" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="27" font-weight="700" fill="#e9e4d8">How Hephaestus decides if a change made your agent better</text>
+<text x="40" y="88" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" fill="#a2a7b5">Two versions. One fair test. One judge they can't see. One record that can't be rewritten.</text>
+<rect x="40" y="122" width="272" height="212" rx="12" fill="#1e2330" stroke="#3a3f4d" stroke-width="1"/>
+<circle cx="70" cy="154" r="15" fill="#e8590c"/>
+<text x="70" y="160" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#10131a">1</text>
+<text x="96" y="161" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e9e4d8">Write the agent</text>
+<text x="64" y="198" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.6" fill="#f4c542">GENOME</text>
+<rect x="254" y="138" width="30" height="38" rx="3" fill="none" stroke="#f4c542" stroke-width="2.5"/><path d="M264 164 a5 5 0 0 1 10 0" fill="none" stroke="#ff8a3d" stroke-width="2"/><path d="M260 164 a9 9 0 0 1 18 0" fill="none" stroke="#ff8a3d" stroke-width="2"/><path d="M256 164 a13 13 0 0 1 26 0" fill="none" stroke="#ff8a3d" stroke-width="2"/>
+<text x="64" y="230" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">Your agent&#x27;s recipe: its prompt,</text>
+<text x="64" y="254" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">model, and permissions. Sealed</text>
+<text x="64" y="278" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">with a fingerprint, so it can</text>
+<text x="64" y="302" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">never change behind your back.</text>
+<rect x="344" y="122" width="272" height="212" rx="12" fill="#1e2330" stroke="#3a3f4d" stroke-width="1"/>
+<circle cx="374" cy="154" r="15" fill="#e8590c"/>
+<text x="374" y="160" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#10131a">2</text>
+<text x="400" y="161" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e9e4d8">Set the rules</text>
+<text x="368" y="198" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.6" fill="#f4c542">WORLD</text>
+<rect x="558" y="140" width="34" height="34" rx="4" fill="none" stroke="#f4c542" stroke-width="2.5"/><path d="M565 150 h20" stroke="#a2a7b5" stroke-width="2.5" stroke-linecap="round"/><path d="M565 158 h20" stroke="#a2a7b5" stroke-width="2.5" stroke-linecap="round"/><path d="M565 166 h20" stroke="#a2a7b5" stroke-width="2.5" stroke-linecap="round"/><circle cx="588" cy="170" r="7" fill="#e8590c"/>
+<text x="368" y="230" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">The exam your agent sits: the</text>
+<text x="368" y="254" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">tasks, the time and cost limits,</text>
+<text x="368" y="278" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">and what agents are never</text>
+<text x="368" y="302" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">allowed to touch.</text>
+<rect x="648" y="122" width="272" height="212" rx="12" fill="#1e2330" stroke="#3a3f4d" stroke-width="1"/>
+<circle cx="678" cy="154" r="15" fill="#e8590c"/>
+<text x="678" y="160" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#10131a">3</text>
+<text x="704" y="161" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e9e4d8">Try a change</text>
+<text x="672" y="198" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.6" fill="#f4c542">CHILD GENOME</text>
+<circle cx="870" cy="146" r="7" fill="none" stroke="#5b6270" stroke-width="2.5"/><circle cx="890" cy="170" r="7" fill="#e8590c"/><path d="M874 152 L885 164" stroke="#a2a7b5" stroke-width="2.5"/>
+<text x="672" y="230" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">Edit the recipe. The new version</text>
+<text x="672" y="254" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">gets its own fingerprint and</text>
+<text x="672" y="278" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">remembers exactly which</text>
+<text x="672" y="302" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">version it came from.</text>
+<rect x="40" y="388" width="272" height="212" rx="12" fill="#1e2330" stroke="#3a3f4d" stroke-width="1"/>
+<circle cx="70" cy="420" r="15" fill="#e8590c"/>
+<text x="70" y="426" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#10131a">4</text>
+<text x="96" y="427" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e9e4d8">Fair fight</text>
+<text x="64" y="464" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.6" fill="#f4c542">ARENA</text>
+<rect x="254" y="412" width="16" height="26" rx="2" fill="none" stroke="#5b6270" stroke-width="2.5"/><rect x="276" y="412" width="16" height="26" rx="2" fill="none" stroke="#e8590c" stroke-width="2.5"/><path d="M252 408 h42" stroke="#f4c542" stroke-width="2.5" stroke-linecap="round"/>
+<text x="64" y="496" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">Old and new do the same tasks,</text>
+<text x="64" y="520" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">same starting point, same budget,</text>
+<text x="64" y="544" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">each locked in its own sandbox,</text>
+<text x="64" y="568" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">unable to see the other.</text>
+<rect x="344" y="388" width="272" height="212" rx="12" fill="#1e2330" stroke="#3a3f4d" stroke-width="1"/>
+<circle cx="374" cy="420" r="15" fill="#e8590c"/>
+<text x="374" y="426" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#10131a">5</text>
+<text x="400" y="427" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e9e4d8">Sealed judge</text>
+<text x="368" y="464" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.6" fill="#f4c542">EVALUATOR</text>
+<circle cx="576" cy="422" r="16" fill="none" stroke="#f4c542" stroke-width="2.5"/><path d="M576 412 l3 7 7 0 -5.5 4.5 2 7 -6.5 -4 -6.5 4 2 -7 -5.5 -4.5 7 0z" fill="#f4c542"/>
+<text x="368" y="496" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">Scores both runs. The agents</text>
+<text x="368" y="520" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">can never read the judge or the</text>
+<text x="368" y="544" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">answers, so they can&#x27;t game</text>
+<text x="368" y="568" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">the test.</text>
+<rect x="648" y="388" width="272" height="212" rx="12" fill="#1e2330" stroke="#e8590c" stroke-width="2"/>
+<circle cx="678" cy="420" r="15" fill="#e8590c"/>
+<text x="678" y="426" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#10131a">6</text>
+<text x="704" y="427" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e9e4d8">Write it down</text>
+<text x="672" y="464" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.6" fill="#f4c542">LEDGER</text>
+<rect x="862" y="404" width="30" height="38" rx="3" fill="none" stroke="#f4c542" stroke-width="2.5"/><rect x="868" y="411" width="18" height="6" rx="3" fill="none" stroke="#ff8a3d" stroke-width="2"/><rect x="868" y="421" width="18" height="6" rx="3" fill="none" stroke="#ff8a3d" stroke-width="2"/><rect x="868" y="431" width="18" height="6" rx="3" fill="none" stroke="#ff8a3d" stroke-width="2"/>
+<text x="672" y="496" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">The verdict becomes a receipt in</text>
+<text x="672" y="520" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">a log nobody can quietly edit.</text>
+<text x="672" y="544" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">A clear winner can be promoted</text>
+<text x="672" y="568" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15.5" fill="#a2a7b5">to Champion.</text>
+<path d="M316 228.0 L332 228.0" stroke="#ff8a3d" stroke-width="2.5"/><path d="M330 222.0 L340 228.0 L330 234.0" fill="none" stroke="#ff8a3d" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M620 228.0 L636 228.0" stroke="#ff8a3d" stroke-width="2.5"/><path d="M634 222.0 L644 228.0 L634 234.0" fill="none" stroke="#ff8a3d" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M316 494.0 L332 494.0" stroke="#ff8a3d" stroke-width="2.5"/><path d="M330 488.0 L340 494.0 L330 500.0" fill="none" stroke="#ff8a3d" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M620 494.0 L636 494.0" stroke="#ff8a3d" stroke-width="2.5"/><path d="M634 488.0 L644 494.0 L634 500.0" fill="none" stroke="#ff8a3d" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M784.0 338 V361.0 H176.0 V376" fill="none" stroke="#ff8a3d" stroke-width="2.5" stroke-dasharray="6 6"/>
+<path d="M170.0 374 L176.0 384 L182.0 374" fill="none" stroke="#ff8a3d" stroke-width="2.5" stroke-linejoin="round"/>
+<text x="480.0" y="353.0" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#a2a7b5">then Hephaestus measures it</text>
+</svg>

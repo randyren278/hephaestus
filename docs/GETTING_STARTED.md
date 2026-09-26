@@ -1,5 +1,11 @@
 # Getting started
 
+**New here?** Hephaestus is a fair referee for AI agents. You give it two
+versions of an agent. It runs both on the same tasks, each locked in its own
+sandbox, and a judge they can't see scores them. It then saves the verdict in
+a record that can't be quietly edited. If words like Genome, World, or Arena
+are unfamiliar, keep [the glossary](TERMINOLOGY.md) open beside this page.
+
 This is the first-run walkthrough for a source checkout. It covers install,
 the `heph` launcher, the guided tour it opens with, and where to go once
 you're past it. Prefer a prebuilt macOS package? See
@@ -31,6 +37,11 @@ never uses `sudo` and never writes outside your checkout's own `target/`
 directory and the chosen prefix, so it's safe to re-run — a second run just
 rebuilds and relinks.
 
+Run from a terminal, the installer first asks whether you're just here for
+the Senate, the standalone debate tool. Answer yes, or pass `--senate-only`,
+to install only that. See [the Senate](SENATE.md). Pass `--full` to skip the
+question and install everything.
+
 Make sure the prefix's `bin` directory is on your `PATH`:
 
 ```sh
@@ -58,6 +69,11 @@ to the exact same canonical event ledger; anything the tour does is real,
 receipted history, not a simulation. An operator who prefers each step by
 hand can do everything `heph` does with `hephaestus` directly — see
 [docs/CLI.md](CLI.md) for the full command reference.
+
+On the very first run in a terminal, `heph` asks "Just here for the
+Senate?" before starting anything. Answer yes and it shows you how to use
+`senate` and starts nothing else. Answer no, or just press Enter, for the
+full launch.
 
 `heph stop` stops the daemon `heph` started. `heph --no-daemon` fails fast
 instead of starting one, if you'd rather manage `hephaestusd` yourself.

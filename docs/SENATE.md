@@ -10,6 +10,10 @@ any remaining dissent, credited to the perspective that raised it.
 The Senate is standalone. It needs no daemon, TUI, or workers, and it runs on
 the model subscription you already have: Claude Code or the Codex CLI.
 
+<p align="center">
+  <img src="assets/senate.svg" width="100%" alt="The Senate: a semicircular chamber of senators around a clerk. You ask a question and pick a size from 3 to 15 senators. Every senator gives an opening view, the clerk drafts one answer, and each round senators vote agree, amend, or dissent and sharpen their views. When nobody dissents and most agree, the draft passes; otherwise the clerk redrafts. You get one answer, the points of agreement, and any dissent credited to whoever raised it.">
+</p>
+
 > **Disclaimer.** Senators are simulated perspectives written by an AI model
 > "in the spirit of" historical figures. Nothing the Senate prints is any real
 > person's words, views, or endorsement. Every output carries a one-line

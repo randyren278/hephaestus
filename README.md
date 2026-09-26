@@ -5,108 +5,234 @@
 <h1 align="center">Hephaestus</h1>
 
 <p align="center">
-  <em>An evidence-first control plane for evolving AI agents. Every claim of improvement has a receipt.</em>
+  <strong>A fair referee for AI agents.</strong><br>
+  Change your agent, and Hephaestus tells you whether it actually got better, with proof you can check.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/rust-1.85%2B-E8590C?logo=rust&logoColor=white&labelColor=161B22" alt="Rust 1.85 or newer">
-  <img src="https://img.shields.io/badge/isolation-macOS%20Seatbelt-E8590C?logo=apple&logoColor=white&labelColor=161B22" alt="macOS Seatbelt isolation">
-  <img src="https://img.shields.io/badge/license-MIT-E8590C?labelColor=161B22" alt="MIT license">
+  <a href="#install">Install</a> ·
+  <a href="#the-words-youll-see">Glossary</a> ·
+  <a href="#try-it-in-five-minutes">Try it</a> ·
+  <a href="#just-here-for-the-senate">The Senate</a> ·
+  <a href="docs/STATUS.md">What works today</a>
 </p>
 
-Most "self-improving agent" loops keep score by vibes: a model rewrites its
-own prompt, a benchmark number goes up, and nobody can say afterwards which
-change caused it or how to get the old version back. Hephaestus is the
-boring, stubborn part of that loop done properly. An agent configuration is
-an immutable, content-addressed Genome, scored in an isolated sandbox against
-a sealed evaluator it can never read, with every run and receipt written to a
-hash-linked ledger. Kill the daemon and restart it, and it rebuilds that exact
-history from disk or refuses to start.
+## What is this?
+
+You have an AI agent, meaning a model plus a prompt plus some permissions.
+You tweak the prompt. Is the new version better? Usually the honest answer is
+"it felt better on a few tries." Nobody can say afterwards what changed, and
+nobody can get the old version back.
+
+Hephaestus replaces that guesswork with a fair fight. It runs the old and new
+versions on the same tasks, each locked in its own sandbox, and a judge they
+cannot see scores them. It writes the result into a record that cannot be
+quietly rewritten, so "version B is better" becomes a claim anyone can check
+later.
+
+<p align="center">
+  <img src="docs/assets/how-it-works.svg" width="100%" alt="Six steps. 1, write the agent: a Genome is the agent's sealed recipe. 2, set the rules: a World is the exam, its limits, and what agents may never touch. 3, try a change: the new version remembers which version it came from. 4, fair fight: the Arena runs old and new on the same tasks in separate sandboxes. 5, sealed judge: an Evaluator the agents can never read scores both. 6, write it down: the verdict is a receipt in a tamper-evident Ledger, and a clear winner can be promoted to Champion.">
+</p>
+
+The name comes from the Greek god of the forge. Agents get hammered on,
+tested, and only the good ones are kept.
+
+## The words you'll see
+
+Hephaestus uses a small vocabulary, and each word has one exact meaning. Here
+they are in plain English.
+
+| Word | Plain meaning | Think of it as |
+|---|---|---|
+| **Genome** | One exact version of an agent: its prompt, model, and permissions. It gets a fingerprint from its contents, so any change makes a new Genome. | A recipe card sealed in plastic |
+| **World** | The test an agent is measured in: its tasks, its time and cost limits, the judge, and the rules. | The exam, plus the exam-hall rules |
+| **Law** | A rule of a World that no agent can change, such as "agents may never read the judge". | A rule written on the wall |
+| **Arena** | Where two Genomes are compared on identical tasks, each in its own sandbox. | The exam hall |
+| **Evaluator** | The program that scores each run. Agents can never read it or the answers. | A judge behind a curtain |
+| **Ledger** | The permanent record of everything that happened. Each entry is chained to the one before it, so edits are detectable. | A notebook with numbered, glued-in pages |
+| **Receipt** | The saved proof behind one decision: what ran, what it scored, and why the verdict came out the way it did. | A signed scorecard |
+| **Champion** | The version currently trusted as best for a World. It changes only when a challenger wins fairly. | The title holder |
+| **Freeze** | Hephaestus always starts paused. Only you can unpause it, and that choice is recorded too. | The emergency brake, on by default |
+| **Daemon** | `hephaestusd`, the background program that does the work and is the only thing allowed to write to the Ledger. | The referee's office |
+
+More terms, such as Forge, Gene, Lineage, Drift, and Canary, are in
+[the full glossary](docs/TERMINOLOGY.md).
 
 ## Install
 
-Source checkout: `git clone https://github.com/randyren278/hephaestus.git && cd hephaestus && scripts/install.sh`
+You need **macOS**, **git**, **npm**, and **Rust 1.85 or newer**. If you
+don't have Rust, install it from [rustup.rs](https://rustup.rs).
 
-Then run `heph` — it starts the daemon, opens the operator console, and walks
-you through a short tour on first launch; `heph --tour` replays it. New to
-Hephaestus? [Getting started](docs/GETTING_STARTED.md) covers the same ground
-in more detail.
-
-Prefer a macOS package? See [macOS installation](docs/MACOS_INSTALL.md).
-
-Just here for the Senate, a multi-perspective debate CLI? Run
-`scripts/install.sh --senate-only`, then `senate ask "your question" --size M`.
-See [the Senate](docs/SENATE.md).
-
-## Quickstart
-
-Prerequisites: macOS, `git`, and a stable Rust toolchain (1.85+).
+**1. Download and install**
 
 ```bash
-hephaestus world register world.json
-hephaestus genome register parent.md --world hephaestus:world:<id>
-hephaestus genome register child.md  --world hephaestus:world:<id>
-hephaestus unfreeze
-hephaestus run hephaestus:genome:<parent>
-hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>
-hephaestus arena select eval-001
-hephaestus replay
+git clone https://github.com/randyren278/hephaestus.git
+cd hephaestus
+scripts/install.sh
 ```
 
-That registers a World and two Genomes, runs the parent, measures parent
-against child in a protected Arena, then verifies the whole ledger replays
-byte-for-byte. Prefer one command? `scripts/quickstart.sh` builds the
-workspace, drives this exact loop against a scratch daemon, then `kill -9`s
-it and brings it back to prove the state is canonical history. Full
-walkthrough, including building the World's evaluator artifacts: [docs/CLI.md](docs/CLI.md).
+This builds everything and puts the programs in `~/.local/bin`. It never uses
+`sudo`. When run from a terminal, it first asks whether you're just here for
+the Senate (see [below](#just-here-for-the-senate)).
 
-## How it works
+**2. Make sure your shell can find them.** Skip this step if `~/.local/bin` is already on your `PATH`.
 
-```mermaid
-flowchart LR
-    you["You<br/>operator CLI"] -- "token + schema v1" --> daemon["hephaestusd<br/>single writer"]
-    daemon --> ledger[("Hash-linked ledger<br/>+ BLAKE3 CAS")]
-    you -- "world register" --> world["World<br/>Laws, ceilings, evaluators"]
-    you -- "genome register" --> genome["Genome<br/>content-addressed lineage"]
-    world --> daemon
-    genome --> daemon
-    daemon -- "arena evaluate" --> arena{"Protected Arena"}
-    arena --> parent["Parent<br/>sandboxed run"]
-    arena --> child["Child<br/>sandboxed run"]
-    parent --> evaluator["Sealed evaluator<br/>World-hashed process"]
-    child --> evaluator
-    evaluator -- "signed receipt" --> ledger
-    ledger -- "replay == live state" --> you
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Candidates never see canonical storage, the evaluator, expected outputs, or
-each other. The daemon starts **frozen**; only the operator can unfreeze it,
-and that decision is itself a ledgered event. Every Arena run pins one
-revision, seed, and budget for both trials, and returns only the aggregates
-the operator is authorized to see.
+**3. Start it**
+
+```bash
+heph
+```
+
+`heph` starts Hephaestus in the background and opens a guided six-step tour
+in your terminal. The tour does everything for real: it creates a World and
+two agents, runs a fair fight between them, and proves the record is intact.
+To see the tour again later:
+
+```bash
+heph --tour
+```
+
+Prefer a prebuilt macOS package? See [macOS installation](docs/MACOS_INSTALL.md).
+
+## Try it in five minutes
+
+The quickest proof is one script. It builds everything and runs the whole
+loop against a throwaway copy of Hephaestus. Then it force-kills that copy,
+restarts it, and checks that nothing was lost:
+
+```bash
+scripts/quickstart.sh
+```
+
+The example it uses is deliberately tiny. The task is "repeat this text back in
+capital letters". The parent agent returns the text unchanged and scores **0 of
+2**. The child agent turns it into capitals and scores **2 of 2**. Hephaestus
+records the child's win with a receipt.
+
+To do the same steps by hand, one command at a time:
+
+```bash
+hephaestus world register world.json                                # 1. set up the exam
+hephaestus genome register parent.md --world hephaestus:world:<id>  # 2. the original agent
+hephaestus genome register child.md  --world hephaestus:world:<id>  # 3. the changed agent
+hephaestus unfreeze                                                 # 4. release the brake
+hephaestus run hephaestus:genome:<parent>                           # 5. try the original once
+hephaestus arena evaluate eval-001 hephaestus:genome:<parent> hephaestus:genome:<child>  # 6. fair fight
+hephaestus arena select eval-001                                    # 7. record the verdict
+hephaestus replay                                                   # 8. prove the record is intact
+```
+
+Each `<id>` is the fingerprint Hephaestus prints when you register something.
+The full walkthrough, including how to build the judge, is in
+[the CLI guide](docs/CLI.md).
+
+## Just here for the Senate?
+
+<p align="center">
+  <img src="docs/assets/senate.svg" width="100%" alt="The Senate: a semicircular chamber of senators around a clerk. You ask a question and pick a size from 3 to 15 senators. Every senator gives an opening view, the clerk drafts one answer, and each round senators vote agree, amend, or dissent and sharpen their views. When nobody dissents and most agree, the draft passes; otherwise the clerk redrafts. You get one answer, the points of agreement, and any dissent credited to whoever raised it.">
+</p>
+
+The Senate is a separate tool in this repository. You ask it a question, a
+decision, or a draft document. A panel of simulated perspectives, written "in
+the spirit of" thinkers like Socrates, Ada Lovelace, and Adam Smith, debates
+it and hands back one answer. It runs on the Claude Code or Codex subscription
+you already have and needs none of the rest of Hephaestus.
+
+```bash
+scripts/install.sh --senate-only
+```
+
+```bash
+senate ask "Should we rewrite this service or refactor it?" --size M
+```
+
+Sizes run from `S` (3 senators) to `XL` (15). Every answer notes that the
+senators are AI simulations, not the real people. The full guide covers
+sizes, cost, and how to add a document for review: [the Senate](docs/SENATE.md).
 
 ## Why you can trust it
 
-- **357 deliberate source mutations** run in CI after the test suite passes, each disabling one documented invariant; the suite must go red for every single one, or the build fails.
-- An 80% per-module coverage floor across 37 production-critical modules, `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a docs gate that fails if any path this documentation mentions stops existing.
-- The threat model is written down, not implied: a candidate is assumed hostile, the evaluator is assumed to leak if it can, and the daemon would rather not start than start with a ledger it cannot verify. See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md), including how to verify all of this yourself.
+- **The agents can't cheat.** Each agent runs in a locked-down macOS sandbox
+  with hard time and output limits. The judge and the answers are kept where
+  an agent can never read them.
+- **The record can't be quietly edited.** Every entry in the Ledger is chained
+  to the one before it. On every start, Hephaestus rebuilds its state from that
+  record and refuses to start if anything doesn't match. `hephaestus replay`
+  runs the same check whenever you like.
+- **You hold the brake.** Hephaestus starts frozen. Only you can unfreeze it,
+  and stopping work is confirmed, not assumed.
+- **The tests are tested.** CI breaks the code on purpose in **357** separate
+  ways, and the test suite has to catch every one or the build fails. 39
+  safety-critical modules must also stay at 80% test coverage or better.
+
+The threat model, including how to check all of this yourself, is in
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+
+## What works today, and what doesn't yet
+
+Hephaestus is honest about its limits, so here they are up front:
+
+- ✅ Registering agents and Worlds, sandboxed runs, fair Arena comparisons,
+  receipts, full replay, freeze and kill, and the terminal and web consoles.
+- ✅ Unattended multi-generation runs (`hephaestus evolve`) that only promote
+  a new Champion when the evidence clears the World's bar.
+- ⚠️ **The agents it runs today are simple built-in test agents**, not live
+  Claude or Codex sessions. Adapters for Claude Code and Codex exist and are
+  tested, but running them for real is an opt-in you switch on yourself.
+- ⚠️ **Automatic improvement is minimal.** The only change Hephaestus can
+  propose on its own is one small built-in switch. It proves the machinery,
+  not a smart optimizer.
+- ⚠️ **Running agents needs macOS**, because the sandbox is macOS's. On other
+  systems you can still register, inspect, and replay.
+
+The detailed list is in [docs/STATUS.md](docs/STATUS.md), and the evidence
+behind every feature is in [AUDIT.md](AUDIT.md).
+
+## Under the hood
+
+```mermaid
+flowchart LR
+    you["You<br/>heph, CLI, or console"] --> daemon["hephaestusd<br/>the only writer"]
+    daemon --> arena{"Arena"}
+    arena --> old["Old version<br/>in a sandbox"]
+    arena --> new["New version<br/>in a sandbox"]
+    old --> judge["Sealed judge"]
+    new --> judge
+    judge -- "signed scores" --> daemon
+    daemon --> ledger[("Ledger<br/>chained record")]
+    ledger -- "replay must match" --> you
+```
+
+There is one writer, one record, and a sandbox for every agent run. The
+[architecture guide](docs/ARCHITECTURE.md) has the full diagram and the crate
+map.
 
 ## Documentation
 
-- [Getting Started](docs/GETTING_STARTED.md): first-run walkthrough
-- [Status](docs/STATUS.md): what is built and what is not
-- [CLI Reference](docs/CLI.md): daily use and every command
-- [Architecture](docs/ARCHITECTURE.md): crate map, trust boundary, and the full system diagram
-- [Control Plane](docs/CONTROL_PLANE.md) · [Worlds](docs/WORLDS.md) · [Genomes](docs/GENOMES.md): daemon lifecycle and compiler contracts
-- [Runtimes and Sandboxes](docs/RUNTIMES.md) · [Traces and Experience](docs/EXPERIENCE.md) · [Ledgers and Artifacts](docs/LEDGERS.md): execution and storage internals
-- [Evolution](docs/EVOLUTION.md) · [Drift, shadow, and canary control](docs/CANARY.md) · [Gene Bank](docs/GENE_BANK.md) · [Meta-evolution](docs/META_EVOLUTION.md): the evolve/Champion/Gene loop
-- [MCP Gateway](docs/MCP_GATEWAY.md) · [Remote Workers](docs/REMOTE_WORKERS.md): the distributed surfaces
-- [Threat Model](docs/THREAT_MODEL.md) · [Adversarial coverage](docs/ADVERSARIAL.md) · [Releases](docs/RELEASES.md) · [Self-dogfooding](docs/SELF_DOGFOODING.md): security, supply chain, and how to verify it yourself
-- [Constitution](docs/CONSTITUTION.md) · [Terminology](docs/TERMINOLOGY.md) · [Evaluation Philosophy](docs/EVALUATION_PHILOSOPHY.md) · [Hera Inheritance](docs/HERA_INHERITANCE.md) · [Iris Inheritance](docs/IRIS_INHERITANCE.md): concepts and lineage
-- [Lab cross-check](docs/LAB_CROSSCHECK.md): independent Python recompute of Rust selection and meta-evolution receipts
-- [macOS installation](docs/MACOS_INSTALL.md)
-- [The Senate](docs/SENATE.md): multi-perspective debate over your Claude Code or Codex subscription
-- Operator console: [TUI](apps/hephaestus-tui/README.md) · [Web](apps/hephaestus-web/README.md)
+**Start here**
+- [Getting started](docs/GETTING_STARTED.md): install, first launch, and the guided tour
+- [Glossary](docs/TERMINOLOGY.md): every Hephaestus word in plain English
+- [What works today](docs/STATUS.md): built versus not yet built
+- [The Senate](docs/SENATE.md): the multi-perspective debate tool
+
+**Using it**
+- [CLI guide](docs/CLI.md): every command, and a hand-driven walkthrough
+- [Worlds](docs/WORLDS.md) and [Genomes](docs/GENOMES.md): how to write your own exam and agents
+- [Evolution](docs/EVOLUTION.md), [Canary rollouts](docs/CANARY.md), [Gene Bank](docs/GENE_BANK.md), [Meta-evolution](docs/META_EVOLUTION.md): automated improvement and safe rollouts
+- Consoles: [terminal (TUI)](apps/hephaestus-tui/README.md) and [web](apps/hephaestus-web/README.md)
+- [macOS package install](docs/MACOS_INSTALL.md)
+
+**How it's built**
+- [Architecture](docs/ARCHITECTURE.md), [Control plane](docs/CONTROL_PLANE.md), [Runtimes and sandboxes](docs/RUNTIMES.md), [Traces](docs/EXPERIENCE.md), [Ledgers](docs/LEDGERS.md)
+- [MCP gateway](docs/MCP_GATEWAY.md) and [Remote workers](docs/REMOTE_WORKERS.md)
+
+**Trust and background**
+- [Threat model](docs/THREAT_MODEL.md), [Adversarial coverage](docs/ADVERSARIAL.md), [Releases](docs/RELEASES.md), [Self-dogfooding](docs/SELF_DOGFOODING.md), [Lab cross-check](docs/LAB_CROSSCHECK.md)
+- [Constitution](docs/CONSTITUTION.md), [Evaluation philosophy](docs/EVALUATION_PHILOSOPHY.md), [Hera inheritance](docs/HERA_INHERITANCE.md), [Iris inheritance](docs/IRIS_INHERITANCE.md)
 - [Feature audit](AUDIT.md)
 
 ## License

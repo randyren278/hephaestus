@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="960" height="520" role="img" aria-labelledby="t d">
+<title id="t">How the Senate debates a question</title>
+<desc id="d">A semicircular chamber of senators around a clerk's desk. You ask a question and pick a size from 3 to 15 senators. Round 1: every senator gives an opening view. The clerk drafts one answer. Each later round, every senator votes agree, amend, or dissent and sharpens their view. When nobody dissents and most agree, the draft passes; otherwise the clerk redrafts, up to a round limit. You get one answer, the points everyone agreed on, and any dissent, credited to the senator who raised it.</desc>
+<rect width="960" height="520" rx="18" fill="#10131a"/>
+<rect x="1" y="1" width="958" height="518" rx="17" fill="none" stroke="#3a3f4d"/>
+<text x="40" y="56" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="27" font-weight="700" fill="#e9e4d8">The Senate: one question, many minds, one answer</text>
+<text x="40" y="86" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" fill="#a2a7b5">Simulated perspectives in the spirit of great thinkers argue it out, round by round, until they agree or the clock runs out.</text>
+<path d="M143 400 A112 112 0 0 1 367 400" fill="none" stroke="#3a3f4d" stroke-width="1.5" stroke-dasharray="3 6"/>
+<circle cx="148.5" cy="356.4" r="7.5" fill="#ff8a3d"/>
+<path d="M137.5 373.4 q11 -18 22 0 z" fill="#ff8a3d"/>
+<circle cx="189.2" cy="300.4" r="7.5" fill="#f4c542"/>
+<path d="M178.2 317.4 q11 -18 22 0 z" fill="#f4c542"/>
+<circle cx="255.0" cy="279.0" r="7.5" fill="#e8590c"/>
+<path d="M244.0 296.0 q11 -18 22 0 z" fill="#e8590c"/>
+<circle cx="320.8" cy="300.4" r="7.5" fill="#5b6270"/>
+<path d="M309.8 317.4 q11 -18 22 0 z" fill="#5b6270"/>
+<circle cx="361.5" cy="356.4" r="7.5" fill="#ff8a3d"/>
+<path d="M350.5 373.4 q11 -18 22 0 z" fill="#ff8a3d"/>
+<path d="M93 400 A162 162 0 0 1 417 400" fill="none" stroke="#3a3f4d" stroke-width="1.5" stroke-dasharray="3 6"/>
+<circle cx="97.1" cy="355.0" r="7.5" fill="#f4c542"/>
+<path d="M86.1 372.0 q11 -18 22 0 z" fill="#f4c542"/>
+<circle cx="128.3" cy="290.0" r="7.5" fill="#e8590c"/>
+<path d="M117.3 307.0 q11 -18 22 0 z" fill="#e8590c"/>
+<circle cx="184.7" cy="245.0" r="7.5" fill="#5b6270"/>
+<path d="M173.7 262.0 q11 -18 22 0 z" fill="#5b6270"/>
+<circle cx="255.0" cy="229.0" r="7.5" fill="#ff8a3d"/>
+<path d="M244.0 246.0 q11 -18 22 0 z" fill="#ff8a3d"/>
+<circle cx="325.3" cy="245.0" r="7.5" fill="#f4c542"/>
+<path d="M314.3 262.0 q11 -18 22 0 z" fill="#f4c542"/>
+<circle cx="381.7" cy="290.0" r="7.5" fill="#e8590c"/>
+<path d="M370.7 307.0 q11 -18 22 0 z" fill="#e8590c"/>
+<circle cx="412.9" cy="355.0" r="7.5" fill="#5b6270"/>
+<path d="M401.9 372.0 q11 -18 22 0 z" fill="#5b6270"/>
+<path d="M43 400 A212 212 0 0 1 467 400" fill="none" stroke="#3a3f4d" stroke-width="1.5" stroke-dasharray="3 6"/>
+<circle cx="46.2" cy="354.2" r="7.5" fill="#e8590c"/>
+<path d="M35.2 371.2 q11 -18 22 0 z" fill="#e8590c"/>
+<circle cx="71.4" cy="285.0" r="7.5" fill="#c0392b"/>
+<path d="M60.4 302.0 q11 -18 22 0 z" fill="#c0392b"/>
+<circle cx="118.7" cy="228.6" r="7.5" fill="#ff8a3d"/>
+<path d="M107.7 245.6 q11 -18 22 0 z" fill="#ff8a3d"/>
+<circle cx="182.5" cy="191.8" r="7.5" fill="#f4c542"/>
+<path d="M171.5 208.8 q11 -18 22 0 z" fill="#f4c542"/>
+<circle cx="255.0" cy="179.0" r="7.5" fill="#e8590c"/>
+<path d="M244.0 196.0 q11 -18 22 0 z" fill="#e8590c"/>
+<circle cx="327.5" cy="191.8" r="7.5" fill="#5b6270"/>
+<path d="M316.5 208.8 q11 -18 22 0 z" fill="#5b6270"/>
+<circle cx="391.3" cy="228.6" r="7.5" fill="#ff8a3d"/>
+<path d="M380.3 245.6 q11 -18 22 0 z" fill="#ff8a3d"/>
+<circle cx="438.6" cy="285.0" r="7.5" fill="#f4c542"/>
+<path d="M427.6 302.0 q11 -18 22 0 z" fill="#f4c542"/>
+<circle cx="463.8" cy="354.2" r="7.5" fill="#e8590c"/>
+<path d="M452.8 371.2 q11 -18 22 0 z" fill="#e8590c"/>
+<rect x="200" y="366" width="110" height="40" rx="6" fill="#1e2330" stroke="#f4c542" stroke-width="1.5"/>
+<text x="255" y="391" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#f4c542">the clerk</text>
+<text x="255" y="434" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#a2a7b5">S 3 · M 5 · L 9 · XL 15 senators</text>
+<text x="255" y="456" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#a2a7b5">one red seat still dissents: its objection is credited in the answer</text>
+<circle cx="514" cy="142" r="14" fill="#e8590c"/>
+<text x="514" y="147.5" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#10131a">1</text>
+<path d="M514 160 V194" stroke="#3a3f4d" stroke-width="2"/>
+<text x="542" y="141" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e9e4d8">Ask</text>
+<text font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.5" fill="#a2a7b5"><tspan x="542" y="163">Pick a size, then ask anything:</tspan><tspan x="542" y="182">an idea, a decision, a draft doc.</tspan></text>
+<circle cx="514" cy="214" r="14" fill="#e8590c"/>
+<text x="514" y="219.5" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#10131a">2</text>
+<path d="M514 232 V266" stroke="#3a3f4d" stroke-width="2"/>
+<text x="542" y="213" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e9e4d8">Openings</text>
+<text font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.5" fill="#a2a7b5"><tspan x="542" y="235">Every senator answers from their</tspan><tspan x="542" y="254">own point of view, all at once.</tspan></text>
+<circle cx="514" cy="286" r="14" fill="#e8590c"/>
+<text x="514" y="291.5" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#10131a">3</text>
+<path d="M514 304 V338" stroke="#3a3f4d" stroke-width="2"/>
+<text x="542" y="285" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e9e4d8">Draft</text>
+<text font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.5" fill="#a2a7b5"><tspan x="542" y="307">A neutral clerk merges the views</tspan><tspan x="542" y="326">into one best answer.</tspan></text>
+<circle cx="514" cy="358" r="14" fill="#e8590c"/>
+<text x="514" y="363.5" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#10131a">4</text>
+<path d="M514 376 V410" stroke="#3a3f4d" stroke-width="2"/>
+<text x="542" y="357" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e9e4d8">Vote</text>
+<text font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.5" fill="#a2a7b5"><tspan x="542" y="379">Each senator votes agree, amend,</tspan><tspan x="542" y="398">or dissent, and sharpens their view.</tspan></text>
+<circle cx="514" cy="430" r="14" fill="#f4c542"/>
+<text x="514" y="435.5" text-anchor="middle" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#10131a">5</text>
+<text x="542" y="429" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e9e4d8">Result</text>
+<text font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.5" fill="#a2a7b5"><tspan x="542" y="451">One answer, what everyone agreed</tspan><tspan x="542" y="470">on, and who still dissents, and why.</tspan></text>
+<path d="M800 358 C840 358 840 286 806 286" fill="none" stroke="#ff8a3d" stroke-width="2" stroke-dasharray="5 5"/>
+<path d="M814 280 L804 286 L814 292" fill="none" stroke="#ff8a3d" stroke-width="2"/>
+<text x="844" y="332" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#ff8a3d"><tspan x="844">no consensus?</tspan><tspan x="844" dy="16">redraft</tspan></text>
+</svg>
