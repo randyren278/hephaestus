@@ -2140,7 +2140,7 @@
       "invariant": "Assessment outcome is derived from verified receipt metrics eligibility.",
       "find": "        outcome: if receipt.metrics_eligible() {",
       "replace": "        outcome: if !receipt.metrics_eligible() {",
-      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_references_forge_assessment_and_orders_newest_first"
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib -- server::tests::forge_assessment_records_verified_child_selection_and_replays --exact"
     },
     {
       "id": "forge-assessment-promotion-authorized",
