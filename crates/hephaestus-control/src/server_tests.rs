@@ -8187,6 +8187,132 @@ fn projection_rejects_mismatched_commands_and_mutable_genome_metadata() {
 }
 
 #[test]
+fn projection_rejects_invalid_worker_credential_and_remote_job_events() {
+    let token = OperatorToken::from_bytes([9; 32]);
+    let run_result_verifier = RunResultSigner::from_seed([10; 32]).verifier();
+
+    // A `worker.credential_minted` event naming an already-minted
+    // `credential_id` is a duplicate identity and must be rejected.
+    let mint = WorkerCredentialRecord {
+        schema_version: 1,
+        credential_id: "credential-dup".to_owned(),
+        worker_id: "worker-dup".to_owned(),
+        scope: WorkerScope::RemoteReferenceRun,
+        expires_at_millis: i64::MAX,
+        revoked: false,
+    };
+    let mint_bytes = serde_json::to_vec(&mint).expect("encode credential mint");
+    let duplicate_mint = [
+        stored_event(1, "worker.credential_minted", "worker", "operator", &mint_bytes),
+        stored_event(2, "worker.credential_minted", "worker", "operator", &mint_bytes),
+    ];
+    assert!(matches!(
+        ControlState::from_events(
+            &duplicate_mint,
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        ),
+        Err(ControlError::Projection(_))
+    ));
+
+    // A `worker.credential_minted` event that is already `revoked` is
+    // invalid: a mint always starts unrevoked.
+    let mut pre_revoked = mint.clone();
+    pre_revoked.credential_id = "credential-pre-revoked".to_owned();
+    pre_revoked.revoked = true;
+    let pre_revoked_event = stored_event(
+        1,
+        "worker.credential_minted",
+        "worker",
+        "operator",
+        &serde_json::to_vec(&pre_revoked).expect("encode pre-revoked credential"),
+    );
+    assert!(matches!(
+        ControlState::from_events(
+            &[pre_revoked_event],
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        ),
+        Err(ControlError::Projection(_))
+    ));
+
+    // `worker.credential_revoked` naming an unrecognized credential_id must
+    // be rejected rather than silently ignored.
+    let revoke_unknown = stored_event(
+        1,
+        "worker.credential_revoked",
+        "worker",
+        "operator",
+        br#"{"credential_id":"credential-does-not-exist"}"#,
+    );
+    assert!(matches!(
+        ControlState::from_events(
+            &[revoke_unknown],
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        ),
+        Err(ControlError::Projection(_))
+    ));
+
+    // `worker.credential_revoked` whose payload has no `credential_id`
+    // string field is malformed.
+    let revoke_malformed = stored_event(
+        1,
+        "worker.credential_revoked",
+        "worker",
+        "operator",
+        br#"{"nonsense":true}"#,
+    );
+    assert!(matches!(
+        ControlState::from_events(
+            &[revoke_malformed],
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        ),
+        Err(ControlError::Projection(_))
+    ));
+
+    // `remote_worker.job_admitted` naming a `job_id` that was already
+    // admitted is a duplicate.
+    let remote_job = RemoteJobRecord {
+        schema_version: 1,
+        job_id: "remote-job-dup".to_owned(),
+        genome_id: "genome".to_owned(),
+        run_id: "run".to_owned(),
+    };
+    let remote_job_bytes = serde_json::to_vec(&remote_job).expect("encode remote job record");
+    let duplicate_remote_job = [
+        stored_event(
+            1,
+            "remote_worker.job_admitted",
+            "remote",
+            "operator",
+            &remote_job_bytes,
+        ),
+        stored_event(
+            2,
+            "remote_worker.job_admitted",
+            "remote",
+            "operator",
+            &remote_job_bytes,
+        ),
+    ];
+    assert!(matches!(
+        ControlState::from_events(
+            &duplicate_remote_job,
+            RegisteredObjects::default(),
+            &token,
+            &run_result_verifier,
+        ),
+        Err(ControlError::Projection(_))
+    ));
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn canonical_path_token_and_identity_helpers_fail_closed() {
     assert!(data_dir_from_environment().is_ok());
