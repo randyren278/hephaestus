@@ -13,6 +13,6 @@ pub use genome::{CompiledGenome, compile_genome};
 pub use markdown::compile_markdown_genome;
 pub use registry::{
     GenomeRecord, RegisteredGenome, RegisteredObjects, RegisteredWorld, RegistrationError,
-    RegistrationKind, WorldRecord,
+    RegistrationKind, ReplayCursor, WorldRecord,
 };
 pub use world::{CompiledWorld, WorldEvaluationPolicy, compile_world, ensure_comparable};

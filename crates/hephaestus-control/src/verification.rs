@@ -1474,6 +1474,21 @@ pub(super) fn verify_cluster_history(
     history: &[StoredEvent],
     registered: &RegisteredObjects,
 ) -> Result<(), ControlError> {
+    verify_cluster_history_with(
+        artifacts,
+        history,
+        registered,
+        &mut EvidenceCache::default(),
+    )
+}
+
+/// Cache-aware counterpart of [`verify_cluster_history`]; see [`EvidenceCache`].
+pub(super) fn verify_cluster_history_with(
+    artifacts: &dyn ArtifactBackend,
+    history: &[StoredEvent],
+    registered: &RegisteredObjects,
+    cache: &mut EvidenceCache,
+) -> Result<(), ControlError> {
     // Built only when at least one cluster event exists, so the common case
     // (no cluster analyses recorded yet) never pays the O(history length)
     // cost of indexing it.
@@ -1483,6 +1498,9 @@ pub(super) fn verify_cluster_history(
             || event.event_id.starts_with(CLUSTER_EVENT_PREFIX)
             || event.aggregate_id.starts_with(CLUSTER_EVENT_PREFIX)
     }) {
+        if cache.contains("cluster", event) {
+            continue;
+        }
         let index = index.get_or_insert_with(|| EventIndex::build(history));
         let (_analysis_id, evaluation_id, world_id) =
             cluster_event_references(event).map_err(|_| {
@@ -1522,6 +1540,7 @@ pub(super) fn verify_cluster_history(
                 "canonical cluster event differs from verified analysis".to_owned(),
             ));
         }
+        cache.insert("cluster", event);
     }
     Ok(())
 }

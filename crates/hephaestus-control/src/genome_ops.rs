@@ -12,7 +12,7 @@ use super::{
     forge_proposal_record, hex_encode, mutation_edge_kind, read_bounded_file, read_source_text,
     reference_instruction_operation, resolve_forge_hypothesis, source_format, timestamp_millis,
     validate_job_id, verified_forge_source, verify_arena_evaluation_records_with,
-    verify_canary_history_with, verify_champion_history_with, verify_cluster_history,
+    verify_canary_history_with, verify_champion_history_with, verify_cluster_history_with,
     verify_drift_adaptation_history, verify_drift_history_with, verify_evolution_history,
     verify_forge_assessment_history, verify_forge_assessment_history_with, verify_forge_history,
     verify_forge_history_with, verify_gene_bank_history_with, verify_invariant_history_with,
@@ -436,9 +436,9 @@ impl ControlPlane {
     /// its recorded content changes. Startup (`Self::open*`) and explicit
     /// `replay` use a fresh, empty cache and verify everything.
     ///
-    /// Rebuilding `ControlState`/`RegisteredObjects` incrementally from only the
-    /// new tail of `history` (instead of `from_events`'s full rebuild) was tried
-    /// and reverted: several call sites elsewhere in this file append one event
+    /// Rebuilding `ControlState` incrementally from only the new tail of
+    /// `history` (instead of `from_events`'s full rebuild) was tried and
+    /// reverted: several call sites elsewhere in this file append one event
     /// and apply it to `self.state` directly (`append_run_result`,
     /// `append_job_record`, `append_arena_job_record`, `append_audit`,
     /// `worker_credential_mint`, remote-job admission) without going through a
@@ -455,15 +455,46 @@ impl ControlPlane {
     /// duplicate-job-id check), so double-applying an already-directly-applied
     /// event errors instead of being a no-op. A safe incremental rebuild needs a
     /// cursor that is provably contiguous despite those shortcuts (or removing
-    /// the shortcuts), which is a bigger, separate change (TD-20).
+    /// the shortcuts), which is a bigger, separate change (TD-20 -- unchanged by
+    /// the `RegisteredObjects` work below).
+    ///
+    /// `RegisteredObjects` does not have that landmine: nothing outside this
+    /// function and its two other callers (`job_exec.rs`'s message servicing
+    /// and `Self::open_with_backends` startup) ever mutates a
+    /// `RegisteredObjects`, so `self.state.registered` from the previous
+    /// refresh is always exactly what a full `replay` of the history up to
+    /// `self.registered_objects_cursor` would produce.
+    /// `RegisteredObjects::replay_incremental` extends that cached value with
+    /// only the events after the cursor, falling back to a full replay if the
+    /// cursor's event is missing or its content-committing hash changed
+    /// (history was rewritten). Set
+    /// `HEPHAESTUS_VERIFY_INCREMENTAL_PROJECTION=1` to also run a full replay
+    /// every refresh and assert it matches.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn refresh_projection(&mut self) -> Result<(), ExecuteError> {
         let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
         let history = storage
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
-        let registered = RegisteredObjects::replay(&history, &storage.artifacts)
-            .map_err(|_| ExecuteError::Internal)?;
+        let previous_registered = self
+            .registered_objects_cursor
+            .map(|cursor| (cursor, &self.state.registered));
+        let (registered, next_registered_cursor) = RegisteredObjects::replay_incremental(
+            &history,
+            &storage.artifacts,
+            previous_registered,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        #[cfg(any(test, feature = "test-support"))]
+        if incremental_projection_verification_enabled() {
+            let full = RegisteredObjects::replay(&history, &storage.artifacts)
+                .map_err(|_| ExecuteError::Internal)?;
+            assert_eq!(
+                full, registered,
+                "TD-20: incremental RegisteredObjects::replay diverged from a full replay"
+            );
+        }
         verify_selection_history_with(
             &storage.artifacts,
             &history,
@@ -492,8 +523,13 @@ impl ControlPlane {
             &mut self.evidence_cache,
         )
         .map_err(|_| ExecuteError::Internal)?;
-        verify_cluster_history(&storage.artifacts, &history, &registered)
-            .map_err(|_| ExecuteError::Internal)?;
+        verify_cluster_history_with(
+            &storage.artifacts,
+            &history,
+            &registered,
+            &mut self.evidence_cache,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
         verify_champion_history_with(
             &storage.artifacts,
             &history,
@@ -547,6 +583,18 @@ impl ControlPlane {
         )
         .map_err(|_| ExecuteError::Internal)?;
         self.state = state;
+        self.registered_objects_cursor = next_registered_cursor;
         Ok(())
     }
+}
+
+/// Reads `HEPHAESTUS_VERIFY_INCREMENTAL_PROJECTION=1` once per process. Opt-in
+/// proof, for TD-20: when set, every `refresh_projection` also runs a full
+/// `RegisteredObjects::replay` and asserts it matches the incremental result.
+#[cfg(any(test, feature = "test-support"))]
+fn incremental_projection_verification_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("HEPHAESTUS_VERIFY_INCREMENTAL_PROJECTION").as_deref() == Ok("1")
+    })
 }

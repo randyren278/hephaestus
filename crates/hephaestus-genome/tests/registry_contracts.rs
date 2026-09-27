@@ -996,6 +996,86 @@ fn replaying_the_same_history_produces_identical_record_maps() {
 }
 
 #[test]
+fn incremental_replay_from_a_valid_cursor_matches_a_full_replay() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "world-a");
+    let parent = build_genome(&fixture, &world, "g0", &[]);
+    register_world(&mut fixture, &world);
+    register_genome(&mut fixture, &parent);
+    let prefix = fixture.history();
+    let cursor = prefix
+        .last()
+        .map(|event| (event.sequence, event.hash))
+        .expect("prefix has events");
+    let previous = RegisteredObjects::replay(&prefix, &fixture.artifacts).expect("prefix replay");
+
+    let child = build_genome(&fixture, &world, "g1", std::slice::from_ref(&parent));
+    register_genome(&mut fixture, &child);
+    let full_history = fixture.history();
+
+    let (incremental, next_cursor) = RegisteredObjects::replay_incremental(
+        &full_history,
+        &fixture.artifacts,
+        Some((cursor, &previous)),
+    )
+    .expect("incremental replay extends the cached prefix");
+    let full = RegisteredObjects::replay(&full_history, &fixture.artifacts).expect("full replay");
+
+    assert_eq!(incremental.world_records(), full.world_records());
+    assert_eq!(incremental.genome_records(), full.genome_records());
+    assert_eq!(
+        next_cursor,
+        full_history
+            .last()
+            .map(|event| (event.sequence, event.hash))
+    );
+}
+
+#[test]
+fn incremental_replay_with_no_cursor_matches_a_full_replay() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "world-a");
+    let genome = build_genome(&fixture, &world, "g0", &[]);
+    register_world(&mut fixture, &world);
+    register_genome(&mut fixture, &genome);
+    let history = fixture.history();
+
+    let (incremental, _) =
+        RegisteredObjects::replay_incremental(&history, &fixture.artifacts, None)
+            .expect("replay with no cursor");
+    let full = RegisteredObjects::replay(&history, &fixture.artifacts).expect("full replay");
+
+    assert_eq!(incremental.world_records(), full.world_records());
+    assert_eq!(incremental.genome_records(), full.genome_records());
+}
+
+#[test]
+fn incremental_replay_falls_back_to_a_full_replay_when_the_cursor_event_is_rewritten() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "world-a");
+    let genome = build_genome(&fixture, &world, "g0", &[]);
+    register_world(&mut fixture, &world);
+    register_genome(&mut fixture, &genome);
+    let history = fixture.history();
+    let previous = RegisteredObjects::replay(&history, &fixture.artifacts).expect("replay");
+
+    // A cursor whose sequence matches a real event but whose hash does not
+    // (as if the ledger's history had been rewritten since the cursor was
+    // recorded) must be rejected as stale, not trusted as a valid prefix.
+    let stale_cursor = (history[0].sequence, [0xAA; 32]);
+    let (rebuilt, _) = RegisteredObjects::replay_incremental(
+        &history,
+        &fixture.artifacts,
+        Some((stale_cursor, &previous)),
+    )
+    .expect("falls back to a full replay instead of erroring");
+    let full = RegisteredObjects::replay(&history, &fixture.artifacts).expect("full replay");
+
+    assert_eq!(rebuilt.world_records(), full.world_records());
+    assert_eq!(rebuilt.genome_records(), full.genome_records());
+}
+
+#[test]
 fn conflicting_duplicate_genome_registration_is_rejected() {
     let mut fixture = Fixture::new();
     let world = build_world(&fixture, "world-a");

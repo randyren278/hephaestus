@@ -204,6 +204,10 @@ impl RegisteredGenome {
     }
 }
 
+/// Ledger position cursor: the `sequence` and `hash` of the last event folded
+/// into a [`RegisteredObjects`] (see [`RegisteredObjects::replay_incremental`]).
+pub type ReplayCursor = (u64, [u8; 32]);
+
 /// Deterministic trusted projection of all immutable World and Genome registrations.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RegisteredObjects {
@@ -227,18 +231,71 @@ impl RegisteredObjects {
         artifacts: &dyn ArtifactBackend,
     ) -> Result<Self, RegistrationError> {
         let mut registered = Self::default();
+        registered.apply_events(events, artifacts)?;
+        Ok(registered)
+    }
+
+    /// Extends a previous replay with only the events after `cursor`, or
+    /// performs a full replay when `cursor` is `None` or no longer names a
+    /// prefix of `events` (the ledger's tail was truncated or rewritten since
+    /// the cursor was recorded).
+    ///
+    /// `cursor` is `(ReplayCursor, previous)`: the sequence and hash of the
+    /// last event folded into `previous`. `StoredEvent::hash` commits to that
+    /// event's own fields *and* `previous_hash`, so one matching
+    /// `(sequence, hash)` pair proves the entire prefix up to and including
+    /// that event is byte-identical to what produced `previous` -- the same
+    /// guarantee a full replay of that prefix would have given, without
+    /// redoing the work. `events` must already be hash-chain-verified (e.g.
+    /// via `replay_verified`) before calling this.
+    ///
+    /// Returns the updated objects plus the `(sequence, hash)` of the last
+    /// event folded in, for use as the next call's cursor. Returns `None`
+    /// for that cursor only when `events` is empty.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::replay`].
+    pub fn replay_incremental(
+        events: &[StoredEvent],
+        artifacts: &dyn ArtifactBackend,
+        cursor: Option<(ReplayCursor, &Self)>,
+    ) -> Result<(Self, Option<ReplayCursor>), RegistrationError> {
+        let next_cursor = events.last().map(|event| (event.sequence, event.hash));
+        let found = cursor.and_then(|((sequence, hash), previous)| {
+            events
+                .iter()
+                .position(|event| event.sequence == sequence && event.hash == hash)
+                .map(|index| (index, previous))
+        });
+        let registered = match found {
+            Some((index, previous)) => {
+                let mut registered = previous.clone();
+                registered.apply_events(&events[index + 1..], artifacts)?;
+                registered
+            }
+            None => Self::replay(events, artifacts)?,
+        };
+        Ok((registered, next_cursor))
+    }
+
+    fn apply_events(
+        &mut self,
+        events: &[StoredEvent],
+        artifacts: &dyn ArtifactBackend,
+    ) -> Result<(), RegistrationError> {
         for event in events {
             match event.event_type.as_str() {
-                "world.registered" => registered.register_world(event, artifacts)?,
-                "genome.registered" => registered.register_genome(event, artifacts)?,
-                "forge.proposed" => registered.register_forge_child(event, artifacts)?,
+                "world.registered" => self.register_world(event, artifacts)?,
+                "genome.registered" => self.register_genome(event, artifacts)?,
+                "forge.proposed" => self.register_forge_child(event, artifacts)?,
                 "gene.transfer_applied" => {
-                    registered.register_gene_transfer_child(event, artifacts)?;
+                    self.register_gene_transfer_child(event, artifacts)?;
                 }
                 _ => {}
             }
         }
-        Ok(registered)
+        Ok(())
     }
 
     /// Looks up a verified World by content identity.

@@ -43,8 +43,8 @@ use hephaestus_experience::{
     TraceKind, TraceReceipt, count_records_per_run,
 };
 use hephaestus_genome::{
-    CompiledGenome, CompiledWorld, RegisteredObjects, RegistrationError, SourceFormat,
-    compile_genome, compile_markdown_genome, compile_world,
+    CompiledGenome, CompiledWorld, RegisteredObjects, RegistrationError, ReplayCursor,
+    SourceFormat, compile_genome, compile_markdown_genome, compile_world,
 };
 use hephaestus_ledger::{
     ArtifactBackend, ArtifactId, ArtifactStore, EventIndex, EventInput, EventLedger, EventStore,
@@ -376,6 +376,8 @@ pub struct ControlPlane {
     /// Evidence already verified by projection refresh in this process; see
     /// [`EvidenceCache`].
     evidence_cache: EvidenceCache,
+    /// TEMPORARY (TD-20 investigation, remove before committing if dropped).
+    registered_objects_cursor: Option<ReplayCursor>,
     data_dir: PathBuf,
     source_repository: PathBuf,
     evaluator_executable: PathBuf,
@@ -1110,6 +1112,7 @@ impl ControlPlane {
         )?;
         Ok(Self {
             evidence_cache: EvidenceCache::default(),
+            registered_objects_cursor: history.last().map(|event| (event.sequence, event.hash)),
             data_dir,
             source_repository,
             evaluator_executable,
@@ -1536,9 +1539,10 @@ use verification::{
     map_selection_error, mutate_reference_instruction_document, reference_instruction_operation,
     require_command_fields, resolve_forge_hypothesis, selection_record, verified_forge_source,
     verify_arena_evaluation_records, verify_arena_evaluation_records_with, verify_cluster_history,
-    verify_forge_assessment_history, verify_forge_assessment_history_with, verify_forge_history,
-    verify_forge_history_with, verify_invariant_history, verify_invariant_history_with,
-    verify_selection_history, verify_selection_history_with,
+    verify_cluster_history_with, verify_forge_assessment_history,
+    verify_forge_assessment_history_with, verify_forge_history, verify_forge_history_with,
+    verify_invariant_history, verify_invariant_history_with, verify_selection_history,
+    verify_selection_history_with,
 };
 
 #[path = "handlers_genome.rs"]
