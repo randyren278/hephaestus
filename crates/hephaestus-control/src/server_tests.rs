@@ -15527,6 +15527,106 @@ fn drift_latency_record_refuses_a_small_regression_within_the_absolute_floor() {
     );
 }
 
+#[test]
+fn drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies()
+ {
+    let directory = tempdir().expect("drift floor old-rule fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let improved = assessed_forge_child(
+        &mut plane,
+        "floor-drift-oldrule-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = improved.world.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: improved.child.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "floor-drift-oldrule-sibling",
+        &improved.child,
+        &initial_parent.genome_id,
+        true,
+    );
+    // Same small, deterministic delay as the sibling test above: crosses
+    // the 20% proportional threshold on its own but stays under the
+    // 50ms-per-task absolute floor, so v1 and v2 genuinely disagree.
+    hephaestus_runtime::set_test_reference_delay_in(directory.path(), sibling.child.clone(), 15);
+    let drift_evidence_id = "floor-drift-oldrule-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &improved.child,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select evidence");
+
+    // The real command path always evaluates under the current rule (v2),
+    // which rejects this evidence (see the sibling test above), so no real
+    // event exists to downgrade. Instead, recompute what the pre-floor (v1)
+    // rule would have decided directly, and confirm a record of that
+    // genuinely different decision, named as v1, still verifies -- replay
+    // always recomputes an event under the rule it names, not whatever
+    // rule is current.
+    let history = drift_history(&plane);
+    let v1_payload = super::drift::drift_record_payload(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+        "floor-drift-oldrule",
+        &world_id,
+        DriftKind::Latency,
+        drift_evidence_id,
+        None,
+    )
+    .expect("the pre-floor rule would have recorded this drift");
+    assert!(
+        v1_payload.latency_rule.is_none(),
+        "a record derived under the pre-floor rule names no latency_rule"
+    );
+
+    let event = StoredEvent {
+        sequence: history.last().map_or(0, |event| event.sequence) + 1,
+        event_id: super::drift::drift_event_id("floor-drift-oldrule"),
+        aggregate_id: super::drift::drift_aggregate_id(&world_id),
+        event_type: super::drift::DRIFT_EVENT_TYPE.to_owned(),
+        actor: OPERATOR_ACTOR.to_owned(),
+        timestamp_millis: 1,
+        payload: serde_json::to_vec(&serde_json::to_value(&v1_payload).unwrap())
+            .expect("encode drift payload"),
+        previous_hash: [0; 32],
+        hash: [0; 32],
+    };
+    let mut extended = history;
+    extended.push(event);
+
+    verify_drift_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &extended,
+        &plane.state.registered,
+    )
+    .expect("a record of the genuinely different pre-floor decision, named as v1, still verifies");
+}
+
 fn write_fake_claude_binary(path: &Path) {
     fs::write(
         path,

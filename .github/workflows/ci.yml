@@ -248,7 +248,7 @@ jobs:
             prefix: crates/hephaestus-control/
             shard_index: 2
             shard_count: 5
-            minimum: 20
+            minimum: 21
             timeout_minutes: 30
           - scope: hephaestus-control-4
             prefix: crates/hephaestus-control/

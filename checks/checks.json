@@ -2705,6 +2705,14 @@
       "find": "        let recorded_latency_rule = payload\n            .evidence\n            .as_ref()\n            .and_then(|evidence| evidence.latency_rule);",
       "replace": "        let recorded_latency_rule = Some(CURRENT_LATENCY_RULE);",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact"
+    },
+    {
+      "id": "drift-replay-forces-current-latency-rule-on-old-events",
+      "file": "crates/hephaestus-control/src/drift.rs",
+      "invariant": "Replay must recompute a drift record under the latency rule its own payload names, not whatever rule is current, so a record made under an older rule still verifies.",
+      "find": "        let expected = drift_record_payload(\n            artifacts,\n            &history[..index],\n            registered,\n            &payload.drift_id,\n            &payload.world_id,\n            payload.kind,\n            &payload.evidence_evaluation_id,\n            payload.latency_rule,\n        )",
+      "replace": "        let expected = drift_record_payload(\n            artifacts,\n            &history[..index],\n            registered,\n            &payload.drift_id,\n            &payload.world_id,\n            payload.kind,\n            &payload.evidence_evaluation_id,\n            Some(CURRENT_LATENCY_RULE),\n        )",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies -- --exact"
     }
   ]
 }
