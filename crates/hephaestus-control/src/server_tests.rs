@@ -17003,6 +17003,116 @@ fn worker_unknown_credential_fails_closed() {
 }
 
 #[test]
+fn worker_credential_wrong_worker_id_fails_closed() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, worker_token) = mint_worker_credential(&mut plane, &token, "worker-owner", 3_600);
+    let reply = plane.handle_worker_request(WorkerRequest::Lease {
+        worker_id: "worker-impostor".to_owned(),
+        token: worker_token,
+    });
+    assert!(
+        matches!(reply, WorkerReply::Error { .. }),
+        "a credential presented under the wrong worker_id must fail closed"
+    );
+}
+
+#[test]
+fn remote_job_result_reports_provider_failure_and_rejects_unknown_job_and_oversized_output() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (_, genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+    let (_, worker_token) = mint_worker_credential(&mut plane, &token, "worker-failure", 3_600);
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "unfreeze-remote-failure",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "remote-submit-failure",
+            Command::RemoteRunSubmit {
+                job_id: "remote-failure-job".to_owned(),
+                genome_id: genome.genome_id,
+            }
+        )
+        .error
+        .is_none()
+    );
+
+    // Delivering a signed result for a job_id the daemon never admitted must
+    // fail closed rather than panicking or silently succeeding.
+    assert!(matches!(
+        plane.handle_worker_request(WorkerRequest::SubmitResult {
+            worker_id: "worker-failure".to_owned(),
+            token: worker_token.clone(),
+            job_id: "remote-unknown-job".to_owned(),
+            output_hex: String::new(),
+            completion: RemoteCompletion::Success,
+        }),
+        WorkerReply::Error { .. }
+    ));
+
+    // An output larger than the daemon's fixed byte limit must be rejected
+    // before it is ever signed or ledgered.
+    let oversized_hex = "ab".repeat(1_048_577);
+    assert!(matches!(
+        plane.handle_worker_request(WorkerRequest::SubmitResult {
+            worker_id: "worker-failure".to_owned(),
+            token: worker_token.clone(),
+            job_id: "remote-failure-job".to_owned(),
+            output_hex: oversized_hex,
+            completion: RemoteCompletion::Success,
+        }),
+        WorkerReply::Error { .. }
+    ));
+
+    let WorkerReply::ResultAccepted { job_id } =
+        plane.handle_worker_request(WorkerRequest::SubmitResult {
+            worker_id: "worker-failure".to_owned(),
+            token: worker_token,
+            job_id: "remote-failure-job".to_owned(),
+            output_hex: String::new(),
+            completion: RemoteCompletion::ProviderFailure,
+        })
+    else {
+        panic!("a provider-failure result should still be signed and recorded");
+    };
+    assert_eq!(job_id, "remote-failure-job");
+
+    let Some(ResponseData::RemoteJob {
+        state,
+        completion_reason,
+        ..
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "remote-status-failure",
+        Command::RemoteJobStatus {
+            job_id: "remote-failure-job".to_owned(),
+        },
+    )
+    .data
+    else {
+        panic!("remote job status should succeed");
+    };
+    assert_eq!(state, RemoteJobState::Failed);
+    assert_eq!(
+        completion_reason,
+        Some(RunCompletionReason::ProviderFailure)
+    );
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_candidate_selects_and_replays()
  {
