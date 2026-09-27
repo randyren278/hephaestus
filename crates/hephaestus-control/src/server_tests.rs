@@ -19266,11 +19266,20 @@ fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_l
 /// Per-trial delay injected to make a Genome genuinely slower in the
 /// 16-task auto-canary fixture. The single-task canary tests use 750 ms; here
 /// that would add 12 s to every paired evaluation. 250 ms still adds about
-/// 4 s per evaluation, far past the 20% latency regression threshold.
+/// 4 s per evaluation, far past the 20% latency regression threshold, and
+/// stays well past it even against the raised baseline below (250 /
+/// 400 = 62.5%).
 const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 
 /// Baseline delay added to every reference trial in the auto-canary fixture.
-const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 150;
+/// At the previous 150 ms, the canary stages' 20% latency gate only had
+/// about 30 ms of margin per trial, which CI scheduling noise (coverage
+/// instrumentation, `RUST_TEST_THREADS=2` parallel tests) could exceed and
+/// abort a canary that had not actually regressed (TD-25/TD-28,
+/// `CanaryAborted` instead of `Promoted` on CI run 36289137581). 400 ms
+/// gives about 80 ms of margin, comfortably above realistic scheduling
+/// jitter.
+const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 400;
 
 /// Per-trial delay for the Gauntlet drift-adaptation fixture: larger than
 /// [`AUTO_CANARY_REGRESSION_DELAY_MILLIS`] because, unlike the simple
@@ -19489,7 +19498,12 @@ fn drift_adaptation_ledger_trail(plane: &ControlPlane, drift_id: &str) -> String
         })
         .map(|(_, event)| {
             let payload = String::from_utf8_lossy(&event.payload);
-            let payload: String = payload.chars().take(400).collect();
+            // 400 chars was enough for most events but cut off the latency
+            // fields on the CI failure this diagnostic exists to explain
+            // (TD-25/TD-28); 1500 keeps the full payload for the events that
+            // matter here without unbounded output for the tail-of-history
+            // catch-all above.
+            let payload: String = payload.chars().take(1500).collect();
             format!("{} {} {payload}", event.event_type, event.event_id)
         })
         .collect::<Vec<_>>()
@@ -20889,8 +20903,17 @@ fn reference_delay_scope(directory: &Path) -> ReferenceDelayScope {
 
 /// Baseline delay for tests whose canary or drift checks go through the 20%
 /// latency gate: few-millisecond reference trials let scheduling noise (CI
-/// coverage instrumentation, parallel tests) cross that gate on its own.
-const LATENCY_GATED_BASELINE_DELAY_MILLIS: u64 = 100;
+/// coverage instrumentation, parallel tests) cross that gate on its own. At
+/// the previous 100 ms this left only about 20 ms of margin per trial —
+/// tighter than the auto-canary fixture's own flake (TD-25/TD-28) — and
+/// `canary_staged_rollout_promotes_through_champion_path_and_replays` and
+/// `drift_record_derives_from_verified_evidence_and_replays` both rely on
+/// *non*-regressed trials never tripping this gate. 300 ms gives about
+/// 60 ms of margin; the explicit-regression tests sharing this scope
+/// (e.g. `canary_live_check_detects_a_genuine_latency_regression_...`,
+/// which adds 750 ms on top) keep a huge margin either way (750 / 300 =
+/// 250%).
+const LATENCY_GATED_BASELINE_DELAY_MILLIS: u64 = 300;
 
 /// Gives every reference trial under `directory` a fixed baseline latency
 /// for the life of the test.
