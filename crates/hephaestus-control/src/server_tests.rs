@@ -1608,6 +1608,200 @@ fn serve_silent_test_connection(sender: &mpsc::SyncSender<QueuedRequest>) -> Api
     serde_json::from_slice(&response).expect("decode timeout response")
 }
 
+fn lease_worker_request() -> WorkerRequest {
+    WorkerRequest::Lease {
+        worker_id: "worker".to_owned(),
+        token: "token".to_owned(),
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn bounded_worker_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_clients() {
+    // Mirrors `bounded_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_clients`
+    // above for `serve_worker_connection`, the parallel handler for the
+    // dedicated `worker.sock` (TD-12): every branch it exercises there --
+    // valid routing, a dropped reply, malformed/oversized input, a saturated
+    // writer queue, a stopped writer, a read timeout, and a client disconnect
+    // -- has an exact worker-socket counterpart.
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (server, mut client) = UnixStream::pair().expect("create local worker socket pair");
+    let active = Arc::new(AtomicUsize::new(1));
+    let handler_active = Arc::clone(&active);
+    let handler = thread::spawn(move || serve_worker_connection(server, &sender, handler_active));
+    let request = lease_worker_request();
+    client
+        .write_all(&serde_json::to_vec(&request).expect("encode worker request"))
+        .expect("write worker request");
+    client
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish worker request frame");
+    let queued = receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("writer receives worker request");
+    assert!(matches!(
+        &queued.request,
+        WorkerRequest::Lease { worker_id, token } if *worker_id == "worker" && *token == "token"
+    ));
+    queued
+        .reply
+        .send(WorkerReply::NoWork)
+        .expect("reply to worker socket handler");
+    let mut response_bytes = Vec::new();
+    client
+        .read_to_end(&mut response_bytes)
+        .expect("read worker socket response");
+    handler.join().expect("join worker socket handler");
+    assert_eq!(active.load(Ordering::Acquire), 0);
+    assert!(matches!(
+        serde_json::from_slice::<WorkerReply>(&response_bytes)
+            .expect("decode worker socket response"),
+        WorkerReply::NoWork
+    ));
+
+    // A reply sender dropped before answering still yields a safe error.
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (server, mut client) = UnixStream::pair().expect("create dropped-reply worker socket pair");
+    client
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("bound dropped-reply worker response wait");
+    let active = Arc::new(AtomicUsize::new(1));
+    let handler_active = Arc::clone(&active);
+    let handler = thread::spawn(move || serve_worker_connection(server, &sender, handler_active));
+    let request = lease_worker_request();
+    client
+        .write_all(&serde_json::to_vec(&request).expect("encode dropped-reply worker request"))
+        .expect("write dropped-reply worker request");
+    client
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish dropped-reply worker request frame");
+    let queued = receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("writer receives dropped-reply worker request");
+    assert!(matches!(
+        &queued.request,
+        WorkerRequest::Lease { worker_id, token } if *worker_id == "worker" && *token == "token"
+    ));
+    drop(queued.reply);
+    let mut response_bytes = Vec::new();
+    client
+        .read_to_end(&mut response_bytes)
+        .expect("read immediate dropped-reply worker response");
+    handler.join().expect("join dropped-reply worker handler");
+    assert_eq!(active.load(Ordering::Acquire), 0);
+    assert_worker_error(
+        &serde_json::from_slice(&response_bytes).expect("decode dropped-reply worker response"),
+        "canonical operation failed",
+    );
+
+    // Malformed JSON is refused without ever reaching the writer thread.
+    let (sender, _receiver) = mpsc::sync_channel(1);
+    let malformed = serve_worker_test_connection(&sender, b"{");
+    assert_worker_error(&malformed, "request does not match the declared schema");
+
+    // A request over `MAX_WORKER_MESSAGE_BYTES` is refused by size alone.
+    // The handler's `.take(MAX_WORKER_MESSAGE_BYTES + 1)` never drains bytes
+    // beyond that, so the client must send exactly that many (not more) to
+    // avoid a broken pipe once the handler stops reading.
+    let just_over_limit = vec![b'x'; MAX_WORKER_MESSAGE_BYTES + 1];
+    let response = serve_worker_test_connection(&sender, &just_over_limit);
+    assert_worker_error(&response, "request exceeds limit");
+
+    // A saturated writer queue is reported as busy rather than blocking.
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
+    sender
+        .try_send(QueuedWorkerRequest {
+            request: request.clone(),
+            reply: reply_sender,
+        })
+        .expect("saturate worker writer queue");
+    let full = serve_worker_test_connection(&sender, &serde_json::to_vec(&request).unwrap());
+    assert_worker_error(&full, "daemon worker queue is full");
+    drop(receiver);
+    drop(reply_receiver);
+
+    // A writer thread that has already stopped is reported, not hung.
+    let (sender, receiver) = mpsc::sync_channel(1);
+    drop(receiver);
+    let stopped = serve_worker_test_connection(&sender, &serde_json::to_vec(&request).unwrap());
+    assert_worker_error(&stopped, "daemon is stopping");
+
+    // A client that never sends a byte times out on the handler's own
+    // 2-second read deadline rather than hanging forever.
+    let (sender, _receiver) = mpsc::sync_channel(1);
+    let (server, mut client) = UnixStream::pair().expect("create silent worker socket pair");
+    let active = Arc::new(AtomicUsize::new(1));
+    let handler_active = Arc::clone(&active);
+    let handler = thread::spawn(move || serve_worker_connection(server, &sender, handler_active));
+    let mut response = Vec::new();
+    client
+        .read_to_end(&mut response)
+        .expect("read worker timeout response");
+    handler.join().expect("join timed out worker handler");
+    assert_eq!(active.load(Ordering::Acquire), 0);
+    assert_worker_error(
+        &serde_json::from_slice(&response).expect("decode worker timeout response"),
+        "request could not be read",
+    );
+
+    // The client disconnecting mid-flight never stops the reply from being
+    // sent independently.
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let (server, mut client) = UnixStream::pair().expect("create disconnect worker socket pair");
+    let active = Arc::new(AtomicUsize::new(1));
+    let handler_active = Arc::clone(&active);
+    let handler_sender = sender.clone();
+    let handler =
+        thread::spawn(move || serve_worker_connection(server, &handler_sender, handler_active));
+    client
+        .write_all(&serde_json::to_vec(&request).expect("encode disconnect worker request"))
+        .expect("write disconnect worker request");
+    client
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish disconnect worker request");
+    let queued = receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("writer receives disconnect worker request");
+    drop(client);
+    queued
+        .reply
+        .send(WorkerReply::NoWork)
+        .expect("reply remains independent of worker client disconnect");
+    handler.join().expect("join disconnected worker handler");
+    assert_eq!(active.load(Ordering::Acquire), 0);
+}
+
+fn assert_worker_error(reply: &WorkerReply, expected_reason: &str) {
+    let WorkerReply::Error { reason } = reply else {
+        panic!("expected a worker error reply, got {reply:?}");
+    };
+    assert_eq!(reason, expected_reason);
+}
+
+fn serve_worker_test_connection(
+    sender: &mpsc::SyncSender<QueuedWorkerRequest>,
+    bytes: &[u8],
+) -> WorkerReply {
+    let (server, mut client) = UnixStream::pair().expect("create local worker socket pair");
+    let active = Arc::new(AtomicUsize::new(1));
+    let handler_active = Arc::clone(&active);
+    let handler_sender = sender.clone();
+    let handler =
+        thread::spawn(move || serve_worker_connection(server, &handler_sender, handler_active));
+    client.write_all(bytes).expect("write worker request bytes");
+    client
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish worker request frame");
+    let mut response = Vec::new();
+    client
+        .read_to_end(&mut response)
+        .expect("read worker error response");
+    handler.join().expect("join worker socket handler");
+    assert_eq!(active.load(Ordering::Acquire), 0);
+    serde_json::from_slice(&response).expect("decode worker error response")
+}
+
 #[test]
 fn real_listener_services_status_and_shutdown_through_the_socket_writer() {
     let directory = tempdir().expect("daemon directory");
@@ -1675,6 +1869,23 @@ fn real_listener_services_status_and_shutdown_through_the_socket_writer() {
         thread::sleep(Duration::from_millis(2));
     };
     assert!(matches!(status.data, Some(ResponseData::Status { .. })));
+
+    // `serve`'s worker-socket accept loop and its `worker_receiver.try_recv`
+    // dispatch are a separate code path from the control socket exercised
+    // above; a real `worker.sock` connection is the only way to reach them.
+    let worker_socket = data_dir.join("worker.sock");
+    let worker_reply = send_test_worker_request(
+        &worker_socket,
+        &WorkerRequest::Lease {
+            worker_id: "unknown-worker".to_owned(),
+            token: "wrong-token".to_owned(),
+        },
+    );
+    assert!(
+        matches!(worker_reply, WorkerReply::Error { .. }),
+        "an unrecognized worker credential is refused, not admitted: {worker_reply:?}"
+    );
+
     let stopped = send_test_api_request(&socket, &token, "stop-1", Command::DaemonStop);
     assert!(matches!(
         stopped.data,
@@ -1684,6 +1895,21 @@ fn real_listener_services_status_and_shutdown_through_the_socket_writer() {
         .join()
         .expect("join listener thread")
         .expect("serve requests");
+}
+
+fn send_test_worker_request(socket_path: &Path, request: &WorkerRequest) -> WorkerReply {
+    let mut stream = UnixStream::connect(socket_path).expect("connect to worker socket");
+    stream
+        .write_all(&serde_json::to_vec(&request).expect("encode worker request"))
+        .expect("write worker request");
+    stream
+        .shutdown(std::net::Shutdown::Write)
+        .expect("finish worker request");
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .expect("read worker response");
+    serde_json::from_slice(&bytes).expect("decode worker response")
 }
 
 #[test]
@@ -12089,6 +12315,127 @@ fn evolve_cost_weighted_strategy_orders_clusters_by_descending_total_count() {
     );
 }
 
+/// `gene_selection: highest_transfer_effect` (roadmap item 13): a strategy
+/// bound to a run whose generation-zero diagnostic failure clusters include
+/// one suggesting the exact reference-operation flip a Gene Bank Gene
+/// (extracted, then positively transferred at least once) already recorded
+/// as `operation_before` -> `operation_after` for the Champion's current
+/// operation puts that cluster first, ahead of `Fifo`'s stable signature
+/// order. Both cluster orders happen to converge on the same catalog edge
+/// here (there is only one Gauntlet-style mutation available), so this test's
+/// value is exercising `best_gene_target_operation` and the preferred-cluster
+/// lookup themselves, not a different promoted outcome.
+#[test]
+fn evolve_strategy_prefers_the_gene_banks_highest_transfer_effect_operation() {
+    let directory = tempdir().expect("Gene Bank strategy fixture");
+    let mut plane = gene_bank_plane_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    // Extract a Gene recording `identity` -> `ascii_uppercase` and record one
+    // positive transfer of it, so `best_gene_target_operation` has a Gene
+    // whose `operation_before` matches the evolve World's Champion.
+    let gene = gene_bank_origin(&mut plane, &token, &directory, "preferred-gene", 3);
+    let helps_world = gene_bank_world(
+        &mut plane,
+        &token,
+        &directory,
+        "helps-world",
+        "helps",
+        &[("helps-task", "delta", "DELTA")],
+    );
+    let recipient = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "b1",
+        "[]",
+    );
+    let outcome = gene_bank_transfer_and_record(
+        &mut plane,
+        "transfer-b1",
+        &gene.payload.gene_id,
+        &recipient.genome_id,
+    );
+    assert_eq!(outcome, GeneTransferOutcome::Positive);
+
+    // A separate World to `evolve`: an `identity` Champion against
+    // uppercase-expecting tasks, exactly the shape the reference-operation
+    // flip fixes, plus one other Genome to serve as the diagnostic baseline.
+    let evolve_world = gene_bank_world(
+        &mut plane,
+        &token,
+        &directory,
+        "evolve-world",
+        "evolve",
+        &[("evolve-task", "word", "WORD")],
+    );
+    let evolve_parent = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &evolve_world.world_id,
+        "evolve-parent",
+        "[]",
+    );
+    let evolve_baseline = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &evolve_world.world_id,
+        "evolve-baseline",
+        "[]",
+    );
+
+    let strategy_id = register_test_strategy(
+        &mut plane,
+        &token,
+        &directory,
+        "highest-transfer-effect",
+        "fifo",
+        "highest_transfer_effect",
+    );
+
+    let run_id = "evolve-highest-transfer-effect";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-highest-transfer-effect-start",
+        evolve_start_command_with_strategy(
+            run_id,
+            &evolve_world.world_id,
+            &evolve_parent.genome_id,
+            1,
+            TRIALS_PER_GENERATION,
+            Some(&strategy_id),
+        ),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start should succeed: {:?}",
+        start.error
+    );
+    let _ = &evolve_baseline;
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.generations.len(), 1);
+    assert!(
+        run.generations[0].payload.promoted,
+        "the Gene Bank's preferred operation is the same catalog fix, so it \
+         still promotes"
+    );
+
+    let promoted_operation = plane
+        .reference_instruction(&run.generations[0].payload.child_genome_id)
+        .expect("read the promoted child's reference instruction")
+        .map(ReferenceInstruction::operation_name);
+    assert_eq!(
+        promoted_operation,
+        Some("ascii_uppercase"),
+        "the Gene Bank's preferred operation matches the promoted child's operation"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Autonomous evolution (roadmap item 10). `real_worker_arena_fixture` already
 // registers a World plus two Genomes ("arena-parent" and its child
@@ -13272,6 +13619,154 @@ fn evolve_start_rejects_invalid_conflicting_and_concurrent_requests() {
     plane
         .service_async_messages()
         .expect("a finished run is left alone");
+}
+
+#[test]
+fn evolve_start_rejects_a_cross_world_genome_and_a_world_with_no_baseline_candidate() {
+    let directory = tempdir().expect("evolve cross-world fixture");
+    let (mut plane, parent, _candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    // A second, independent World with exactly one registered Genome: it has
+    // no relation to `parent`'s World, and no second Genome of its own yet.
+    let (other_world, other_genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+
+    let mismatch = dispatch_call(
+        &mut plane,
+        &token,
+        "cross-world",
+        evolve_start_command(
+            "cross-world-run",
+            &other_world.world_id,
+            &parent.genome_id,
+            1,
+            2,
+        ),
+    )
+    .error
+    .expect("a Genome compiled under a different World is refused");
+    assert_eq!(
+        (mismatch.code, mismatch.message.as_str()),
+        (
+            ApiErrorCode::InvalidRequest,
+            "from_genome_id is not compiled under the requested World"
+        )
+    );
+
+    let no_baseline = dispatch_call(
+        &mut plane,
+        &token,
+        "no-baseline",
+        evolve_start_command(
+            "no-baseline-run",
+            &other_world.world_id,
+            &other_genome.genome_id,
+            1,
+            2,
+        ),
+    )
+    .error
+    .expect("a World with only the from_genome_id itself has no baseline candidate");
+    assert_eq!(no_baseline.code, ApiErrorCode::InvalidRequest);
+    assert!(
+        no_baseline.message.contains("comparison baseline"),
+        "unexpected message: {}",
+        no_baseline.message
+    );
+}
+
+#[test]
+fn evolve_generation_is_interrupted_when_its_diagnostic_evaluation_fails() {
+    // Same recipe as
+    // `auto_canary_on_drift_adaptation_is_interrupted_when_its_diagnostic_evaluation_fails`,
+    // applied to `evolve`'s own generation-zero diagnostic evaluation: reject
+    // its first trial result at the canonical writer, exactly like
+    // `arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained`,
+    // and confirm the daemon's reconciliation loop -- not test code --
+    // surfaces "diagnostic evaluation did not succeed" and finishes the run
+    // `Interrupted`.
+    let directory = tempdir().expect("evolve diagnostic-failure fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    let run_id = "evolve-diagnostic-failure";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-diagnostic-failure-start",
+        evolve_start_command(run_id, &parent.world_id, &parent.genome_id, 1, 2),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start should succeed: {:?}",
+        start.error
+    );
+    let _ = &candidate;
+
+    let diagnostic_id = evolution_diagnostic_evaluation_id(run_id, 0);
+    let diagnostic_run_id = paired_run_id(&diagnostic_id, "parent", 0);
+    let database = rusqlite::Connection::open(directory.path().join("data/events.sqlite3"))
+        .expect("open diagnostic trial failure trigger connection");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_evolve_diagnostic_trial_result BEFORE INSERT ON events
+             WHEN NEW.event_id = 'result:{diagnostic_run_id}'
+             BEGIN SELECT RAISE(ABORT, 'fixture diagnostic trial rejection'); END;"
+        ))
+        .expect("reject the diagnostic trial result append");
+    drop(database);
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.generations.len(), 0);
+    assert_eq!(run.finish_reason, Some(EvolutionFinishReason::Interrupted));
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay after an interrupted generation"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
+fn evolve_generation_is_interrupted_when_its_child_evaluation_fails() {
+    // Like `evolve_generation_is_interrupted_when_its_diagnostic_evaluation_fails`,
+    // but the diagnostic evaluation succeeds and the generation's proposed
+    // child's evaluation is the one rejected at the canonical writer.
+    let directory = tempdir().expect("evolve child-evaluation-failure fixture");
+    let (mut plane, parent, candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    let run_id = "evolve-child-failure";
+    let start = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-child-failure-start",
+        evolve_start_command(run_id, &parent.world_id, &parent.genome_id, 1, 2),
+    );
+    assert!(
+        start.error.is_none(),
+        "evolve start should succeed: {:?}",
+        start.error
+    );
+    let _ = &candidate;
+
+    // Without a bound strategy, the one proposed candidate is always rank 0.
+    let child_evaluation_id = evolution_candidate_child_evaluation_id(run_id, 0, 0);
+    let child_run_id = paired_run_id(&child_evaluation_id, "parent", 0);
+    let database = rusqlite::Connection::open(directory.path().join("data/events.sqlite3"))
+        .expect("open child trial failure trigger connection");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_evolve_child_trial_result BEFORE INSERT ON events
+             WHEN NEW.event_id = 'result:{child_run_id}'
+             BEGIN SELECT RAISE(ABORT, 'fixture child trial rejection'); END;"
+        ))
+        .expect("reject the child trial result append");
+    drop(database);
+
+    let run = evolve_drain_active_run(&mut plane, run_id);
+    assert_eq!(run.generations.len(), 0);
+    assert_eq!(run.finish_reason, Some(EvolutionFinishReason::Interrupted));
 }
 
 fn canary_transition(
@@ -15001,6 +15496,14 @@ fn meta_drain(plane: &mut ControlPlane, meta_run_id: &str) -> MetaReceiptRecord 
         {
             return receipt;
         }
+        // Poll the read-only progress handler on every check too, so a run
+        // that legitimately passes through every per-lineage progress state
+        // (`Pending`, `RunningStrategyA`, `RunningStrategyB`, `Done`) is
+        // observed in each of them at least once, not just at admission and
+        // completion.
+        plane
+            .meta_status(meta_run_id)
+            .expect("meta status while a meta-evaluation is in progress");
         assert!(Instant::now() < deadline, "meta-evaluation did not finish");
         thread::sleep(Duration::from_millis(2));
     }
@@ -15067,6 +15570,23 @@ fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
     // a real efficiency difference; the interval should center on zero.
     assert_eq!(receipt.payload.quality_delta.estimate_x10000, 0);
     assert_eq!(receipt.payload.cost_delta.estimate_x10000, 0);
+
+    // `Command::MetaShow` returns the exact same recorded receipt.
+    let Some(ResponseData::MetaEvaluation {
+        receipt: shown_receipt,
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-show-finished",
+        Command::MetaShow {
+            meta_run_id: "meta-1".to_owned(),
+        },
+    )
+    .data
+    else {
+        panic!("meta show should return the finished receipt");
+    };
+    assert_eq!(*shown_receipt, receipt);
 
     // Re-running the same meta_run_id is idempotent and returns the exact
     // recorded receipt without redoing any lineage work.
@@ -15167,6 +15687,128 @@ fn meta_strategy_register_is_idempotent_and_content_addressed() {
         1,
         "re-registering identical content appends no second event"
     );
+}
+
+#[test]
+fn meta_strategy_register_rejects_malformed_source_and_out_of_range_fields() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, _parent, _candidate) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+
+    let write_and_register = |plane: &mut ControlPlane, name: &str, source: &str| {
+        let path = directory.path().join(format!("{name}.json"));
+        fs::write(&path, source).expect("write strategy source");
+        dispatch_call(
+            plane,
+            &token,
+            name,
+            Command::MetaStrategyRegister {
+                path: path.display().to_string(),
+            },
+        )
+    };
+
+    for (name, source, expected_message) in [
+        (
+            "malformed-json",
+            "{not json",
+            None, // message includes the serde_json parse error text; just check the prefix below
+        ),
+        (
+            "bad-schema-version",
+            r#"{"schema_version":2,"name":"strategy","mutation_prioritization":"fifo","generation_count":1,"experiment_allocation":2,"candidate_count":1,"gene_selection":"none"}"#,
+            Some("strategy schema_version must be 1"),
+        ),
+        (
+            "zero-generation-count",
+            r#"{"schema_version":1,"name":"strategy","mutation_prioritization":"fifo","generation_count":0,"experiment_allocation":2,"candidate_count":1,"gene_selection":"none"}"#,
+            Some("strategy generation_count must be positive"),
+        ),
+        (
+            "tiny-experiment-allocation",
+            r#"{"schema_version":1,"name":"strategy","mutation_prioritization":"fifo","generation_count":1,"experiment_allocation":1,"candidate_count":1,"gene_selection":"none"}"#,
+            Some("strategy experiment_allocation must allow at least one generation"),
+        ),
+        (
+            "zero-candidate-count",
+            r#"{"schema_version":1,"name":"strategy","mutation_prioritization":"fifo","generation_count":1,"experiment_allocation":2,"candidate_count":0,"gene_selection":"none"}"#,
+            Some("strategy candidate_count must be positive"),
+        ),
+    ] {
+        let response = write_and_register(&mut plane, name, source);
+        let error = response
+            .error
+            .unwrap_or_else(|| panic!("{name} must be refused"));
+        assert_eq!(error.code, ApiErrorCode::InvalidRequest, "{name}");
+        if let Some(expected_message) = expected_message {
+            assert_eq!(error.message, expected_message, "{name}");
+        } else {
+            assert!(
+                error.message.starts_with("strategy source rejected: "),
+                "{name}: unexpected message {}",
+                error.message
+            );
+        }
+    }
+}
+
+#[test]
+fn meta_read_commands_dispatch_through_the_client_socket_and_report_not_found() {
+    // `MetaStrategyList`, `MetaShow`, `MetaStatus`, and `MetaList` are only
+    // ever exercised elsewhere through internal calls (e.g. `meta_evaluate`
+    // resubmitting into `meta_status`); this covers each command's own
+    // dispatch arm in `execute`'s match table.
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+
+    let Some(ResponseData::MetaStrategies { strategies }) = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-strategy-list-empty",
+        Command::MetaStrategyList,
+    )
+    .data
+    else {
+        panic!("meta strategy list should succeed with no registered strategies");
+    };
+    assert!(strategies.is_empty());
+
+    let show_error = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-show-missing",
+        Command::MetaShow {
+            meta_run_id: "missing-meta-run".to_owned(),
+        },
+    )
+    .error
+    .expect("meta show of an unknown run is refused");
+    assert_eq!(show_error.code, ApiErrorCode::NotFound);
+
+    let status_error = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-status-missing",
+        Command::MetaStatus {
+            meta_run_id: "missing-meta-run".to_owned(),
+        },
+    )
+    .error
+    .expect("meta status of an unknown run is refused");
+    assert_eq!(status_error.code, ApiErrorCode::NotFound);
+
+    let Some(ResponseData::MetaEvaluationList { receipts }) = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-list-empty",
+        Command::MetaList { limit: 10 },
+    )
+    .data
+    else {
+        panic!("meta list should succeed with no recorded receipts");
+    };
+    assert!(receipts.is_empty());
 }
 
 #[test]
@@ -16171,6 +16813,26 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
 
     let gene = gene_bank_origin(&mut plane, &token, &directory, "uppercase-gene", 3);
 
+    // Re-extracting under the exact same (gene_id, promotion_transition_id)
+    // pair is idempotent and returns the identical durable record. Dispatched
+    // through `Command::GeneExtract` (rather than called on the handler
+    // directly, like the rest of this test) so the dispatch table's own
+    // `GeneExtract` match arm is exercised too.
+    let Some(ResponseData::Gene { gene: reextracted }) = dispatch_call(
+        &mut plane,
+        &token,
+        "gene-extract-idempotent",
+        Command::GeneExtract {
+            gene_id: gene.payload.gene_id.clone(),
+            promotion_transition_id: "origin-promote".to_owned(),
+        },
+    )
+    .data
+    else {
+        panic!("idempotent gene extraction should return its durable record");
+    };
+    assert_eq!(*reextracted, gene);
+
     // Re-extracting the same gene_id from a different promotion fails closed.
     assert!(matches!(
         plane.gene_extract(&gene.payload.gene_id, "a-different-promotion"),
@@ -16250,6 +16912,57 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
         &b1.genome_id,
     );
     assert_eq!(outcome_b1, GeneTransferOutcome::Positive);
+
+    // Re-applying the exact same (trial_id, gene_id, to_genome_id) is
+    // idempotent and returns the identical durable applied record.
+    // Dispatched through `Command::GeneTransfer` so the dispatch table's own
+    // match arm is exercised, not just the handler.
+    let Some(ResponseData::GeneTransfer { trial: reapplied }) = dispatch_call(
+        &mut plane,
+        &token,
+        "transfer-apply-idempotent",
+        Command::GeneTransfer {
+            trial_id: "transfer-b1".to_owned(),
+            gene_id: gene.payload.gene_id.clone(),
+            to_genome_id: b1.genome_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("idempotent transfer apply should return its durable record");
+    };
+    assert_eq!(reapplied.applied.trial_id, "transfer-b1");
+    assert_eq!(reapplied.applied.gene_id, gene.payload.gene_id);
+    assert_eq!(reapplied.applied.to_genome_id, b1.genome_id);
+    assert!(
+        reapplied.recorded.is_none(),
+        "the idempotent apply branch never reports the trial's record"
+    );
+
+    // Re-recording the exact same (trial_id, evaluation_id) is idempotent
+    // and returns the identical durable recorded outcome. Dispatched through
+    // `Command::GeneRecord` for the same reason.
+    let Some(ResponseData::GeneTransfer { trial: rerecorded }) = dispatch_call(
+        &mut plane,
+        &token,
+        "transfer-record-idempotent",
+        Command::GeneRecord {
+            trial_id: "transfer-b1".to_owned(),
+            evaluation_id: "transfer-b1-eval".to_owned(),
+        },
+    )
+    .data
+    else {
+        panic!("idempotent transfer record should return its durable record");
+    };
+    assert_eq!(
+        rerecorded
+            .recorded
+            .expect("idempotent retry keeps the recorded outcome")
+            .outcome,
+        GeneTransferOutcome::Positive
+    );
+
     let outcome_b2 = gene_bank_transfer_and_record(
         &mut plane,
         "transfer-b2",
@@ -16405,14 +17118,21 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
     assert_eq!(species.payload.lineage_genome_ids.len(), 3);
     assert!(species.payload.average_estimate_bps >= SPECIATION_MIN_EFFECT_BPS);
 
-    // Idempotent retry returns the identical recorded species.
-    let retry = plane
-        .gene_speciate(
-            "species-helps",
-            &gene.payload.gene_id,
-            &helps_world.world_id,
-        )
-        .expect("idempotent speciation retry");
+    // Idempotent retry returns the identical recorded species. Dispatched
+    // through `Command::GeneSpeciate` so the dispatch table's own match arm
+    // is exercised, not just the handler.
+    let retry = dispatch_call(
+        &mut plane,
+        &token,
+        "species-idempotent",
+        Command::GeneSpeciate {
+            species_id: "species-helps".to_owned(),
+            gene_id: gene.payload.gene_id.clone(),
+            domain_world_id: helps_world.world_id.clone(),
+        },
+    )
+    .data
+    .expect("idempotent speciation retry");
     assert!(matches!(
         retry,
         ResponseData::GeneSpecies { species: retried } if *retried == *species
@@ -18856,6 +19576,115 @@ fn auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays() {
 }
 
 #[test]
+fn auto_canary_on_drift_adaptation_is_interrupted_when_its_diagnostic_evaluation_fails() {
+    // TD-28: an intermittent CI failure ends in exactly this path (a real
+    // Arena job the daemon submitted itself fails closed) with no visible
+    // cause unless it's covered directly. Same recipe as
+    // `auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays`
+    // up through recording the drift, except the diagnostic evaluation
+    // `advance_one_drift_adaptation` submits for itself is forced to fail via
+    // the same canonical-writer-rejection trigger
+    // `arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained`
+    // uses, rather than an injected worker/network fault.
+    let directory = tempdir().expect("auto-canary interruption fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "trigger-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "trigger-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence");
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "trigger-drift",
+        Command::DriftRecord {
+            drift_id: "trigger".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+    assert!(!recorded.adaptation.started);
+
+    // Reject the diagnostic evaluation's first trial result at the canonical
+    // writer, exactly like the direct-run Arena fixture does; the daemon's
+    // own reconciliation loop, not test code, discovers the failure.
+    let diagnostic_id = adaptation_diagnostic_evaluation_id("trigger");
+    let diagnostic_run_id = paired_run_id(&diagnostic_id, "parent", 0);
+    let database = rusqlite::Connection::open(directory.path().join("data/events.sqlite3"))
+        .expect("open diagnostic trial failure trigger connection");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_diagnostic_trial_result BEFORE INSERT ON events
+             WHEN NEW.event_id = 'result:{diagnostic_run_id}'
+             BEGIN SELECT RAISE(ABORT, 'fixture diagnostic trial rejection'); END;"
+        ))
+        .expect("reject the diagnostic trial result append");
+    drop(database);
+
+    let finished = drain_drift_adaptation(&mut plane, "trigger");
+    assert!(finished.adaptation.finished);
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Interrupted)
+    );
+    assert!(
+        finished.adaptation.canary_stage.is_none(),
+        "an interrupted diagnostic evaluation never reaches a canary"
+    );
+
+    // The misconfigured Champion is left exactly where it was.
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(candidate.genome_id.as_str())
+    );
+    assert!(matches!(
+        plane
+            .replay_response()
+            .expect("replay after an interrupted adaptation"),
+        ResponseData::Replay { .. }
+    ));
+}
+
+#[test]
 fn auto_canary_on_drift_never_fires_when_the_law_is_off() {
     let directory = tempdir().expect("drift fixture without the Law");
     let (mut plane, initial_parent, initial_candidate) =
@@ -19831,6 +20660,46 @@ fn sandbox_cleanup_guard_removes_the_materialized_worktree_on_success() {
 }
 
 #[test]
+fn sandbox_cleanup_guard_drop_removes_the_materialized_worktree_without_an_explicit_cleanup_call() {
+    let directory = tempdir().expect("sandbox drop-cleanup fixture");
+    let (repository, _) = committed_reference_fixture(directory.path());
+    let spec = RunSpec::new(
+        "drop-guard-run",
+        "genome-fixture",
+        "world-fixture",
+        repository,
+        "exercise sandbox cleanup guard's Drop impl",
+        CapabilitySet::new(false, false),
+        Budget::new(Duration::from_secs(5), 1024, 0).expect("valid run budget"),
+    )
+    .expect("valid run spec");
+    let sandbox_root = directory.path().join("sandboxes");
+    let manager =
+        SandboxManager::open(&sandbox_root, Duration::from_secs(30)).expect("open sandbox manager");
+    let (sandbox, _token) = manager.create(&spec).expect("materialize sandbox");
+    let run_root = sandbox
+        .worktree()
+        .parent()
+        .expect("sandbox run directory")
+        .to_path_buf();
+    assert!(run_root.exists(), "sandbox materializes its run directory");
+    drop(SandboxCleanupGuard::new(sandbox));
+    assert!(
+        !run_root.exists(),
+        "dropping a guard that was never explicitly cleaned up must still remove the sandbox"
+    );
+}
+
+#[test]
+fn remote_arena_lease_queue_submit_result_rejects_an_unknown_job_id() {
+    let queue = RemoteArenaLeaseQueue::new();
+    assert_eq!(
+        queue.submit_result("missing-job", Vec::new(), RemoteCompletion::Success),
+        Err("job_id is not recognized")
+    );
+}
+
+#[test]
 fn run_evaluation_cost_ceiling_enforces_the_registered_world_law() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
@@ -20197,4 +21066,122 @@ fn forge_proposal_is_rejected_while_evolution_is_frozen() {
         .expect("forge proposal admission fails while evolution is frozen");
     assert_eq!(error.code, ApiErrorCode::InvalidRequest);
     assert!(error.message.contains("evolution is frozen"));
+}
+
+// TD-1 coverage: handlers_genome.rs and server.rs branches `require_command_fields`
+// and the client dispatch layer never exercise, plus the internal defensive
+// catch-alls only reachable by calling a handler method directly.
+#[test]
+fn genome_propose_command_rejects_an_unvalidated_hypothesis_combination() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    // `require_command_fields` (called by every client dispatch) already
+    // refuses every malformed (hypothesis, analysis_id, cluster_index)
+    // combination before the handler runs; calling the handler directly
+    // exercises its own defensive catch-all for that unreachable-from-a-client
+    // shape.
+    assert!(matches!(
+        plane.propose_genome_command(Command::GenomePropose {
+            proposal_id: "proposal".to_owned(),
+            selection_event_id: "selection".to_owned(),
+            parent_genome_id: "candidate".to_owned(),
+            hypothesis: None,
+            analysis_id: None,
+            cluster_index: None,
+        }),
+        Err(ExecuteError::Internal)
+    ));
+}
+
+#[test]
+fn gene_transfer_apply_is_refused_while_frozen() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    assert!(
+        plane.state.freeze.is_frozen(),
+        "a fresh daemon starts frozen"
+    );
+    let error = plane
+        .gene_transfer_apply("trial", "gene", "genome")
+        .expect_err("transfer apply is refused while frozen");
+    assert!(matches!(
+        error,
+        ExecuteError::Invalid(message) if message == "evolution is frozen"
+    ));
+}
+
+#[test]
+fn gene_transfer_record_requires_a_non_blank_evaluation_id() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let error = plane
+        .gene_transfer_record("trial", "   ")
+        .expect_err("blank evaluation_id is refused");
+    assert!(matches!(
+        error,
+        ExecuteError::Invalid(message) if message == "evaluation_id is required"
+    ));
+}
+
+#[test]
+fn genome_and_gene_bank_commands_are_blocked_while_a_direct_job_is_active() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (world, genome, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    plane
+        .submit_job("active-job", &genome.genome_id)
+        .expect("admit direct reference job");
+    assert!(plane.active_job.is_some());
+
+    let expect_busy = |plane: &mut ControlPlane, request: &str, command: Command| {
+        assert_eq!(
+            dispatch_call(plane, &token, request, command)
+                .error
+                .unwrap_or_else(|| panic!("{request} must be refused while a job is active"))
+                .code,
+            ApiErrorCode::Busy,
+            "{request}"
+        );
+    };
+    expect_busy(
+        &mut plane,
+        "drift-while-active",
+        Command::DriftRecord {
+            drift_id: "drift".to_owned(),
+            world_id: world.world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: "evaluation".to_owned(),
+        },
+    );
+    expect_busy(
+        &mut plane,
+        "gene-extract-while-active",
+        Command::GeneExtract {
+            gene_id: "gene".to_owned(),
+            promotion_transition_id: "promotion".to_owned(),
+        },
+    );
+    expect_busy(
+        &mut plane,
+        "gene-record-while-active",
+        Command::GeneRecord {
+            trial_id: "trial".to_owned(),
+            evaluation_id: "evaluation".to_owned(),
+        },
+    );
+    expect_busy(
+        &mut plane,
+        "gene-speciate-while-active",
+        Command::GeneSpeciate {
+            species_id: "species".to_owned(),
+            gene_id: "gene".to_owned(),
+            domain_world_id: world.world_id,
+        },
+    );
 }
