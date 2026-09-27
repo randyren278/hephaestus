@@ -16855,6 +16855,143 @@ fn worker_revoked_credential_fails_closed() {
 }
 
 #[test]
+fn worker_credential_revoke_is_idempotent_on_an_already_revoked_credential() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (credential_id, _worker_token) =
+        mint_worker_credential(&mut plane, &token, "worker-double-revoke", 3_600);
+
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "revoke-first",
+            Command::WorkerCredentialRevoke {
+                credential_id: credential_id.clone(),
+            }
+        )
+        .error
+        .is_none()
+    );
+    let history_after_first = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after first revoke")
+        .iter()
+        .filter(|event| event.event_type == "worker.credential_revoked")
+        .count();
+
+    // Revoking an already-revoked credential must succeed idempotently
+    // rather than appending a second revocation event.
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "revoke-again",
+            Command::WorkerCredentialRevoke { credential_id }
+        )
+        .error
+        .is_none()
+    );
+    let history_after_second = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("verify history after repeated revoke")
+        .iter()
+        .filter(|event| event.event_type == "worker.credential_revoked")
+        .count();
+    assert_eq!(history_after_first, history_after_second);
+}
+
+#[test]
+fn remote_run_submit_rejects_a_reused_job_id_and_a_promptless_genome() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
+    let token = plane.token_hex.clone();
+    let (world, genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze-remote-reuse", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "remote-submit-first",
+            Command::RemoteRunSubmit {
+                job_id: "remote-reused-job".to_owned(),
+                genome_id: genome.genome_id.clone(),
+            }
+        )
+        .error
+        .is_none()
+    );
+
+    let promptless_path = directory.path().join("remote-promptless.json");
+    fs::write(
+        &promptless_path,
+        r#"{"schema_version":1,"name":"remote-promptless","parents":[],"model":{"provider":"deterministic","family":"reference"},"authority":{"workspace_write":false,"network":false},"artifacts":{}}"#,
+    )
+    .expect("write promptless Genome");
+    let Some(ResponseData::Genome {
+        genome: promptless_genome,
+    }) = dispatch_call(
+        &mut plane,
+        &token,
+        "register-remote-promptless",
+        Command::GenomeRegister {
+            path: promptless_path.display().to_string(),
+            world_id: world.world_id.clone(),
+        },
+    )
+    .data
+    else {
+        panic!("promptless Genome should register");
+    };
+
+    let reused_job_different_genome = dispatch_call(
+        &mut plane,
+        &token,
+        "remote-submit-reused-different-genome",
+        Command::RemoteRunSubmit {
+            job_id: "remote-reused-job".to_owned(),
+            genome_id: promptless_genome.genome_id.clone(),
+        },
+    );
+    assert!(matches!(
+        reused_job_different_genome.error,
+        Some(error)
+            if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "job id is already bound to another Genome"
+    ));
+
+    let promptless_submit = dispatch_call(
+        &mut plane,
+        &token,
+        "remote-submit-promptless",
+        Command::RemoteRunSubmit {
+            job_id: "remote-promptless-job".to_owned(),
+            genome_id: promptless_genome.genome_id,
+        },
+    );
+    assert!(matches!(
+        promptless_submit.error,
+        Some(error)
+            if error.code == ApiErrorCode::InvalidRequest
+                && error.message == "Genome has no reference instruction"
+    ));
+}
+
+#[test]
 fn worker_unknown_credential_fails_closed() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = ControlPlane::open(directory.path()).expect("open control plane");
