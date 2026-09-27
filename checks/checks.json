@@ -1388,7 +1388,7 @@
       "invariant": "Paired candidate trials execute through the supervised offline process adapter.",
       "find": "    let runtime = SupervisedRuntime::deterministic_guarded(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n        &guardian,\n    )",
       "replace": "    let _guardian = guardian;\n    let runtime = SupervisedRuntime::deterministic(\n        candidate_isolation(protected_paths),\n        &worker.executable,\n        [],\n    )",
-      "test_cmd": "cargo test -p hephaestus-control --lib -- direct_reference_execution_requires_the_supervised_guarded_runtime"
+      "test_cmd": "cargo test -p hephaestus-control --lib --all-features -- direct_reference_execution_requires_the_supervised_guarded_runtime"
     },
     {
       "id": "arena-evaluator-reliability-ignored",

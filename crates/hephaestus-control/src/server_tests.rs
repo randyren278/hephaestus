@@ -19463,26 +19463,60 @@ fn direct_reference_execution_requires_the_supervised_guarded_runtime() {
             .error
             .is_none()
     );
-    // Break the guardian executable: a supervised (guarded) runtime must
-    // fail to configure the guard and fail the run; an unguarded runtime
-    // never consults this path and would succeed regardless.
-    plane.guardian_executable = directory.path().join("missing-guardian");
 
+    // Control half: with the real, unmodified guardian, the exact same job
+    // shape succeeds on this platform. Without this, a platform-level
+    // failure unrelated to the guard (a bad sandbox, a stalled worker, a
+    // slow git worktree checkout) could make the broken-guardian case below
+    // land on `JobState::Failed` for the wrong reason and hide an unguarded
+    // runtime quietly succeeding underneath it.
     plane
-        .submit_job("guardian-required", &genome.genome_id)
-        .expect("admit direct reference job");
-    let deadline = Instant::now() + Duration::from_secs(10);
+        .submit_job("guardian-control", &genome.genome_id)
+        .expect("admit control direct reference job");
+    let control_deadline = Instant::now() + Duration::from_secs(10);
     while plane.active_job.is_some() {
         plane
             .service_async_messages()
-            .expect("persist worker evidence");
-        assert!(Instant::now() < deadline, "direct reference job stalled");
+            .expect("persist control worker evidence");
+        assert!(
+            Instant::now() < control_deadline,
+            "control direct reference job stalled"
+        );
         if plane.active_job.is_some() {
             thread::sleep(Duration::from_millis(2));
         }
     }
     assert_eq!(
-        plane.state.jobs["guardian-required"].state,
+        plane.state.jobs["guardian-control"].state,
+        JobState::Succeeded,
+        "a real guardian must let the supervised run complete on this platform"
+    );
+
+    // Broken-guardian half: the exact same job shape, only the guardian
+    // executable is now missing. A real supervised (guarded) runtime must
+    // fail to configure the guard and fail the run; an unguarded runtime
+    // never consults this path and would succeed regardless -- and the
+    // control half above already ruled out an unrelated platform failure
+    // producing this same `Failed` state for the wrong reason.
+    plane.guardian_executable = directory.path().join("missing-guardian");
+    plane
+        .submit_job("guardian-broken", &genome.genome_id)
+        .expect("admit broken-guardian direct reference job");
+    let broken_deadline = Instant::now() + Duration::from_secs(10);
+    while plane.active_job.is_some() {
+        plane
+            .service_async_messages()
+            .expect("persist broken-guardian worker evidence");
+        assert!(
+            Instant::now() < broken_deadline,
+            "broken-guardian direct reference job stalled"
+        );
+        if plane.active_job.is_some() {
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    assert_eq!(
+        plane.state.jobs["guardian-broken"].state,
         JobState::Failed,
         "a broken guardian must fail the supervised run rather than silently running unguarded"
     );
