@@ -13725,6 +13725,14 @@ fn evolve_generation_is_interrupted_when_its_diagnostic_evaluation_fails() {
             .expect("replay after an interrupted generation"),
         ResponseData::Replay { .. }
     ));
+
+    // Finishing an already-finished run is an idempotent no-op: nothing
+    // downstream of the reconciliation loop calls this twice for the same
+    // run, but the guard exists so a redundant call is still safe.
+    assert!(matches!(
+        plane.finish_evolution_run(run_id, EvolutionFinishReason::Cancelled),
+        Ok(())
+    ));
 }
 
 #[test]
@@ -15565,6 +15573,14 @@ fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
     let receipt = meta_drain(&mut plane, "meta-1");
     assert_eq!(receipt.payload.meta_run_id, "meta-1");
     assert_eq!(receipt.payload.lineages.len(), 2);
+
+    // Advancing an already-finished meta-evaluation is an idempotent no-op:
+    // the reconciliation loop's own selector never re-selects a receipted
+    // run, but the guard exists so a redundant call is still safe.
+    assert!(matches!(
+        plane.advance_one_meta_evaluation("meta-1"),
+        Ok(())
+    ));
     // Both strategies declare the identical generation/budget knobs and only
     // the reference-operation-flip mutation exists, so this pair cannot show
     // a real efficiency difference; the interval should center on zero.
@@ -20755,6 +20771,104 @@ fn auto_canary_on_drift_derives_a_gauntlet_fix_from_failure_clusters_and_replays
             .expect("replay after automatic promotion"),
         ResponseData::Replay { .. }
     ));
+}
+
+#[test]
+fn auto_canary_on_drift_finishes_with_no_candidate_mutation_when_the_champion_already_passes() {
+    // Like `auto_canary_on_drift_derives_a_gauntlet_fix_from_failure_clusters_and_replays`,
+    // but the *fix* Genome (not the bad one) is seeded as Champion: its
+    // diagnostic evaluation has no failed trials at all (an empty cluster
+    // list), and its operation is neither `identity` nor `ascii_uppercase`,
+    // so `choose_adaptation_hypothesis_source` finds nothing to propose and
+    // the adaptation finishes `NoCandidateMutation` without ever proposing a
+    // child or starting a canary.
+    let directory = tempdir().expect("gauntlet no-candidate-mutation fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
+    let mode = "context-loss-no-candidate";
+    let task_input = r#"{"turns":["FACT: the deploy key is banana","small talk","more small talk","what is the deploy key?"]}"#;
+    let expected_output = " the deploy key is banana";
+    let bad_operation = "context_loss_naive";
+    let good_operation = "context_loss_aware";
+
+    let (mut plane, parent, candidate) = real_worker_gauntlet_fixture_with_auto_canary(
+        &directory,
+        mode,
+        task_input,
+        expected_output,
+        bad_operation,
+        good_operation,
+    );
+    let token = plane.token_hex.clone();
+    let world_id = candidate.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "seed the already-fixed Genome as Champion".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    // A genuine latency drift against the already-correct Champion; the bad
+    // Genome plays the role of the deterministically slowed sibling this
+    // time, purely to produce real drift evidence.
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
+        parent.genome_id.clone(),
+        GAUNTLET_DRIFT_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "no-candidate-drift-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &parent.genome_id,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    assert!(
+        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
+        "the injected delay should make the sibling measurably slower"
+    );
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "no-candidate-drift",
+        Command::DriftRecord {
+            drift_id: "no-candidate-drift".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the already-fixed Champion");
+    assert!(!recorded.adaptation.started);
+
+    let finished = drain_drift_adaptation(&mut plane, "no-candidate-drift");
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::NoCandidateMutation)
+    );
+    assert!(finished.adaptation.child_genome_id.is_none());
+    assert!(finished.adaptation.canary_stage.is_none());
+
+    // The already-correct Champion is left exactly where it was.
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(candidate.genome_id.as_str())
+    );
 }
 
 /// Scopes injected reference-worker delays to one test's temporary
