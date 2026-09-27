@@ -1473,6 +1473,15 @@ pub struct DriftRecordPayload {
     /// Signed measured shift in basis points for the cited kind; a magnitude
     /// at or beyond `threshold_bps` in the regressive direction is required.
     pub observed_delta_bps: i64,
+    /// Latency drift policy version this record's `crossed` decision was
+    /// made under; `None` (or omitted) means the original proportional-only
+    /// rule, present only for [`DriftKind::Latency`]. Recorded so replay can
+    /// re-derive an old record under the rule it named even after the rule
+    /// changes; see `crates/hephaestus-control/src/canary.rs`'s
+    /// `LATENCY_RULE_V2`. Omitted from canonical bytes when absent so
+    /// pre-existing records stay byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_rule: Option<u16>,
 }
 
 /// Canonical event metadata accompanying a drift record.
@@ -1667,6 +1676,14 @@ pub struct CanaryEvidence {
     pub reliability_delta_bps: i64,
     /// Whether any measured dimension crossed its fixed, documented regression threshold.
     pub regressed: bool,
+    /// Latency regression policy version this evidence's `regressed` decision
+    /// used for its latency dimension; `None` (or omitted) means the original
+    /// proportional-only rule. Recorded so replay re-derives old evidence
+    /// under the rule it named; see `LATENCY_RULE_V2` in
+    /// `crates/hephaestus-control/src/canary.rs`. Omitted from canonical
+    /// bytes when absent so pre-existing evidence stays byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_rule: Option<u16>,
 }
 
 /// Canonical payload of one canary transition event.

@@ -203,6 +203,7 @@ impl ControlPlane {
             world_id,
             kind,
             evidence_evaluation_id,
+            Some(canary::CURRENT_LATENCY_RULE),
         )?;
         let event = storage
             .ledger
@@ -323,6 +324,7 @@ impl ControlPlane {
             &self.state.registered,
             canary_id,
             request,
+            Some(canary::CURRENT_LATENCY_RULE),
         )?;
         let timestamp = timestamp_millis().map_err(|_| ExecuteError::Internal)?;
 

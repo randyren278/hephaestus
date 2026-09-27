@@ -37,6 +37,55 @@ pub(super) const CORRECTNESS_REGRESSION_BPS: i64 = 500;
 /// A drop at or beyond this many basis points in reliability is a regression.
 pub(super) const RELIABILITY_REGRESSION_BPS: i64 = 500;
 
+/// Latency regression policy version that also requires an absolute floor,
+/// the same shape as Arena selection's own tolerance
+/// (`hephaestus_arena::selection::latency_tolerance_millis`,
+/// `max(parent/10, 50ms * task_count)`). `None`/absent on old canary and
+/// drift evidence means the original proportional-only rule (implicitly
+/// version 1); this is the only later version.
+pub(super) const LATENCY_RULE_V2: u16 = 2;
+/// The rule newly admitted canary and drift requests are evaluated under.
+/// Recorded into their evidence so replay always knows which rule produced
+/// a `regressed`/`crossed` decision, even after this constant changes again.
+pub(super) const CURRENT_LATENCY_RULE: u16 = LATENCY_RULE_V2;
+/// Absolute latency floor per paired task, in milliseconds, under
+/// [`LATENCY_RULE_V2`]. A latency increase only counts as a regression when
+/// it is both at or beyond [`LATENCY_REGRESSION_BPS`] proportionally AND
+/// larger than this floor times the evidence's task count -- so a real
+/// provider regression on a large batch of tasks still triggers even though
+/// each task individually only drifted a little past the floor.
+pub(super) const LATENCY_FLOOR_MILLIS_PER_TASK: u64 = 50;
+
+/// Number of paired tasks a `SelectionReceipt`'s evidence measured, derived
+/// from its correctness outcome histogram (regressions + unchanged +
+/// improvements always sums to the evaluated task count).
+pub(super) fn selection_task_count(receipt: &SelectionReceipt) -> u64 {
+    u64::from(receipt.correctness_regressions())
+        + u64::from(receipt.correctness_unchanged())
+        + u64::from(receipt.correctness_improvements())
+}
+
+/// Whether a latency shift crosses the regression line under `latency_rule`
+/// (a recorded [`LATENCY_RULE_V2`] or, for anything else including `None`,
+/// the original proportional-only rule).
+pub(super) fn latency_regression_crossed(
+    latency_delta_bps: i64,
+    receipt: &SelectionReceipt,
+    latency_rule: Option<u16>,
+) -> bool {
+    if latency_delta_bps < LATENCY_REGRESSION_BPS {
+        return false;
+    }
+    if latency_rule != Some(LATENCY_RULE_V2) {
+        return true;
+    }
+    let floor_millis = LATENCY_FLOOR_MILLIS_PER_TASK.saturating_mul(selection_task_count(receipt));
+    let delta_millis = receipt
+        .candidate_latency_millis()
+        .saturating_sub(receipt.parent_latency_millis());
+    delta_millis > floor_millis
+}
+
 /// Signed candidate-vs-parent deltas in basis points recomputed from a
 /// verified `SelectionReceipt`. Positive latency/cost deltas and negative
 /// correctness/reliability deltas are regressive.
@@ -76,8 +125,12 @@ pub(super) fn regression_deltas(receipt: &SelectionReceipt) -> RegressionDeltas 
     }
 }
 
-pub(super) fn is_regression(deltas: &RegressionDeltas) -> bool {
-    deltas.latency_bps >= LATENCY_REGRESSION_BPS
+pub(super) fn is_regression(
+    deltas: &RegressionDeltas,
+    receipt: &SelectionReceipt,
+    latency_rule: Option<u16>,
+) -> bool {
+    latency_regression_crossed(deltas.latency_bps, receipt, latency_rule)
         || deltas.cost_bps >= COST_REGRESSION_BPS
         || deltas.correctness_bps <= -CORRECTNESS_REGRESSION_BPS
         || deltas.reliability_bps <= -RELIABILITY_REGRESSION_BPS
@@ -336,12 +389,18 @@ fn load_selection_receipt(
 /// completing or live-regressing canary also appends a separate, existing
 /// `champion.transitioned` event through `champion::champion_transition_payload`.
 #[allow(clippy::too_many_lines)]
+/// Derives the only payload the policy admits for `request`. `latency_rule`
+/// is the latency policy version to evaluate staged or live-check evidence
+/// under (irrelevant to `Start`): pass [`CURRENT_LATENCY_RULE`] to admit a
+/// brand-new request, or a recorded event's own `latency_rule` to recompute
+/// it for replay under the exact rule it named.
 pub(super) fn canary_transition_payload(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
     registered: &RegisteredObjects,
     canary_id: &str,
     request: &CanaryRequest,
+    latency_rule: Option<u16>,
 ) -> Result<CanaryTransitionPayload, ExecuteError> {
     match request {
         CanaryRequest::Start {
@@ -364,6 +423,7 @@ pub(super) fn canary_transition_payload(
             registered,
             canary_id,
             evidence_evaluation_id,
+            latency_rule,
         ),
         CanaryRequest::LiveCheck {
             evidence_evaluation_id,
@@ -373,6 +433,7 @@ pub(super) fn canary_transition_payload(
             registered,
             canary_id,
             evidence_evaluation_id,
+            latency_rule,
         ),
     }
 }
@@ -453,6 +514,7 @@ fn advance_payload(
     registered: &RegisteredObjects,
     canary_id: &str,
     evidence_evaluation_id: &str,
+    latency_rule: Option<u16>,
 ) -> Result<CanaryTransitionPayload, ExecuteError> {
     let canary = canary_projection(history, canary_id)
         .map_err(|_| ExecuteError::Internal)?
@@ -483,7 +545,7 @@ fn advance_payload(
         ));
     }
     let deltas = regression_deltas(&receipt);
-    let regressed = is_regression(&deltas);
+    let regressed = is_regression(&deltas, &receipt, latency_rule);
     let evidence = CanaryEvidence {
         evidence_evaluation_id: evidence_evaluation_id.to_owned(),
         selection_event_id: selection_event.event_id.clone(),
@@ -493,6 +555,7 @@ fn advance_payload(
         correctness_delta_bps: deltas.correctness_bps,
         reliability_delta_bps: deltas.reliability_bps,
         regressed,
+        latency_rule,
     };
 
     if regressed {
@@ -562,6 +625,7 @@ fn live_check_payload(
     registered: &RegisteredObjects,
     canary_id: &str,
     evidence_evaluation_id: &str,
+    latency_rule: Option<u16>,
 ) -> Result<CanaryTransitionPayload, ExecuteError> {
     let canary = canary_projection(history, canary_id)
         .map_err(|_| ExecuteError::Internal)?
@@ -600,7 +664,7 @@ fn live_check_payload(
         ));
     }
     let deltas = regression_deltas(&receipt);
-    if !is_regression(&deltas) {
+    if !is_regression(&deltas, &receipt, latency_rule) {
         return Err(ExecuteError::Rejected(
             "evidence does not show a live regression".to_owned(),
         ));
@@ -614,6 +678,7 @@ fn live_check_payload(
         correctness_delta_bps: deltas.correctness_bps,
         reliability_delta_bps: deltas.reliability_bps,
         regressed: true,
+        latency_rule,
     };
 
     let rollback_transition_id = canary_id_rollback_transition_id(canary_id);
@@ -762,12 +827,20 @@ pub(super) fn verify_canary_history_with(
                 derivation_bound = derivation_bound.min(position);
             }
         }
+        // Recompute this event's decision under the exact latency rule its
+        // own evidence names, not whatever rule is current now, so an event
+        // recorded under an older rule still verifies byte-identically.
+        let recorded_latency_rule = payload
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.latency_rule);
         let mut expected = canary_transition_payload(
             artifacts,
             &history[..derivation_bound],
             registered,
             &payload.canary_id,
             &request,
+            recorded_latency_rule,
         )
         .map_err(|_| ControlError::Projection("canary transition was not admissible".to_owned()))?;
         // The live rollback event hash is only known once its Champion

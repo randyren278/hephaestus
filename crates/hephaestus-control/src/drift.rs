@@ -9,9 +9,11 @@ use hephaestus_genome::RegisteredObjects;
 use hephaestus_ledger::{ArtifactBackend, EventInput, StoredEvent};
 
 use super::adaptation::adaptation_summary;
+#[cfg(test)]
+use super::canary::CURRENT_LATENCY_RULE;
 use super::canary::{
     CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
-    RELIABILITY_REGRESSION_BPS, canary_projection, regression_deltas,
+    RELIABILITY_REGRESSION_BPS, canary_projection, latency_regression_crossed, regression_deltas,
 };
 use super::champion::champion_projection;
 use super::{ControlError, ExecuteError, OPERATOR_ACTOR, hex_encode, validate_job_id};
@@ -139,6 +141,12 @@ pub(super) fn existing_drift_record(
 }
 
 /// Derives the only payload the policy admits for this drift request.
+/// `latency_rule` is the latency policy version to evaluate a
+/// [`DriftKind::Latency`] shift under (irrelevant to every other kind): pass
+/// [`CURRENT_LATENCY_RULE`] to admit a brand-new request, or a recorded
+/// event's own `latency_rule` to recompute it for replay under the exact
+/// rule it named.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drift_record_payload(
     artifacts: &dyn ArtifactBackend,
     history: &[StoredEvent],
@@ -147,6 +155,7 @@ pub(super) fn drift_record_payload(
     world_id: &str,
     kind: DriftKind,
     evidence_evaluation_id: &str,
+    latency_rule: Option<u16>,
 ) -> Result<DriftRecordPayload, ExecuteError> {
     registered.world(world_id).ok_or(ExecuteError::NotFound)?;
     let champion = champion_projection(history, world_id).map_err(|_| ExecuteError::Internal)?;
@@ -181,10 +190,17 @@ pub(super) fn drift_record_payload(
     let shifted_genome_id = receipt.candidate_genome_id().to_owned();
     let deltas = regression_deltas(&receipt);
     let threshold = threshold_bps(kind);
+    // Latency drift is the only kind an absolute floor applies to; every
+    // other kind is untouched (see the owner's product change).
+    let recorded_latency_rule = if kind == DriftKind::Latency {
+        latency_rule
+    } else {
+        None
+    };
     let (observed_delta_bps, crossed) = match kind {
         DriftKind::Latency => (
             deltas.latency_bps,
-            deltas.latency_bps >= i64::from(threshold),
+            latency_regression_crossed(deltas.latency_bps, &receipt, recorded_latency_rule),
         ),
         DriftKind::Cost => (deltas.cost_bps, deltas.cost_bps >= i64::from(threshold)),
         DriftKind::Correctness => (
@@ -215,6 +231,7 @@ pub(super) fn drift_record_payload(
         shifted_genome_id,
         threshold_bps: threshold,
         observed_delta_bps,
+        latency_rule: recorded_latency_rule,
     })
 }
 
@@ -257,6 +274,9 @@ pub(super) fn verify_drift_history_with(
                 "drift event identity is invalid".to_owned(),
             ));
         }
+        // Recompute this record's decision under the exact latency rule it
+        // names itself, not whatever rule is current now, so a record
+        // recorded under an older rule still verifies byte-identically.
         let expected = drift_record_payload(
             artifacts,
             &history[..index],
@@ -265,6 +285,7 @@ pub(super) fn verify_drift_history_with(
             &payload.world_id,
             payload.kind,
             &payload.evidence_evaluation_id,
+            payload.latency_rule,
         )
         .map_err(|_| ControlError::Projection("drift record was not admissible".to_owned()))?;
         if payload != expected {
@@ -296,8 +317,8 @@ pub(super) fn drift_event_input(
 #[cfg(test)]
 mod tests {
     use super::{
-        CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
-        RELIABILITY_REGRESSION_BPS,
+        CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, CURRENT_LATENCY_RULE,
+        LATENCY_REGRESSION_BPS, RELIABILITY_REGRESSION_BPS,
     };
     use super::{
         DRIFT_EVENT_TYPE, DriftKind, DriftRecordPayload, decode_drift_record, drift_list,
@@ -335,6 +356,11 @@ mod tests {
             shifted_genome_id: "shifted".to_owned(),
             threshold_bps: threshold_bps(kind),
             observed_delta_bps: 0,
+            latency_rule: if kind == DriftKind::Latency {
+                Some(CURRENT_LATENCY_RULE)
+            } else {
+                None
+            },
         }
     }
 
