@@ -837,3 +837,67 @@ pub(super) fn persist_reference_output(
         trace_artifact_ids: output.trace_artifact_ids,
     })
 }
+
+#[cfg(test)]
+mod runtime_exec_unit_tests {
+    use super::{
+        RedactionPolicy, default_evaluator_executable, default_process_guardian_executable,
+        default_reference_worker_executable, hex_decode_bytes, redact_bytes,
+    };
+
+    /// Not wired to any `ControlPlane` fixture (every existing test supplies
+    /// its own evaluator/worker/guardian executables explicitly), so the
+    /// sibling-lookup fallback this exercises was otherwise never called at
+    /// all. Running under `cargo test`, the current executable lives at
+    /// `target/debug/deps/<test-binary>`, so `directory.parent()` (the
+    /// "Cargo puts bins under `target/debug`, tests under
+    /// `target/debug/deps`" fallback) finds the real sibling built by
+    /// `cargo build --workspace --bins`.
+    #[test]
+    fn default_executables_resolve_the_cargo_target_debug_sibling() {
+        let evaluator = default_evaluator_executable().expect("resolve evaluator executable");
+        assert!(
+            evaluator.ends_with(format!(
+                "hephaestus-reference-evaluator{}",
+                std::env::consts::EXE_SUFFIX
+            )),
+            "unexpected evaluator path: {evaluator:?}"
+        );
+        assert!(evaluator.exists(), "evaluator sibling should exist: {evaluator:?}");
+
+        let worker = default_reference_worker_executable().expect("resolve worker executable");
+        assert!(
+            worker.ends_with(format!(
+                "hephaestus-reference-worker{}",
+                std::env::consts::EXE_SUFFIX
+            )),
+            "unexpected worker path: {worker:?}"
+        );
+        assert!(worker.exists(), "worker sibling should exist: {worker:?}");
+
+        let guardian =
+            default_process_guardian_executable().expect("resolve process guardian executable");
+        assert!(
+            guardian.ends_with(format!(
+                "hephaestus-process-guardian{}",
+                std::env::consts::EXE_SUFFIX
+            )),
+            "unexpected guardian path: {guardian:?}"
+        );
+        assert!(guardian.exists(), "guardian sibling should exist: {guardian:?}");
+    }
+
+    #[test]
+    fn hex_decode_bytes_rejects_odd_length_and_non_hex_input() {
+        assert!(hex_decode_bytes("abc").is_err());
+        assert!(hex_decode_bytes("zz").is_err());
+        assert_eq!(hex_decode_bytes("2a").unwrap(), vec![0x2a]);
+    }
+
+    #[test]
+    fn redact_bytes_passes_through_non_utf8_bytes_unchanged() {
+        let policy = RedactionPolicy::new(["secret".to_owned()]);
+        let non_utf8 = vec![0xff, 0xfe, 0xfd];
+        assert_eq!(redact_bytes(&policy, &non_utf8), non_utf8);
+    }
+}
