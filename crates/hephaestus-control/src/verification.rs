@@ -1945,3 +1945,390 @@ fn require_drift_and_canary_fields(command: &Command) -> Result<(), ExecuteError
         _ => Ok(()),
     }
 }
+
+#[cfg(test)]
+mod verification_unit_tests {
+    use super::{
+        ArenaError, Command, ExecuteError, GENE_EVENT_TYPE, GeneTransferOutcome,
+        TRANSFER_RECORDED_EVENT_TYPE, best_gene_target_operation, map_cluster_error,
+        require_command_fields,
+    };
+    use crate::{DriftKind, GeneExtractedPayload, GeneTransferRecordedPayload, MetaLineageSpec};
+    use hephaestus_ledger::StoredEvent;
+
+    fn event(sequence: u64, event_type: &str, payload_bytes: Vec<u8>) -> StoredEvent {
+        StoredEvent {
+            sequence,
+            event_id: format!("fixture-{sequence}"),
+            aggregate_id: "fixture".to_owned(),
+            event_type: event_type.to_owned(),
+            actor: "test-fixture".to_owned(),
+            timestamp_millis: 1,
+            payload: payload_bytes,
+            previous_hash: [0; 32],
+            hash: [0; 32],
+        }
+    }
+
+    fn gene_event(sequence: u64, gene_id: &str, before: &str, after: &str) -> StoredEvent {
+        let payload = GeneExtractedPayload {
+            schema_version: 1,
+            gene_id: gene_id.to_owned(),
+            promotion_transition_id: "promotion".to_owned(),
+            promotion_event_id: "promotion-event".to_owned(),
+            promotion_event_hash: "0".repeat(64),
+            assessment_id: "assessment".to_owned(),
+            assessment_event_id: "assessment-event".to_owned(),
+            assessment_event_hash: "0".repeat(64),
+            proposal_id: "proposal".to_owned(),
+            proposal_event_id: "proposal-event".to_owned(),
+            proposal_event_hash: "0".repeat(64),
+            selection_event_id: "selection-event".to_owned(),
+            selection_event_hash: "0".repeat(64),
+            invariant_event_id: "invariant-event".to_owned(),
+            invariant_event_hash: "0".repeat(64),
+            world_id: "world".to_owned(),
+            origin_parent_genome_id: "parent".to_owned(),
+            origin_child_genome_id: "child".to_owned(),
+            operation_before: before.to_owned(),
+            operation_after: after.to_owned(),
+            evidence_trials: 10,
+            evidence_threshold: 5,
+        };
+        let canonical = serde_json::to_vec(&serde_json::to_value(&payload).unwrap()).unwrap();
+        event(sequence, GENE_EVENT_TYPE, canonical)
+    }
+
+    fn transfer_event(
+        sequence: u64,
+        gene_id: &str,
+        outcome: GeneTransferOutcome,
+        estimate_bps: i64,
+    ) -> StoredEvent {
+        let payload = GeneTransferRecordedPayload {
+            schema_version: 1,
+            trial_id: format!("trial-{sequence}"),
+            gene_id: gene_id.to_owned(),
+            applied_event_id: "applied-event".to_owned(),
+            applied_event_hash: "0".repeat(64),
+            evaluation_id: "evaluation".to_owned(),
+            selection_event_id: "selection-event".to_owned(),
+            selection_event_hash: "0".repeat(64),
+            selection_receipt_artifact_id: "sha256:receipt".to_owned(),
+            outcome,
+            estimate_bps,
+            lower_bps: estimate_bps - 10,
+            upper_bps: estimate_bps + 10,
+        };
+        let canonical = serde_json::to_vec(&serde_json::to_value(&payload).unwrap()).unwrap();
+        event(sequence, TRANSFER_RECORDED_EVENT_TYPE, canonical)
+    }
+
+    #[test]
+    fn map_cluster_error_reports_invalid_analysis_id() {
+        assert!(matches!(
+            map_cluster_error(ArenaError::InvalidId {
+                field: "analysis_id",
+                value: "bad id".to_owned(),
+            }),
+            ExecuteError::Invalid("analysis_id is invalid")
+        ));
+    }
+
+    #[test]
+    fn best_gene_target_operation_ignores_unrelated_genes_and_undecodable_events() {
+        let history = [
+            // Undecodable Gene payload: skipped rather than failing the scan.
+            event(1, GENE_EVENT_TYPE, b"not json".to_vec()),
+            // Gene for a different current operation is skipped entirely.
+            gene_event(2, "gene-other-op", "ascii_uppercase", "context_loss_aware"),
+            transfer_event(3, "gene-other-op", GeneTransferOutcome::Positive, 500),
+        ];
+        assert_eq!(best_gene_target_operation(&history, "identity"), None);
+    }
+
+    #[test]
+    fn best_gene_target_operation_requires_at_least_one_positive_trial() {
+        let history = [
+            gene_event(1, "gene-no-trials", "identity", "ascii_uppercase"),
+            gene_event(2, "gene-neutral-only", "identity", "context_loss_aware"),
+            // Wrong gene_id and non-Positive outcomes are both skipped.
+            transfer_event(3, "gene-does-not-exist", GeneTransferOutcome::Positive, 500),
+            transfer_event(4, "gene-neutral-only", GeneTransferOutcome::Neutral, 500),
+            transfer_event(5, "gene-neutral-only", GeneTransferOutcome::Negative, 500),
+            // Undecodable transfer payload: skipped rather than failing the scan.
+            event(6, TRANSFER_RECORDED_EVENT_TYPE, b"not json".to_vec()),
+        ];
+        assert_eq!(best_gene_target_operation(&history, "identity"), None);
+    }
+
+    #[test]
+    fn best_gene_target_operation_picks_the_highest_mean_positive_effect() {
+        let history = [
+            gene_event(1, "gene-low", "identity", "ascii_uppercase"),
+            gene_event(2, "gene-high", "identity", "context_loss_aware"),
+            transfer_event(3, "gene-low", GeneTransferOutcome::Positive, 100),
+            transfer_event(4, "gene-high", GeneTransferOutcome::Positive, 300),
+            transfer_event(5, "gene-high", GeneTransferOutcome::Positive, 500),
+        ];
+        assert_eq!(
+            best_gene_target_operation(&history, "identity"),
+            Some("context_loss_aware".to_owned())
+        );
+    }
+
+    #[test]
+    fn best_gene_target_operation_breaks_ties_by_smallest_gene_id() {
+        let history = [
+            gene_event(1, "gene-zzz", "identity", "ascii_uppercase"),
+            gene_event(2, "gene-aaa", "identity", "context_loss_aware"),
+            transfer_event(3, "gene-zzz", GeneTransferOutcome::Positive, 200),
+            transfer_event(4, "gene-aaa", GeneTransferOutcome::Positive, 200),
+        ];
+        assert_eq!(
+            best_gene_target_operation(&history, "identity"),
+            Some("context_loss_aware".to_owned())
+        );
+    }
+
+    #[test]
+    fn require_command_fields_rejects_out_of_range_list_limits() {
+        assert!(matches!(
+            require_command_fields(&Command::MetaList { limit: 0 }),
+            Err(ExecuteError::Invalid("limit must be between 1 and 200"))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_incomplete_mcp_call() {
+        assert!(matches!(
+            require_command_fields(&Command::McpCall {
+                client_id: String::new(),
+                tool: "tool".to_owned(),
+                tool_version: 1,
+                decision: crate::McpDecision::Denied {
+                    reason: "policy".to_owned(),
+                },
+            }),
+            Err(ExecuteError::Invalid("client_id and tool are required"))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_invalid_worker_credential_mint() {
+        assert!(matches!(
+            require_command_fields(&Command::WorkerCredentialMint {
+                worker_id: String::new(),
+                ttl_seconds: 60,
+            }),
+            Err(ExecuteError::Invalid(
+                "worker_id is required and ttl_seconds must be between 1 and the maximum"
+            ))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_empty_worker_credential_revoke() {
+        assert!(matches!(
+            require_command_fields(&Command::WorkerCredentialRevoke {
+                credential_id: String::new(),
+            }),
+            Err(ExecuteError::Invalid("credential_id is required"))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_incomplete_remote_run_submit_and_status() {
+        assert!(matches!(
+            require_command_fields(&Command::RemoteRunSubmit {
+                job_id: "job".to_owned(),
+                genome_id: String::new(),
+            }),
+            Err(ExecuteError::Invalid("genome_id is required"))
+        ));
+        assert!(matches!(
+            require_command_fields(&Command::RemoteJobStatus {
+                job_id: String::new(),
+            }),
+            Err(ExecuteError::Invalid("job_id is required"))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_empty_meta_strategy_paths_and_ids() {
+        assert!(matches!(
+            require_command_fields(&Command::MetaStrategyRegister {
+                path: String::new(),
+            }),
+            Err(ExecuteError::Invalid("path is required"))
+        ));
+        assert!(matches!(
+            require_command_fields(&Command::MetaStrategyShow {
+                strategy_id: String::new(),
+            }),
+            Err(ExecuteError::Invalid("strategy_id is required"))
+        ));
+    }
+
+    fn valid_meta_evaluate() -> Command {
+        Command::MetaEvaluate {
+            meta_run_id: "meta-run".to_owned(),
+            strategy_a_id: "strategy-a".to_owned(),
+            strategy_b_id: "strategy-b".to_owned(),
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: "world-a".to_owned(),
+                    from_genome_id: "genome-a".to_owned(),
+                },
+                MetaLineageSpec {
+                    world_id: "world-b".to_owned(),
+                    from_genome_id: "genome-b".to_owned(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 1,
+        }
+    }
+
+    #[test]
+    fn require_command_fields_rejects_an_oversized_meta_run_id() {
+        let mut command = valid_meta_evaluate();
+        if let Command::MetaEvaluate { meta_run_id, .. } = &mut command {
+            *meta_run_id = "m".repeat(100);
+        }
+        assert!(matches!(
+            require_command_fields(&command),
+            Err(ExecuteError::Invalid(
+                "meta_run_id must leave room for its derived run identifiers"
+            ))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_incomplete_or_duplicate_meta_strategies() {
+        let mut empty_a = valid_meta_evaluate();
+        if let Command::MetaEvaluate { strategy_a_id, .. } = &mut empty_a {
+            *strategy_a_id = String::new();
+        }
+        assert!(matches!(
+            require_command_fields(&empty_a),
+            Err(ExecuteError::Invalid(
+                "strategy_a_id and strategy_b_id are required"
+            ))
+        ));
+
+        let mut duplicate = valid_meta_evaluate();
+        if let Command::MetaEvaluate {
+            strategy_a_id,
+            strategy_b_id,
+            ..
+        } = &mut duplicate
+        {
+            strategy_b_id.clone_from(strategy_a_id);
+        }
+        assert!(matches!(
+            require_command_fields(&duplicate),
+            Err(ExecuteError::Invalid(
+                "strategy_a_id and strategy_b_id must differ"
+            ))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_too_few_or_invalid_meta_lineages() {
+        let mut single_lineage = valid_meta_evaluate();
+        if let Command::MetaEvaluate { lineages, .. } = &mut single_lineage {
+            lineages.truncate(1);
+        }
+        assert!(matches!(
+            require_command_fields(&single_lineage),
+            Err(ExecuteError::Invalid(
+                "at least two held-out lineages are required for a bootstrap comparison"
+            ))
+        ));
+
+        let mut empty_lineage_field = valid_meta_evaluate();
+        if let Command::MetaEvaluate { lineages, .. } = &mut empty_lineage_field {
+            lineages[0].world_id.clear();
+        }
+        assert!(matches!(
+            require_command_fields(&empty_lineage_field),
+            Err(ExecuteError::Invalid(
+                "lineage world_id and from_genome_id are required"
+            ))
+        ));
+
+        let mut duplicate_world = valid_meta_evaluate();
+        if let Command::MetaEvaluate { lineages, .. } = &mut duplicate_world {
+            let world_id = lineages[0].world_id.clone();
+            lineages[1].world_id = world_id;
+        }
+        assert!(matches!(
+            require_command_fields(&duplicate_world),
+            Err(ExecuteError::Invalid(
+                "held-out lineages must use distinct Worlds"
+            ))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_out_of_range_meta_confidence() {
+        let mut command = valid_meta_evaluate();
+        if let Command::MetaEvaluate { confidence_bps, .. } = &mut command {
+            *confidence_bps = 10_000;
+        }
+        assert!(matches!(
+            require_command_fields(&command),
+            Err(ExecuteError::Invalid(
+                "confidence_bps must be between 1 and 9999"
+            ))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_accepts_a_valid_meta_evaluate() {
+        assert!(require_command_fields(&valid_meta_evaluate()).is_ok());
+    }
+
+    #[test]
+    fn require_command_fields_rejects_incomplete_gene_commands() {
+        assert!(matches!(
+            require_command_fields(&Command::GeneTransfer {
+                trial_id: "trial".to_owned(),
+                gene_id: String::new(),
+                to_genome_id: "genome".to_owned(),
+            }),
+            Err(ExecuteError::Invalid("gene_id and to_genome_id are required"))
+        ));
+        assert!(matches!(
+            require_command_fields(&Command::GeneRecord {
+                trial_id: "trial".to_owned(),
+                evaluation_id: String::new(),
+            }),
+            Err(ExecuteError::Invalid("evaluation_id is required"))
+        ));
+        assert!(matches!(
+            require_command_fields(&Command::GeneSpeciate {
+                species_id: "species".to_owned(),
+                gene_id: String::new(),
+                domain_world_id: "world".to_owned(),
+            }),
+            Err(ExecuteError::Invalid(
+                "gene_id and domain_world_id are required"
+            ))
+        ));
+    }
+
+    #[test]
+    fn require_command_fields_rejects_incomplete_drift_record() {
+        assert!(matches!(
+            require_command_fields(&Command::DriftRecord {
+                drift_id: "drift".to_owned(),
+                world_id: String::new(),
+                kind: DriftKind::Latency,
+                evidence_evaluation_id: "evaluation".to_owned(),
+            }),
+            Err(ExecuteError::Invalid("world_id is required"))
+        ));
+    }
+}
