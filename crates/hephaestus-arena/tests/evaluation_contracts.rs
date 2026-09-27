@@ -982,6 +982,7 @@ fn forged_event_ledger(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn history_invariant_verification_accepts_the_genuine_event_and_rejects_forgeries() {
     let directory = TempDir::new().unwrap();
     let fixture = make_invariant_fixture(&directory);
@@ -1026,6 +1027,40 @@ fn history_invariant_verification_accepts_the_genuine_event_and_rejects_forgerie
             &artifacts,
             &original,
             &wrong_world
+        ),
+        Err(ArenaError::WorldArtifactMismatch(
+            "arena.invariant_manifest"
+        ))
+    ));
+
+    // The invariant event's own declared World can match while the
+    // evaluation it references has been rerouted to a different one: the
+    // referenced evaluation's authenticated World is what ultimately governs.
+    let evaluation_event = history
+        .iter()
+        .find(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap()
+        .clone();
+    let rerouted_payload = String::from_utf8(evaluation_event.payload.clone())
+        .unwrap()
+        .replace(
+            &format!("\"world_id\":\"{}\"", world.id()),
+            &format!("\"world_id\":\"{}\"", wrong_world.id()),
+        );
+    let rerouted_stores = forged_event_ledger(
+        &directory,
+        "rerouted-evaluation",
+        &history,
+        &evaluation_event,
+        rerouted_payload,
+    );
+    let rerouted_history = rerouted_stores.events.replay_verified().unwrap();
+    assert!(matches!(
+        verify_reference_output_invariant_event_in(
+            &EventIndex::build(&rerouted_history),
+            &artifacts,
+            &original,
+            &world
         ),
         Err(ArenaError::WorldArtifactMismatch(
             "arena.invariant_manifest"
@@ -1181,6 +1216,153 @@ fn reference_output_invariants_reject_out_of_manifest_tasks_and_relabeled_signed
         Err(ArenaError::InvalidStoredReceipt(
             "invariant signed run binding"
         ))
+    ));
+}
+
+#[test]
+fn history_invariant_verification_rejects_a_candidate_run_event_binding_forgery() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let evaluation = evaluate(fixture).unwrap();
+    let stores = evaluation.into_stores();
+    let check =
+        check_reference_output_invariants(stores, "evaluation-001", &world, 1_788_000_123_650)
+            .unwrap();
+    let history = check.into_stores().events.replay_verified().unwrap();
+    let artifacts = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    let invariant_event = history
+        .iter()
+        .find(|event| event.event_id == "arena:invariants:evaluation-001:checked")
+        .unwrap()
+        .clone();
+    let evaluation_event = history
+        .iter()
+        .find(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap()
+        .clone();
+    let original_payload = String::from_utf8(evaluation_event.payload.clone()).unwrap();
+    let receipt_json: serde_json::Value =
+        serde_json::from_slice(&evaluation_event.payload).unwrap();
+    let candidate_submission_id = receipt_json["candidate_submission_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let candidate_submission_bytes = artifacts
+        .get(&ArtifactId::parse(candidate_submission_id.clone()).unwrap())
+        .unwrap();
+    let submission_text = String::from_utf8(candidate_submission_bytes.clone()).unwrap();
+
+    // A candidate trial rebound to an event that was recorded at or after the
+    // evaluation itself (here, the evaluation event's own hash-chain entry)
+    // can never be genuine paired-trial evidence: nothing the evaluation
+    // cites can postdate it. This history-borrowing path trusts its caller's
+    // already-verified hash chain (see its own doc comment), so only the
+    // in-memory index needs to agree with what the forged submission cites -
+    // unlike an ordinary hash mismatch, which an earlier evidence-loading
+    // pass rejects regardless of caller.
+    let submission_value: serde_json::Value =
+        serde_json::from_slice(&candidate_submission_bytes).unwrap();
+    let genuine_event_id = submission_value["trials"]["task-visible-a"]["run_result_event_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let genuine_hash = submission_value["trials"]["task-visible-a"]["run_result_event_hash"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let evaluation_event_hash_hex =
+        evaluation_event
+            .hash
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                write!(hex, "{byte:02x}").unwrap();
+                hex
+            });
+    let rebound_text = submission_text
+        .replacen(&genuine_event_id, &evaluation_event.event_id, 1)
+        .replacen(&genuine_hash, &evaluation_event_hash_hex, 1);
+    assert_ne!(rebound_text, submission_text);
+    let rebound_id = artifacts.put(rebound_text.as_bytes()).unwrap();
+    let rebound_payload = original_payload.replace(&candidate_submission_id, rebound_id.as_str());
+
+    // Rewrite only the in-memory evaluation event's payload to cite the
+    // rebound submission. This path never re-derives the hash chain from
+    // content (that is exactly the trust its caller must already provide),
+    // so the event's original `hash` field is left untouched on purpose.
+    let mut rebound_history = history.clone();
+    let position = rebound_history
+        .iter()
+        .position(|event| event.event_id == evaluation_event.event_id)
+        .unwrap();
+    rebound_history[position].payload = rebound_payload.into_bytes();
+
+    assert!(matches!(
+        verify_reference_output_invariant_event_in(
+            &EventIndex::build(&rebound_history),
+            &artifacts,
+            &invariant_event,
+            &world
+        ),
+        Err(ArenaError::InvalidStoredReceipt(
+            "invariant run event binding"
+        ))
+    ));
+}
+
+#[test]
+fn reference_output_invariants_reject_overlapping_visible_and_sealed_task_ids() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let evaluation = evaluate(fixture).unwrap();
+    let stores = evaluation.into_stores();
+    let history = stores.events.replay_verified().unwrap();
+    let evaluation_event = history
+        .iter()
+        .find(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap()
+        .clone();
+    let original_payload = String::from_utf8(evaluation_event.payload.clone()).unwrap();
+    let receipt_json: serde_json::Value =
+        serde_json::from_slice(&evaluation_event.payload).unwrap();
+    let sealed_manifest_id = receipt_json["sealed_manifest_artifact_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // A sealed manifest that is individually well-formed (valid schema,
+    // correctly tagged `Visibility::Sealed`, no internal duplicates) but
+    // reuses one of the World's visible task identities: the cross-manifest
+    // task set is a duplicate even though neither manifest alone is.
+    let colliding_sealed = TrustedManifest::new(
+        "sealed-suite-v1",
+        Visibility::Sealed,
+        vec![TrustedTask::new("task-visible-a", "sealed prompt", "collision").unwrap()],
+    )
+    .unwrap();
+    let colliding_sealed_id = stores
+        .artifacts
+        .put(&colliding_sealed.canonical_bytes().unwrap())
+        .unwrap();
+    let overlapping_payload =
+        original_payload.replace(&sealed_manifest_id, colliding_sealed_id.as_str());
+    assert_ne!(overlapping_payload, original_payload);
+    let overlapping_stores = forged_event_ledger(
+        &directory,
+        "overlapping-task-ids",
+        &history,
+        &evaluation_event,
+        overlapping_payload,
+    );
+    assert!(matches!(
+        check_reference_output_invariants(
+            overlapping_stores,
+            "evaluation-001",
+            &world,
+            1_788_000_123_651,
+        ),
+        Err(ArenaError::InvalidStoredReceipt("invariant task set"))
     ));
 }
 
