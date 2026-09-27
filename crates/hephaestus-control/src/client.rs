@@ -44,6 +44,7 @@ impl Client {
                 .map_err(|_| ControlError::Protocol("system clock precedes Unix epoch"))?
                 .as_nanos()
         );
+        let read_timeout = command.reply_timeout();
         let request = ApiRequest {
             version: API_VERSION,
             request_id,
@@ -52,7 +53,7 @@ impl Client {
         };
         let encoded = serde_json::to_vec(&request)?;
         let mut stream = UnixStream::connect(self.data_dir.join("control.sock"))?;
-        stream.set_read_timeout(Some(Duration::from_secs(15)))?;
+        stream.set_read_timeout(Some(read_timeout))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         stream.write_all(&encoded)?;
         stream.shutdown(Shutdown::Write)?;

@@ -249,6 +249,7 @@ impl IsolatedWorker {
             temp: cleanup.path().to_owned(),
             path,
             input_bytes: input.len(),
+            env: Vec::new(),
         };
         let mut frame = serde_json::to_vec(&config)
             .map_err(|_| RuntimeError::InvalidSpec("guardian configuration is invalid"))?;

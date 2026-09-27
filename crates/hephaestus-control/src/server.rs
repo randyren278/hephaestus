@@ -95,6 +95,10 @@ const MAX_EVALUATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_EVALUATION_COST_MICROUSD: u64 = 1_000_000_000;
 const PAIRED_EVALUATION_SEED: u64 = 42;
 const PAIRED_EVALUATION_WALL_MILLIS: u64 = 10_000;
+/// Wall budget for a `run`/`submit` of a hosted-provider Genome. A real
+/// Codex or Claude Code call takes tens of seconds, far past the reference
+/// worker's 10s; replay also accepts provider jobs recorded at 10s.
+const PROVIDER_RUN_WALL_MILLIS: u64 = 300_000;
 const PAIRED_EVALUATION_OUTPUT_BYTES: u64 = 1_048_576;
 const MAX_SOURCE_FILE_BYTES: u64 = 1_048_576;
 const MAX_ARTIFACT_FILE_BYTES: u64 = 64 * 1024 * 1024;
@@ -803,16 +807,15 @@ fn serve_connection(
         Ok(Some(bytes)) => match serde_json::from_slice::<ApiRequest>(&bytes) {
             Ok(request) => {
                 let (reply, response) = mpsc::sync_channel(1);
+                let reply_timeout = request.command.reply_timeout();
                 match sender.try_send(QueuedRequest { request, reply }) {
-                    Ok(()) => response
-                        .recv_timeout(Duration::from_secs(15))
-                        .unwrap_or_else(|_| {
-                            ApiResponse::failure(
-                                "",
-                                ApiErrorCode::Internal,
-                                "canonical operation failed",
-                            )
-                        }),
+                    Ok(()) => response.recv_timeout(reply_timeout).unwrap_or_else(|_| {
+                        ApiResponse::failure(
+                            "",
+                            ApiErrorCode::Internal,
+                            "canonical operation failed",
+                        )
+                    }),
                     Err(mpsc::TrySendError::Full(_)) => {
                         ApiResponse::failure("", ApiErrorCode::Busy, "daemon request queue is full")
                     }
@@ -1520,6 +1523,7 @@ use runtime_exec::{
     persist_reference_output, provider_env_allowlist_from_environment,
     provider_executable_from_environment, read_bounded_file, read_source_text, remote_job_run_id,
     resolve_provider_extra_env, resolve_source_revision, source_format, validate_job_id,
+    with_provider_login,
 };
 
 #[path = "verification.rs"]

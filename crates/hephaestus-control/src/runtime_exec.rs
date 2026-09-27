@@ -185,6 +185,7 @@ pub(super) fn execute_async_provider(
         &guardian,
         extra_env,
     )
+    .and_then(|runtime| with_provider_login(runtime, provider))
     .map_err(|_| "guarded provider could not be configured".to_owned())?;
     let mut runtime = RecordedRuntime::with_sink(runtime, evidence, initial_sequence);
     let result = (|| {
@@ -742,6 +743,23 @@ pub(super) fn default_reference_worker_executable() -> Result<PathBuf, ControlEr
 /// own restored `PATH` (never this process's full environment).
 pub(super) fn provider_executable_from_environment(variable: &str, default_name: &str) -> PathBuf {
     env::var_os(variable).map_or_else(|| PathBuf::from(default_name), PathBuf::from)
+}
+
+/// Opt-in operator login for hosted CLIs. When the daemon's environment names
+/// `HEPHAESTUS_CODEX_AUTH_FILE` (normally `~/.codex/auth.json`), that file is
+/// copied into each Codex run's private `HOME` so a ChatGPT-subscription login
+/// works inside the sandbox. Unset by default: no provider child ever sees the
+/// operator's credentials unless the operator names them.
+pub(super) fn with_provider_login(
+    runtime: SupervisedRuntime,
+    provider: Provider,
+) -> Result<SupervisedRuntime, hephaestus_runtime::RuntimeError> {
+    match (provider, env::var_os("HEPHAESTUS_CODEX_AUTH_FILE")) {
+        (Provider::Codex, Some(path)) if !path.is_empty() => {
+            runtime.with_home_file(PathBuf::from(path), ".codex/auth.json")
+        }
+        _ => Ok(runtime),
+    }
 }
 
 /// Reads the operator-named allowlist of environment variables a provider

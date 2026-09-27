@@ -2509,8 +2509,8 @@
       "id": "provider-extra-env-not-applied",
       "file": "crates/hephaestus-runtime/src/supervisor.rs",
       "invariant": "Operator-named extra environment variables actually reach a provider adapter's child process.",
-      "find": "        for (key, value) in &self.extra_env {\n            worker_command.env(key, value);\n        }",
-      "replace": "        for (key, value) in &self.extra_env {\n            if false {\n                worker_command.env(key, value);\n            }\n        }",
+      "find": "        child_env.extend(self.extra_env.iter().cloned());",
+      "replace": "        let _ = &self.extra_env;",
       "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::extra_env_reaches_the_child_process --exact"
     },
     {
@@ -2713,6 +2713,54 @@
       "find": "        let expected = drift_record_payload(\n            artifacts,\n            &history[..index],\n            registered,\n            &payload.drift_id,\n            &payload.world_id,\n            payload.kind,\n            &payload.evidence_evaluation_id,\n            payload.latency_rule,\n        )",
       "replace": "        let expected = drift_record_payload(\n            artifacts,\n            &history[..index],\n            registered,\n            &payload.drift_id,\n            &payload.world_id,\n            payload.kind,\n            &payload.evidence_evaluation_id,\n            Some(CURRENT_LATENCY_RULE),\n        )",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies -- --exact"
+    },
+    {
+      "id": "guardian-launch-drops-provider-env",
+      "file": "crates/hephaestus-runtime/src/supervisor.rs",
+      "invariant": "A guarded provider launch carries the adapter's and operator's named variables through the guardian frame.",
+      "find": "            env: child_env,",
+      "replace": "            env: Vec::new(),",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files --exact"
+    },
+    {
+      "id": "claude-scratch-dir-left-outside-run-root",
+      "file": "crates/hephaestus-runtime/src/supervisor.rs",
+      "invariant": "Claude Code's per-uid scratch directory is pointed inside the run root, the only writable subtree.",
+      "find": "        if self.provider == Provider::Claude {",
+      "replace": "        if false && self.provider == Provider::Claude {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files --exact"
+    },
+    {
+      "id": "home-file-escape-accepted",
+      "file": "crates/hephaestus-runtime/src/supervisor.rs",
+      "invariant": "An opt-in home file can only land at a plain relative path inside the run's HOME.",
+      "find": "                .any(|component| !matches!(component, std::path::Component::Normal(_)))",
+      "replace": "                .any(|_| false)",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files --exact"
+    },
+    {
+      "id": "guardian-ignores-launch-frame-env",
+      "file": "crates/hephaestus-runtime/src/guardian.rs",
+      "invariant": "The guardian applies the launch frame's named variables to the worker it spawns.",
+      "find": "    for (key, value) in &config.env {\n        command.env(key, value);\n    }",
+      "replace": "    for (key, value) in &config.env {\n        let _ = (key, value);\n    }",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- guardian::tests::guardian_passes_launch_frame_variables_to_the_worker --exact"
+    },
+    {
+      "id": "online-external-sandbox-denies-network",
+      "file": "crates/hephaestus-runtime/src/isolation.rs",
+      "invariant": "A network-capable run's Seatbelt profile explicitly allows sockets and outbound connections.",
+      "find": "    if network {\n        profile.push_str(\"(allow network*)\\n(allow system-socket)\\n\");\n    }",
+      "replace": "    if false && network {\n        profile.push_str(\"(allow network*)\\n(allow system-socket)\\n\");\n    }",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- isolation::tests::seatbelt_profile_is_deny_by_default_and_capability_exact --exact"
+    },
+    {
+      "id": "read-only-worktree-writable",
+      "file": "crates/hephaestus-runtime/src/isolation.rs",
+      "invariant": "Without workspace-write authority the Seatbelt profile denies writes to the worktree.",
+      "find": "    if let Some(worktree) = read_only_worktree {",
+      "replace": "    if let Some(worktree) = read_only_worktree.filter(|_| false) {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- isolation::tests::seatbelt_profile_is_deny_by_default_and_capability_exact --exact"
     }
   ]
 }

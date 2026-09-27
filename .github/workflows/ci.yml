@@ -268,7 +268,7 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-isolation
             prefix: crates/hephaestus-runtime/src/isolation.rs
-            minimum: 3
+            minimum: 5
             timeout_minutes: 30
           - scope: runtime-provider
             prefix: crates/hephaestus-runtime/src/provider.rs
@@ -288,11 +288,11 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-process-guardian
             prefix: crates/hephaestus-runtime/src/guardian.rs
-            minimum: 1
+            minimum: 2
             timeout_minutes: 30
           - scope: runtime-supervisor
             prefix: crates/hephaestus-runtime/src/supervisor.rs
-            minimum: 12
+            minimum: 15
             timeout_minutes: 30
           - scope: runtime-provider-events
             prefix: crates/hephaestus-runtime/src/provider_events.rs

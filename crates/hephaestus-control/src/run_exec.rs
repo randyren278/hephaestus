@@ -9,19 +9,20 @@ use super::{
     EvaluationStores, EventInput, EventLedger, EvidenceRecorder, ExecuteError, ExperimentContext,
     GenomeRecord, Instant, IsolatedEvaluator, JobState, JobTerminal, OperatorClusterAnalysis,
     OperatorInvariantCheck, PAIRED_EVALUATION_OUTPUT_BYTES, PAIRED_EVALUATION_SEED,
-    PAIRED_EVALUATION_WALL_MILLIS, PathBuf, PermissionsExt, PinnedReferenceWorker, Provider,
-    RUN_RESULT_SCHEMA_VERSION, RUNTIME_ACTOR, ReceiptContext, RedactionPolicy,
-    ReferenceInstruction, ResponseData, RetentionLimits, RunBudgetReceipt, RunResultReceipt,
-    RunSpec, SandboxCleanupGuard, SandboxManager, SupervisedRuntime, TempDirBuilder, TrialPlan,
-    TrustedManifest, Visibility, WorkerLimits, candidate_isolation, check_failure_clusters,
-    check_reference_output_invariants, env, executable_digest, execute_async_arena_trials,
-    execute_candidate_runtime, execute_provider_runtime, execute_reference_runtime, fs,
-    genome_reference_instruction, invariant_record, load_failure_clusters,
-    load_operator_evaluation, load_reference_output_invariants, map_cluster_error,
-    map_invariant_error, map_selection_error, mpsc, paired_run_id, paired_run_prefix,
-    persist_reference_output, provider_execution_environment, reference_environment_id,
-    resolve_provider_extra_env, resolve_source_revision, select_and_record, selection_record,
-    timestamp_millis, validate_job_id, validated_evaluation_budget,
+    PAIRED_EVALUATION_WALL_MILLIS, PROVIDER_RUN_WALL_MILLIS, PathBuf, PermissionsExt,
+    PinnedReferenceWorker, Provider, RUN_RESULT_SCHEMA_VERSION, RUNTIME_ACTOR, ReceiptContext,
+    RedactionPolicy, ReferenceInstruction, ResponseData, RetentionLimits, RunBudgetReceipt,
+    RunResultReceipt, RunSpec, SandboxCleanupGuard, SandboxManager, SupervisedRuntime,
+    TempDirBuilder, TrialPlan, TrustedManifest, Visibility, WorkerLimits, candidate_isolation,
+    check_failure_clusters, check_reference_output_invariants, env, executable_digest,
+    execute_async_arena_trials, execute_candidate_runtime, execute_provider_runtime,
+    execute_reference_runtime, fs, genome_reference_instruction, invariant_record,
+    load_failure_clusters, load_operator_evaluation, load_reference_output_invariants,
+    map_cluster_error, map_invariant_error, map_selection_error, mpsc, paired_run_id,
+    paired_run_prefix, persist_reference_output, provider_execution_environment,
+    reference_environment_id, resolve_provider_extra_env, resolve_source_revision,
+    select_and_record, selection_record, timestamp_millis, validate_job_id,
+    validated_evaluation_budget, with_provider_login,
 };
 
 #[cfg(not(test))]
@@ -93,17 +94,21 @@ impl ControlPlane {
         // Deterministic runs never report cost, so a zero ceiling is exact for
         // them; a provider genome is bounded by its own World's approved Law
         // instead of an arbitrary fixed figure.
-        let maximum_cost_microusd = match self.selected_run_provider(&genome.genome_id)? {
-            Some(_) => self.registered_world_cost_ceiling(&genome.world_id)?,
-            None => 0,
-        };
+        let (maximum_cost_microusd, wall_millis) =
+            match self.selected_run_provider(&genome.genome_id)? {
+                Some(_) => (
+                    self.registered_world_cost_ceiling(&genome.world_id)?,
+                    PROVIDER_RUN_WALL_MILLIS,
+                ),
+                None => (0, 10_000),
+            };
         self.run_with_context(
             run_id,
             genome,
             "repository-inventory-v1",
             prompt,
             0,
-            10_000,
+            wall_millis,
             1_048_576,
             maximum_cost_microusd,
         )
@@ -1182,6 +1187,7 @@ impl ControlPlane {
                         &self.guardian_executable,
                         extra_env,
                     )
+                    .and_then(|runtime| with_provider_login(runtime, provider))
                     .map_err(|_| ExecuteError::Internal)?,
                 )
             }

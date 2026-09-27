@@ -58,12 +58,12 @@ impl ProviderInvocation {
                 "--ignore-user-config".to_owned(),
                 "--ephemeral".to_owned(),
                 "--json".to_owned(),
+                // Codex's own sandbox would call `sandbox_apply` from inside
+                // Hephaestus's Seatbelt profile, which macOS forbids, so every
+                // tool call fails. The outer profile enforces the Genome's
+                // workspace-write and network authority instead.
                 "--sandbox".to_owned(),
-                if spec.capabilities().allows_workspace_write() {
-                    "workspace-write".to_owned()
-                } else {
-                    "read-only".to_owned()
-                },
+                "danger-full-access".to_owned(),
                 "--cd".to_owned(),
                 sandbox.worktree().to_string_lossy().into_owned(),
                 "--config".to_owned(),

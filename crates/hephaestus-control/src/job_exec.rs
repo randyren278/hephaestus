@@ -7,9 +7,9 @@ use super::{
     Command, ControlError, ControlPlane, ControlState, EvaluationInputs, EvaluationSources,
     EvaluationStores, EventInput, EventLedger, EvidenceRecorder, ExecuteError, ExperimentContext,
     GenomeRecord, Instant, JobRecord, JobState, JobTerminal, OPERATOR_ACTOR, Ordering,
-    PinnedReferenceWorker, Provider, RUNTIME_ACTOR, RedactionPolicy, RegisteredObjects,
-    ResponseData, RetentionLimits, RunBudgetReceipt, RunCompletionReason, RunSpec,
-    SandboxManagerSource, ScoredEvaluation, evaluate_and_record_scored,
+    PROVIDER_RUN_WALL_MILLIS, PinnedReferenceWorker, Provider, RUNTIME_ACTOR, RedactionPolicy,
+    RegisteredObjects, ResponseData, RetentionLimits, RunBudgetReceipt, RunCompletionReason,
+    RunSpec, SandboxManagerSource, ScoredEvaluation, evaluate_and_record_scored,
     evaluation_record_from_operator, executable_digest, execute_async_provider,
     execute_async_reference, job_run_id, mpsc, persist_reference_output, prepare_evaluation,
     resolve_provider_extra_env, timestamp_millis, validate_job_id, validated_evaluation_budget,
@@ -259,7 +259,8 @@ impl ControlPlane {
         let task_id = "repository-inventory-v1";
         let prompt = "Inventory the isolated repository without modifying it or using the network.";
         let cost_ceiling = self.registered_world_cost_ceiling(&genome.world_id)?;
-        let budget = validated_evaluation_budget(10_000, 1_048_576, cost_ceiling)?;
+        let budget =
+            validated_evaluation_budget(PROVIDER_RUN_WALL_MILLIS, 1_048_576, cost_ceiling)?;
         let environment_id = Self::provider_job_environment(provider, &digest);
         let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), 0, environment_id)
             .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;

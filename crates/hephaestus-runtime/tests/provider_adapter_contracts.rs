@@ -56,7 +56,14 @@ fn provider_adapter_exposes_only_the_named_allowlisted_environment() {
         .filter(|name| {
             !matches!(
                 *name,
-                "HOME" | "PATH" | "TMPDIR" | "PWD" | "SHLVL" | "_" | "HEPHAESTUS_TEST_ALLOWED"
+                "HOME"
+                    | "PATH"
+                    | "TMPDIR"
+                    | "PWD"
+                    | "SHLVL"
+                    | "_"
+                    | "HEPHAESTUS_TEST_ALLOWED"
+                    | "CLAUDE_CODE_TMPDIR"
             )
         })
         .collect();
@@ -65,6 +72,12 @@ fn provider_adapter_exposes_only_the_named_allowlisted_environment() {
         "unexpected environment reached the provider child: {unexpected:?}"
     );
     assert!(printed.contains("HEPHAESTUS_TEST_ALLOWED=visible-value"));
+    // The Claude adapter points Claude Code's own scratch directory into the
+    // run root (it ignores TMPDIR), never at a shared host location.
+    assert!(printed.contains(&format!(
+        "CLAUDE_CODE_TMPDIR={}",
+        sandbox.execution_dir().display()
+    )));
     sandbox.cleanup().expect("clean sandbox");
 }
 

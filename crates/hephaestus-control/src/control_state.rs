@@ -6,8 +6,8 @@ use super::{
     ArenaJobPhase, ArenaJobRecord, ArtifactBackend, ArtifactId, BTreeMap, BTreeSet,
     CONTROL_AGGREGATE, ControlError, Deserialize, EventIndex, EventInput, EventLedger,
     EvidenceCache, FreezeState, JobProgress, JobRecord, JobState, JobTerminal, OPERATOR_ACTOR,
-    OperatorToken, ProjectionSnapshot, RUNTIME_ACTOR, RecordedCommand, RegisteredObjects,
-    ResponseData, RunBudgetReceipt, RunCompletionReason, RunRecord, RunResultReceipt,
+    OperatorToken, PROVIDER_RUN_WALL_MILLIS, ProjectionSnapshot, RUNTIME_ACTOR, RecordedCommand,
+    RegisteredObjects, ResponseData, RunCompletionReason, RunRecord, RunResultReceipt,
     RunResultVerifier, Serialize, StoredEvent, TraceKind, TraceReceipt, WorkerScope,
     arena_job_immutable_fields_match, evaluation_record_from_recorded, event_type, job_run_id,
     load_recorded_evaluation_in, receipt_matches_job, require_projection_text, timestamp_millis,
@@ -521,12 +521,11 @@ impl ControlState {
             || record.task_id != "repository-inventory-v1"
             || record.input_commitment != blake3::hash(fixed_input.as_bytes()).to_hex().to_string()
             || record.seed != 0
-            || record.budget
-                != (RunBudgetReceipt {
-                    wall_millis: 10_000,
-                    maximum_output_bytes: 1_048_576,
-                    maximum_cost_microusd: expected_cost_microusd,
-                })
+            || record.budget.maximum_output_bytes != 1_048_576
+            || record.budget.maximum_cost_microusd != expected_cost_microusd
+            || !(record.budget.wall_millis == 10_000
+                || (is_provider_environment
+                    && record.budget.wall_millis == PROVIDER_RUN_WALL_MILLIS))
         {
             return Err(ControlError::Projection(
                 "job spec binding is invalid".to_owned(),

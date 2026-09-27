@@ -296,7 +296,7 @@ fn deterministic_runtime_starts_resumes_interrupts_and_snapshots_real_worktrees(
         codex
             .arguments()
             .iter()
-            .any(|argument| argument == "workspace-write")
+            .any(|argument| argument == "danger-full-access")
     );
     assert!(
         !codex
@@ -1075,7 +1075,8 @@ fn provider_and_sandbox_setup_reject_invalid_inputs() {
         codex
             .arguments()
             .iter()
-            .any(|argument| argument == "read-only")
+            .any(|argument| argument == "danger-full-access"),
+        "Codex's own sandbox cannot nest inside Seatbelt; the outer profile enforces authority"
     );
     let claude =
         ProviderInvocation::claude("claude", &read_only, &sandbox).expect("Claude command");

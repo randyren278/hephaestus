@@ -475,6 +475,21 @@ pub enum Command {
     },
 }
 
+impl Command {
+    /// How long a client, and the daemon's connection handler, wait for this
+    /// command's reply. A synchronous run of a hosted-provider Genome may use
+    /// its whole five-minute wall budget before replying; everything else is
+    /// answered promptly.
+    #[must_use]
+    pub fn reply_timeout(&self) -> std::time::Duration {
+        if matches!(self, Self::RunReference { .. } | Self::RunEvaluation { .. }) {
+            std::time::Duration::from_secs(330)
+        } else {
+            std::time::Duration::from_secs(15)
+        }
+    }
+}
+
 /// The MCP gateway's capability-policy decision for one tool call, ledgered
 /// unconditionally as part of the wrapping `McpCall` command.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

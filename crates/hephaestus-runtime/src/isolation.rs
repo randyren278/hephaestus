@@ -84,6 +84,7 @@ impl IsolationPolicy {
             worker_root,
             &self.protected_paths,
             false,
+            None,
         )?;
         command.args(["-p", &profile]);
         command.arg(invocation.program());
@@ -144,6 +145,7 @@ impl IsolationPolicy {
             sandbox.run_root(),
             &self.protected_paths,
             sandbox.capabilities().allows_network(),
+            (!sandbox.capabilities().allows_workspace_write()).then(|| sandbox.worktree()),
         )
     }
 }
@@ -161,6 +163,7 @@ fn build_macos_profile(
     run_root: &std::path::Path,
     protected_paths: &[PathBuf],
     network: bool,
+    read_only_worktree: Option<&std::path::Path>,
 ) -> Result<String, RuntimeError> {
     let run_root = quote_path(run_root)?;
     let executable = quote_path(executable)?;
@@ -175,8 +178,25 @@ fn build_macos_profile(
         )
         .expect("writing to a String cannot fail");
     }
+    // Without workspace-write authority the worktree is read-only at the OS
+    // layer. Hosted CLIs cannot nest their own sandbox inside this one, so
+    // this profile is the only place that authority is enforced for them.
+    if let Some(worktree) = read_only_worktree {
+        writeln!(
+            &mut profile,
+            "(deny file-write* (subpath {}))",
+            quote_path(worktree)?
+        )
+        .expect("writing to a String cannot fail");
+    }
     if !network {
         profile.push_str("(deny network*)\n");
+    }
+    // `(deny default)` also denies networking, so omitting the explicit deny
+    // above is not enough: a network-capable run needs sockets and outbound
+    // connections allowed, or hosted providers fail at DNS resolution.
+    if network {
+        profile.push_str("(allow network*)\n(allow system-socket)\n");
     }
     Ok(profile)
 }
@@ -215,15 +235,40 @@ mod tests {
         fs::create_dir(&run).expect("create run root");
         fs::create_dir(&protected).expect("create protected root");
         let executable = std::path::Path::new("/bin/cat");
-        let offline =
-            build_macos_profile(executable, &run, std::slice::from_ref(&protected), false)
-                .expect("build offline profile");
+        let offline = build_macos_profile(
+            executable,
+            &run,
+            std::slice::from_ref(&protected),
+            false,
+            None,
+        )
+        .expect("build offline profile");
         assert!(offline.contains("(deny default)"));
         assert!(offline.contains("(deny network*)"));
         assert!(offline.contains(&quote_path(&protected).expect("quote protected path")));
         let online =
-            build_macos_profile(executable, &run, &[], true).expect("build online profile");
+            build_macos_profile(executable, &run, &[], true, None).expect("build online profile");
         assert!(!online.contains("(deny network*)"));
+        assert!(online.contains("(allow network*)"));
+        assert!(!offline.contains("(allow network*)"));
+        let worktree = run.join("worktree");
+        fs::create_dir(&worktree).expect("create worktree");
+        let read_only = build_macos_profile(executable, &run, &[], true, Some(&worktree))
+            .expect("build read-only profile");
+        let worktree_deny = format!(
+            "(deny file-write* (subpath {}))",
+            quote_path(&worktree).expect("quote worktree")
+        );
+        assert!(read_only.contains(&worktree_deny));
+        assert!(
+            read_only.find(&worktree_deny)
+                > read_only.find(&format!(
+                    "(allow file-write* (subpath {})",
+                    quote_path(&run).expect("quote run root")
+                )),
+            "the worktree deny must follow the run-root allow so it takes precedence"
+        );
+        assert!(!online.contains(&worktree_deny));
     }
 
     #[test]
@@ -233,7 +278,7 @@ mod tests {
         let invalid = directory.path().join("line\nbreak");
         fs::create_dir(&invalid).expect("create invalid path fixture");
         assert!(matches!(
-            build_macos_profile(executable, &invalid, &[], false),
+            build_macos_profile(executable, &invalid, &[], false, None),
             Err(RuntimeError::InvalidSpec(_))
         ));
     }

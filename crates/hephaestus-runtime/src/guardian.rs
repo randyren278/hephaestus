@@ -35,6 +35,11 @@ pub(crate) struct GuardianLaunch {
     pub(crate) temp: PathBuf,
     pub(crate) path: Option<String>,
     pub(crate) input_bytes: usize,
+    /// Extra variables for the worker, applied after `HOME`/`TMPDIR`/`PATH`
+    /// exactly like the unguarded launch path applies them; the guardian
+    /// clears its own environment first, so nothing else reaches the worker.
+    #[serde(default)]
+    pub(crate) env: Vec<(String, String)>,
 }
 
 /// Runs the small parent guardian protocol used by supervised workers.
@@ -91,6 +96,9 @@ fn run_process_guardian_with(
     );
     if let Some(path) = &config.path {
         command.env("PATH", path);
+    }
+    for (key, value) in &config.env {
+        command.env(key, value);
     }
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -464,6 +472,7 @@ mod tests {
             temp: "/tmp".into(),
             path: None,
             input_bytes,
+            env: Vec::new(),
         }
     }
 
@@ -487,6 +496,7 @@ mod tests {
             temp: "/tmp".into(),
             path: None,
             input_bytes: input.len(),
+            env: Vec::new(),
         };
         let mut bytes = frame(&config, input, b'\n');
         bytes.extend_from_slice(b"continue\n");
@@ -512,6 +522,7 @@ mod tests {
             temp: "/tmp".into(),
             path: None,
             input_bytes: input.len(),
+            env: Vec::new(),
         };
         let bytes = frame(&config, input, b'\n');
         let (reader, mut writer) = UnixStream::pair().expect("create control pipe");
@@ -643,6 +654,42 @@ mod tests {
         assert!(
             !directory.path().join("descendant-survived").exists(),
             "worker descendant survived its leader and escaped process-group containment"
+        );
+    }
+
+    #[test]
+    fn guardian_passes_launch_frame_variables_to_the_worker() {
+        let directory = tempfile::tempdir().expect("guardian fixture");
+        let marker = directory.path().join("variable-seen");
+        let marker_path = marker.to_str().expect("utf-8 marker path").to_owned();
+        let config = GuardianLaunch {
+            program: "/bin/sh".to_owned(),
+            arguments: vec![
+                "-c".to_owned(),
+                "[ \"$HEPHAESTUS_GUARDIAN_ENV\" = carried ] && : > \"$1\"".to_owned(),
+                "guardian-env".to_owned(),
+                marker_path,
+            ],
+            current_dir: "/tmp".into(),
+            home: "/tmp".into(),
+            temp: "/tmp".into(),
+            path: None,
+            input_bytes: 0,
+            env: vec![("HEPHAESTUS_GUARDIAN_ENV".to_owned(), "carried".to_owned())],
+        };
+        let bytes = frame(&config, b"", b'\n');
+        let (reader, mut writer) = UnixStream::pair().expect("create control pipe");
+        writer.write_all(&bytes).expect("write control frame");
+        let control = BufReader::new(File::from(OwnedFd::from(reader)));
+        let result = run_process_guardian_with(
+            control,
+            anchor_script(directory.path(), "printf R; exec /bin/cat"),
+        );
+        drop(writer);
+        assert!(result.is_ok(), "worker guardian failed: {result:?}");
+        assert!(
+            marker.is_file(),
+            "a variable named in the launch frame must reach the worker"
         );
     }
 

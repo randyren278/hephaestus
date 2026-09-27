@@ -37,6 +37,10 @@ pub struct SupervisedRuntime {
     /// daemon's own inherited environment: nothing here is copied unless a
     /// caller names it explicitly.
     extra_env: Vec<(String, String)>,
+    /// Operator-named files copied into each run's private `HOME` before
+    /// launch, as `(source, path relative to HOME)`. Empty unless the operator
+    /// opts in (e.g. a hosted CLI's own login file for a live run).
+    home_files: Vec<(PathBuf, PathBuf)>,
     runs: BTreeMap<String, SupervisedRun>,
 }
 
@@ -129,6 +133,7 @@ impl SupervisedRuntime {
             arguments: arguments.into_iter().collect(),
             guardian_executable: None,
             extra_env: Vec::new(),
+            home_files: Vec::new(),
             runs: BTreeMap::new(),
         })
     }
@@ -186,6 +191,7 @@ impl SupervisedRuntime {
             arguments: Vec::new(),
             guardian_executable: None,
             extra_env,
+            home_files: Vec::new(),
             runs: BTreeMap::new(),
         })
     }
@@ -209,6 +215,33 @@ impl SupervisedRuntime {
         ProviderInvocation::deterministic(&guardian, [], [])?;
         runtime.guardian_executable = Some(guardian);
         Ok(runtime)
+    }
+
+    /// Copies `source` into every run's private `HOME` at `relative_path`
+    /// (owner-only permissions) before the provider launches. This is the
+    /// explicit, opt-in way to let a hosted CLI use the operator's existing
+    /// login; nothing outside the run root is made readable to the child.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an absolute or parent-escaping `relative_path`.
+    pub fn with_home_file(
+        mut self,
+        source: impl Into<PathBuf>,
+        relative_path: impl Into<PathBuf>,
+    ) -> Result<Self, RuntimeError> {
+        let relative_path = relative_path.into();
+        if relative_path.is_absolute()
+            || relative_path
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        {
+            return Err(RuntimeError::InvalidSpec(
+                "home file destination must be a plain relative path",
+            ));
+        }
+        self.home_files.push((source.into(), relative_path));
+        Ok(self)
     }
 
     fn launch(
@@ -349,8 +382,30 @@ impl SupervisedRuntime {
         }
         worker_command.env("HOME", sandbox.execution_dir());
         worker_command.env("TMPDIR", sandbox.execution_dir());
-        for (key, value) in &self.extra_env {
+        let mut child_env = Vec::new();
+        if self.provider == Provider::Claude {
+            // Claude Code keeps its per-uid scratch directory under
+            // `CLAUDE_CODE_TMPDIR` (default `/tmp`), ignoring `TMPDIR`; point
+            // it inside the run root, the only writable subtree.
+            child_env.push((
+                "CLAUDE_CODE_TMPDIR".to_owned(),
+                sandbox.execution_dir().to_string_lossy().into_owned(),
+            ));
+        }
+        child_env.extend(self.extra_env.iter().cloned());
+        for (key, value) in &child_env {
             worker_command.env(key, value);
+        }
+        for (source, relative_path) in &self.home_files {
+            let destination = sandbox.execution_dir().join(relative_path);
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(source, &destination)?;
+            std::fs::set_permissions(
+                &destination,
+                std::os::unix::fs::PermissionsExt::from_mode(0o600),
+            )?;
         }
         let Some(guardian) = &self.guardian_executable else {
             return Ok((worker_command, false, invocation.stdin().to_vec()));
@@ -380,6 +435,7 @@ impl SupervisedRuntime {
             temp: sandbox.execution_dir().to_owned(),
             path,
             input_bytes: input.len(),
+            env: child_env,
         };
         let mut frame = serde_json::to_vec(&config)
             .map_err(|_| RuntimeError::InvalidSpec("guardian configuration is invalid"))?;
@@ -1329,6 +1385,76 @@ mod tests {
                 .lines()
                 .any(|line| line == "HEPHAESTUS_TEST_EXTRA_ENV=present"),
             "operator-named extra environment must reach the child: {variables:?}"
+        );
+        sandbox.cleanup().expect("clean sandbox");
+    }
+
+    #[test]
+    fn guarded_provider_launch_frame_carries_env_and_copies_home_files() {
+        let repository = repository_fixture();
+        let root = tempdir().expect("sandbox root");
+        let manager = SandboxManager::open(root.path(), Duration::from_secs(30))
+            .expect("open sandbox manager");
+        let run_spec = spec(
+            "unit-guarded-env",
+            repository.path(),
+            Duration::from_secs(2),
+            10_000,
+        );
+        let (sandbox, _token) = manager.create(&run_spec).expect("create sandbox");
+        let login = root.path().join("operator-login.json");
+        fs::write(&login, "{\"token\":\"t\"}").expect("write login");
+        let runtime = SupervisedRuntime::provider_guarded(
+            IsolationPolicy::unconfined_for_testing(),
+            Provider::Claude,
+            "/bin/echo",
+            "/bin/echo",
+            vec![("HEPHAESTUS_TEST_EXTRA_ENV".to_owned(), "present".to_owned())],
+        )
+        .expect("guarded claude runtime")
+        .with_home_file(&login, ".claude/login.json")
+        .expect("home file");
+        let (_command, guarded, frame) = runtime
+            .worker_command(&run_spec, &sandbox)
+            .expect("guarded launch command");
+        assert!(guarded);
+        let header = frame
+            .split(|byte| *byte == b'\n')
+            .next()
+            .expect("launch frame header");
+        let launch: GuardianLaunch = serde_json::from_slice(header).expect("decode launch frame");
+        assert!(
+            launch
+                .env
+                .contains(&("HEPHAESTUS_TEST_EXTRA_ENV".to_owned(), "present".to_owned())),
+            "operator-named variables must survive the guardian hop: {:?}",
+            launch.env
+        );
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(key, value)| key == "CLAUDE_CODE_TMPDIR"
+                    && std::path::Path::new(value) == sandbox.execution_dir()),
+            "Claude's scratch directory must live inside the run root: {:?}",
+            launch.env
+        );
+        assert_eq!(
+            fs::read_to_string(sandbox.execution_dir().join(".claude/login.json"))
+                .expect("copied login"),
+            "{\"token\":\"t\"}"
+        );
+        assert!(
+            SupervisedRuntime::provider(
+                IsolationPolicy::unconfined_for_testing(),
+                Provider::Codex,
+                "/bin/echo",
+                Vec::new(),
+            )
+            .expect("codex runtime")
+            .with_home_file(&login, "../escape.json")
+            .is_err(),
+            "a home file must not escape the run's HOME"
         );
         sandbox.cleanup().expect("clean sandbox");
     }

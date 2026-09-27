@@ -68,14 +68,12 @@ The details are below, and the evidence behind every feature is in
   generations within one run. What is missing: drift observations do not yet
   auto-start a canary, and there is no mutation-discovery loop richer than the
   single reference-operation flip below.
-- **No hosted-model runs.** The Codex and Claude Code invocation adapters are
-  real, tested `RuntimeAdapter`s wired into `run`, `submit`, and
-  `arena evaluate`, but only inert scripted stand-ins exercise them in CI and
-  the test suite; only the deterministic offline reference runtime executes by
-  default. A run against a live provider CLI needs an explicit
-  `HEPHAESTUS_LIVE_PROVIDER_SMOKE=1` opt-in a user runs themselves (see
-  [RUNTIMES.md](RUNTIMES.md)); nothing in CI spends quota or touches the
-  network.
+- **Hosted-model runs are manual.** The Codex and Claude Code adapters are
+  wired into `run`, `submit`, and `arena evaluate`. A live `run` against a
+  real Codex ChatGPT login was verified end to end on macOS on 2026-09-27.
+  CI and the test suite only use scripted stand-ins, so nothing there spends
+  quota or touches the network. See [RUNTIMES.md](RUNTIMES.md) for the
+  operator steps.
 - **macOS only for execution.** Isolation is Seatbelt. On other hosts the
   daemon refuses to launch candidate processes rather than running them
   unsandboxed. Registration, replay, and inspection work everywhere.
