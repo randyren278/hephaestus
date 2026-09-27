@@ -37,7 +37,7 @@ a fixed, documented threshold before a record is admitted.
 
 | Kind | Signal | Threshold |
 | --- | --- | --- |
-| `latency` | `candidate_latency_millis` vs `parent_latency_millis` | +20% (2000 bps) or worse |
+| `latency` | `candidate_latency_millis` vs `parent_latency_millis` | +20% (2000 bps) or worse, **and** more than 50 ms per paired task (see below) |
 | `cost` | `candidate_cost_microusd` vs `parent_cost_microusd` | +20% (2000 bps) or worse |
 | `correctness` | `candidate_correctness_bps` vs `parent_correctness_bps` | -5% (500 bps) or worse |
 | `workload` | `candidate_reliability_bps` vs `parent_reliability_bps` | -5% (500 bps) or worse (a reliable-trial-proportion drop is the signal used to detect workload-induced drift) |
@@ -47,6 +47,30 @@ threshold for the requested kind, or if the World has no Champion yet. A
 drift record **never** replaces a Champion; it is a fixed, hash-chained
 `drift.recorded` event that startup, replay, and projection refresh
 recompute and verify, and it is idempotent per `drift-id`.
+
+### Latency's absolute floor
+
+A latency increase only counts as a regression (canary) or a crossed drift
+(`kind: latency`) if it is **both** at or beyond the 20% proportional
+threshold **and** larger than an absolute floor of 50 ms per paired task
+(`candidate_latency_millis - parent_latency_millis > 50 * task_count`),
+where `task_count` is the number of tasks the cited `SelectionReceipt`
+measured. This mirrors Arena selection's own latency tolerance
+(`hephaestus_arena::selection::latency_tolerance_millis`, `max(parent/10,
+50ms * task_count)`; see `docs/ARENA.md`), and exists for the same reason:
+without it, a proportional-only gate can fire on near-zero reference
+latencies where a few milliseconds of scheduling noise is a huge percentage
+shift but not a real regression (`docs/dev/TECH_DEBT.md` TD-25/TD-28).
+
+This is a versioned policy: new canary evidence and latency drift records
+name the rule they were decided under (`latency_rule: 2` for the floor
+above) inside their event payload. Records made before the floor existed
+have no `latency_rule` field at all, which means the original
+proportional-only rule (implicitly version 1). Replay always recomputes an
+old record under the exact rule it names, so raising the floor's version
+again in the future cannot invalidate history already on the ledger -- the
+same forward-compatible shape Arena selection uses for
+`ALGORITHM_V1`/`ALGORITHM_V2`.
 
 ## Shadow evaluation
 
@@ -73,7 +97,7 @@ stage up to and including `stage50`.
 
 A stage's health gate checks the same four dimensions as drift, using fixed
 regression thresholds (latency/cost worse by 2000 bps, correctness/
-reliability worse by 500 bps):
+reliability worse by 500 bps; latency also needs the absolute floor above):
 
 - **Healthy** evidence (no dimension crosses its threshold) advances to the
   next stage, or - from `stage50` - completes the canary by promoting the
