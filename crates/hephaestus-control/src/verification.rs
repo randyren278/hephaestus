@@ -2331,4 +2331,69 @@ mod verification_unit_tests {
             Err(ExecuteError::Invalid("world_id is required"))
         ));
     }
+
+    fn unit_world() -> (tempfile::TempDir, hephaestus_ledger::ArtifactStore, super::CompiledWorld) {
+        use hephaestus_genome::{SourceFormat, compile_world};
+        use hephaestus_ledger::ArtifactStore;
+        let directory = tempfile::tempdir().expect("artifact directory");
+        let artifacts =
+            ArtifactStore::open(directory.path().join("blobs")).expect("open artifact store");
+        let source = r#"{"schema_version":1,"name":"unit-world","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":0},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["coverage"],"evaluator_artifacts":{}}"#;
+        let world = compile_world(source, SourceFormat::Json, &artifacts).expect("compile World");
+        (directory, artifacts, world)
+    }
+
+    fn empty_forge_proposal_payload() -> super::ForgeProposalPayload {
+        super::ForgeProposalPayload {
+            schema_version: 1,
+            proposal_id: "proposal".to_owned(),
+            selection_event_id: "selection-event".to_owned(),
+            selection_event_hash: "0".repeat(64),
+            evaluation_id: "evaluation".to_owned(),
+            world_id: "world".to_owned(),
+            parent_genome_id: "missing-parent".to_owned(),
+            child: super::GenomeRecord {
+                genome_id: "missing-child".to_owned(),
+                name: "child".to_owned(),
+                world_id: "world".to_owned(),
+                artifact_id: "sha256:child".to_owned(),
+                parent_ids: vec!["missing-parent".to_owned()],
+            },
+            hypothesis: "hypothesis".to_owned(),
+            artifact_name: "agent.prompt".to_owned(),
+            prompt_artifact_before: "sha256:before".to_owned(),
+            prompt_artifact_after: "sha256:after".to_owned(),
+            operation_before: "identity".to_owned(),
+            operation_after: "ascii_uppercase".to_owned(),
+            analysis_binding: None,
+            catalog_version: None,
+            mutation_kind: None,
+        }
+    }
+
+    #[test]
+    fn verify_forge_child_rejects_an_unregistered_parent() {
+        let (_directory, artifacts, world) = unit_world();
+        let registered = super::RegisteredObjects::default();
+        let event = event(1, "forge.proposed", Vec::new());
+        let payload = empty_forge_proposal_payload();
+        assert!(matches!(
+            super::verify_forge_child(&artifacts, &registered, &event, &payload, &world),
+            Err(super::ControlError::Projection(message))
+                if message == "Forge proposal parent is not registered"
+        ));
+    }
+
+    #[test]
+    fn verify_forge_child_compiles_rejects_an_unregistered_parent() {
+        let (_directory, artifacts, world) = unit_world();
+        let registered = super::RegisteredObjects::default();
+        let payload = empty_forge_proposal_payload();
+        assert!(matches!(
+            super::verify_forge_child_compiles(&artifacts, &registered, &payload, &world),
+            Err(super::ControlError::Projection(message))
+                if message == "Forge proposal parent is not registered"
+        ));
+    }
+
 }
