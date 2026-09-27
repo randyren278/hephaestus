@@ -362,3 +362,45 @@ fn safe_tracked_path(root: &Path, relative: &str) -> Result<PathBuf, RuntimeErro
     }
     Ok(root.join(relative))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_tracked_path_joins_ordinary_relative_paths() {
+        let root = Path::new("/worktree");
+        assert_eq!(
+            safe_tracked_path(root, "src/lib.rs").expect("ordinary path"),
+            root.join("src/lib.rs")
+        );
+    }
+
+    #[test]
+    fn safe_tracked_path_rejects_absolute_paths() {
+        let root = Path::new("/worktree");
+        assert!(matches!(
+            safe_tracked_path(root, "/etc/passwd"),
+            Err(RuntimeError::InvalidSpec(message)) if message == "tracked path escapes worktree"
+        ));
+    }
+
+    #[test]
+    fn safe_tracked_path_rejects_parent_directory_escapes() {
+        let root = Path::new("/worktree");
+        assert!(matches!(
+            safe_tracked_path(root, "../secret"),
+            Err(RuntimeError::InvalidSpec(message)) if message == "tracked path escapes worktree"
+        ));
+    }
+
+    #[test]
+    fn deadline_reached_reports_past_and_future_instants() {
+        let past = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .expect("Instant subtraction fits");
+        assert!(deadline_reached(past));
+        let future = Instant::now() + Duration::from_secs(60);
+        assert!(!deadline_reached(future));
+    }
+}

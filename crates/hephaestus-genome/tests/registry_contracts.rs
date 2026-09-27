@@ -410,6 +410,159 @@ fn forge_child_requires_its_parent_to_precede_the_proposal_event() {
     ));
 }
 
+fn append_gene_transfer_payload(
+    fixture: &mut Fixture,
+    event_id: &str,
+    aggregate_id: &str,
+    payload: &[u8],
+) {
+    fixture.append_raw(event_id, aggregate_id, "gene.transfer_applied", payload);
+}
+
+#[test]
+fn gene_transfer_event_registers_child_at_its_single_event_sequence() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "transfer-world");
+    let child = build_genome(&fixture, &world, "transfer-child", &[]);
+    register_world(&mut fixture, &world);
+    let child_event_sequence = fixture.next_event;
+    let payload = serde_json::to_vec(&json!({
+        "trial_id": "trial-1",
+        "child": child.record.clone(),
+    }))
+    .expect("encode canonical gene transfer envelope");
+    fixture.append_raw(
+        "gene:transfer:trial-1:applied",
+        "gene:transfer:trial-1",
+        "gene.transfer_applied",
+        &payload,
+    );
+
+    let replayed = fixture
+        .replay()
+        .expect("replay compiler-validated gene transfer child");
+    let registered = replayed
+        .genome(&child.record.genome_id)
+        .expect("child from gene transfer event");
+    assert_eq!(registered.record(), &child.record);
+    assert_eq!(registered.registration_sequence(), child_event_sequence);
+}
+
+#[test]
+fn gene_transfer_registry_rejects_malformed_payload_shapes_with_typed_errors() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "transfer-world");
+    register_world(&mut fixture, &world);
+    append_gene_transfer_payload(
+        &mut fixture,
+        "gene:transfer:trial-1:applied",
+        "gene:transfer:trial-1",
+        b"not-json",
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "gene:transfer:trial-1:applied"
+    ));
+
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "transfer-world");
+    register_world(&mut fixture, &world);
+    append_gene_transfer_payload(
+        &mut fixture,
+        "gene:transfer:trial-1:applied",
+        "gene:transfer:trial-1",
+        br#"{"trial_id":"trial-1"}"#,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "gene:transfer:trial-1:applied"
+    ));
+
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "transfer-world");
+    let child = build_genome(&fixture, &world, "transfer-child", &[]);
+    register_world(&mut fixture, &world);
+    let payload = serde_json::to_vec(&json!({
+        "trial_id": 17,
+        "child": child.record,
+    }))
+    .expect("encode canonical envelope with invalid trial ID type");
+    append_gene_transfer_payload(
+        &mut fixture,
+        "gene:transfer:trial-1:applied",
+        "gene:transfer:trial-1",
+        &payload,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidPayload {
+            event_id,
+            kind: RegistrationKind::Genome,
+        }) if event_id == "gene:transfer:trial-1:applied"
+    ));
+}
+
+#[test]
+fn gene_transfer_registry_rejects_aggregate_and_event_identity_mismatches() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "transfer-world");
+    let child = build_genome(&fixture, &world, "transfer-child", &[]);
+    register_world(&mut fixture, &world);
+    let payload = serde_json::to_vec(&json!({
+        "trial_id": "trial-1",
+        "child": child.record.clone(),
+    }))
+    .expect("encode canonical gene transfer envelope");
+    append_gene_transfer_payload(
+        &mut fixture,
+        "gene:transfer:trial-1:applied",
+        "gene:transfer:another-trial",
+        &payload,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::AggregateMismatch {
+            event_id,
+            expected,
+            actual,
+        }) if event_id == "gene:transfer:trial-1:applied"
+            && expected == "gene:transfer:trial-1"
+            && actual == "gene:transfer:another-trial"
+    ));
+
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "transfer-world");
+    let child = build_genome(&fixture, &world, "transfer-child", &[]);
+    register_world(&mut fixture, &world);
+    let payload = serde_json::to_vec(&json!({
+        "trial_id": "trial-1",
+        "child": child.record,
+    }))
+    .expect("encode canonical gene transfer envelope");
+    append_gene_transfer_payload(
+        &mut fixture,
+        "gene:transfer:other:applied",
+        "gene:transfer:trial-1",
+        &payload,
+    );
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::AggregateMismatch {
+            event_id,
+            expected,
+            actual,
+        }) if event_id == "gene:transfer:other:applied"
+            && expected == "gene:transfer:trial-1"
+            && actual == "gene:transfer:trial-1"
+    ));
+}
+
 #[test]
 fn replay_rehydrates_two_worlds_and_parent_child_in_registration_order() {
     let mut fixture = Fixture::new();
@@ -1062,4 +1215,59 @@ fn genome_record_identity_must_match_compiled_artifact() {
             ..
         })
     ));
+}
+
+#[test]
+fn non_utf8_world_artifact_is_rejected() {
+    let mut fixture = Fixture::new();
+    let artifact = fixture
+        .artifacts
+        .put(&[0xff, 0xfe, 0x00])
+        .expect("store binary artifact");
+    let record = WorldRecord {
+        world_id: format!("hephaestus:world:{}", artifact.as_str()),
+        name: "binary".to_owned(),
+        artifact_id: artifact.as_str().to_owned(),
+    };
+    fixture.append("world.registered", &record.world_id, &record);
+
+    assert!(matches!(
+        fixture.replay(),
+        Err(RegistrationError::InvalidUtf8 {
+            kind: RegistrationKind::World,
+            id,
+        }) if id == record.world_id
+    ));
+}
+
+#[test]
+fn replay_ignores_unrelated_event_types() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "world-a");
+    fixture.append_raw(
+        "unrelated-1",
+        "unrelated-aggregate",
+        "some.other.event",
+        b"{}",
+    );
+    register_world(&mut fixture, &world);
+
+    let replayed = fixture
+        .replay()
+        .expect("unrelated event types are skipped, not rejected");
+    assert_eq!(replayed.worlds().count(), 1);
+    assert!(replayed.genome_records().is_empty());
+}
+
+#[test]
+fn registered_world_exposes_its_compiled_form() {
+    let mut fixture = Fixture::new();
+    let world = build_world(&fixture, "world-a");
+    register_world(&mut fixture, &world);
+
+    let replayed = fixture.replay().expect("replay single World registration");
+    let registered = replayed
+        .world(&world.record.world_id)
+        .expect("registered World");
+    assert_eq!(registered.compiled(), &world.compiled);
 }

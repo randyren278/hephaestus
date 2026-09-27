@@ -451,4 +451,240 @@ mod tests {
         );
         assert_eq!(extract_actual_cost_microusd(Provider::Claude, b""), 0);
     }
+
+    #[test]
+    fn blank_lines_between_events_are_skipped() {
+        let mut cursor = ProviderEventCursor::new();
+        let observations = cursor.feed(
+            Provider::Claude,
+            b"\n   \n{\"type\":\"system\",\"subtype\":\"init\"}\n",
+        );
+        assert_eq!(observations.len(), 1);
+        assert_eq!(
+            observations[0].kind,
+            RuntimeObservationKind::ContextComposed
+        );
+    }
+
+    #[test]
+    fn oversized_complete_line_is_reported_without_panicking() {
+        let mut cursor = ProviderEventCursor::new();
+        let mut chunk = vec![b'a'; MAX_LINE_BYTES + 1];
+        chunk.push(b'\n');
+        let observations = cursor.feed(Provider::Claude, &chunk);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::Error);
+        assert_eq!(observations[0].fields["reason"], "line exceeds bound");
+        // The cursor must recover and parse subsequent lines normally.
+        let more = cursor.feed(
+            Provider::Claude,
+            b"{\"type\":\"system\",\"subtype\":\"init\"}\n",
+        );
+        assert_eq!(more.len(), 1);
+        assert_eq!(more[0].kind, RuntimeObservationKind::ContextComposed);
+    }
+
+    #[test]
+    fn deterministic_provider_events_are_ignored() {
+        let mut cursor = ProviderEventCursor::new();
+        let observations = cursor.feed(
+            Provider::Deterministic,
+            b"{\"type\":\"whatever\",\"subtype\":\"init\"}\n",
+        );
+        assert!(observations.is_empty());
+    }
+
+    #[test]
+    fn codex_event_without_a_type_field_is_malformed() {
+        let mut cursor = ProviderEventCursor::new();
+        let observations = cursor.feed(Provider::Codex, b"{\"foo\":\"bar\"}\n");
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::Error);
+        assert_eq!(observations[0].fields["reason"], "codex event has no type");
+    }
+
+    #[test]
+    fn codex_item_event_without_an_item_field_yields_no_observations() {
+        let mut cursor = ProviderEventCursor::new();
+        let observations = cursor.feed(Provider::Codex, b"{\"type\":\"item.completed\"}\n");
+        assert!(observations.is_empty());
+    }
+
+    #[test]
+    fn claude_event_without_a_type_field_is_malformed() {
+        let mut cursor = ProviderEventCursor::new();
+        let observations = cursor.feed(Provider::Claude, b"{\"foo\":\"bar\"}\n");
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::Error);
+        assert_eq!(observations[0].fields["reason"], "claude event has no type");
+    }
+
+    #[test]
+    fn claude_permission_denied_system_event_maps_to_error() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"system","subtype":"permission_denied","tool_name":"Bash"}
+"#;
+        let observations = cursor.feed(Provider::Claude, line);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::Error);
+        assert_eq!(observations[0].fields["tool_name"], "Bash");
+        assert_eq!(observations[0].fields["denied"], "true");
+    }
+
+    #[test]
+    fn claude_unrecognized_system_subtype_yields_no_observations() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = b"{\"type\":\"system\",\"subtype\":\"other\"}\n";
+        assert!(cursor.feed(Provider::Claude, line).is_empty());
+    }
+
+    #[test]
+    fn claude_conversation_event_with_no_content_array_yields_no_observations() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = b"{\"type\":\"assistant\",\"message\":{}}\n";
+        assert!(cursor.feed(Provider::Claude, line).is_empty());
+    }
+
+    #[test]
+    fn claude_content_block_without_a_type_is_skipped() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"assistant","message":{"content":[{"no_type":true}]}}
+"#;
+        assert!(cursor.feed(Provider::Claude, line).is_empty());
+    }
+
+    #[test]
+    fn claude_tool_result_block_reports_content_and_error_flag() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"user","message":{"content":[{"type":"tool_result","content":"boom","is_error":true}]}}
+"#;
+        let observations = cursor.feed(Provider::Claude, line);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::ToolResult);
+        assert_eq!(observations[0].fields["tool_result"], "\"boom\"");
+        assert_eq!(observations[0].fields["is_error"], "true");
+    }
+
+    #[test]
+    fn claude_top_level_text_block_maps_to_model_response() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}
+"#;
+        let observations = cursor.feed(Provider::Claude, line);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::ModelResponse);
+        assert_eq!(observations[0].fields["text"], "hello");
+    }
+
+    #[test]
+    fn claude_subagent_text_block_is_not_reported_as_model_response() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"assistant","parent_tool_use_id":"tool-1","message":{"content":[{"type":"text","text":"hidden"}]}}
+"#;
+        let observations = cursor.feed(Provider::Claude, line);
+        // Only the SubagentSpawned observation, not a ModelResponse for the text block.
+        assert_eq!(observations.len(), 1);
+        assert_eq!(
+            observations[0].kind,
+            RuntimeObservationKind::SubagentSpawned
+        );
+    }
+
+    #[test]
+    fn claude_unknown_content_block_type_is_ignored() {
+        let mut cursor = ProviderEventCursor::new();
+        let line =
+            br#"{"type":"assistant","message":{"content":[{"type":"thinking","text":"..."}]}}
+"#;
+        assert!(cursor.feed(Provider::Claude, line).is_empty());
+    }
+
+    #[test]
+    fn usd_to_microusd_saturates_at_u64_max_for_huge_values() {
+        assert_eq!(usd_to_microusd(f64::MAX), u64::MAX);
+        assert_eq!(usd_to_microusd(f64::INFINITY), 0);
+        assert_eq!(usd_to_microusd(-1.0), 0);
+        assert_eq!(usd_to_microusd(0.0), 0);
+    }
+
+    #[test]
+    fn codex_item_completed_command_execution_maps_to_tool_result() {
+        let mut cursor = ProviderEventCursor::new();
+        let line =
+            br#"{"type":"item.completed","item":{"item_type":"command_execution","command":"ls"}}
+"#;
+        let observations = cursor.feed(Provider::Codex, line);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::ToolResult);
+    }
+
+    #[test]
+    fn codex_turn_completed_without_usage_still_reports_cost_observed() {
+        let mut cursor = ProviderEventCursor::new();
+        let observations = cursor.feed(Provider::Codex, b"{\"type\":\"turn.completed\"}\n");
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, RuntimeObservationKind::CostObserved);
+        assert_eq!(observations[0].fields["actual_cost_microusd"], "0");
+        assert!(!observations[0].fields.contains_key("output_tokens"));
+    }
+
+    #[test]
+    fn codex_turn_completed_with_full_usage_reports_every_token_field() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":2,"output_tokens":3,"reasoning_output_tokens":4}}
+"#;
+        let observations = cursor.feed(Provider::Codex, line);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].fields["input_tokens"], "1");
+        assert_eq!(observations[0].fields["cached_input_tokens"], "2");
+        assert_eq!(observations[0].fields["output_tokens"], "3");
+        assert_eq!(observations[0].fields["reasoning_output_tokens"], "4");
+    }
+
+    #[test]
+    fn codex_unrecognized_event_type_yields_no_observations() {
+        let mut cursor = ProviderEventCursor::new();
+        assert!(
+            cursor
+                .feed(Provider::Codex, b"{\"type\":\"thread.started\"}\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn claude_unrecognized_message_type_yields_no_observations() {
+        let mut cursor = ProviderEventCursor::new();
+        assert!(
+            cursor
+                .feed(Provider::Claude, b"{\"type\":\"stream_event\"}\n")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn claude_init_event_reports_session_id() {
+        let mut cursor = ProviderEventCursor::new();
+        let line = br#"{"type":"system","subtype":"init","session_id":"sess-1"}
+"#;
+        let observations = cursor.feed(Provider::Claude, line);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(
+            observations[0].kind,
+            RuntimeObservationKind::ContextComposed
+        );
+        assert_eq!(observations[0].fields["session_id"], "sess-1");
+    }
+
+    #[test]
+    fn deterministic_provider_never_reports_a_final_answer_or_cost() {
+        let ndjson = b"{\"type\":\"result\",\"result\":\"ignored\"}\n";
+        assert_eq!(
+            extract_final_answer(Provider::Deterministic, ndjson),
+            Vec::<u8>::new()
+        );
+        assert_eq!(
+            extract_actual_cost_microusd(Provider::Deterministic, ndjson),
+            0
+        );
+    }
 }

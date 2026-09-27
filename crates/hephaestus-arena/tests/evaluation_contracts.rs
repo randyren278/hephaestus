@@ -16,14 +16,17 @@ use hephaestus_arena::{
     invariant_event_references, load_failure_clusters, load_operator_evaluation,
     load_reference_output_invariants, load_selection, prepare_evaluation, select_and_record,
     selection_event_references, verify_cluster_event, verify_reference_output_invariant_event,
-    verify_selection_event, verify_selection_event_in,
+    verify_reference_output_invariant_event_in, verify_selection_event, verify_selection_event_in,
 };
 use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultSigner,
 };
 use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
-use hephaestus_ledger::{ArtifactId, ArtifactStore, EventIndex, EventInput, StoredEvent};
+use hephaestus_ledger::{
+    ArtifactBackend, ArtifactId, ArtifactStore, EventIndex, EventInput, EventLedger,
+    FileEventLedger, MemoryArtifactBackend, StoredEvent,
+};
 use hephaestus_runtime::{Budget, ExperimentContext, IsolationPolicy, RunSpec, WorkerLimits};
 use tempfile::TempDir;
 
@@ -979,6 +982,120 @@ fn forged_event_ledger(
 }
 
 #[test]
+fn history_invariant_verification_accepts_the_genuine_event_and_rejects_forgeries() {
+    let directory = TempDir::new().unwrap();
+    let fixture = make_invariant_fixture(&directory);
+    let world = fixture.world.clone();
+    let mut wrong_source: serde_json::Value =
+        serde_json::from_slice(world.canonical_json()).unwrap();
+    wrong_source["name"] = serde_json::json!("different-invariant-history-world");
+    let wrong_world = compile_world(
+        &wrong_source.to_string(),
+        SourceFormat::Json,
+        &fixture.stores.artifacts,
+    )
+    .unwrap();
+    let stores = evaluate(fixture).unwrap().into_stores();
+    let check =
+        check_reference_output_invariants(stores, "evaluation-001", &world, 1_788_000_123_500)
+            .unwrap();
+    let expected_receipt = check.receipt().clone();
+    let history = check.into_stores().events.replay_verified().unwrap();
+    let artifacts = ArtifactStore::open(directory.path().join("blobs")).unwrap();
+    let original = history
+        .iter()
+        .find(|event| event.event_id == "arena:invariants:evaluation-001:checked")
+        .unwrap()
+        .clone();
+
+    // The genuine event verifies against its own history.
+    let verified = verify_reference_output_invariant_event_in(
+        &EventIndex::build(&history),
+        &artifacts,
+        &original,
+        &world,
+    )
+    .expect("the genuine invariant event verifies against its own history");
+    assert_eq!(verified.receipt(), &expected_receipt);
+    assert_eq!(verified.event().event_id, original.event_id);
+
+    // A World that does not match the event's declared World is rejected.
+    assert!(matches!(
+        verify_reference_output_invariant_event_in(
+            &EventIndex::build(&history),
+            &artifacts,
+            &original,
+            &wrong_world
+        ),
+        Err(ArenaError::WorldArtifactMismatch(
+            "arena.invariant_manifest"
+        ))
+    ));
+
+    // An event that does not match what the index has stored under its own
+    // identity (a caller passing a tampered copy) is rejected.
+    let mut altered = original.clone();
+    altered.timestamp_millis += 1;
+    assert!(matches!(
+        verify_reference_output_invariant_event_in(
+            &EventIndex::build(&history),
+            &artifacts,
+            &altered,
+            &world
+        ),
+        Err(ArenaError::InvalidInvariantEvent)
+    ));
+
+    // An invariant event recorded before its source evaluation is a conflict:
+    // rebuild the ledger with the invariant event reinserted early, which
+    // assigns it an earlier canonical sequence than its own evaluation.
+    let evaluation_index = history
+        .iter()
+        .position(|event| event.event_id == "arena:evaluation:evaluation-001:recorded")
+        .unwrap();
+    let mut reordered = EvaluationStores::open(
+        directory.path().join("reordered-in.sqlite3"),
+        directory.path().join("blobs"),
+    )
+    .unwrap();
+    let mut order: Vec<&StoredEvent> = history[..evaluation_index].iter().collect();
+    order.push(&original);
+    order.extend(
+        history[evaluation_index..]
+            .iter()
+            .filter(|event| event.event_id != original.event_id),
+    );
+    for event in order {
+        reordered
+            .events
+            .append(EventInput::new(
+                event.event_id.clone(),
+                event.aggregate_id.clone(),
+                event.event_type.clone(),
+                event.actor.clone(),
+                event.timestamp_millis,
+                &event.payload,
+            ))
+            .unwrap();
+    }
+    let reordered_history = reordered.events.replay_verified().unwrap();
+    let reordered_original = reordered_history
+        .iter()
+        .find(|event| event.event_id == original.event_id)
+        .unwrap()
+        .clone();
+    assert!(matches!(
+        verify_reference_output_invariant_event_in(
+            &EventIndex::build(&reordered_history),
+            &artifacts,
+            &reordered_original,
+            &world
+        ),
+        Err(ArenaError::InvariantConflict(evaluation)) if evaluation == "evaluation-001"
+    ));
+}
+
+#[test]
 fn reference_output_invariants_reject_out_of_manifest_tasks_and_relabeled_signed_outputs() {
     let directory = TempDir::new().unwrap();
     let fixture = make_invariant_fixture(&directory);
@@ -1324,6 +1441,14 @@ fn operator_selection_evidence_retains_only_authenticated_aggregates() {
     );
     assert_eq!(evidence.visible_total(), 2);
     assert_eq!(evidence.sealed_total(), 2);
+    assert_eq!(
+        evidence.parent_visible_correct() + evidence.parent_sealed_correct(),
+        evidence.parent_fitness().correct_trials()
+    );
+    assert_eq!(
+        evidence.candidate_visible_correct() + evidence.candidate_sealed_correct(),
+        evidence.candidate_fitness().correct_trials()
+    );
     assert_eq!(evidence.correctness_outcomes().regressions(), 1);
     assert_eq!(evidence.correctness_outcomes().unchanged(), 2);
     assert_eq!(evidence.correctness_outcomes().improvements(), 1);
@@ -3160,4 +3285,31 @@ fn history_selection_verification_rejects_wrong_world_evidence_and_forged_receip
         ),
         Err(ArenaError::SelectionConflict(_))
     ));
+}
+
+#[test]
+fn evaluation_stores_from_backends_wires_any_ledger_and_artifact_pair() {
+    let directory = TempDir::new().unwrap();
+    let mut stores = EvaluationStores::from_backends(
+        FileEventLedger::open(directory.path().join("events.jsonl")).unwrap(),
+        MemoryArtifactBackend::new(),
+    );
+
+    let artifact_id = stores.artifacts.put(b"payload").unwrap();
+    assert_eq!(stores.artifacts.get(&artifact_id).unwrap(), b"payload");
+
+    let appended = stores
+        .events
+        .append(EventInput::new(
+            "backends:test:1",
+            "backends:test",
+            "backends.tested",
+            "test-actor",
+            1_788_000_000_000,
+            b"{}",
+        ))
+        .unwrap();
+    let replayed = stores.events.replay_verified().unwrap();
+    assert_eq!(replayed.len(), 1);
+    assert_eq!(replayed[0].event_id, appended.event_id);
 }

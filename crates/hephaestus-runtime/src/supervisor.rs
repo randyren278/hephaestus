@@ -1083,6 +1083,15 @@ mod tests {
     }
 
     #[test]
+    fn fixture_writers_flush_cleanly_even_though_write_fails() {
+        // These fixtures only fake a failing `write`; `flush` must still
+        // behave like a well-formed `Write` impl (a real broken pipe would
+        // otherwise be indistinguishable from a fixture bug).
+        assert!(FailingWriter.flush().is_ok());
+        assert!(ErrorKindWriter(io::ErrorKind::BrokenPipe).flush().is_ok());
+    }
+
+    #[test]
     fn stdin_writer_records_a_broken_pipe_separately_from_other_failures() {
         let closed = shared_run();
         spawn_stdin_writer(
@@ -1681,5 +1690,131 @@ mod tests {
             guarded: false,
             cancel: Mutex::new(None),
         })
+    }
+
+    #[test]
+    fn provider_constructor_rejects_deterministic_and_empty_executables() {
+        assert!(matches!(
+            SupervisedRuntime::provider(
+                IsolationPolicy::unconfined_for_testing(),
+                Provider::Deterministic,
+                "/bin/true",
+                Vec::new(),
+            ),
+            Err(RuntimeError::InvalidSpec(message))
+                if message == "use SupervisedRuntime::deterministic for the reference provider"
+        ));
+        assert!(matches!(
+            SupervisedRuntime::provider(
+                IsolationPolicy::unconfined_for_testing(),
+                Provider::Codex,
+                "",
+                Vec::new(),
+            ),
+            Err(RuntimeError::InvalidSpec(message)) if message == "provider executable is empty"
+        ));
+        assert!(
+            SupervisedRuntime::provider(
+                IsolationPolicy::unconfined_for_testing(),
+                Provider::Codex,
+                "/bin/true",
+                Vec::new(),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn deterministic_adapter_drain_observations_is_always_empty() {
+        let repository = repository_fixture();
+        let root = tempdir().expect("sandbox root");
+        let manager = SandboxManager::open(root.path(), Duration::from_secs(30))
+            .expect("open sandbox manager");
+        let run_spec = spec(
+            "deterministic-drain",
+            repository.path(),
+            Duration::from_secs(5),
+            1_000,
+        );
+        let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+        let mut runtime = test_runtime("/bin/echo", ["hi".to_owned()]);
+        assert_eq!(runtime.provider(), Provider::Deterministic);
+        runtime
+            .start(&run_spec, &sandbox, &token)
+            .expect("start deterministic-supervised run");
+        let observations = runtime
+            .drain_observations(run_spec.run_id())
+            .expect("drain observations");
+        assert!(
+            observations.is_empty(),
+            "the Deterministic provider never reports NDJSON observations"
+        );
+        sandbox.cleanup().expect("clean sandbox");
+    }
+
+    #[test]
+    #[cfg(feature = "test-support")]
+    fn test_reference_delay_combines_global_baseline_and_scoped_sources() {
+        let scope = tempdir().expect("delay scope");
+        forget_test_reference_scope(scope.path());
+        clear_test_reference_delay();
+
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            None,
+            "no delay configured yet"
+        );
+
+        set_test_reference_delay("genome-a", 7);
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            Some(7),
+            "the global per-Genome delay applies regardless of scope"
+        );
+        assert_eq!(
+            test_reference_delay_millis_for("genome-b", scope.path()),
+            None,
+            "the global delay is keyed to its own Genome id"
+        );
+
+        set_test_reference_baseline_delay_in(scope.path(), 3);
+        assert_eq!(
+            test_reference_delay_millis_for("genome-b", scope.path()),
+            Some(3),
+            "the scoped baseline applies to every Genome under the scope"
+        );
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            Some(10),
+            "the global and scoped baseline delays add together"
+        );
+
+        set_test_reference_delay_in(scope.path(), "genome-a", 5);
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            Some(15),
+            "global, scoped baseline, and scoped per-Genome delays all add together"
+        );
+
+        clear_test_reference_delays_in(scope.path());
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            Some(10),
+            "clearing scoped per-Genome delays keeps the scoped baseline"
+        );
+
+        clear_test_reference_delay();
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            Some(3),
+            "clearing the global delay keeps the scoped baseline"
+        );
+
+        forget_test_reference_scope(scope.path());
+        assert_eq!(
+            test_reference_delay_millis_for("genome-a", scope.path()),
+            None,
+            "forgetting the scope removes its baseline too"
+        );
     }
 }

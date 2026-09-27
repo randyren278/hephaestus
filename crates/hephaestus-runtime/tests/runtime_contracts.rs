@@ -7,7 +7,7 @@ use hephaestus_core::authority::CapabilitySet;
 use hephaestus_runtime::{
     Budget, DeterministicRuntime, ExperimentContext, IsolationBackend, IsolationPolicy, Provider,
     ProviderInvocation, ReferenceInstruction, RunSnapshot, RunSpec, RunStatus, RuntimeAdapter,
-    RuntimeError, SandboxManager, SupervisedRuntime,
+    RuntimeError, RuntimeObservationKind, SandboxManager, SupervisedRuntime,
 };
 use tempfile::tempdir;
 
@@ -768,6 +768,74 @@ fn deterministic_runtime_skips_tracked_symlinks() {
 
     assert_eq!(output["files"].as_array().unwrap().len(), 1);
     assert_eq!(output["files"][0]["path"], "fixture.txt");
+    sandbox.cleanup().expect("clean sandbox");
+}
+
+#[test]
+fn deterministic_runtime_reports_failed_status_when_inventory_exceeds_output_budget() {
+    let repository = repository_fixture();
+    let sandboxes = tempdir().expect("sandbox directory");
+    let manager = SandboxManager::open(sandboxes.path(), Duration::from_secs(30))
+        .expect("open sandbox manager");
+    // The serialized inventory (schema, ids, hashes, file records) is always
+    // well over one byte, so this budget is exceeded deterministically.
+    let run_spec = spec("output-budget-exceeded", repository.path(), 1, false);
+    let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+    let mut runtime = DeterministicRuntime::default();
+
+    runtime
+        .start(&run_spec, &sandbox, &token)
+        .expect("start deterministic runtime");
+    let snapshot = runtime
+        .snapshot(run_spec.run_id())
+        .expect("snapshot output-budget run");
+
+    assert_eq!(snapshot.status, RunStatus::Failed);
+    assert_eq!(snapshot.exit_code, Some(1));
+    assert_eq!(
+        snapshot.completion_reason,
+        Some(hephaestus_runtime::CompletionReason::OutputBudgetExceeded)
+    );
+    assert!(fs::read(&snapshot.stdout_path).unwrap().is_empty());
+    assert_eq!(
+        fs::read(&snapshot.stderr_path).unwrap(),
+        b"output budget exceeded\n"
+    );
+    sandbox.cleanup().expect("clean sandbox");
+}
+
+#[test]
+fn deterministic_runtime_drains_observations_once_and_then_empties() {
+    let repository = repository_fixture();
+    let sandboxes = tempdir().expect("sandbox directory");
+    let manager = SandboxManager::open(sandboxes.path(), Duration::from_secs(30))
+        .expect("open sandbox manager");
+    let run_spec = spec("drain-observations", repository.path(), 1_000_000, false);
+    let (sandbox, token) = manager.create(&run_spec).expect("create sandbox");
+    let mut runtime = DeterministicRuntime::default();
+
+    runtime
+        .start(&run_spec, &sandbox, &token)
+        .expect("start deterministic runtime");
+    // The start-time ContextComposed observation is already queued before any
+    // snapshot is taken.
+    let first_drain = runtime
+        .drain_observations(run_spec.run_id())
+        .expect("drain observations");
+    assert!(
+        first_drain
+            .iter()
+            .any(|observation| observation.kind == RuntimeObservationKind::ContextComposed)
+    );
+    let second_drain = runtime
+        .drain_observations(run_spec.run_id())
+        .expect("drain observations again");
+    assert!(second_drain.is_empty());
+
+    assert!(matches!(
+        runtime.drain_observations("missing"),
+        Err(RuntimeError::InvalidSpec(_))
+    ));
     sandbox.cleanup().expect("clean sandbox");
 }
 

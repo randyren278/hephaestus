@@ -77,6 +77,61 @@ fn manifest_parser_rejects_unknown_noncanonical_and_invalid_content() {
 }
 
 #[test]
+fn manifest_constructor_rejects_more_tasks_than_the_bound_allows() {
+    let tasks = (0..=1_000)
+        .map(|index| TrustedTask::new(format!("task-{index}"), "input", "output").unwrap())
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        TrustedManifest::new("oversized", Visibility::Visible, tasks),
+        Err(ArenaError::TooManyTasks)
+    ));
+}
+
+#[test]
+fn from_source_json_normalizes_whitespace_key_order_and_task_order() {
+    let source = br#"{
+        "tasks": [
+            {"expected_output": "b", "input": "candidate-b", "task_id": "task-b"},
+            {"expected_output": "a", "input": "candidate-a", "task_id": "task-a"}
+        ],
+        "visibility": "visible",
+        "manifest_id": "source-v1",
+        "schema_version": 1
+    }"#;
+    let manifest = TrustedManifest::from_source_json(source).expect("compile source manifest");
+    assert_eq!(
+        manifest.operator_tasks(),
+        vec![
+            hephaestus_arena::OperatorTask {
+                task_id: "task-a".to_owned(),
+                input: "candidate-a".to_owned(),
+            },
+            hephaestus_arena::OperatorTask {
+                task_id: "task-b".to_owned(),
+                input: "candidate-b".to_owned(),
+            },
+        ]
+    );
+    // The compiled result also round-trips through the canonical-bytes contract.
+    let canonical = manifest.canonical_bytes().expect("encode canonical bytes");
+    assert!(
+        TrustedManifest::from_canonical_bytes(&canonical, Visibility::Visible)
+            .expect("rehydrate canonical bytes")
+            == manifest
+    );
+}
+
+#[test]
+fn from_source_json_rejects_an_unsupported_schema_version() {
+    let source =
+        br#"{"schema_version":2,"manifest_id":"source-v1","visibility":"visible","tasks":[]}"#;
+    assert!(matches!(
+        TrustedManifest::from_source_json(source),
+        Err(ArenaError::UnsupportedManifestSchema(2))
+    ));
+}
+
+#[test]
 fn operator_task_view_never_contains_expected_outputs_for_either_visibility() {
     let sealed = sealed_manifest();
     let visible = TrustedManifest::new(
