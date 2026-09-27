@@ -13855,7 +13855,11 @@ fn canary_healthy_evidence_evaluation(
             panic!("selection should return its receipt");
         };
         let deltas = super::canary::regression_deltas(&selection.receipt);
-        if !super::canary::is_regression(&deltas) {
+        if !super::canary::is_regression(
+            &deltas,
+            &selection.receipt,
+            Some(super::canary::CURRENT_LATENCY_RULE),
+        ) {
             return evaluation_id;
         }
     }
@@ -14507,7 +14511,11 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
     );
     let deltas = super::canary::regression_deltas(&selection.receipt);
     assert!(
-        super::canary::is_regression(&deltas),
+        super::canary::is_regression(
+            &deltas,
+            &selection.receipt,
+            Some(super::canary::CURRENT_LATENCY_RULE),
+        ),
         "the injected delay should read as a genuine regression: {deltas:?}"
     );
 
@@ -14570,6 +14578,338 @@ fn canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_cha
         &plane.state.registered,
     )
     .expect("canonical canary history including the live rollback verifies");
+}
+
+/// Shared setup for the latency-rule versioning tests below: same shape as
+/// [`canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion`]
+/// -- promote a canary to Champion, then inject a genuine 750ms live-Champion
+/// latency regression and record its `LiveRegressionDetected` transition.
+/// Returns the fixture's `TempDir` (kept alive so the plane's on-disk
+/// storage stays valid), the `ControlPlane`, and the recorded transition.
+fn latency_regression_live_check_fixture() -> (TempDir, ControlPlane, CanaryTransitionRecord) {
+    let directory = tempdir().expect("canary latency-rule fixture");
+    let _delay_scope = latency_gated_delay_scope(directory.path());
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "latrule-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = assessed.world.clone();
+    plane
+        .check_arena_invariants(&assessed.evaluation)
+        .expect("record child invariant evidence");
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: initial_candidate.genome_id.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    canary_transition(
+        &mut plane,
+        &token,
+        "start",
+        Command::CanaryStart {
+            canary_id: "canary".to_owned(),
+            world_id: world_id.clone(),
+            candidate_genome_id: assessed.child.clone(),
+            assessment_id: "latrule-improve-assessment".to_owned(),
+        },
+    )
+    .expect("start canary");
+
+    for (index, stage_label) in ["5", "25", "50", "100"].into_iter().enumerate() {
+        let evidence = canary_healthy_evidence_evaluation(
+            &mut plane,
+            &format!("latrule-evidence-{index}"),
+            &initial_candidate.genome_id,
+            &assessed.child,
+        );
+        canary_transition(
+            &mut plane,
+            &token,
+            &format!("advance-{stage_label}"),
+            Command::CanaryAdvance {
+                canary_id: "canary".to_owned(),
+                evidence_evaluation_id: evidence,
+            },
+        )
+        .unwrap_or_else(|error| panic!("advance to {stage_label}%: {error:?}"));
+    }
+
+    // Genuinely slow the now-live Champion's reference worker, exactly as
+    // the live-check test above does, so the regression is real rather than
+    // fabricated. 750ms is far past the 50ms-per-task absolute floor.
+    hephaestus_runtime::set_test_reference_delay_in(directory.path(), assessed.child.clone(), 750);
+    let live_evidence = "latrule-live-regression-eval";
+    complete_arena_test_job(
+        &mut plane,
+        live_evidence,
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    plane
+        .select_arena_evaluation(live_evidence)
+        .expect("select live regression evidence");
+
+    let rollback = canary_transition(
+        &mut plane,
+        &token,
+        "live-check",
+        Command::CanaryLiveCheck {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: live_evidence.to_owned(),
+        },
+    )
+    .expect("live-check should detect the injected regression and roll back");
+
+    (directory, plane, rollback)
+}
+
+#[test]
+fn canary_new_live_regression_records_the_current_latency_rule() {
+    let (_directory, plane, rollback) = latency_regression_live_check_fixture();
+    let evidence = rollback
+        .payload
+        .evidence
+        .as_ref()
+        .expect("rollback evidence");
+    assert!(evidence.regressed);
+    assert_eq!(
+        evidence.latency_rule,
+        Some(super::canary::CURRENT_LATENCY_RULE),
+        "a newly recorded live regression must name the current latency rule"
+    );
+    let history = canary_history(&plane);
+    verify_canary_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical history naming the current latency rule verifies");
+}
+
+#[test]
+fn canary_live_regression_recorded_under_the_old_rule_still_verifies() {
+    let (_directory, plane, rollback) = latency_regression_live_check_fixture();
+    let history = canary_history(&plane);
+    // Simulate an event recorded before the absolute floor existed: strip
+    // its `latency_rule` so it reads as the original proportional-only
+    // rule (the only shape old, already-recorded events can have). The
+    // injected 750ms delay is a genuine regression under either rule, so
+    // the decision is unchanged and this event, versioned differently, must
+    // still verify byte-for-byte against its own recomputation.
+    let downgraded = canary_history_with_payload_edit(
+        &history,
+        &rollback.event.event_id,
+        |payload: &mut CanaryTransitionPayload| {
+            payload
+                .evidence
+                .as_mut()
+                .expect("rollback evidence")
+                .latency_rule = None;
+        },
+    );
+    verify_canary_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &downgraded,
+        &plane.state.registered,
+    )
+    .expect(
+        "an old-rule canary event (no latency_rule field) still verifies when its decision is unchanged",
+    );
+}
+
+#[test]
+fn canary_forged_v2_claim_with_a_mismatched_decision_is_rejected() {
+    let (_directory, plane, rollback) = latency_regression_live_check_fixture();
+    let history = canary_history(&plane);
+    // Claims the current rule (matching the real event) but lies about the
+    // decision that rule produces for this evidence.
+    let forged = canary_history_with_payload_edit(
+        &history,
+        &rollback.event.event_id,
+        |payload: &mut CanaryTransitionPayload| {
+            let evidence = payload.evidence.as_mut().expect("rollback evidence");
+            assert_eq!(
+                evidence.latency_rule,
+                Some(super::canary::CURRENT_LATENCY_RULE)
+            );
+            evidence.regressed = false;
+        },
+    );
+    assert!(
+        verify_canary_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &forged,
+            &plane.state.registered,
+        )
+        .is_err(),
+        "a forged v2 payload whose regressed decision does not match v2 must fail replay"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor() {
+    let directory = tempdir().expect("canary floor fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let assessed = assessed_forge_child(
+        &mut plane,
+        "floor-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = assessed.world.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: initial_candidate.genome_id.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    canary_transition(
+        &mut plane,
+        &token,
+        "start",
+        Command::CanaryStart {
+            canary_id: "canary".to_owned(),
+            world_id: world_id.clone(),
+            candidate_genome_id: assessed.child.clone(),
+            assessment_id: "floor-improve-assessment".to_owned(),
+        },
+    )
+    .expect("start canary");
+
+    // A small, deterministic per-task delay: far too small to cross the
+    // 50ms-per-task absolute floor for this single-task world, but large
+    // relative to the reference worker's few-millisecond baseline, so it
+    // reliably crosses the 20% proportional threshold on its own.
+    hephaestus_runtime::set_test_reference_delay_in(directory.path(), assessed.child.clone(), 15);
+    let evidence_id = "floor-small-regression-eval";
+    complete_arena_test_job(
+        &mut plane,
+        evidence_id,
+        &initial_candidate.genome_id,
+        &assessed.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(evidence_id)
+        .expect("select evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    assert!(
+        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
+        "the injected delay should make the candidate measurably slower"
+    );
+    let deltas = super::canary::regression_deltas(&selection.receipt);
+    assert!(
+        deltas.latency_bps >= super::canary::LATENCY_REGRESSION_BPS,
+        "the injected delay should still cross the proportional threshold on its own: {deltas:?}"
+    );
+    assert!(
+        !super::canary::is_regression(
+            &deltas,
+            &selection.receipt,
+            Some(super::canary::CURRENT_LATENCY_RULE)
+        ),
+        "a delay under the absolute floor must not read as a regression under the current rule: {deltas:?}"
+    );
+    assert!(
+        super::canary::is_regression(&deltas, &selection.receipt, None),
+        "the original proportional-only rule would have flagged this as a regression: {deltas:?}"
+    );
+
+    let advanced = canary_transition(
+        &mut plane,
+        &token,
+        "advance",
+        Command::CanaryAdvance {
+            canary_id: "canary".to_owned(),
+            evidence_evaluation_id: evidence_id.to_owned(),
+        },
+    )
+    .expect("advance should succeed rather than abort");
+    assert_eq!(
+        advanced.payload.kind,
+        CanaryTransitionKind::Advanced,
+        "a regression suppressed by the absolute floor must not abort the canary"
+    );
+    assert!(
+        !advanced
+            .payload
+            .evidence
+            .as_ref()
+            .expect("advance evidence")
+            .regressed
+    );
+
+    // Recompute what the pre-floor (v1) rule would have decided for this
+    // exact evidence: replay always recomputes an event under the rule it
+    // names, not whatever rule is current, so a record of this genuinely
+    // different older decision, named as v1, must still verify.
+    let history = canary_history(&plane);
+    let index = history
+        .iter()
+        .position(|event| event.event_id == advanced.event.event_id)
+        .expect("advance event recorded");
+    let v1_request = super::canary::CanaryRequest::Advance {
+        evidence_evaluation_id: evidence_id.to_owned(),
+    };
+    let v1_payload = super::canary::canary_transition_payload(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history[..index],
+        &plane.state.registered,
+        "canary",
+        &v1_request,
+        None,
+    )
+    .expect("recompute the pre-floor decision for the same evidence");
+    assert_eq!(
+        v1_payload.kind,
+        CanaryTransitionKind::Aborted,
+        "the original proportional-only rule would have aborted this canary"
+    );
+    let downgraded = canary_history_with_payload_edit(
+        &history,
+        &advanced.event.event_id,
+        |payload: &mut CanaryTransitionPayload| {
+            *payload = v1_payload.clone();
+        },
+    );
+    verify_canary_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &downgraded,
+        &plane.state.registered,
+    )
+    .expect("a record of the genuinely different pre-floor decision, named as v1, still verifies");
 }
 
 #[test]
@@ -14957,6 +15297,233 @@ fn drift_record_derives_from_verified_evidence_and_replays() {
             &plane.state.registered
         )
         .is_err()
+    );
+}
+
+/// Shared setup for the drift latency-rule versioning tests below: seed a
+/// Champion, then genuinely, deterministically slow a sibling candidate
+/// (see `canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion`)
+/// so a fresh paired evaluation measures a real latency drift, and record
+/// it. Returns the fixture's `TempDir` (kept alive so the plane's on-disk
+/// storage stays valid), the `ControlPlane`, and the recorded drift record.
+fn latency_drift_fixture() -> (TempDir, ControlPlane, DriftRecord) {
+    let directory = tempdir().expect("drift latency-rule fixture");
+    let _delay_scope = latency_gated_delay_scope(directory.path());
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let improved = assessed_forge_child(
+        &mut plane,
+        "latrule-drift-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = improved.world.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: improved.child.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "latrule-drift-sibling",
+        &improved.child,
+        &initial_parent.genome_id,
+        true,
+    );
+    // 750ms is far past the 50ms-per-task absolute floor.
+    hephaestus_runtime::set_test_reference_delay_in(directory.path(), sibling.child.clone(), 750);
+    let drift_evidence_id = "latrule-drift-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &improved.child,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    assert!(
+        selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
+        "the injected delay should make the sibling measurably slower"
+    );
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "latrule-drift",
+        Command::DriftRecord {
+            drift_id: "latrule-drift".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift");
+
+    (directory, plane, recorded)
+}
+
+#[test]
+fn drift_new_latency_record_names_the_current_latency_rule() {
+    let (_directory, plane, recorded) = latency_drift_fixture();
+    assert_eq!(
+        recorded.payload.latency_rule,
+        Some(super::canary::CURRENT_LATENCY_RULE),
+        "a newly recorded latency drift must name the current latency rule"
+    );
+    let history = drift_history(&plane);
+    verify_drift_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &history,
+        &plane.state.registered,
+    )
+    .expect("canonical history naming the current latency rule verifies");
+}
+
+#[test]
+fn drift_latency_record_recorded_under_the_old_rule_still_verifies() {
+    let (_directory, plane, recorded) = latency_drift_fixture();
+    let history = drift_history(&plane);
+    // Simulate a record made before the absolute floor existed: strip its
+    // `latency_rule`. The injected 750ms delay is a genuine drift under
+    // either rule, so the decision is unchanged and this record, versioned
+    // differently, must still verify byte-for-byte against its own
+    // recomputation.
+    let downgraded = drift_history_with_payload_edit(
+        &history,
+        &recorded.event.event_id,
+        |payload: &mut DriftRecordPayload| {
+            payload.latency_rule = None;
+        },
+    );
+    verify_drift_history(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &downgraded,
+        &plane.state.registered,
+    )
+    .expect(
+        "an old-rule drift record (no latency_rule field) still verifies when its decision is unchanged",
+    );
+}
+
+#[test]
+fn drift_forged_v2_claim_with_a_mismatched_decision_is_rejected() {
+    let (_directory, plane, recorded) = latency_drift_fixture();
+    let history = drift_history(&plane);
+    // Claims the current rule (matching the real record) but lies about the
+    // observed shift that rule was crossed by.
+    let forged = drift_history_with_payload_edit(
+        &history,
+        &recorded.event.event_id,
+        |payload: &mut DriftRecordPayload| {
+            assert_eq!(
+                payload.latency_rule,
+                Some(super::canary::CURRENT_LATENCY_RULE)
+            );
+            payload.observed_delta_bps = 0;
+        },
+    );
+    assert!(
+        verify_drift_history(
+            &plane.storage.as_ref().unwrap().artifacts,
+            &forged,
+            &plane.state.registered,
+        )
+        .is_err(),
+        "a forged v2 payload whose observed shift does not match v2 must fail replay"
+    );
+}
+
+#[test]
+fn drift_latency_record_refuses_a_small_regression_within_the_absolute_floor() {
+    let directory = tempdir().expect("drift floor fixture");
+    let (mut plane, initial_parent, initial_candidate) =
+        real_worker_arena_fixture_with_invariants(&directory, Some(CLEAN_INVARIANTS));
+    let token = plane.token_hex.clone();
+
+    let improved = assessed_forge_child(
+        &mut plane,
+        "floor-drift-improve",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+        true,
+    );
+    let world_id = improved.world.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: improved.child.clone(),
+            reason: "Bootstrap the reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "floor-drift-sibling",
+        &improved.child,
+        &initial_parent.genome_id,
+        true,
+    );
+    // Same reasoning as the canary version of this test: small enough to
+    // stay under the 50ms-per-task absolute floor, large enough relative to
+    // the reference worker's baseline to cross the 20% proportional
+    // threshold on its own.
+    hephaestus_runtime::set_test_reference_delay_in(directory.path(), sibling.child.clone(), 15);
+    let drift_evidence_id = "floor-drift-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &improved.child,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select evidence")
+    else {
+        panic!("selection should return its receipt");
+    };
+    let deltas = super::canary::regression_deltas(&selection.receipt);
+    assert!(
+        deltas.latency_bps >= super::canary::LATENCY_REGRESSION_BPS,
+        "the injected delay should still cross the proportional threshold on its own: {deltas:?}"
+    );
+
+    assert_drift_error(
+        drift_record_cmd(
+            &mut plane,
+            &token,
+            "floor-drift",
+            Command::DriftRecord {
+                drift_id: "floor-drift".to_owned(),
+                world_id: world_id.clone(),
+                kind: DriftKind::Latency,
+                evidence_evaluation_id: drift_evidence_id.to_owned(),
+            },
+        ),
+        "evidence does not show a shift beyond the documented threshold for this kind",
     );
 }
 
@@ -19267,19 +19834,25 @@ fn remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_l
 /// 16-task auto-canary fixture. The single-task canary tests use 750 ms; here
 /// that would add 12 s to every paired evaluation. 250 ms still adds about
 /// 4 s per evaluation, far past the 20% latency regression threshold, and
-/// stays well past it even against the raised baseline below (250 /
-/// 400 = 62.5%).
+/// (since 2026-09-26) far past this fixture's absolute floor too
+/// (`LATENCY_FLOOR_MILLIS_PER_TASK` * 16 tasks = 800 ms; 250 ms/task * 16 =
+/// 4,000 ms observed).
 const AUTO_CANARY_REGRESSION_DELAY_MILLIS: u64 = 250;
 
 /// Baseline delay added to every reference trial in the auto-canary fixture.
-/// At the previous 150 ms, the canary stages' 20% latency gate only had
-/// about 30 ms of margin per trial, which CI scheduling noise (coverage
-/// instrumentation, `RUST_TEST_THREADS=2` parallel tests) could exceed and
-/// abort a canary that had not actually regressed (TD-25/TD-28,
-/// `CanaryAborted` instead of `Promoted` on CI run 36289137581). 400 ms
-/// gives about 80 ms of margin, comfortably above realistic scheduling
-/// jitter.
-const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 400;
+/// Before the canary/drift latency gate had an absolute floor
+/// (`docs/dev/TECH_DEBT.md` TD-25/TD-28), this compensated for
+/// few-millisecond reference trials: without it, CI scheduling noise
+/// (coverage instrumentation, `RUST_TEST_THREADS=2` parallel tests) could
+/// cross the proportional-only 20% gate on its own and abort a canary that
+/// had not actually regressed (`CanaryAborted` instead of `Promoted` on CI
+/// run 36289137581). **2026-09-26:** the gate now also requires an absolute
+/// floor (`hephaestus_control::canary::LATENCY_FLOOR_MILLIS_PER_TASK`, 50 ms
+/// per paired task -- 800 ms for this 16-task fixture), which realistic
+/// scheduling noise cannot cross on its own regardless of proportion, so
+/// this baseline is no longer load-bearing; kept at 0 rather than removed so
+/// a future baseline need does not have to re-thread the plumbing.
+const AUTO_CANARY_BASELINE_DELAY_MILLIS: u64 = 0;
 
 /// Per-trial delay for the Gauntlet drift-adaptation fixture: larger than
 /// [`AUTO_CANARY_REGRESSION_DELAY_MILLIS`] because, unlike the simple
@@ -20902,18 +21475,20 @@ fn reference_delay_scope(directory: &Path) -> ReferenceDelayScope {
 }
 
 /// Baseline delay for tests whose canary or drift checks go through the 20%
-/// latency gate: few-millisecond reference trials let scheduling noise (CI
-/// coverage instrumentation, parallel tests) cross that gate on its own. At
-/// the previous 100 ms this left only about 20 ms of margin per trial —
-/// tighter than the auto-canary fixture's own flake (TD-25/TD-28) — and
-/// `canary_staged_rollout_promotes_through_champion_path_and_replays` and
+/// latency gate. Before the gate had an absolute floor (see
+/// `AUTO_CANARY_BASELINE_DELAY_MILLIS`), few-millisecond reference trials let
+/// scheduling noise (CI coverage instrumentation, parallel tests) cross the
+/// proportional-only gate on its own, and
+/// `canary_staged_rollout_promotes_through_champion_path_and_replays` /
 /// `drift_record_derives_from_verified_evidence_and_replays` both rely on
-/// *non*-regressed trials never tripping this gate. 300 ms gives about
-/// 60 ms of margin; the explicit-regression tests sharing this scope
-/// (e.g. `canary_live_check_detects_a_genuine_latency_regression_...`,
-/// which adds 750 ms on top) keep a huge margin either way (750 / 300 =
-/// 250%).
-const LATENCY_GATED_BASELINE_DELAY_MILLIS: u64 = 300;
+/// *non*-regressed trials never tripping it. **2026-09-26:** the gate now
+/// also requires an absolute floor
+/// (`hephaestus_control::canary::LATENCY_FLOOR_MILLIS_PER_TASK`, 50 ms per
+/// paired task), which realistic scheduling noise on these single-task
+/// fixtures cannot cross regardless of proportion, so this baseline is no
+/// longer load-bearing; kept at 0 rather than removed so a future baseline
+/// need does not have to re-thread the plumbing.
+const LATENCY_GATED_BASELINE_DELAY_MILLIS: u64 = 0;
 
 /// Gives every reference trial under `directory` a fixed baseline latency
 /// for the life of the test.
