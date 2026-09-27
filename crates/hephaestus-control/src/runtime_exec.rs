@@ -863,7 +863,10 @@ mod runtime_exec_unit_tests {
             )),
             "unexpected evaluator path: {evaluator:?}"
         );
-        assert!(evaluator.exists(), "evaluator sibling should exist: {evaluator:?}");
+        assert!(
+            evaluator.exists(),
+            "evaluator sibling should exist: {evaluator:?}"
+        );
 
         let worker = default_reference_worker_executable().expect("resolve worker executable");
         assert!(
@@ -884,7 +887,10 @@ mod runtime_exec_unit_tests {
             )),
             "unexpected guardian path: {guardian:?}"
         );
-        assert!(guardian.exists(), "guardian sibling should exist: {guardian:?}");
+        assert!(
+            guardian.exists(),
+            "guardian sibling should exist: {guardian:?}"
+        );
     }
 
     #[test]

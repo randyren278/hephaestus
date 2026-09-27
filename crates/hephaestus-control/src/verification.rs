@@ -2298,7 +2298,9 @@ mod verification_unit_tests {
                 gene_id: String::new(),
                 to_genome_id: "genome".to_owned(),
             }),
-            Err(ExecuteError::Invalid("gene_id and to_genome_id are required"))
+            Err(ExecuteError::Invalid(
+                "gene_id and to_genome_id are required"
+            ))
         ));
         assert!(matches!(
             require_command_fields(&Command::GeneRecord {
@@ -2332,7 +2334,11 @@ mod verification_unit_tests {
         ));
     }
 
-    fn unit_world() -> (tempfile::TempDir, hephaestus_ledger::ArtifactStore, super::CompiledWorld) {
+    fn unit_world() -> (
+        tempfile::TempDir,
+        hephaestus_ledger::ArtifactStore,
+        super::CompiledWorld,
+    ) {
         use hephaestus_genome::{SourceFormat, compile_world};
         use hephaestus_ledger::ArtifactStore;
         let directory = tempfile::tempdir().expect("artifact directory");
@@ -2395,5 +2401,4 @@ mod verification_unit_tests {
                 if message == "Forge proposal parent is not registered"
         ));
     }
-
 }

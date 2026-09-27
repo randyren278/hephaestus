@@ -1021,10 +1021,7 @@ fn verify_forge_history_rejects_a_duplicate_proposal_id() {
         .ledger
         .replay_verified()
         .expect("verify history containing the genuine proposal");
-    let last_sequence = history
-        .last()
-        .expect("non-empty verified history")
-        .sequence;
+    let last_sequence = history.last().expect("non-empty verified history").sequence;
     let mut duplicate = history
         .iter()
         .find(|event| event.event_id == proposal.event.event_id)
@@ -8187,6 +8184,7 @@ fn projection_rejects_mismatched_commands_and_mutable_genome_metadata() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn projection_rejects_invalid_worker_credential_and_remote_job_events() {
     let token = OperatorToken::from_bytes([9; 32]);
     let run_result_verifier = RunResultSigner::from_seed([10; 32]).verifier();
@@ -8203,8 +8201,20 @@ fn projection_rejects_invalid_worker_credential_and_remote_job_events() {
     };
     let mint_bytes = serde_json::to_vec(&mint).expect("encode credential mint");
     let duplicate_mint = [
-        stored_event(1, "worker.credential_minted", "worker", "operator", &mint_bytes),
-        stored_event(2, "worker.credential_minted", "worker", "operator", &mint_bytes),
+        stored_event(
+            1,
+            "worker.credential_minted",
+            "worker",
+            "operator",
+            &mint_bytes,
+        ),
+        stored_event(
+            2,
+            "worker.credential_minted",
+            "worker",
+            "operator",
+            &mint_bytes,
+        ),
     ];
     assert!(matches!(
         ControlState::from_events(
@@ -17043,9 +17053,14 @@ fn remote_run_submit_rejects_a_reused_job_id_and_a_promptless_genome() {
     let token = plane.token_hex.clone();
     let (world, genome, _prompt) = register_dispatch_objects(&mut plane, &token, &directory);
     assert!(
-        dispatch_call(&mut plane, &token, "unfreeze-remote-reuse", Command::Unfreeze)
-            .error
-            .is_none()
+        dispatch_call(
+            &mut plane,
+            &token,
+            "unfreeze-remote-reuse",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
     );
 
     assert!(
