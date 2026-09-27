@@ -978,6 +978,68 @@ fn forge_proposal_replays_and_rejects_tampered_selection_and_metadata() {
     ));
 }
 
+/// `verify_forge_history_with` must reject a history where the same
+/// `proposal_id` was recorded by more than one `forge.proposed` event, even
+/// when each event is individually a genuine, fully verifiable proposal --
+/// this is a distinct guard from the per-event field/selection checks
+/// exercised by `forge_proposal_replays_and_rejects_tampered_selection_and_metadata`.
+#[test]
+fn verify_forge_history_rejects_a_duplicate_proposal_id() {
+    let directory = tempdir().expect("Forge duplicate-id fixture");
+    let (mut plane, initial_parent, initial_candidate) = real_worker_arena_fixture(&directory);
+
+    complete_arena_test_job(
+        &mut plane,
+        "duplicate-id-source-evaluation",
+        &initial_parent.genome_id,
+        &initial_candidate.genome_id,
+    );
+    let ResponseData::Selection { selection } = plane
+        .select_arena_evaluation("duplicate-id-source-evaluation")
+        .expect("select source candidate for proposal")
+    else {
+        panic!("source selection should produce a receipt");
+    };
+    let ResponseData::ForgeProposal { proposal } = plane
+        .propose_genome(
+            "duplicate-id-proposal",
+            &selection.event.event_id,
+            &initial_candidate.genome_id,
+            "Duplicate proposal id fixture.",
+        )
+        .expect("record compiler-backed Forge proposal")
+    else {
+        panic!("proposal should return its durable record");
+    };
+
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical Forge artifacts");
+    let mut history = plane
+        .storage
+        .as_ref()
+        .expect("canonical Forge ledger")
+        .ledger
+        .replay_verified()
+        .expect("verify history containing the genuine proposal");
+    let last_sequence = history
+        .last()
+        .expect("non-empty verified history")
+        .sequence;
+    let mut duplicate = history
+        .iter()
+        .find(|event| event.event_id == proposal.event.event_id)
+        .expect("genuine forge.proposed event is present")
+        .clone();
+    duplicate.sequence = last_sequence + 1;
+    history.push(duplicate);
+
+    assert!(matches!(
+        verify_forge_history(&artifacts, &history, &plane.state.registered),
+        Err(ControlError::Projection(message))
+            if message == "Forge proposal id was recorded more than once"
+    ));
+}
+
 #[test]
 fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
     let directory = tempdir().expect("daemon directory");
@@ -1056,6 +1118,59 @@ fn forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts() {
             &artifacts,
             &plane.state.registered,
             &out_of_scope.genome_id,
+            &compiled_world,
+            None,
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "the selected candidate prompt is outside the Forge mutation scope"
+    ));
+}
+
+#[test]
+fn forge_prompt_mutation_rejects_a_non_catalog_target_and_an_untargeted_gauntlet_operation() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (world, _, _) = register_dispatch_objects(&mut plane, &token, &directory);
+    let artifacts =
+        ArtifactStore::open(plane.data_dir.join("blobs")).expect("open canonical Forge artifacts");
+    let compiled_world = plane
+        .registered_world(&world.world_id)
+        .expect("registered dispatch world");
+
+    let identity_genome = register_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "forge-identity-for-bad-target",
+        reference_instruction_document(ReferenceInstruction::Identity).as_bytes(),
+    );
+    assert!(matches!(
+        forge_prompt_mutation(
+            &artifacts,
+            &plane.state.registered,
+            &identity_genome.genome_id,
+            &compiled_world,
+            Some(ReferenceInstruction::Identity),
+        ),
+        Err(ExecuteError::Rejected(message))
+            if message == "the requested mutation target is not a representable catalog edge"
+    ));
+
+    let gauntlet_genome = register_json_genome_with_prompt(
+        &mut plane,
+        &token,
+        &directory,
+        &world.world_id,
+        "forge-gauntlet-without-target",
+        reference_instruction_document(ReferenceInstruction::ContextLossNaive).as_bytes(),
+    );
+    assert!(matches!(
+        forge_prompt_mutation(
+            &artifacts,
+            &plane.state.registered,
+            &gauntlet_genome.genome_id,
             &compiled_world,
             None,
         ),
