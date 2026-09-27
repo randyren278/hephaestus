@@ -204,7 +204,7 @@ pub(super) fn execute_async_provider(
             }
             let snapshot = runtime
                 .snapshot(spec.run_id())
-                .map_err(|_| "guarded provider status failed".to_owned())?;
+                .map_err(|error| format!("guarded provider status failed: {error}"))?;
             if snapshot.status != RunStatus::Running {
                 let completion_reason = snapshot
                     .completion_reason

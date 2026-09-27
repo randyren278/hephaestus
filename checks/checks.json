@@ -2761,6 +2761,14 @@
       "find": "    if let Some(worktree) = read_only_worktree {",
       "replace": "    if let Some(worktree) = read_only_worktree.filter(|_| false) {",
       "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- isolation::tests::seatbelt_profile_is_deny_by_default_and_capability_exact --exact"
+    },
+    {
+      "id": "oversized-provider-observation-unbounded",
+      "file": "crates/hephaestus-runtime/src/provider_events.rs",
+      "invariant": "Provider observation fields are bounded so one large tool result cannot exceed the trace record limit and end the run.",
+      "find": "        if value.len() > MAX_OBSERVATION_FIELD_BYTES {",
+      "replace": "        if false && value.len() > MAX_OBSERVATION_FIELD_BYTES {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- provider_events::tests::oversized_tool_results_are_bounded_with_a_truncation_marker --exact"
     }
   ]
 }

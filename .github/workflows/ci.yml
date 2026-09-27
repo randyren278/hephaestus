@@ -296,7 +296,7 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-provider-events
             prefix: crates/hephaestus-runtime/src/provider_events.rs
-            minimum: 2
+            minimum: 3
             timeout_minutes: 30
           - scope: runtime-worker
             prefix: crates/hephaestus-runtime/src/worker.rs

@@ -7,12 +7,19 @@
 //! its neutral default rather than guessed.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use serde_json::Value;
 
 use crate::{Provider, RuntimeObservation, RuntimeObservationKind};
 
 const MAX_LINE_BYTES: usize = 1_048_576;
+/// Largest value any one observation field keeps. A trace record is capped at
+/// 64 KiB and recording is fail-closed, so an unbounded field (a hosted CLI
+/// quoting a whole file it read) would end the run; longer values keep their
+/// start plus a marker naming how much was cut. The provider's full output is
+/// still captured separately, within the run's output budget.
+const MAX_OBSERVATION_FIELD_BYTES: usize = 8_192;
 
 /// Incremental line-buffered cursor over one provider's growing NDJSON stdout.
 ///
@@ -57,12 +64,31 @@ impl ProviderEventCursor {
                 continue;
             }
             match serde_json::from_slice::<Value>(line) {
-                Ok(value) => observations.extend(parse_event(provider, &value)),
+                Ok(value) => observations.extend(
+                    parse_event(provider, &value)
+                        .into_iter()
+                        .map(bound_observation_fields),
+                ),
                 Err(_) => observations.push(malformed_line_observation("line is not valid JSON")),
             }
         }
         observations
     }
+}
+
+fn bound_observation_fields(mut observation: RuntimeObservation) -> RuntimeObservation {
+    for value in observation.fields.values_mut() {
+        if value.len() > MAX_OBSERVATION_FIELD_BYTES {
+            let mut cut = MAX_OBSERVATION_FIELD_BYTES;
+            while !value.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let removed = value.len() - cut;
+            value.truncate(cut);
+            write!(value, "…[truncated {removed} bytes]").expect("writing to a String cannot fail");
+        }
+    }
+    observation
 }
 
 fn malformed_line_observation(reason: &'static str) -> RuntimeObservation {
@@ -551,6 +577,35 @@ mod tests {
         let line = br#"{"type":"assistant","message":{"content":[{"no_type":true}]}}
 "#;
         assert!(cursor.feed(Provider::Claude, line).is_empty());
+    }
+
+    #[test]
+    fn oversized_tool_results_are_bounded_with_a_truncation_marker() {
+        let content = "é".repeat(20_000);
+        let line = format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"content\":\"{content}\"}}]}}}}\n"
+        );
+        let observations = ProviderEventCursor::new().feed(Provider::Claude, line.as_bytes());
+        let result = observations
+            .iter()
+            .find_map(|observation| observation.fields.get("tool_result"))
+            .expect("tool_result observation");
+        assert!(result.len() < MAX_OBSERVATION_FIELD_BYTES + 64);
+        // The Claude parser keeps a tool result as its JSON-encoded text.
+        assert!(result.trim_start_matches('"').starts_with("éé"));
+        assert!(
+            result.contains("…[truncated "),
+            "unexpected truncation marker: {}",
+            &result[result.len() - 40..]
+        );
+        let small = ProviderEventCursor::new().feed(
+            Provider::Claude,
+            b"{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"content\":\"ok\"}]}}\n",
+        );
+        assert_eq!(
+            small[0].fields.get("tool_result").map(String::as_str),
+            Some("\"ok\"")
+        );
     }
 
     #[test]

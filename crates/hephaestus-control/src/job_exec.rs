@@ -987,6 +987,11 @@ impl ControlPlane {
                 JobTerminal::Failed
             }
         } else {
+            if let Err(reason) = &completed.output {
+                // The ledger records only the terminal state; name the cause for
+                // the operator instead of failing silently.
+                eprintln!("hephaestusd: job {} failed: {reason}", record.job_id);
+            }
             record.state = JobState::Failed;
             JobTerminal::Failed
         };
