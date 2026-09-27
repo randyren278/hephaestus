@@ -75,3 +75,55 @@ fn read_token(path: &Path) -> Result<String, ControlError> {
     }
     Ok(token)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::net::UnixListener;
+
+    use tempfile::tempdir;
+
+    use super::{Client, ControlError, MAX_RESPONSE_BYTES, fs, read_token};
+    use crate::Command;
+
+    #[test]
+    fn read_token_rejects_wrong_length_and_non_hex_content() {
+        let directory = tempdir().expect("temp dir");
+
+        let short = directory.path().join("short.token");
+        fs::write(&short, "abc").expect("write short token");
+        assert!(matches!(
+            read_token(&short),
+            Err(ControlError::Protocol("operator token is malformed"))
+        ));
+
+        let non_hex = directory.path().join("non-hex.token");
+        fs::write(&non_hex, "z".repeat(64)).expect("write non-hex token");
+        assert!(matches!(
+            read_token(&non_hex),
+            Err(ControlError::Protocol("operator token is malformed"))
+        ));
+    }
+
+    #[test]
+    fn request_rejects_a_response_larger_than_the_bound() {
+        let directory = tempdir().expect("temp dir");
+        fs::write(directory.path().join("operator.token"), "a".repeat(64))
+            .expect("write valid token");
+        let listener =
+            UnixListener::bind(directory.path().join("control.sock")).expect("bind control socket");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept connection");
+            let mut request = Vec::new();
+            std::io::Read::read_to_end(&mut stream, &mut request).ok();
+            let oversized = vec![b'0'; MAX_RESPONSE_BYTES + 1];
+            std::io::Write::write_all(&mut stream, &oversized).expect("write oversized response");
+        });
+        let client = Client::new(directory.path());
+        let result = client.request(Command::Status);
+        handle.join().expect("server thread panicked");
+        assert!(matches!(
+            result,
+            Err(ControlError::Protocol("daemon response exceeds limit"))
+        ));
+    }
+}

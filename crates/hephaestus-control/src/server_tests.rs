@@ -13199,6 +13199,24 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
         .check_arena_invariants(&assessed.evaluation)
         .expect("record child invariant evidence");
 
+    // A canary cannot start before the World has a Champion to roll out
+    // against.
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "start-no-champion",
+            Command::CanaryStart {
+                canary_id: "canary-no-champion".to_owned(),
+                world_id: world_id.clone(),
+                candidate_genome_id: assessed.child.clone(),
+                assessment_id: "canary-improve-assessment".to_owned(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "World has no Champion; seed one before starting a canary",
+    );
+
     champion_transition(
         &mut plane,
         &token,
@@ -13233,6 +13251,45 @@ fn canary_staged_rollout_promotes_through_champion_path_and_replays() {
         ),
         ApiErrorCode::InvalidRequest,
         "world_id and candidate_genome_id are required",
+    );
+
+    // A canary's candidate must differ from the World's current Champion.
+    assert_canary_error(
+        canary_transition(
+            &mut plane,
+            &token,
+            "start-candidate-is-champion",
+            Command::CanaryStart {
+                canary_id: "canary-noop".to_owned(),
+                world_id: world_id.clone(),
+                candidate_genome_id: initial_candidate.genome_id.clone(),
+                assessment_id: "canary-improve-assessment".to_owned(),
+            },
+        ),
+        ApiErrorCode::InvalidRequest,
+        "candidate must differ from the current Champion",
+    );
+
+    // Starting a canary is evolution work; it is refused while frozen.
+    assert!(
+        dispatch_call(&mut plane, &token, "freeze-before-start", Command::Freeze)
+            .error
+            .is_none()
+    );
+    assert_canary_error(
+        canary_transition(&mut plane, &token, "start-frozen", start("canary-frozen")),
+        ApiErrorCode::InvalidRequest,
+        "evolution is frozen",
+    );
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "unfreeze-before-start",
+            Command::Unfreeze,
+        )
+        .error
+        .is_none()
     );
 
     let started =
@@ -15594,6 +15651,157 @@ fn gene_bank_origin(
 }
 
 #[test]
+fn gene_extraction_refuses_when_a_cited_event_hash_has_been_tampered() {
+    let directory = tempdir().expect("Gene extraction hash fixture");
+    let mut plane = gene_bank_plane_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let _gene = gene_bank_origin(&mut plane, &token, &directory, "hash-gene", 3);
+
+    let history = gene_bank_history(&plane);
+    let assessment_event_id = forge_assessment_event_id("origin-assessment");
+    let mut tampered = history.clone();
+    tampered
+        .iter_mut()
+        .find(|event| event.event_id == assessment_event_id)
+        .expect("origin assessment event exists")
+        .hash = [0xAB; 32];
+
+    let result = gene_extraction_payload(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &tampered,
+        &plane.state.registered,
+        "hash-gene-2",
+        "origin-promote",
+    );
+    assert!(
+        matches!(result, Err(ExecuteError::Internal)),
+        "a Gene must not be extracted when its cited assessment event hash was rewritten"
+    );
+
+    let proposal_event_id = forge_event_id("origin-proposal");
+    let mut tampered_proposal = history.clone();
+    tampered_proposal
+        .iter_mut()
+        .find(|event| event.event_id == proposal_event_id)
+        .expect("origin proposal event exists")
+        .hash = [0xCD; 32];
+    let result = gene_extraction_payload(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &tampered_proposal,
+        &plane.state.registered,
+        "hash-gene-3",
+        "origin-promote",
+    );
+    assert!(
+        matches!(result, Err(ExecuteError::Internal)),
+        "a Gene must not be extracted when its cited proposal event hash was rewritten"
+    );
+
+    // The assessment event's hash matches, but its own decoded payload no
+    // longer agrees with the promotion it is cited from: the assessment_id
+    // it now carries is not the one the promotion recorded.
+    let mut tampered_assessment_payload = history;
+    let assessment_event = tampered_assessment_payload
+        .iter_mut()
+        .find(|event| event.event_id == assessment_event_id)
+        .expect("origin assessment event exists");
+    let mut assessment_payload: ForgeAssessmentPayload =
+        serde_json::from_slice(&assessment_event.payload).expect("decode assessment payload");
+    assessment_payload.assessment_id = "rewritten-assessment-id".to_owned();
+    assessment_event.payload =
+        serde_json::to_vec(&serde_json::to_value(&assessment_payload).unwrap())
+            .expect("re-encode assessment payload");
+    let result = gene_extraction_payload(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &tampered_assessment_payload,
+        &plane.state.registered,
+        "hash-gene-4",
+        "origin-promote",
+    );
+    assert!(
+        matches!(result, Err(ExecuteError::Internal)),
+        "a Gene must not be extracted when the cited assessment's own identity was rewritten"
+    );
+}
+
+#[test]
+fn gene_transfer_record_refuses_when_the_applied_trial_was_rebound_to_another_recipient() {
+    let directory = tempdir().expect("Gene transfer record mismatch fixture");
+    let mut plane = gene_bank_plane_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let gene = gene_bank_origin(&mut plane, &token, &directory, "rebind-gene", 3);
+    let helps_world = gene_bank_world(
+        &mut plane,
+        &token,
+        &directory,
+        "rebind-helps-world",
+        "rebind-helps",
+        &[("rebind-task", "delta", "DELTA")],
+    );
+    let recipient = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "rebind-recipient",
+        "[]",
+    );
+    let decoy = gene_bank_genome(
+        &mut plane,
+        &token,
+        &directory,
+        &helps_world.world_id,
+        "rebind-decoy",
+        "[]",
+    );
+    let ResponseData::GeneTransfer { trial } = plane
+        .gene_transfer_apply(
+            "rebind-transfer",
+            &gene.payload.gene_id,
+            &recipient.genome_id,
+        )
+        .expect("apply Gene transfer")
+    else {
+        panic!("transfer apply should return its durable record");
+    };
+    let evaluation_id = "rebind-transfer-eval".to_owned();
+    complete_arena_test_job(
+        &mut plane,
+        &evaluation_id,
+        &recipient.genome_id,
+        &trial.applied.child.genome_id,
+    );
+    plane
+        .select_arena_evaluation(&evaluation_id)
+        .expect("select transfer trial evaluation");
+
+    let history = gene_bank_history(&plane);
+    let applied_event_id = transfer_applied_event_id("rebind-transfer");
+    let mut tampered = history;
+    let applied_event = tampered
+        .iter_mut()
+        .find(|event| event.event_id == applied_event_id)
+        .expect("applied transfer event exists");
+    let mut applied_payload: GeneTransferAppliedPayload =
+        serde_json::from_slice(&applied_event.payload).expect("decode applied payload");
+    applied_payload.to_genome_id = decoy.genome_id.clone();
+    applied_event.payload = serde_json::to_vec(&serde_json::to_value(&applied_payload).unwrap())
+        .expect("re-encode applied payload");
+
+    let result = transfer_recorded_payload(
+        &plane.storage.as_ref().unwrap().artifacts,
+        &tampered,
+        &plane.state.registered,
+        "rebind-transfer",
+        &evaluation_id,
+    );
+    assert!(
+        matches!(result, Err(ExecuteError::Rejected(_))),
+        "a transfer trial rebound to a different recipient must not be recorded: {result:?}"
+    );
+}
+
+#[test]
 fn gene_extraction_refuses_below_the_evidence_threshold_and_bad_input() {
     let directory = tempdir().expect("Gene extraction refusal fixture");
     let (mut plane, initial_parent, initial_candidate) =
@@ -15863,6 +16071,24 @@ fn gene_transfer_trials_record_contradiction_and_speciation() {
         ),
         Err(ExecuteError::Rejected(_))
     ));
+
+    // A recipient Genome with no `agent.prompt` artifact (a provider Genome,
+    // not a Markdown reference Genome) has nothing this transfer can mutate.
+    let provider_recipient =
+        register_claude_provider_genome(&mut plane, &token, &directory, &helps_world.world_id);
+    match plane.gene_transfer_apply(
+        "transfer-no-prompt",
+        &gene.payload.gene_id,
+        &provider_recipient.genome_id,
+    ) {
+        Err(ExecuteError::Rejected(message)) => {
+            assert!(
+                message.contains("no supported prompt to mutate"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("a promptless recipient must refuse transfer: {other:?}"),
+    }
 
     // The three-lineage transfer trials above (two positive, one negative)
     // are enough for the Gene's contradiction to be recorded automatically.

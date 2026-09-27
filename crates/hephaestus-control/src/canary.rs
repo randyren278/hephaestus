@@ -845,7 +845,12 @@ pub(super) fn canary_event_input(
 
 #[cfg(test)]
 mod unit_tests {
-    use crate::protocol::CanaryStage;
+    use hephaestus_ledger::StoredEvent;
+
+    use super::{
+        CANARY_EVENT_TYPE, canary_list, canary_projection, decode_canary_transition, next_stage,
+    };
+    use crate::protocol::{CanaryStage, CanaryTransitionKind, CanaryTransitionPayload};
 
     #[test]
     fn stage_json_tags_are_lowercase_with_no_digit_separator() {
@@ -857,5 +862,92 @@ mod unit_tests {
             serde_json::to_string(&CanaryStage::Stage25).unwrap(),
             "\"stage25\""
         );
+    }
+
+    #[test]
+    fn next_stage_has_no_successor_past_a_terminal_stage() {
+        assert_eq!(next_stage(CanaryStage::Completed), None);
+        assert_eq!(next_stage(CanaryStage::Aborted), None);
+    }
+
+    fn sample_payload(canary_id: &str, kind: CanaryTransitionKind) -> CanaryTransitionPayload {
+        CanaryTransitionPayload {
+            schema_version: 1,
+            canary_id: canary_id.to_owned(),
+            world_id: "world".to_owned(),
+            kind,
+            stage: CanaryStage::Pending,
+            candidate_genome_id: "candidate".to_owned(),
+            previous_champion_genome_id: "champion".to_owned(),
+            assessment_id: "assessment".to_owned(),
+            evidence: None,
+            champion_promotion: None,
+            champion_rollback_event_id: None,
+            champion_rollback_event_hash: None,
+            reason: None,
+        }
+    }
+
+    fn stored_event(
+        sequence: u64,
+        event_id: &str,
+        payload: &CanaryTransitionPayload,
+    ) -> StoredEvent {
+        StoredEvent {
+            sequence,
+            event_id: event_id.to_owned(),
+            aggregate_id: super::canary_aggregate_id(&payload.canary_id),
+            event_type: CANARY_EVENT_TYPE.to_owned(),
+            actor: super::OPERATOR_ACTOR.to_owned(),
+            timestamp_millis: 1,
+            payload: serde_json::to_vec(&serde_json::to_value(payload).unwrap()).unwrap(),
+            previous_hash: [0; 32],
+            hash: [u8::try_from(sequence).unwrap_or(u8::MAX); 32],
+        }
+    }
+
+    #[test]
+    fn decode_canary_transition_rejects_a_non_canonically_encoded_payload() {
+        let payload = sample_payload("canary-1", CanaryTransitionKind::Started);
+        let pretty = serde_json::to_vec_pretty(&payload).unwrap();
+        let event = StoredEvent {
+            sequence: 1,
+            event_id: super::canary_started_event_id("canary-1"),
+            aggregate_id: super::canary_aggregate_id("canary-1"),
+            event_type: CANARY_EVENT_TYPE.to_owned(),
+            actor: super::OPERATOR_ACTOR.to_owned(),
+            timestamp_millis: 1,
+            payload: pretty,
+            previous_hash: [0; 32],
+            hash: [1; 32],
+        };
+        assert!(decode_canary_transition(&event).is_err());
+    }
+
+    #[test]
+    fn canary_projection_rejects_an_advance_or_live_check_that_precedes_any_start() {
+        let advance = sample_payload("canary-orphan", CanaryTransitionKind::Advanced);
+        let event = stored_event(1, "advance-first", &advance);
+        assert!(canary_projection(std::slice::from_ref(&event), "canary-orphan").is_err());
+
+        let live_check = sample_payload(
+            "canary-orphan-2",
+            CanaryTransitionKind::LiveRegressionDetected,
+        );
+        let event = stored_event(1, "live-check-first", &live_check);
+        assert!(canary_projection(std::slice::from_ref(&event), "canary-orphan-2").is_err());
+    }
+
+    #[test]
+    fn canary_list_bounds_the_number_of_distinct_canaries_returned() {
+        let first = sample_payload("canary-first", CanaryTransitionKind::Started);
+        let second = sample_payload("canary-second", CanaryTransitionKind::Started);
+        let history = vec![
+            stored_event(1, "started-1", &first),
+            stored_event(2, "started-2", &second),
+        ];
+        let capped = canary_list(&history, 1).expect("list succeeds");
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].canary_id, "canary-second", "newest first");
     }
 }

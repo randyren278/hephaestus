@@ -292,3 +292,103 @@ pub(super) fn drift_event_input(
         payload_bytes,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CORRECTNESS_REGRESSION_BPS, COST_REGRESSION_BPS, LATENCY_REGRESSION_BPS,
+        RELIABILITY_REGRESSION_BPS,
+    };
+    use super::{
+        DRIFT_EVENT_TYPE, DriftKind, DriftRecordPayload, decode_drift_record, drift_list,
+        drift_projection, threshold_bps,
+    };
+
+    fn stored_event(
+        sequence: u64,
+        event_id: &str,
+        payload: Vec<u8>,
+    ) -> hephaestus_ledger::StoredEvent {
+        hephaestus_ledger::StoredEvent {
+            sequence,
+            event_id: event_id.to_owned(),
+            aggregate_id: super::drift_aggregate_id("world"),
+            event_type: DRIFT_EVENT_TYPE.to_owned(),
+            actor: super::OPERATOR_ACTOR.to_owned(),
+            timestamp_millis: 1,
+            payload,
+            previous_hash: [0; 32],
+            hash: [u8::try_from(sequence).unwrap_or(u8::MAX); 32],
+        }
+    }
+
+    fn sample_payload(drift_id: &str, kind: DriftKind) -> DriftRecordPayload {
+        DriftRecordPayload {
+            schema_version: 1,
+            drift_id: drift_id.to_owned(),
+            world_id: "world".to_owned(),
+            kind,
+            evidence_evaluation_id: "eval".to_owned(),
+            selection_event_id: "arena:selection:eval:selected".to_owned(),
+            selection_event_hash: "00".repeat(32),
+            baseline_genome_id: "baseline".to_owned(),
+            shifted_genome_id: "shifted".to_owned(),
+            threshold_bps: threshold_bps(kind),
+            observed_delta_bps: 0,
+        }
+    }
+
+    #[test]
+    fn threshold_bps_matches_the_documented_regression_constant_for_every_kind() {
+        assert_eq!(
+            threshold_bps(DriftKind::Latency),
+            u32::try_from(LATENCY_REGRESSION_BPS).unwrap()
+        );
+        assert_eq!(
+            threshold_bps(DriftKind::Cost),
+            u32::try_from(COST_REGRESSION_BPS).unwrap()
+        );
+        assert_eq!(
+            threshold_bps(DriftKind::Correctness),
+            u32::try_from(CORRECTNESS_REGRESSION_BPS).unwrap()
+        );
+        assert_eq!(
+            threshold_bps(DriftKind::Workload),
+            u32::try_from(RELIABILITY_REGRESSION_BPS).unwrap()
+        );
+    }
+
+    #[test]
+    fn decode_drift_record_rejects_a_non_canonically_encoded_payload() {
+        let payload = sample_payload("drift-1", DriftKind::Cost);
+        let pretty = serde_json::to_vec_pretty(&payload).expect("pretty-encode drift payload");
+        let event = stored_event(1, "drift:drift-1:recorded", pretty);
+        assert!(decode_drift_record(&event).is_err());
+    }
+
+    #[test]
+    fn drift_projection_and_list_find_the_matching_record_and_respect_the_limit() {
+        let payload_a = sample_payload("drift-a", DriftKind::Latency);
+        let payload_b = sample_payload("drift-b", DriftKind::Correctness);
+        let canonicalize = |payload: &DriftRecordPayload| {
+            serde_json::to_vec(&serde_json::to_value(payload).unwrap()).unwrap()
+        };
+        let event_a = stored_event(1, "drift:drift-a:recorded", canonicalize(&payload_a));
+        let event_b = stored_event(2, "drift:drift-b:recorded", canonicalize(&payload_b));
+        let history = vec![event_a, event_b];
+
+        let found = drift_projection(&history, "drift-b")
+            .expect("projection succeeds")
+            .expect("drift-b is present");
+        assert_eq!(found.payload.drift_id, "drift-b");
+        assert!(
+            drift_projection(&history, "missing")
+                .expect("projection succeeds")
+                .is_none()
+        );
+
+        let capped = drift_list(&history, 1).expect("list succeeds");
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].payload.drift_id, "drift-b", "newest first");
+    }
+}

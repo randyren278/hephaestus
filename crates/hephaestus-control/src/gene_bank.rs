@@ -1038,3 +1038,185 @@ pub(super) fn verify_gene_bank_history_with(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod unit_tests {
+    use hephaestus_genome::GenomeRecord;
+    use hephaestus_ledger::StoredEvent;
+
+    use super::{
+        GENE_EVENT_TYPE, existing_gene, existing_transfer_applied, gene_aggregate_id,
+        gene_event_id, parse_operation, transfer_aggregate_id, transfer_applied_event_id,
+    };
+    use crate::protocol::{GeneExtractedPayload, GeneTransferAppliedPayload};
+
+    fn canonicalize<T: serde::Serialize>(value: &T) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::to_value(value).unwrap()).unwrap()
+    }
+
+    fn sample_gene(gene_id: &str, promotion_transition_id: &str) -> GeneExtractedPayload {
+        GeneExtractedPayload {
+            schema_version: 1,
+            gene_id: gene_id.to_owned(),
+            promotion_transition_id: promotion_transition_id.to_owned(),
+            promotion_event_id: "champion:seed:promoted".to_owned(),
+            promotion_event_hash: "00".repeat(32),
+            assessment_id: "assessment".to_owned(),
+            assessment_event_id: "forge:assessment:assessment:assessed".to_owned(),
+            assessment_event_hash: "00".repeat(32),
+            proposal_id: "proposal".to_owned(),
+            proposal_event_id: "forge:proposal:proposal:proposed".to_owned(),
+            proposal_event_hash: "00".repeat(32),
+            selection_event_id: "arena:selection:eval:selected".to_owned(),
+            selection_event_hash: "00".repeat(32),
+            invariant_event_id: "invariant:eval:checked".to_owned(),
+            invariant_event_hash: "00".repeat(32),
+            world_id: "world".to_owned(),
+            origin_parent_genome_id: "parent".to_owned(),
+            origin_child_genome_id: "child".to_owned(),
+            operation_before: "identity".to_owned(),
+            operation_after: "ascii_uppercase".to_owned(),
+            evidence_trials: 3,
+            evidence_threshold: 3,
+        }
+    }
+
+    #[test]
+    fn parse_operation_rejects_an_unsupported_reference_operation() {
+        assert!(parse_operation("some_unknown_operation").is_err());
+    }
+
+    #[test]
+    fn decode_gene_extracted_rejects_a_non_canonically_encoded_payload() {
+        let payload = sample_gene("gene-1", "promotion-1");
+        let pretty = serde_json::to_vec_pretty(&payload).unwrap();
+        let event = StoredEvent {
+            sequence: 1,
+            event_id: gene_event_id("gene-1"),
+            aggregate_id: gene_aggregate_id("gene-1"),
+            event_type: GENE_EVENT_TYPE.to_owned(),
+            actor: "operator".to_owned(),
+            timestamp_millis: 1,
+            payload: pretty,
+            previous_hash: [0; 32],
+            hash: [1; 32],
+        };
+        assert!(super::decode_gene_extracted(&event).is_err());
+    }
+
+    #[test]
+    fn decode_gene_extracted_rejects_bytes_that_do_not_parse_as_the_payload_shape() {
+        let event = StoredEvent {
+            sequence: 1,
+            event_id: gene_event_id("gene-1"),
+            aggregate_id: gene_aggregate_id("gene-1"),
+            event_type: GENE_EVENT_TYPE.to_owned(),
+            actor: "operator".to_owned(),
+            timestamp_millis: 1,
+            payload: b"not json".to_vec(),
+            previous_hash: [0; 32],
+            hash: [1; 32],
+        };
+        assert!(super::decode_gene_extracted(&event).is_err());
+    }
+
+    #[test]
+    fn existing_gene_rejects_a_gene_id_already_bound_to_a_different_promotion() {
+        let payload = sample_gene("gene-1", "promotion-1");
+        let event = StoredEvent {
+            sequence: 1,
+            event_id: gene_event_id("gene-1"),
+            aggregate_id: gene_aggregate_id("gene-1"),
+            event_type: GENE_EVENT_TYPE.to_owned(),
+            actor: "operator".to_owned(),
+            timestamp_millis: 1,
+            payload: canonicalize(&payload),
+            previous_hash: [0; 32],
+            hash: [1; 32],
+        };
+        let history = vec![event];
+        assert!(
+            existing_gene(&history, "gene-1", "promotion-1")
+                .expect("lookup succeeds")
+                .is_some()
+        );
+        assert!(existing_gene(&history, "gene-1", "promotion-2").is_err());
+    }
+
+    #[test]
+    fn existing_transfer_applied_rejects_a_trial_bound_to_a_different_gene_or_recipient() {
+        let payload = GeneTransferAppliedPayload {
+            schema_version: 1,
+            trial_id: "trial-1".to_owned(),
+            gene_id: "gene-1".to_owned(),
+            gene_event_id: gene_event_id("gene-1"),
+            gene_event_hash: "00".repeat(32),
+            to_genome_id: "recipient".to_owned(),
+            world_id: "world".to_owned(),
+            child: GenomeRecord {
+                genome_id: "child".to_owned(),
+                name: "child".to_owned(),
+                world_id: "world".to_owned(),
+                artifact_id: "sha256:".to_owned() + &"0".repeat(64),
+                parent_ids: vec!["recipient".to_owned()],
+            },
+            prompt_artifact_before: "sha256:".to_owned() + &"1".repeat(64),
+            prompt_artifact_after: "sha256:".to_owned() + &"2".repeat(64),
+        };
+        let event = StoredEvent {
+            sequence: 1,
+            event_id: transfer_applied_event_id("trial-1"),
+            aggregate_id: transfer_aggregate_id("trial-1"),
+            event_type: super::TRANSFER_APPLIED_EVENT_TYPE.to_owned(),
+            actor: "operator".to_owned(),
+            timestamp_millis: 1,
+            payload: canonicalize(&payload),
+            previous_hash: [0; 32],
+            hash: [1; 32],
+        };
+        let history = vec![event];
+        assert!(
+            existing_transfer_applied(&history, "trial-1", "gene-1", "recipient")
+                .expect("lookup succeeds")
+                .is_some()
+        );
+        assert!(existing_transfer_applied(&history, "trial-1", "gene-1", "someone-else").is_err());
+    }
+
+    #[test]
+    fn existing_transfer_recorded_rejects_a_trial_bound_to_a_different_evaluation() {
+        let payload = crate::protocol::GeneTransferRecordedPayload {
+            schema_version: 1,
+            trial_id: "trial-1".to_owned(),
+            gene_id: "gene-1".to_owned(),
+            applied_event_id: transfer_applied_event_id("trial-1"),
+            applied_event_hash: "00".repeat(32),
+            evaluation_id: "eval-1".to_owned(),
+            selection_event_id: "arena:selection:eval-1:selected".to_owned(),
+            selection_event_hash: "00".repeat(32),
+            selection_receipt_artifact_id: "sha256:".to_owned() + &"0".repeat(64),
+            outcome: crate::protocol::GeneTransferOutcome::Neutral,
+            estimate_bps: 0,
+            lower_bps: 0,
+            upper_bps: 0,
+        };
+        let event = StoredEvent {
+            sequence: 1,
+            event_id: super::transfer_recorded_event_id("trial-1"),
+            aggregate_id: super::transfer_aggregate_id("trial-1"),
+            event_type: super::TRANSFER_RECORDED_EVENT_TYPE.to_owned(),
+            actor: "operator".to_owned(),
+            timestamp_millis: 1,
+            payload: canonicalize(&payload),
+            previous_hash: [0; 32],
+            hash: [1; 32],
+        };
+        let history = vec![event];
+        assert!(
+            super::existing_transfer_recorded(&history, "trial-1", "eval-1")
+                .expect("lookup succeeds")
+                .is_some()
+        );
+        assert!(super::existing_transfer_recorded(&history, "trial-1", "some-other-eval").is_err());
+    }
+}

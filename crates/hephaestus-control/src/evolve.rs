@@ -501,3 +501,226 @@ pub(super) fn verify_evolution_history(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod unit_tests {
+    use hephaestus_ledger::StoredEvent;
+
+    use super::{
+        EVOLUTION_CANCEL_TYPE, EvolutionCancelPayload, EvolutionFinishedPayload,
+        EvolutionGenerationPayload, EvolutionRunState, EvolutionStartedPayload, decode_cancel,
+        decode_finished, decode_generation, decode_started, evolution_aggregate_id,
+        evolution_cancel_event_id, evolution_projection,
+    };
+    use crate::protocol::EvolutionFinishReason;
+
+    fn started_payload(run_id: &str) -> EvolutionStartedPayload {
+        EvolutionStartedPayload {
+            schema_version: 1,
+            run_id: run_id.to_owned(),
+            world_id: "world".to_owned(),
+            from_genome_id: "from".to_owned(),
+            baseline_genome_id: "baseline".to_owned(),
+            max_generations: 3,
+            max_paired_trials: 6,
+            strategy_id: None,
+        }
+    }
+
+    fn stored_event(
+        sequence: u64,
+        event_id: &str,
+        event_type: &str,
+        payload: Vec<u8>,
+    ) -> StoredEvent {
+        StoredEvent {
+            sequence,
+            event_id: event_id.to_owned(),
+            aggregate_id: evolution_aggregate_id("run"),
+            event_type: event_type.to_owned(),
+            actor: super::OPERATOR_ACTOR.to_owned(),
+            timestamp_millis: 1,
+            payload,
+            previous_hash: [0; 32],
+            hash: [u8::try_from(sequence).unwrap_or(u8::MAX); 32],
+        }
+    }
+
+    fn canonicalize<T: serde::Serialize>(value: &T) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::to_value(value).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn decode_started_rejects_a_non_canonically_encoded_payload() {
+        let pretty = serde_json::to_vec_pretty(&started_payload("run")).unwrap();
+        let event = stored_event(
+            1,
+            "evolution:run:started",
+            super::EVOLUTION_STARTED_TYPE,
+            pretty,
+        );
+        assert!(decode_started(&event).is_err());
+    }
+
+    #[test]
+    fn decode_generation_rejects_a_non_canonically_encoded_payload() {
+        let payload = EvolutionGenerationPayload {
+            schema_version: 1,
+            run_id: "run".to_owned(),
+            generation_index: 0,
+            champion_before: "from".to_owned(),
+            diagnostic_evaluation_id: "diag".to_owned(),
+            proposal_id: "proposal".to_owned(),
+            child_genome_id: "child".to_owned(),
+            child_evaluation_id: "child-eval".to_owned(),
+            assessment_id: "assessment".to_owned(),
+            promoted: false,
+            champion_after: "from".to_owned(),
+            candidates: Vec::new(),
+        };
+        let pretty = serde_json::to_vec_pretty(&payload).unwrap();
+        let event = stored_event(
+            1,
+            "evolution:run:generation:0",
+            super::EVOLUTION_GENERATION_TYPE,
+            pretty,
+        );
+        assert!(decode_generation(&event).is_err());
+    }
+
+    #[test]
+    fn decode_generation_rejects_bytes_that_do_not_parse_as_the_payload_shape() {
+        let event = stored_event(
+            1,
+            "evolution:run:generation:0",
+            super::EVOLUTION_GENERATION_TYPE,
+            b"not json".to_vec(),
+        );
+        assert!(decode_generation(&event).is_err());
+    }
+
+    #[test]
+    fn decode_finished_rejects_a_non_canonically_encoded_payload() {
+        let payload = EvolutionFinishedPayload {
+            schema_version: 1,
+            run_id: "run".to_owned(),
+            generations_completed: 0,
+            trials_consumed: 0,
+            reason: EvolutionFinishReason::GenerationsExhausted,
+        };
+        let pretty = serde_json::to_vec_pretty(&payload).unwrap();
+        let event = stored_event(
+            1,
+            "evolution:run:finished",
+            super::EVOLUTION_FINISHED_TYPE,
+            pretty,
+        );
+        assert!(decode_finished(&event).is_err());
+    }
+
+    #[test]
+    fn decode_cancel_rejects_a_non_canonically_encoded_payload() {
+        let payload = EvolutionCancelPayload {
+            schema_version: 1,
+            run_id: "run".to_owned(),
+        };
+        let pretty = serde_json::to_vec_pretty(&payload).unwrap();
+        let event = stored_event(
+            1,
+            &evolution_cancel_event_id("run"),
+            EVOLUTION_CANCEL_TYPE,
+            pretty,
+        );
+        assert!(decode_cancel(&event).is_err());
+    }
+
+    #[test]
+    fn evolution_projection_skips_events_for_other_runs_and_rejects_ones_that_precede_their_start()
+    {
+        // A cancel for a different run than the one being projected is
+        // skipped rather than mistaken for this run's history.
+        let other_cancel = EvolutionCancelPayload {
+            schema_version: 1,
+            run_id: "other-run".to_owned(),
+        };
+        let history = vec![stored_event(
+            1,
+            &evolution_cancel_event_id("other-run"),
+            EVOLUTION_CANCEL_TYPE,
+            canonicalize(&other_cancel),
+        )];
+        assert_eq!(
+            evolution_projection(&history, "target-run").expect("no matching run"),
+            None
+        );
+
+        // A cancel for the run being projected, with no preceding start, is
+        // rejected rather than silently accepted.
+        let own_cancel = EvolutionCancelPayload {
+            schema_version: 1,
+            run_id: "target-run".to_owned(),
+        };
+        let history = vec![stored_event(
+            1,
+            &evolution_cancel_event_id("target-run"),
+            EVOLUTION_CANCEL_TYPE,
+            canonicalize(&own_cancel),
+        )];
+        assert!(evolution_projection(&history, "target-run").is_err());
+    }
+
+    #[test]
+    fn evolution_projection_rejects_a_generation_or_finish_that_precedes_its_start() {
+        let generation = EvolutionGenerationPayload {
+            schema_version: 1,
+            run_id: "run".to_owned(),
+            generation_index: 0,
+            champion_before: "from".to_owned(),
+            diagnostic_evaluation_id: "diag".to_owned(),
+            proposal_id: "proposal".to_owned(),
+            child_genome_id: "child".to_owned(),
+            child_evaluation_id: "child-eval".to_owned(),
+            assessment_id: "assessment".to_owned(),
+            promoted: false,
+            champion_after: "from".to_owned(),
+            candidates: Vec::new(),
+        };
+        let history = vec![stored_event(
+            1,
+            "evolution:run:generation:0",
+            super::EVOLUTION_GENERATION_TYPE,
+            canonicalize(&generation),
+        )];
+        assert!(evolution_projection(&history, "run").is_err());
+
+        let finished = EvolutionFinishedPayload {
+            schema_version: 1,
+            run_id: "run".to_owned(),
+            generations_completed: 0,
+            trials_consumed: 0,
+            reason: EvolutionFinishReason::GenerationsExhausted,
+        };
+        let history = vec![stored_event(
+            1,
+            "evolution:run:finished",
+            super::EVOLUTION_FINISHED_TYPE,
+            canonicalize(&finished),
+        )];
+        assert!(evolution_projection(&history, "run").is_err());
+    }
+
+    #[test]
+    fn evolution_projection_reflects_a_healthy_start_and_state() {
+        let history = vec![stored_event(
+            1,
+            "evolution:run:started",
+            super::EVOLUTION_STARTED_TYPE,
+            canonicalize(&started_payload("run")),
+        )];
+        let projected = evolution_projection(&history, "run")
+            .expect("projection succeeds")
+            .expect("run is present");
+        assert_eq!(projected.state, EvolutionRunState::Running);
+        assert!(!projected.cancel_requested);
+    }
+}
