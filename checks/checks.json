@@ -2681,6 +2681,30 @@
       "find": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::CanaryAborted,\n                    Some(&canary_id),\n                );\n            }",
       "replace": "            CanaryStage::Aborted => {\n                return self.finish_drift_adaptation(\n                    drift_id,\n                    DriftAdaptationFinishReason::Promoted,\n                    Some(&canary_id),\n                );\n            }",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched"
+    },
+    {
+      "id": "canary-latency-crossed-drops-absolute-floor",
+      "file": "crates/hephaestus-control/src/canary.rs",
+      "invariant": "Under the v2 latency rule, a latency increase must also clear the 50ms-per-task absolute floor, not just the 20% proportional threshold.",
+      "find": "    let floor_millis = LATENCY_FLOOR_MILLIS_PER_TASK.saturating_mul(selection_task_count(receipt));\n    let delta_millis = receipt\n        .candidate_latency_millis()\n        .saturating_sub(receipt.parent_latency_millis());\n    delta_millis > floor_millis\n}",
+      "replace": "    let floor_millis = LATENCY_FLOOR_MILLIS_PER_TASK.saturating_mul(selection_task_count(receipt));\n    let delta_millis = receipt\n        .candidate_latency_millis()\n        .saturating_sub(receipt.parent_latency_millis());\n    let _ = (floor_millis, delta_millis);\n    true\n}",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact"
+    },
+    {
+      "id": "drift-latency-crossed-drops-absolute-floor",
+      "file": "crates/hephaestus-control/src/drift.rs",
+      "invariant": "A latency drift record must also clear the 50ms-per-task absolute floor, not just the 20% proportional threshold.",
+      "find": "        DriftKind::Latency => (\n            deltas.latency_bps,\n            latency_regression_crossed(deltas.latency_bps, &receipt, recorded_latency_rule),\n        ),",
+      "replace": "        DriftKind::Latency => (\n            deltas.latency_bps,\n            deltas.latency_bps >= i64::from(threshold),\n        ),",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_refuses_a_small_regression_within_the_absolute_floor -- --exact"
+    },
+    {
+      "id": "canary-replay-forces-current-latency-rule-on-old-events",
+      "file": "crates/hephaestus-control/src/canary.rs",
+      "invariant": "Replay must recompute a canary transition under the latency rule its own evidence names, not whatever rule is current, so an event recorded under an older rule still verifies.",
+      "find": "        let recorded_latency_rule = payload\n            .evidence\n            .as_ref()\n            .and_then(|evidence| evidence.latency_rule);",
+      "replace": "        let recorded_latency_rule = Some(CURRENT_LATENCY_RULE);",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact"
     }
   ]
 }

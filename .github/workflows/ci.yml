@@ -236,13 +236,13 @@ jobs:
             prefix: crates/hephaestus-control/
             shard_index: 0
             shard_count: 5
-            minimum: 20
+            minimum: 21
             timeout_minutes: 30
           - scope: hephaestus-control-2
             prefix: crates/hephaestus-control/
             shard_index: 1
             shard_count: 5
-            minimum: 20
+            minimum: 21
             timeout_minutes: 30
           - scope: hephaestus-control-3
             prefix: crates/hephaestus-control/
@@ -260,7 +260,7 @@ jobs:
             prefix: crates/hephaestus-control/
             shard_index: 4
             shard_count: 5
-            minimum: 19
+            minimum: 20
             timeout_minutes: 30
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs
