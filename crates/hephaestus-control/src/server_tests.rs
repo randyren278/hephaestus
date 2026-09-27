@@ -15663,6 +15663,94 @@ fn meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt() {
 }
 
 #[test]
+#[allow(clippy::similar_names)]
+fn meta_evaluate_pauses_under_freeze_and_resumes_only_after_explicit_unfreeze() {
+    let directory = tempdir().expect("daemon directory");
+    let (mut plane, parent_a, _candidate_a) = real_worker_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_a = parent_a.world_id.clone();
+    let (world_b_record, parent_b, _candidate_b) =
+        register_second_meta_lineage(&mut plane, &token, &directory);
+    let world_b = world_b_record.world_id.clone();
+
+    let strategy_a_id = register_meta_strategy(&mut plane, &token, &directory, "freeze-a");
+    let strategy_b_id = register_meta_strategy(&mut plane, &token, &directory, "freeze-b");
+
+    let evaluate = dispatch_call(
+        &mut plane,
+        &token,
+        "meta-evaluate-freeze",
+        Command::MetaEvaluate {
+            meta_run_id: "meta-freeze".to_owned(),
+            strategy_a_id,
+            strategy_b_id,
+            lineages: vec![
+                MetaLineageSpec {
+                    world_id: world_a.clone(),
+                    from_genome_id: parent_a.genome_id.clone(),
+                },
+                MetaLineageSpec {
+                    world_id: world_b.clone(),
+                    from_genome_id: parent_b.genome_id.clone(),
+                },
+            ],
+            confidence_bps: 9_500,
+            bootstrap_seed: 1,
+        },
+    );
+    assert!(evaluate.error.is_none(), "meta evaluate admission failed");
+
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "meta-evaluate-freeze-op",
+            Command::Freeze
+        )
+        .error
+        .is_none()
+    );
+    for _ in 0..25 {
+        plane
+            .service_async_messages()
+            .expect("tick the meta-evaluation reconciliation loop while frozen");
+    }
+    let history = plane
+        .storage
+        .as_ref()
+        .expect("canonical storage")
+        .ledger
+        .replay_verified()
+        .expect("replay verified history");
+    assert!(
+        evolution_projection(&history, "meta-freeze-a-0")
+            .expect("evolution projection")
+            .is_none(),
+        "a frozen daemon never admits a meta-evaluation's first lineage run"
+    );
+    assert!(
+        meta_evaluation_projection(&history, "meta-freeze")
+            .expect("meta-evaluation projection")
+            .is_none(),
+        "a frozen daemon never records a meta-evaluation receipt"
+    );
+
+    assert!(
+        dispatch_call(
+            &mut plane,
+            &token,
+            "meta-evaluate-unfreeze",
+            Command::Unfreeze
+        )
+        .error
+        .is_none()
+    );
+    let receipt = meta_drain(&mut plane, "meta-freeze");
+    assert_eq!(receipt.payload.meta_run_id, "meta-freeze");
+    assert_eq!(receipt.payload.lineages.len(), 2);
+}
+
+#[test]
 fn meta_strategy_register_is_idempotent_and_content_addressed() {
     let directory = tempdir().expect("daemon directory");
     let (mut plane, _parent, _candidate) = real_worker_arena_fixture(&directory);
@@ -19682,6 +19770,200 @@ fn auto_canary_on_drift_adaptation_is_interrupted_when_its_diagnostic_evaluation
             .expect("replay after an interrupted adaptation"),
         ResponseData::Replay { .. }
     ));
+}
+
+#[test]
+fn auto_canary_on_drift_adaptation_is_interrupted_when_its_shadow_evaluation_fails() {
+    // Like the diagnostic-evaluation variant above, but the diagnostic
+    // evaluation and Forge proposal succeed and the shadow evaluation
+    // (Champion versus the proposed child, the canary's own shadow
+    // evaluation) is the one rejected at the canonical writer.
+    let directory = tempdir().expect("auto-canary shadow-failure fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "trigger-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "trigger-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence");
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "trigger-drift",
+        Command::DriftRecord {
+            drift_id: "trigger".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+    assert!(!recorded.adaptation.started);
+
+    // Reject the shadow evaluation's first trial result; the diagnostic
+    // evaluation and Forge proposal are left free to succeed normally.
+    let shadow_id = adaptation_shadow_evaluation_id("trigger");
+    let shadow_run_id = paired_run_id(&shadow_id, "parent", 0);
+    let database = rusqlite::Connection::open(directory.path().join("data/events.sqlite3"))
+        .expect("open shadow trial failure trigger connection");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_shadow_trial_result BEFORE INSERT ON events
+             WHEN NEW.event_id = 'result:{shadow_run_id}'
+             BEGIN SELECT RAISE(ABORT, 'fixture shadow trial rejection'); END;"
+        ))
+        .expect("reject the shadow trial result append");
+    drop(database);
+
+    let finished = drain_drift_adaptation(&mut plane, "trigger");
+    assert!(finished.adaptation.finished);
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Interrupted)
+    );
+    assert!(
+        finished.adaptation.canary_stage.is_none(),
+        "an interrupted shadow evaluation never reaches a canary"
+    );
+
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(candidate.genome_id.as_str())
+    );
+}
+
+#[test]
+fn auto_canary_on_drift_adaptation_is_interrupted_when_a_staged_advance_evaluation_fails() {
+    // Like the shadow-evaluation variant, but the diagnostic evaluation,
+    // Forge proposal, shadow evaluation, and canary start all succeed; the
+    // canary's first staged-advance evaluation (`CanaryRequest::Advance`'s
+    // own fresh paired evaluation) is the one rejected at the canonical
+    // writer.
+    let directory = tempdir().expect("auto-canary stage-failure fixture");
+    let _delay_scope = reference_delay_scope(directory.path());
+    let (mut plane, parent, candidate) = auto_canary_arena_fixture(&directory);
+    let token = plane.token_hex.clone();
+    let world_id = parent.world_id.clone();
+
+    champion_transition(
+        &mut plane,
+        &token,
+        "seed",
+        Command::ChampionSeed {
+            transition_id: "seed".to_owned(),
+            world_id: world_id.clone(),
+            genome_id: candidate.genome_id.clone(),
+            reason: "Bootstrap the misconfigured reference lineage.".to_owned(),
+        },
+    )
+    .expect("seed Champion");
+
+    let sibling = assessed_forge_child(
+        &mut plane,
+        "trigger-improve",
+        &candidate.genome_id,
+        &parent.genome_id,
+        true,
+    );
+    hephaestus_runtime::set_test_reference_delay_in(
+        directory.path(),
+        sibling.child.clone(),
+        AUTO_CANARY_REGRESSION_DELAY_MILLIS,
+    );
+    let drift_evidence_id = "trigger-evidence";
+    complete_arena_test_job(
+        &mut plane,
+        drift_evidence_id,
+        &candidate.genome_id,
+        &sibling.child,
+    );
+    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
+    plane
+        .select_arena_evaluation(drift_evidence_id)
+        .expect("select genuine latency drift evidence");
+
+    let recorded = drift_record_cmd(
+        &mut plane,
+        &token,
+        "trigger-drift",
+        Command::DriftRecord {
+            drift_id: "trigger".to_owned(),
+            world_id: world_id.clone(),
+            kind: DriftKind::Latency,
+            evidence_evaluation_id: drift_evidence_id.to_owned(),
+        },
+    )
+    .expect("record a genuine latency drift against the misconfigured Champion");
+    assert!(!recorded.adaptation.started);
+
+    // Reject the first staged-advance evaluation's first trial result; every
+    // earlier step (diagnostic, proposal, shadow, canary start) is left free
+    // to succeed normally.
+    let stage_eval_id = adaptation_stage_evaluation_id("trigger", 0);
+    let stage_run_id = paired_run_id(&stage_eval_id, "parent", 0);
+    let database = rusqlite::Connection::open(directory.path().join("data/events.sqlite3"))
+        .expect("open stage trial failure trigger connection");
+    database
+        .execute_batch(&format!(
+            "CREATE TRIGGER reject_stage_trial_result BEFORE INSERT ON events
+             WHEN NEW.event_id = 'result:{stage_run_id}'
+             BEGIN SELECT RAISE(ABORT, 'fixture stage trial rejection'); END;"
+        ))
+        .expect("reject the stage trial result append");
+    drop(database);
+
+    let finished = drain_drift_adaptation(&mut plane, "trigger");
+    assert!(finished.adaptation.finished);
+    assert_eq!(
+        finished.adaptation.finish_reason,
+        Some(DriftAdaptationFinishReason::Interrupted)
+    );
+    assert!(
+        finished.adaptation.canary_stage.is_some(),
+        "the canary started successfully before the staged advance failed"
+    );
+
+    let champion = champion_show(&mut plane, &token, &world_id);
+    assert_eq!(
+        champion.champion_genome_id.as_deref(),
+        Some(candidate.genome_id.as_str())
+    );
 }
 
 #[test]
