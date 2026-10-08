@@ -1,0 +1,1 @@
+PASS: docs ok (README.md, docs/PRODUCT_READINESS.md, docs/MACOS_INSTALL.md, docs/PILOT_GUIDE.md, docs/RELEASES.md, docs/evidence/2026-10-08-full-current-mutations/README.md, docs/evidence/2026-10-08-current-readiness/README.md, docs/evidence/2026-10-08-quarantine-probe/README.md)

@@ -1,0 +1,21 @@
+{
+  "checkpoint": "ebbb21b",
+  "command": [
+    "/Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo",
+    "test",
+    "--workspace",
+    "--all-features"
+  ],
+  "compiler": "/Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/rustc",
+  "test_threads": 4,
+  "elapsed_seconds": 274.71,
+  "exit_code": 0,
+  "passed_including_doc_tests": 728,
+  "failed": 0,
+  "ignored": 0,
+  "source_restoration_verified_after_tests": true,
+  "tracked_checkout_clean_after_tests": true,
+  "raw_test_log_sha256": "7a33ef163382bd18317c3c486e75b375618ec81a1da433366e19b4e3ea621af0",
+  "archived_test_log_sha256": "50fdcef9d367923db5036650379403214189d29f8535fbbb2d4475966759c133",
+  "archive_normalization": "Only trailing empty lines removed; original test log retained in owned /tmp output."
+}

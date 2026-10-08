@@ -1,0 +1,27 @@
+I found no material contradiction or overclaim. The raw logs and the proof files support every claim you listed, and the docs still keep full product readiness open.
+
+**Mutation audit** (`mutations.txt`, `proof.json`)
+- The log runs against a checkout of `ebbb21b` with Rust 1.88.0, four test threads and a 900-second baseline allowance. The unmodified suite passed its baseline check before any mutation ran.
+- There are exactly 434 `KILLED` lines and 434 rows in the summary table. No line reports a survivor, stale anchor, timeout or error. The log ends with `434 mutations run, 434 killed, 0 survived, 0 stale, 0 timed out` and `PASS: all mutations killed`.
+- `proof.json` records exit code 0, `--assert-min 434`, source restoration verified, a clean checkout afterwards, and matching raw and archived log hashes.
+- The log's `/private/tmp` root and the proof's `/tmp` paths are the same location on macOS.
+
+**Restored test suite** (`restored-tests.txt`, `restored-proof.json`)
+- I added up every `test result:` line: the total is **728 passed**, and every line shows 0 failed and 0 ignored.
+- The proof records exit code 0, the `cargo test --workspace --all-features` command with the 1.88.0 compiler, and verified hashes and a clean checkout after the tests.
+- The raw and archived log hashes differ. The proof explains this: only trailing blank lines were removed from the archived copy.
+
+**Scope**
+- The audit README says a nonzero exit from a mutated test command counts as killed. It describes the result as evidence for the configured checks only, "not a claim about every possible defect."
+- The readiness docs still list these as open:
+  - the 48-invocation real-provider baseline→checklist run, with its own approval;
+  - a separately authorized evidence-bound Forge revision that the first run cannot close;
+  - attributable cost evidence, since a recorded zero or missing figure doesn't count;
+  - published-download and fresh-user first launch, plus native Intel;
+  - an approved paid offer, with no revenue claimed.
+
+**Minor issues (none blocking)**
+- `PRODUCT_READINESS.md:562-563` says the two new guards "do not turn it into a full current 434-entry result." That was true when written and doesn't conflict with the separate full audit, but a reader could take it as the current status. A short pointer to the new audit would help.
+- `current-readiness/README.md:3` still says audits "run," as if they were in progress, though they have finished.
+- The acceptance table's scoring row (line 37) says "50 coverage floors" while other rows say 51. That row appears to be older history.
+- With only read access I couldn't recompute any hashes. The proof file states that current main matches the checkpoint and that only docs and evidence changed since, but I couldn't confirm that myself.

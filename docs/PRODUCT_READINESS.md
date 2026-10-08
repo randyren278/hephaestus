@@ -26,7 +26,7 @@ The first implementation slice addressed item 3 and console reliability.
 The second adds World-pinned scoring for item 1. Subsequent slices fix hosted
 instruction/model delivery and historical replay, then implement and verify
 evidence-bound prose revisions and guided authoring for item 2. Representative
-live-model improvement and full installation acceptance remain required.
+live-model evidence and full installation acceptance remain required.
 
 ## Acceptance for the full product
 
@@ -34,11 +34,11 @@ live-model improvement and full installation acceptance remain required.
 |---|---|---|
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Evaluator-installation recovery has actionable fixed errors, physical safety/privacy tests, matching-daemon restart and exact retry evidence. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The installed 24-case support-triage pack has native initialization and frozen preparation, with retries, profile readback and crash/graceful restart. Fresh-user provider acceptance still remains |
-| Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
+| Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass. Current workspace tests, all 51 coverage floors and the full 434-entry mutation audit pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established. The initial baseline/checklist comparison alone cannot close the evidence-bound Forge revision or measured-cost requirements; fixture CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current launch-settings checkpoint passes 728 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance and the two new attachment/refusal guards pass. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. All 432 mutations passed at immutable checkpoint 98ce84d, followed by source-hash restoration and 727 restored workspace tests. The complete current 434-entry audit is running at ebbb21b; no full current result is claimed. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current launch-settings checkpoint passes 728 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance passes. The complete current audit at immutable ebbb21b killed all 434 mutations with no survivors, stale anchors or timeouts, followed by source-hash restoration and 728 restored workspace tests. Main production files match that checkpoint. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -73,8 +73,13 @@ were stopped. These are source-delivery and offline workflow checks.
 
 The same record includes the complete 432-entry mutation result at `98ce84d`
 and its subsequent clean rebuild: 727 workspace tests including doc tests pass
-on Rust 1.88.0, with every mutation target restored byte-for-byte. The current
-434-entry run at `ebbb21b` remains pending. Claude's actual read-only review
+on Rust 1.88.0, with every mutation target restored byte-for-byte. The
+[complete current audit](evidence/2026-10-08-full-current-mutations/README.md)
+at `ebbb21b` subsequently killed all 434 mutations with no survivors, stale
+anchors or timeouts. Its restored workspace suite passed 728 tests including
+doc tests, and post-test hashes and tracked cleanliness were verified.
+The main worktree's production files match the audited checkpoint.
+Claude's actual read-only review
 found no material contradiction or concrete defect in the inspected evidence
 and identified the live-revision and measured-cost limits clarified above.
 
@@ -555,7 +560,10 @@ bytes. No provider launch marker remains, and owned package processes stopped.
 Fresh verification passes **728 Rust tests including doc tests**, **all 51 coverage
 floors**, both Clippy modes, Rust 1.88 checks, docs, Actionlint and all 434 anchors.
 The complete 432-entry audit remains tied to 98ce84d; the two new guard results do
-not turn it into a full current 434-entry result. Claude found no blocking issue
+not turn it into a full current 434-entry result. The subsequent
+[complete current audit](evidence/2026-10-08-full-current-mutations/README.md)
+independently verifies all 434 entries and the restored workspace suite.
+Claude found no blocking issue
 in the code and identified documentation limits that were corrected. All model
 fixtures here are local; authentication, representative quality and revenue
-remain unproved. The full product objective remains active.
+remain unproved. The full product objective remains open.

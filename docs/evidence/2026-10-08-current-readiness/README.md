@@ -1,11 +1,12 @@
 # Current source delivery and readiness audit, 2026-10-08
 
-Production implementation is held at `ebbb21b` while complete mutation audits
-run against owned, detached checkouts. Documentation clarifies the remaining
+Production implementation was held at `ebbb21b` throughout complete mutation
+audits against owned, detached checkouts. Documentation clarifies the remaining
 acceptance requirements without changing code, mutation entries or quality floors.
-The completed 432-entry run is tied to `98ce84d`; the running 434-entry audit
-is tied to `ebbb21b`. The current audit remains unproven until its terminal
-result, source restoration and restored workspace checks are verified.
+The completed 432-entry run is tied to `98ce84d`. The subsequent
+[complete current 434-entry audit](../2026-10-08-full-current-mutations/README.md)
+at `ebbb21b` also passed, with source restoration and 728 restored workspace
+tests verified. Each result remains tied to its own checkpoint.
 
 ## Complete checkpoint mutation audit
 
@@ -22,9 +23,8 @@ Hashes and tracked cleanliness were checked again after that run. The
 [proof](checkpoint-432-proof.json) records the checkpoint, command, source
 hashes, terminal result and post-restoration checks.
 
-This result verifies `98ce84d`. The two additional launch-setting guards have
-their own affected-scope evidence; a full current 434-entry result is still
-required before claiming the complete current trust audit passed.
+This result verifies `98ce84d`. The complete current audit linked above includes
+the two additional launch-setting guards and verifies `ebbb21b` independently.
 
 ## Actual source installation
 
