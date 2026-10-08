@@ -195,8 +195,32 @@ impl ControlPlane {
                 "paired Genomes must share one registered World",
             ));
         }
-        self.reference_instruction(parent_genome_id)?;
-        self.reference_instruction(candidate_genome_id)?;
+        let parent_provider = self.selected_run_provider(parent_genome_id)?;
+        let candidate_provider = self.selected_run_provider(candidate_genome_id)?;
+        let parent_model: Option<Arc<str>> = parent_provider
+            .map(|_| {
+                self.compiled_genome(parent_genome_id)
+                    .map(|genome| Arc::from(genome.model_family()))
+            })
+            .transpose()?;
+        let candidate_model: Option<Arc<str>> = candidate_provider
+            .map(|_| {
+                self.compiled_genome(candidate_genome_id)
+                    .map(|genome| Arc::from(genome.model_family()))
+            })
+            .transpose()?;
+        let parent_instruction = if parent_provider.is_some() {
+            self.provider_instruction(parent_genome_id)?
+        } else {
+            self.reference_instruction(parent_genome_id)?;
+            None
+        };
+        let candidate_instruction = if candidate_provider.is_some() {
+            self.provider_instruction(candidate_genome_id)?
+        } else {
+            self.reference_instruction(candidate_genome_id)?;
+            None
+        };
         let world = self.registered_world(&parent_genome.world_id)?;
         let visible_manifest_id = world
             .evaluator_artifact("arena.visible_manifest")
@@ -218,8 +242,6 @@ impl ControlPlane {
                 ExecuteError::Rejected("World does not declare arena.evaluator".to_owned())
             })?
             .to_owned();
-        let parent_provider = self.selected_run_provider(parent_genome_id)?;
-        let candidate_provider = self.selected_run_provider(candidate_genome_id)?;
         // A paired trial's cost ceiling is bounded by the World's own Law
         // exactly like a single provider `run`, rather than the reference
         // smoke test's fixed zero; a homogeneous reference-only pair keeps
@@ -249,6 +271,12 @@ impl ControlPlane {
             return Err(ExecuteError::Invalid(
                 "paired task count is outside the bounded range",
             ));
+        }
+        if tasks
+            .iter()
+            .any(|task| task.input.len() > hephaestus_runtime::MAX_TASK_INPUT_BYTES)
+        {
+            return Err(ExecuteError::Invalid("paired task input is oversized"));
         }
         let total_trials = tasks.len().checked_mul(2).ok_or(ExecuteError::Internal)?;
         let total_trials_u32 = u32::try_from(total_trials).map_err(|_| ExecuteError::Internal)?;
@@ -335,13 +363,15 @@ impl ControlPlane {
         let mut trial_specs = Vec::with_capacity(total_trials);
         let mut parent_plan = Vec::with_capacity(tasks.len());
         let mut candidate_plan = Vec::with_capacity(tasks.len());
-        for (role, genome, plan, provider, role_environment_id) in [
+        for (role, genome, plan, provider, role_environment_id, agent_instruction, model) in [
             (
                 "parent",
                 &parent_genome,
                 &mut parent_plan,
                 parent_provider,
                 &parent_environment_id,
+                &parent_instruction,
+                &parent_model,
             ),
             (
                 "candidate",
@@ -349,6 +379,8 @@ impl ControlPlane {
                 &mut candidate_plan,
                 candidate_provider,
                 &candidate_environment_id,
+                &candidate_instruction,
+                &candidate_model,
             ),
         ] {
             for (index, task) in tasks.iter().enumerate() {
@@ -377,6 +409,20 @@ impl ControlPlane {
                     experiment,
                 )
                 .map_err(|_| ExecuteError::Internal)?;
+                if let Some(model) = model {
+                    spec = spec.with_provider_model(Arc::clone(model)).map_err(|_| {
+                        ExecuteError::Rejected("registered provider model is invalid".to_owned())
+                    })?;
+                }
+                if let Some(instruction) = agent_instruction {
+                    spec = spec
+                        .with_agent_instruction(Arc::clone(instruction))
+                        .map_err(|_| {
+                            ExecuteError::Rejected(
+                                "registered provider instruction is invalid".to_owned(),
+                            )
+                        })?;
+                }
                 if provider.is_none() {
                     let instruction = self
                         .reference_instruction(&genome.genome_id)?
@@ -858,6 +904,39 @@ impl ControlPlane {
         })
     }
 
+    /// Loads the registered prose bytes once; trial specs share the immutable
+    /// instruction while preserving each task's separate input commitment.
+    pub(super) fn provider_instruction(
+        &self,
+        genome_id: &str,
+    ) -> Result<Option<Arc<str>>, ExecuteError> {
+        let genome = self.compiled_genome(genome_id)?;
+        let Some(artifact) = genome.artifact_id("agent.prompt") else {
+            return Ok(None);
+        };
+        let bytes = self
+            .storage
+            .as_ref()
+            .ok_or(ExecuteError::Internal)?
+            .artifacts
+            .get(&ArtifactId::parse(artifact.to_owned()).map_err(|_| ExecuteError::Internal)?)
+            .map_err(|_| ExecuteError::Internal)?;
+        if bytes.len() > hephaestus_runtime::MAX_TASK_INPUT_BYTES {
+            return Err(ExecuteError::Rejected(
+                "registered provider instruction is invalid".to_owned(),
+            ));
+        }
+        let text = String::from_utf8(bytes).map_err(|_| {
+            ExecuteError::Rejected("registered provider instruction is invalid".to_owned())
+        })?;
+        if text.trim().is_empty() {
+            return Err(ExecuteError::Rejected(
+                "registered provider instruction is invalid".to_owned(),
+            ));
+        }
+        Ok(Some(Arc::from(text)))
+    }
+
     /// Returns the daemon-lifetime pinned reference worker, creating it on
     /// first use and re-verifying it before every subsequent use.
     ///
@@ -943,19 +1022,23 @@ impl ControlPlane {
     /// than only the provider name — the identity a job/Arena admission needs
     /// to prove exactly which binary produced the receipt.
     pub(super) fn provider_job_environment(provider: Provider, executable_digest: &str) -> String {
+        let version = hephaestus_runtime::PROVIDER_INPUT_VERSION;
         let name = match provider {
             Provider::Codex => "codex-cli",
             Provider::Claude => "claude-cli",
             Provider::Deterministic => "deterministic",
         };
         let identity = format!(
-            "{name}-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git|provider-instruction-language-v1|exe-{executable_digest}",
+            "{name}-v{version}.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git|provider-instruction-frame-v{version}|exe-{executable_digest}",
             env!("CARGO_PKG_VERSION"),
             RUN_RESULT_SCHEMA_VERSION,
             std::env::consts::OS,
             std::env::consts::ARCH
         );
-        format!("provider-v1.{}", blake3::hash(identity.as_bytes()).to_hex())
+        format!(
+            "provider-v{version}.{}",
+            blake3::hash(identity.as_bytes()).to_hex()
+        )
     }
 
     /// Resolves the exact executable path currently configured for `provider`.
@@ -1119,6 +1202,9 @@ impl ControlPlane {
     ) -> Result<ResponseData, ExecuteError> {
         let budget =
             validated_evaluation_budget(wall_millis, maximum_output_bytes, maximum_cost_microusd)?;
+        if prompt.len() > hephaestus_runtime::MAX_TASK_INPUT_BYTES {
+            return Err(ExecuteError::Invalid("task input is oversized"));
+        }
         let selected_provider = self.selected_run_provider(&genome.genome_id)?;
         let instruction = if selected_provider.is_none() {
             self.reference_instruction(&genome.genome_id)?
@@ -1157,6 +1243,22 @@ impl ControlPlane {
             experiment,
         )
         .map_err(|_| ExecuteError::Invalid("run specification is invalid"))?;
+        if selected_provider.is_some() {
+            spec = spec
+                .with_provider_model(self.compiled_genome(&genome.genome_id)?.model_family())
+                .map_err(|_| {
+                    ExecuteError::Rejected("registered provider model is invalid".to_owned())
+                })?;
+            if let Some(agent_instruction) = self.provider_instruction(&genome.genome_id)? {
+                spec = spec
+                    .with_agent_instruction(agent_instruction)
+                    .map_err(|_| {
+                        ExecuteError::Rejected(
+                            "registered provider instruction is invalid".to_owned(),
+                        )
+                    })?;
+            }
+        }
         if let Some(instruction) = instruction {
             spec = spec
                 .with_reference_instruction(instruction)

@@ -69,7 +69,34 @@ fn equivalent_json_and_yaml_genomes_have_one_canonical_identity() {
 
     assert_eq!(from_json.id(), from_yaml.id());
     assert_eq!(from_json.canonical_json(), from_yaml.canonical_json());
+    assert_eq!(from_json.model_family(), from_yaml.model_family());
+    assert_eq!(from_json.model_family(), "codex");
     assert_eq!(from_json.name(), "coding-g0");
+}
+
+#[test]
+fn hosted_free_form_model_family_preserves_historical_canonical_identity() {
+    let directory = tempdir().unwrap();
+    let store = ArtifactStore::open(directory.path()).unwrap();
+    let world = compile_test_world(false, &store);
+    let historical = r#"{"schema_version":1,"name":"historical-family","parents":[],"model":{"provider":"claude","family":"historical model label"},"authority":{"workspace_write":false,"network":false},"artifacts":{}}"#;
+    let compiled = compile_genome(
+        historical,
+        SourceFormat::Json,
+        &world,
+        &BTreeMap::new(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(compiled.canonical_json(), historical.as_bytes());
+    assert_eq!(
+        compiled.id(),
+        format!(
+            "hephaestus:genome:{}",
+            blake3::hash(historical.as_bytes()).to_hex()
+        )
+    );
+    assert_eq!(compiled.model_family(), "historical model label");
 }
 
 #[test]

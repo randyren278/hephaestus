@@ -265,7 +265,7 @@ impl ControlPlane {
         let experiment = ExperimentContext::new(task_id, prompt.as_bytes(), 0, environment_id)
             .map_err(|_| ExecuteError::Invalid("evaluation context is invalid"))?;
         let capabilities = self.compiled_genome(&genome.genome_id)?.authority();
-        RunSpec::new_for_experiment(
+        let mut spec = RunSpec::new_for_experiment(
             run_id,
             &genome.genome_id,
             &genome.world_id,
@@ -275,7 +275,18 @@ impl ControlPlane {
             budget,
             experiment,
         )
-        .map_err(|_| ExecuteError::Invalid("run specification is invalid"))
+        .map_err(|_| ExecuteError::Invalid("run specification is invalid"))?;
+        spec = spec
+            .with_provider_model(self.compiled_genome(&genome.genome_id)?.model_family())
+            .map_err(|_| {
+                ExecuteError::Rejected("registered provider model is invalid".to_owned())
+            })?;
+        if let Some(instruction) = self.provider_instruction(&genome.genome_id)? {
+            spec = spec.with_agent_instruction(instruction).map_err(|_| {
+                ExecuteError::Rejected("registered provider instruction is invalid".to_owned())
+            })?;
+        }
+        Ok(spec)
     }
 
     pub(super) fn job_status(&self, job_id: &str) -> Result<ResponseData, ExecuteError> {

@@ -51,10 +51,9 @@ customer’s live model agent.
   A rebuilt evaluator digest requires a newly registered World.
 - **Forge changes reference instructions, not arbitrary prose.** The
   operation catalog covers the seven Gauntlet failure families plus casing.
-  Operators can register a manually revised Markdown child, but hosted
-  provider runs currently omit its registered prose instructions, and paired
-  admission incorrectly requires reference syntax. The Forge proposal/assessment
-  workflow cannot yet record a free-form prompt revision. See [Genomes](GENOMES.md).
+  Operators can register a manually revised Markdown child; direct, submitted
+  and paired hosted runs now deliver its exact instructions and requested model.
+  The Forge proposal/assessment workflow cannot yet record a free-form prompt revision. See [Genomes](GENOMES.md).
 - **Live execution is not live improvement evidence.** The runtime guide
   records a live Codex run on 2026-09-27. Repository tests use fake provider
   CLIs and deterministic agents. No live hosted-model Arena improvement or

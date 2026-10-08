@@ -1,0 +1,104 @@
+{
+  "legacy_commit": "7bf55d0",
+  "binary_sha256": {
+    "hephaestus": "62d94f4bf8131da533971cfbeed90d12c4d1a21259341449fabb50d310660b3f",
+    "hephaestusd": "713aa86ff0404ae99f982fae746ad33e7336ad4da51fa921751fed9462b3deb0",
+    "reference-evaluator": "a6d7fa86962c0a912cd5bf25de1340e7ef2e2a9b29a685618887c3658aad80b6",
+    "reference-worker": "6ad55ae63dca94168eaa920a67d06631b8c3e0d961b29fe21f1026bfa41d911b"
+  },
+  "v1_job": {
+    "type": "job",
+    "job": {
+      "job_id": "upgrade-v1-submit",
+      "genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+      "run_id": "async-a79781f18f0c781195fcd2a72ba9b2d0",
+      "source_revision": "2df9614661b69845d452d76c1ce309f797e769fb",
+      "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+      "task_id": "repository-inventory-v1",
+      "input_commitment": "d5fe1965298e90020690ca4989ddc303374b5907977e2a89edcd45d38fc12abb",
+      "seed": 0,
+      "environment_id": "provider-v1.fccdfd2399fe61e6b873a6a2210bf348e43cc67a21a1777400934d0201f192f8",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 1000000
+      },
+      "state": "succeeded",
+      "terminal": "succeeded"
+    },
+    "progress": {
+      "trace_events": 3,
+      "last_event_sequence": 25,
+      "last_phase": "completed"
+    }
+  },
+  "v1_evaluation": {
+    "type": "evaluation",
+    "evaluation": {
+      "evaluation_id": "upgrade-v1-eval",
+      "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+      "parent_genome_id": "hephaestus:genome:742ee6c13fe5ad7dc2efd0ce9dfe4e566e8b22f8c48cd3e16c9c468ee07bbcf4",
+      "candidate_genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+      "parent_visible_correct": 1,
+      "candidate_visible_correct": 1,
+      "visible_total": 1,
+      "event": {
+        "sequence": 55,
+        "event_id": "arena:evaluation:upgrade-v1-eval:recorded",
+        "aggregate_id": "arena:evaluation:upgrade-v1-eval",
+        "event_type": "evaluation.recorded",
+        "actor": "arena-plane",
+        "timestamp_millis": 1791448658570
+      }
+    }
+  },
+  "v1_arena_job": {
+    "status": {
+      "type": "evaluation",
+      "evaluation": {
+        "evaluation_id": "upgrade-v1-eval",
+        "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+        "parent_genome_id": "hephaestus:genome:742ee6c13fe5ad7dc2efd0ce9dfe4e566e8b22f8c48cd3e16c9c468ee07bbcf4",
+        "candidate_genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+        "parent_visible_correct": 1,
+        "candidate_visible_correct": 1,
+        "visible_total": 1,
+        "event": {
+          "sequence": 55,
+          "event_id": "arena:evaluation:upgrade-v1-eval:recorded",
+          "aggregate_id": "arena:evaluation:upgrade-v1-eval",
+          "event_type": "evaluation.recorded",
+          "actor": "arena-plane",
+          "timestamp_millis": 1791448658570
+        }
+      }
+    },
+    "admitted_environment_id": "provider-v1.fccdfd2399fe61e6b873a6a2210bf348e43cc67a21a1777400934d0201f192f8",
+    "candidate_environment_id": null
+  },
+  "v1_replay": {
+    "type": "replay",
+    "event_count": 58,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "78fb160d2ca0487fa338ada1b45f8e1bd07144607c8d50cdd6f4e8bb4d8f0634"
+  },
+  "invalid_family_genome": "hephaestus:genome:6f1fec0d21f5b0bb42b881ba6710bd10f736225028fd02cc08598c3db82985eb",
+  "legacy_invalid_family_run": {
+    "type": "run",
+    "run_id": "reference-14",
+    "genome_id": "hephaestus:genome:6f1fec0d21f5b0bb42b881ba6710bd10f736225028fd02cc08598c3db82985eb",
+    "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+    "source_revision": "2df9614661b69845d452d76c1ce309f797e769fb",
+    "completion_reason": "success",
+    "latency_millis": 29,
+    "actual_cost_microusd": 1000,
+    "stdout_artifact_id": "213d2aed994433fd484a1f5bd59d8d21e5a82aca0ad7dd11594af5c01823bf65",
+    "stderr_artifact_id": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+    "trace_artifact_ids": [
+      "a6d142ce6664b699121976da9998d63acc3e5fbf3a311f74d3924bbf417f4fcb",
+      "1925fa9f4e7e6af5150b14e04c17db4c85760d3c340d243168be960f137ba61d",
+      "1c3ae8c6f480b52d413bb5bcb6808744db4235dc456693c4ac793acb27da7bae"
+    ]
+  }
+}

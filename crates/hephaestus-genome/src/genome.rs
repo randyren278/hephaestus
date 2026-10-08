@@ -19,6 +19,7 @@ pub struct CompiledGenome {
     authority: CapabilitySet,
     artifacts: BTreeMap<String, String>,
     model_provider: String,
+    model_family: String,
 }
 
 impl CompiledGenome {
@@ -65,6 +66,12 @@ impl CompiledGenome {
     #[must_use]
     pub fn model_provider(&self) -> &str {
         &self.model_provider
+    }
+
+    /// Returns the model identifier committed to by this Genome.
+    #[must_use]
+    pub fn model_family(&self) -> &str {
+        &self.model_family
     }
 }
 
@@ -175,6 +182,7 @@ pub(crate) fn compiled_genome(raw: RawGenome, canonical_json: Vec<u8>) -> Compil
         authority: authority.capabilities(),
         artifacts,
         model_provider: model.provider,
+        model_family: model.family,
     }
 }
 

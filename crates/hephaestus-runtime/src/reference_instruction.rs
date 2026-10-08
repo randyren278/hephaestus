@@ -5,7 +5,8 @@ use serde::Deserialize;
 use crate::RuntimeError;
 
 const MAX_INSTRUCTION_BYTES: usize = 4096;
-pub(crate) const MAX_TASK_INPUT_BYTES: usize = 1_048_576;
+/// Maximum task or agent instruction size in the runtime input contracts.
+pub const MAX_TASK_INPUT_BYTES: usize = 1_048_576;
 const FRAME_MAGIC: &[u8; 8] = b"HPSREF01";
 
 /// Deterministic operation selected by a registered Genome's reserved prompt.

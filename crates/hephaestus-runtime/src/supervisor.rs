@@ -352,6 +352,11 @@ impl SupervisedRuntime {
     ) -> Result<(Command, bool, Vec<u8>), RuntimeError> {
         let invocation = match self.provider {
             Provider::Deterministic => {
+                if spec.agent_instruction().is_some() || spec.provider_model().is_some() {
+                    return Err(RuntimeError::InvalidSpec(
+                        "deterministic runtime cannot deliver provider configuration",
+                    ));
+                }
                 let stdin = if let Some(instruction) = spec.reference_instruction() {
                     #[cfg(feature = "test-support")]
                     {

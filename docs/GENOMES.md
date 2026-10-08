@@ -28,7 +28,7 @@ A compiled Genome is an immutable, normalized agent specification. The compiler 
 | `schema_version` | Must be `1`. Unknown versions fail closed. |
 | `name` | Stable non-blank display name; not part of ancestry. |
 | `parents` | Content identities (`hephaestus:genome:<blake3>`) already registered under the same World. Order is normalized. |
-| `model` (`provider`, `family`) | Non-blank provider vocabulary. `deterministic` / `reference` executes offline. `codex` and `claude` execute through opt-in supervised CLI adapters; see [RUNTIMES.md](RUNTIMES.md) for authentication and network setup. |
+| `model` (`provider`, `family`) | Non-blank provider vocabulary. `deterministic` / `reference` executes offline. For `codex` and `claude`, `family` is the requested CLI model identifier (1–256 ASCII letters, digits or `-_.:/`), delivered through `--model=<family>`. These providers execute through opt-in supervised CLI adapters; see [RUNTIMES.md](RUNTIMES.md) for authentication and network setup. |
 | `authority.workspace_write`, `authority.network` | Requested capabilities. Must be a subset of the World ceiling and of every parent. |
 | `artifacts` | Name to BLAKE3 address map; every address must resolve in the store at compile time. |
 

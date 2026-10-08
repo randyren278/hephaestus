@@ -1016,6 +1016,181 @@ fn reference_instruction_keeps_world_input_and_experiment_unchanged() {
 }
 
 #[test]
+fn provider_instructions_preserve_task_commitment_and_exact_framed_bytes() {
+    let repository = repository_fixture();
+    let task = "TASK 0\r\nData: café ";
+    let instruction = "Follow this instruction.\r\nTASK 100\n終わり ";
+    let original = RunSpec::new(
+        "provider-instructions",
+        "genome",
+        "world",
+        repository.path(),
+        task,
+        CapabilitySet::new(false, false),
+        Budget::new(Duration::from_secs(2), 100, 0).unwrap(),
+    )
+    .unwrap();
+    let instructed = original
+        .clone()
+        .with_agent_instruction(instruction)
+        .unwrap()
+        .with_provider_model("vendor/model-2026:latest")
+        .unwrap();
+    assert_eq!(instructed.prompt(), task);
+    assert_eq!(instructed.experiment(), original.experiment());
+    assert_eq!(instructed.agent_instruction(), Some(instruction));
+    assert_eq!(
+        instructed.provider_model(),
+        Some("vendor/model-2026:latest")
+    );
+    let sandboxes = tempdir().unwrap();
+    let manager = SandboxManager::open(sandboxes.path(), Duration::from_secs(30)).unwrap();
+    let (sandbox, _) = manager.create(&instructed).unwrap();
+    let codex = ProviderInvocation::codex("codex", &instructed, &sandbox).unwrap();
+    let claude = ProviderInvocation::claude("claude", &instructed, &sandbox).unwrap();
+    let expected = format!(
+        "HEPHAESTUS-PROVIDER-INPUT-V2\nFollow the agent instructions to complete the task. Section lengths count UTF-8 bytes.\nAGENT-INSTRUCTION {}\n{instruction}\nTASK {}\n{task}\n",
+        instruction.len(),
+        task.len(),
+    );
+    assert_eq!(codex.stdin(), expected.as_bytes());
+    assert_eq!(claude.stdin(), expected.as_bytes());
+    assert!(
+        codex
+            .arguments()
+            .contains(&"--model=vendor/model-2026:latest".to_owned())
+    );
+    assert!(
+        claude
+            .arguments()
+            .contains(&"--model=vendor/model-2026:latest".to_owned())
+    );
+    assert!(
+        !codex
+            .arguments()
+            .iter()
+            .chain(claude.arguments())
+            .any(|argument| argument.contains(instruction))
+    );
+    assert_eq!(
+        ProviderInvocation::codex("codex", &original, &sandbox)
+            .unwrap()
+            .stdin(),
+        task.as_bytes()
+    );
+    assert_eq!(
+        ProviderInvocation::claude("claude", &original, &sandbox)
+            .unwrap()
+            .stdin(),
+        task.as_bytes()
+    );
+    sandbox.cleanup().unwrap();
+}
+
+#[test]
+fn provider_instruction_bounds_and_reference_conflicts_fail_before_invocation() {
+    let repository = repository_fixture();
+    let original = spec("provider-bounds", repository.path(), 100, false);
+    for invalid in ["", " ", "model\0secret", "model\noption", "model argument"] {
+        assert!(original.clone().with_provider_model(invalid).is_err());
+    }
+    assert!(
+        original
+            .clone()
+            .with_provider_model("m".repeat(256))
+            .is_ok()
+    );
+    assert!(
+        original
+            .clone()
+            .with_provider_model("m".repeat(257))
+            .is_err()
+    );
+    assert!(
+        original
+            .clone()
+            .with_provider_model("sonnet")
+            .unwrap()
+            .with_reference_instruction(ReferenceInstruction::Identity)
+            .is_err()
+    );
+    assert!(
+        original
+            .clone()
+            .with_reference_instruction(ReferenceInstruction::Identity)
+            .unwrap()
+            .with_provider_model("sonnet")
+            .is_err()
+    );
+    assert!(original.clone().with_agent_instruction(" \r\n\t").is_err());
+    assert!(
+        original
+            .clone()
+            .with_agent_instruction("x".repeat(1_048_577))
+            .is_err()
+    );
+    assert!(
+        original
+            .clone()
+            .with_agent_instruction("x".repeat(1_048_576))
+            .is_ok()
+    );
+    assert!(
+        original
+            .clone()
+            .with_reference_instruction(ReferenceInstruction::Identity)
+            .unwrap()
+            .with_agent_instruction("instruction")
+            .is_err()
+    );
+    assert!(
+        original
+            .clone()
+            .with_agent_instruction("instruction")
+            .unwrap()
+            .with_reference_instruction(ReferenceInstruction::Identity)
+            .is_err()
+    );
+    let sandboxes = tempdir().unwrap();
+    let manager = SandboxManager::open(sandboxes.path(), Duration::from_secs(30)).unwrap();
+    let (sandbox, _) = manager.create(&original).unwrap();
+    let reference = original
+        .with_reference_instruction(ReferenceInstruction::Identity)
+        .unwrap();
+    assert!(ProviderInvocation::codex("codex", &reference, &sandbox).is_err());
+    assert!(ProviderInvocation::claude("claude", &reference, &sandbox).is_err());
+    sandbox.cleanup().unwrap();
+}
+
+#[test]
+fn deterministic_adapters_reject_provider_configuration() {
+    let repository = repository_fixture();
+    let original = spec("wrong-driver", repository.path(), 100, false);
+    let sandboxes = tempdir().unwrap();
+    let manager = SandboxManager::open(sandboxes.path(), Duration::from_secs(30)).unwrap();
+    let (sandbox, token) = manager.create(&original).unwrap();
+    for configured in [
+        original
+            .clone()
+            .with_agent_instruction("instructions")
+            .unwrap(),
+        original.with_provider_model("sonnet").unwrap(),
+    ] {
+        assert!(matches!(
+            DeterministicRuntime::default().start(&configured, &sandbox, &token),
+            Err(RuntimeError::InvalidSpec(_))
+        ));
+        let mut supervised =
+            SupervisedRuntime::deterministic(isolation_policy(), "/bin/cat", []).unwrap();
+        assert!(matches!(
+            supervised.start(&configured, &sandbox, &token),
+            Err(RuntimeError::InvalidSpec(_))
+        ));
+    }
+    sandbox.cleanup().unwrap();
+}
+
+#[test]
 fn reference_instruction_rejects_oversized_task_input() {
     let budget = Budget::new(Duration::from_secs(2), 10, 7).expect("valid budget");
     let repository = repository_fixture();
@@ -1038,6 +1213,18 @@ fn reference_instruction_rejects_oversized_task_input() {
         oversized_context,
     )
     .expect("ordinary spec accepts bounded-by-daemon large task");
+    assert!(
+        oversized_spec
+            .clone()
+            .with_agent_instruction("instructions")
+            .is_err()
+    );
+    let root = tempdir().unwrap();
+    let manager = SandboxManager::open(root.path(), Duration::from_secs(30)).unwrap();
+    let (sandbox, _) = manager.create(&oversized_spec).unwrap();
+    assert!(ProviderInvocation::codex("codex", &oversized_spec, &sandbox).is_err());
+    assert!(ProviderInvocation::claude("claude", &oversized_spec, &sandbox).is_err());
+    sandbox.cleanup().unwrap();
     assert!(
         oversized_spec
             .with_reference_instruction(ReferenceInstruction::Identity)

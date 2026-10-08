@@ -1,0 +1,195 @@
+{
+  "legacy_commit": "7bf55d0",
+  "binary_sha256": {
+    "hephaestus": "e8b8792bce655ce2fe10a84cb033814bc16e6ddc95bfa2a6775eb3e8bd03fcd7",
+    "hephaestusd": "044493dc97c7f64dbbfadef3aae04efa3019db25ff5985e617fe248da823c4d0",
+    "reference-evaluator": "a6d7fa86962c0a912cd5bf25de1340e7ef2e2a9b29a685618887c3658aad80b6",
+    "reference-worker": "6ad55ae63dca94168eaa920a67d06631b8c3e0d961b29fe21f1026bfa41d911b"
+  },
+  "legacy_invalid_family_replayed": {
+    "type": "genome",
+    "genome": {
+      "genome_id": "hephaestus:genome:6f1fec0d21f5b0bb42b881ba6710bd10f736225028fd02cc08598c3db82985eb",
+      "name": "upgrade-invalid",
+      "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+      "artifact_id": "6f1fec0d21f5b0bb42b881ba6710bd10f736225028fd02cc08598c3db82985eb",
+      "parent_ids": []
+    }
+  },
+  "invalid_family_launch_rejections": [
+    {
+      "code": "invalid_request",
+      "message": "registered provider model is invalid"
+    },
+    {
+      "code": "invalid_request",
+      "message": "registered provider model is invalid"
+    },
+    {
+      "code": "invalid_request",
+      "message": "registered provider model is invalid"
+    }
+  ],
+  "v1_arena_job_after_upgrade": {
+    "status": {
+      "type": "evaluation",
+      "evaluation": {
+        "evaluation_id": "upgrade-v1-eval",
+        "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+        "parent_genome_id": "hephaestus:genome:742ee6c13fe5ad7dc2efd0ce9dfe4e566e8b22f8c48cd3e16c9c468ee07bbcf4",
+        "candidate_genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+        "parent_visible_correct": 1,
+        "candidate_visible_correct": 1,
+        "visible_total": 1,
+        "event": {
+          "sequence": 55,
+          "event_id": "arena:evaluation:upgrade-v1-eval:recorded",
+          "aggregate_id": "arena:evaluation:upgrade-v1-eval",
+          "event_type": "evaluation.recorded",
+          "actor": "arena-plane",
+          "timestamp_millis": 1791448658570
+        }
+      }
+    },
+    "admitted_environment_id": "provider-v1.fccdfd2399fe61e6b873a6a2210bf348e43cc67a21a1777400934d0201f192f8",
+    "candidate_environment_id": null
+  },
+  "v2_arena_job": {
+    "status": {
+      "type": "evaluation",
+      "evaluation": {
+        "evaluation_id": "upgrade-v2-eval",
+        "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+        "parent_genome_id": "hephaestus:genome:742ee6c13fe5ad7dc2efd0ce9dfe4e566e8b22f8c48cd3e16c9c468ee07bbcf4",
+        "candidate_genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+        "parent_visible_correct": 1,
+        "candidate_visible_correct": 1,
+        "visible_total": 1,
+        "event": {
+          "sequence": 105,
+          "event_id": "arena:evaluation:upgrade-v2-eval:recorded",
+          "aggregate_id": "arena:evaluation:upgrade-v2-eval",
+          "event_type": "evaluation.recorded",
+          "actor": "arena-plane",
+          "timestamp_millis": 1791448701764
+        }
+      }
+    },
+    "admitted_environment_id": "provider-v2.46c46368483693dc0a98356cfbb9d054489f160ccfabd92d01fe44057e20a721",
+    "candidate_environment_id": null
+  },
+  "old_job_after_upgrade": {
+    "type": "job",
+    "job": {
+      "job_id": "upgrade-v1-submit",
+      "genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+      "run_id": "async-a79781f18f0c781195fcd2a72ba9b2d0",
+      "source_revision": "2df9614661b69845d452d76c1ce309f797e769fb",
+      "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+      "task_id": "repository-inventory-v1",
+      "input_commitment": "d5fe1965298e90020690ca4989ddc303374b5907977e2a89edcd45d38fc12abb",
+      "seed": 0,
+      "environment_id": "provider-v1.fccdfd2399fe61e6b873a6a2210bf348e43cc67a21a1777400934d0201f192f8",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 1000000
+      },
+      "state": "succeeded",
+      "terminal": "succeeded"
+    },
+    "progress": {
+      "trace_events": 3,
+      "last_event_sequence": 25,
+      "last_phase": "completed"
+    }
+  },
+  "replay_before_new_work": {
+    "type": "replay",
+    "event_count": 61,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "a036b2133a55d5c733206af6100301deef0f0c4c55f5402d024102c6358da75b"
+  },
+  "old_evaluations_after_upgrade": {
+    "type": "evaluation_list",
+    "evaluations": [
+      {
+        "evaluation": {
+          "evaluation_id": "upgrade-v1-eval",
+          "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+          "parent_genome_id": "hephaestus:genome:742ee6c13fe5ad7dc2efd0ce9dfe4e566e8b22f8c48cd3e16c9c468ee07bbcf4",
+          "candidate_genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+          "parent_visible_correct": 1,
+          "candidate_visible_correct": 1,
+          "visible_total": 1,
+          "event": {
+            "sequence": 55,
+            "event_id": "arena:evaluation:upgrade-v1-eval:recorded",
+            "aggregate_id": "arena:evaluation:upgrade-v1-eval",
+            "event_type": "evaluation.recorded",
+            "actor": "arena-plane",
+            "timestamp_millis": 1791448658570
+          }
+        },
+        "selection": null,
+        "invariants": null,
+        "forge_assessment": null,
+        "champion_transition_ids": []
+      }
+    ]
+  },
+  "v2_job": {
+    "type": "job",
+    "job": {
+      "job_id": "upgrade-v2-submit",
+      "genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+      "run_id": "async-3fadf8f7ef542cd78e49397b375f5788",
+      "source_revision": "2df9614661b69845d452d76c1ce309f797e769fb",
+      "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+      "task_id": "repository-inventory-v1",
+      "input_commitment": "d5fe1965298e90020690ca4989ddc303374b5907977e2a89edcd45d38fc12abb",
+      "seed": 0,
+      "environment_id": "provider-v2.46c46368483693dc0a98356cfbb9d054489f160ccfabd92d01fe44057e20a721",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 1000000
+      },
+      "state": "succeeded",
+      "terminal": "succeeded"
+    },
+    "progress": {
+      "trace_events": 3,
+      "last_event_sequence": 75,
+      "last_phase": "completed"
+    }
+  },
+  "v2_evaluation": {
+    "type": "evaluation",
+    "evaluation": {
+      "evaluation_id": "upgrade-v2-eval",
+      "world_id": "hephaestus:world:a9e73f0df5689605a3cbec59200ed879ab5cbf170298011c9c5aab6ce9371e6a",
+      "parent_genome_id": "hephaestus:genome:742ee6c13fe5ad7dc2efd0ce9dfe4e566e8b22f8c48cd3e16c9c468ee07bbcf4",
+      "candidate_genome_id": "hephaestus:genome:851b55fe0d0e686c1688cd227acb52b2e75fade33efa04c749a6514dd5f8c8f7",
+      "parent_visible_correct": 1,
+      "candidate_visible_correct": 1,
+      "visible_total": 1,
+      "event": {
+        "sequence": 105,
+        "event_id": "arena:evaluation:upgrade-v2-eval:recorded",
+        "aggregate_id": "arena:evaluation:upgrade-v2-eval",
+        "event_type": "evaluation.recorded",
+        "actor": "arena-plane",
+        "timestamp_millis": 1791448701764
+      }
+    }
+  },
+  "mixed_version_replay": {
+    "type": "replay",
+    "event_count": 109,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "02eb44c6b3962eff894cf44a2a26807ba4690f291e4f64c8793e86e1e9470f90"
+  }
+}

@@ -184,6 +184,11 @@ fn reference_run(
     token: &CapabilityToken,
     checkpoint: Option<&str>,
 ) -> Result<ReferenceRun, RuntimeError> {
+    if spec.agent_instruction().is_some() || spec.provider_model().is_some() {
+        return Err(RuntimeError::InvalidSpec(
+            "deterministic runtime cannot deliver provider configuration",
+        ));
+    }
     sandbox.authorize_spec(token, spec)?;
     runtime
         .report_capabilities()

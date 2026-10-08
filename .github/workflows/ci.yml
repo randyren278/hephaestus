@@ -230,41 +230,41 @@ jobs:
             timeout_minutes: 20
           - scope: hephaestus-genome
             prefix: crates/hephaestus-genome/
-            minimum: 32
+            minimum: 34
             timeout_minutes: 20
           - scope: hephaestus-control-1
             prefix: crates/hephaestus-control/
             shard_index: 0
             shard_count: 5
-            minimum: 21
+            minimum: 23
             timeout_minutes: 30
           - scope: hephaestus-control-2
             prefix: crates/hephaestus-control/
             shard_index: 1
             shard_count: 5
-            minimum: 21
+            minimum: 23
             timeout_minutes: 30
           - scope: hephaestus-control-3
             prefix: crates/hephaestus-control/
             shard_index: 2
             shard_count: 5
-            minimum: 21
+            minimum: 23
             timeout_minutes: 30
           - scope: hephaestus-control-4
             prefix: crates/hephaestus-control/
             shard_index: 3
             shard_count: 5
-            minimum: 21
+            minimum: 22
             timeout_minutes: 30
           - scope: hephaestus-control-5
             prefix: crates/hephaestus-control/
             shard_index: 4
             shard_count: 5
-            minimum: 20
+            minimum: 22
             timeout_minutes: 30
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs
-            minimum: 5
+            minimum: 6
             timeout_minutes: 30
           - scope: runtime-isolation
             prefix: crates/hephaestus-runtime/src/isolation.rs
@@ -272,7 +272,7 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-provider
             prefix: crates/hephaestus-runtime/src/provider.rs
-            minimum: 2
+            minimum: 5
             timeout_minutes: 30
           - scope: runtime-sandbox
             prefix: crates/hephaestus-runtime/src/sandbox.rs
@@ -280,7 +280,7 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-spec
             prefix: crates/hephaestus-runtime/src/spec.rs
-            minimum: 6
+            minimum: 11
             timeout_minutes: 30
           - scope: runtime-reference-instructions
             prefix: crates/hephaestus-runtime/src/reference_instruction.rs
@@ -292,7 +292,7 @@ jobs:
             timeout_minutes: 30
           - scope: runtime-supervisor
             prefix: crates/hephaestus-runtime/src/supervisor.rs
-            minimum: 15
+            minimum: 16
             timeout_minutes: 30
           - scope: runtime-provider-events
             prefix: crates/hephaestus-runtime/src/provider_events.rs

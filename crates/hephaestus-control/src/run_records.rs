@@ -273,14 +273,21 @@ pub(super) fn run_completion_reason(reason: CompletionReason) -> RunCompletionRe
 
 /// Validates a job/Arena environment identity's versioned shape: either the
 /// reference worker's `reference-v1.<digest>` or a provider's
-/// `provider-v1.<digest>` (see `provider_job_environment`).
+/// `provider-v1.<digest>` or `provider-v2.<digest>` (see `provider_job_environment`).
 fn validate_arena_environment_id(environment_id: &str) -> Result<(), ControlError> {
     let digest = environment_id
         .strip_prefix("reference-v1.")
-        .or_else(|| environment_id.strip_prefix("provider-v1."))
+        .or_else(|| provider_environment_digest(environment_id))
         .ok_or_else(|| ControlError::Projection("Arena environment is invalid".to_owned()))?;
     ArtifactId::parse(digest.to_owned())?;
     Ok(())
+}
+
+/// Historical provider records retain v1; new instruction delivery uses v2.
+pub(super) fn provider_environment_digest(environment_id: &str) -> Option<&str> {
+    environment_id
+        .strip_prefix("provider-v1.")
+        .or_else(|| environment_id.strip_prefix("provider-v2."))
 }
 
 pub(super) fn validate_content_id<'a>(
@@ -375,13 +382,14 @@ pub(super) fn event_type(command: &Command) -> &'static str {
 }
 
 pub(super) fn provider_execution_environment(provider: Provider) -> String {
+    let version = hephaestus_runtime::PROVIDER_INPUT_VERSION;
     let name = match provider {
         Provider::Codex => "codex-cli",
         Provider::Claude => "claude-cli",
         Provider::Deterministic => "deterministic",
     };
     format!(
-        "{name}-v1.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git",
+        "{name}-v{version}.runtime-{}.receipt-schema-{}.{}.{}.isolation-private-worktree-v1.backend-git",
         env!("CARGO_PKG_VERSION"),
         RUN_RESULT_SCHEMA_VERSION,
         std::env::consts::OS,
@@ -672,4 +680,31 @@ pub(super) fn remove_stale_socket(path: &Path) -> Result<(), ControlError> {
         Err(error) => return Err(error.into()),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod provider_version_tests {
+    use super::*;
+    use crate::ControlPlane;
+
+    #[test]
+    fn provider_environment_versions_accept_legacy_and_current_reject_unknown() {
+        let digest = ArtifactId::for_bytes(b"provider executable fixture");
+        let legacy = format!("provider-v1.{}", digest.as_str());
+        assert_eq!(provider_environment_digest(&legacy), Some(digest.as_str()));
+        assert!(validate_arena_environment_id(&legacy).is_ok());
+        for provider in [Provider::Codex, Provider::Claude] {
+            let current = ControlPlane::provider_job_environment(provider, digest.as_str());
+            assert!(current.starts_with("provider-v2."));
+            assert!(provider_environment_digest(&current).is_some());
+            assert!(validate_arena_environment_id(&current).is_ok());
+        }
+        for invalid in [
+            format!("provider-v0.{}", digest.as_str()),
+            format!("provider-v3.{}", digest.as_str()),
+            "provider-v2.invalid".to_owned(),
+        ] {
+            assert!(validate_arena_environment_id(&invalid).is_err());
+        }
+    }
 }

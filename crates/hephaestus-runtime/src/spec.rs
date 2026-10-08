@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::Command, time::Duration};
+use std::{path::PathBuf, process::Command, sync::Arc, time::Duration};
 
 use hephaestus_core::authority::CapabilitySet;
 
@@ -48,7 +48,7 @@ impl ExperimentContext {
         &self.task_id
     }
 
-    /// BLAKE3 commitment to the exact provider input bytes.
+    /// BLAKE3 commitment to the exact task input bytes, excluding agent instructions.
     #[must_use]
     pub fn input_commitment(&self) -> &str {
         &self.input_commitment
@@ -131,6 +131,8 @@ pub struct RunSpec {
     budget: Budget,
     experiment: ExperimentContext,
     reference_instruction: Option<ReferenceInstruction>,
+    agent_instruction: Option<Arc<str>>,
+    provider_model: Option<Arc<str>>,
 }
 
 impl RunSpec {
@@ -291,6 +293,8 @@ impl RunSpec {
             budget,
             experiment,
             reference_instruction: None,
+            agent_instruction: None,
+            provider_model: None,
         })
     }
 
@@ -354,6 +358,74 @@ impl RunSpec {
         self.reference_instruction
     }
 
+    /// Verified Genome instructions, separate from the committed task input.
+    #[must_use]
+    pub fn agent_instruction(&self) -> Option<&str> {
+        self.agent_instruction.as_deref()
+    }
+
+    /// Model identifier requested by the immutable Genome.
+    #[must_use]
+    pub fn provider_model(&self) -> Option<&str> {
+        self.provider_model.as_deref()
+    }
+
+    /// Pins a bounded CLI model identifier without changing task coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty, oversized or malformed identifiers and reference specs.
+    pub fn with_provider_model(mut self, model: impl Into<Arc<str>>) -> Result<Self, RuntimeError> {
+        let model = model.into();
+        Self::validate_provider_model(&model)?;
+        if self.reference_instruction.is_some() {
+            return Err(RuntimeError::InvalidSpec("provider model is invalid"));
+        }
+        self.provider_model = Some(model);
+        Ok(self)
+    }
+
+    /// Validates the CLI identifier before registering a new hosted Genome.
+    ///
+    /// # Errors
+    ///
+    /// Rejects identifiers outside the bounded, single-argument model contract.
+    pub fn validate_provider_model(model: &str) -> Result<(), RuntimeError> {
+        if model.is_empty()
+            || model.len() > 256
+            || !model.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/')
+            })
+        {
+            return Err(RuntimeError::InvalidSpec("provider model is invalid"));
+        }
+        Ok(())
+    }
+
+    /// Attaches bounded provider instructions without changing task coordinates.
+    /// Shared bytes avoid copying a large prompt into every admitted trial.
+    ///
+    /// # Errors
+    ///
+    /// Rejects blank or oversized instructions, oversized task input, or a
+    /// reference instruction already attached to this spec.
+    pub fn with_agent_instruction(
+        mut self,
+        instruction: impl Into<Arc<str>>,
+    ) -> Result<Self, RuntimeError> {
+        let instruction = instruction.into();
+        if instruction.trim().is_empty() || instruction.len() > MAX_TASK_INPUT_BYTES {
+            return Err(RuntimeError::InvalidSpec("provider instruction is invalid"));
+        }
+        if self.prompt.len() > MAX_TASK_INPUT_BYTES || self.reference_instruction.is_some() {
+            return Err(RuntimeError::InvalidSpec(
+                "provider instruction conflicts with task spec",
+            ));
+        }
+        self.agent_instruction = Some(instruction);
+        Ok(self)
+    }
+
     /// Adds a separate reference-worker instruction without changing task input.
     /// # Errors
     ///
@@ -362,6 +434,11 @@ impl RunSpec {
         mut self,
         instruction: ReferenceInstruction,
     ) -> Result<Self, RuntimeError> {
+        if self.agent_instruction.is_some() || self.provider_model.is_some() {
+            return Err(RuntimeError::InvalidSpec(
+                "reference and provider instructions conflict",
+            ));
+        }
         if self.prompt.len() > MAX_TASK_INPUT_BYTES {
             return Err(RuntimeError::InvalidSpec(
                 "reference task input is oversized",

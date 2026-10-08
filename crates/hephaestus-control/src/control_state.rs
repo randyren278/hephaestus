@@ -2,6 +2,7 @@
 //! (jobs, arena jobs, freeze state, worker credentials, remote job leases),
 //! and unfinished-job recovery on daemon startup, split out of server.rs.
 
+use super::run_records::provider_environment_digest;
 use super::{
     ArenaJobPhase, ArenaJobRecord, ArtifactBackend, ArtifactId, BTreeMap, BTreeSet,
     CONTROL_AGGREGATE, ControlError, Deserialize, EventIndex, EventInput, EventLedger,
@@ -354,10 +355,10 @@ impl ControlState {
             matches!(parent.compiled().model_provider(), "codex" | "claude");
         let candidate_selects_provider =
             matches!(candidate.compiled().model_provider(), "codex" | "claude");
-        let parent_environment_is_provider = record.environment_id.starts_with("provider-v1.");
-        let candidate_environment_is_provider = record
-            .effective_candidate_environment_id()
-            .starts_with("provider-v1.");
+        let parent_environment_is_provider =
+            provider_environment_digest(&record.environment_id).is_some();
+        let candidate_environment_is_provider =
+            provider_environment_digest(record.effective_candidate_environment_id()).is_some();
         if parent_environment_is_provider != parent_selects_provider
             || candidate_environment_is_provider != candidate_selects_provider
         {
@@ -481,7 +482,7 @@ impl ControlState {
             if let Some(digest) = record.environment_id.strip_prefix("reference-v1.") {
                 ArtifactId::parse(digest.to_owned())?;
                 false
-            } else if let Some(digest) = record.environment_id.strip_prefix("provider-v1.") {
+            } else if let Some(digest) = provider_environment_digest(&record.environment_id) {
                 ArtifactId::parse(digest.to_owned())?;
                 true
             } else {

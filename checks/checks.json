@@ -2874,6 +2874,174 @@
       "find": "    visible.validate_scoring(world.evaluation_policy().output_scoring())?;\n    sealed.validate_scoring(world.evaluation_policy().output_scoring())?;\n",
       "replace": "",
       "test_cmd": "cargo test -p hephaestus-arena --all-features --test evaluation_contracts prepare_evaluation_rejects_invalid_json --quiet"
+    },
+    {
+      "id": "provider-instruction-dropped-from-stdin",
+      "file": "crates/hephaestus-runtime/src/provider.rs",
+      "invariant": "Hosted stdin delivers verified agent instructions separately from task bytes.",
+      "find": "let Some(instruction) = spec.agent_instruction() else {",
+      "replace": "let Some(instruction) = None::<&str> else {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-instruction-byte-length-normalized",
+      "file": "crates/hephaestus-runtime/src/provider.rs",
+      "invariant": "Instruction frame lengths bind exact UTF-8 bytes including whitespace.",
+      "find": "instruction.len(), spec.prompt().len(), spec.prompt(),",
+      "replace": "instruction.trim().len(), spec.prompt().len(), spec.prompt(),",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-input-version-downgraded",
+      "file": "crates/hephaestus-runtime/src/provider.rs",
+      "invariant": "Current provider framing and explicit model selection have a new execution version.",
+      "find": "pub const PROVIDER_INPUT_VERSION: u16 = 2;",
+      "replace": "pub const PROVIDER_INPUT_VERSION: u16 = 1;",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_environment_versions --quiet"
+    },
+    {
+      "id": "provider-instruction-empty-accepted",
+      "file": "crates/hephaestus-runtime/src/spec.rs",
+      "invariant": "Empty registered provider instructions fail closed.",
+      "find": "instruction.trim().is_empty() || instruction.len() > MAX_TASK_INPUT_BYTES",
+      "replace": "false || instruction.len() > MAX_TASK_INPUT_BYTES",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-instruction-oversized-accepted",
+      "file": "crates/hephaestus-runtime/src/spec.rs",
+      "invariant": "Provider instruction bytes are bounded to one MiB.",
+      "find": "instruction.trim().is_empty() || instruction.len() > MAX_TASK_INPUT_BYTES",
+      "replace": "instruction.trim().is_empty() || false",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-model-malformed-accepted",
+      "file": "crates/hephaestus-runtime/src/spec.rs",
+      "invariant": "Model identifiers cannot contain whitespace or control bytes.",
+      "find": "|| !model.bytes().all(|byte| {",
+      "replace": "|| false && !model.bytes().all(|byte| {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-model-oversized-accepted",
+      "file": "crates/hephaestus-runtime/src/spec.rs",
+      "invariant": "Requested model identifiers are bounded.",
+      "find": "|| model.len() > 256",
+      "replace": "|| false && model.len() > 256",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-reference-config-conflict-accepted",
+      "file": "crates/hephaestus-runtime/src/spec.rs",
+      "invariant": "Provider and reference configurations are mutually exclusive.",
+      "find": "if self.agent_instruction.is_some() || self.provider_model.is_some() {",
+      "replace": "if false && (self.agent_instruction.is_some() || self.provider_model.is_some()) {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-config-ignored-by-deterministic",
+      "file": "crates/hephaestus-runtime/src/deterministic.rs",
+      "invariant": "Deterministic adapters reject provider configuration they cannot deliver.",
+      "find": "if spec.agent_instruction().is_some() || spec.provider_model().is_some() {",
+      "replace": "if false && (spec.agent_instruction().is_some() || spec.provider_model().is_some()) {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-config-ignored-by-supervisor",
+      "file": "crates/hephaestus-runtime/src/supervisor.rs",
+      "invariant": "Deterministic adapters reject provider configuration they cannot deliver.",
+      "find": "if spec.agent_instruction().is_some() || spec.provider_model().is_some() {",
+      "replace": "if false && (spec.agent_instruction().is_some() || spec.provider_model().is_some()) {",
+      "test_cmd": "cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet"
+    },
+    {
+      "id": "provider-paired-instruction-omitted",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": ".with_agent_instruction(Arc::clone(instruction))",
+      "replace": ".with_agent_instruction(\"incorrect instruction\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-direct-instruction-omitted",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": ".with_agent_instruction(agent_instruction)",
+      "replace": ".with_agent_instruction(\"incorrect instruction\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-submitted-instruction-omitted",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": ".with_agent_instruction(instruction)",
+      "replace": ".with_agent_instruction(\"incorrect instruction\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-paired-model-omitted",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": ".with_provider_model(Arc::clone(model))",
+      "replace": ".with_provider_model(\"wrong-model\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-direct-model-omitted",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": ".with_provider_model(self.compiled_genome(&genome.genome_id)?.model_family())",
+      "replace": ".with_provider_model(\"wrong-model\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-submitted-model-omitted",
+      "file": "crates/hephaestus-control/src/job_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": ".with_provider_model(self.compiled_genome(&genome.genome_id)?.model_family())",
+      "replace": ".with_provider_model(\"wrong-model\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-prose-parsed-as-reference",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": "let parent_instruction = if parent_provider.is_some() {",
+      "replace": "let parent_instruction = if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-registration-model-validation-skipped",
+      "file": "crates/hephaestus-control/src/genome_ops.rs",
+      "invariant": "Immutable hosted Genome configuration is validated and delivered in every execution path.",
+      "find": "if matches!(compiled.model_provider(), \"codex\" | \"claude\") {",
+      "replace": "if false && matches!(compiled.model_provider(), \"codex\" | \"claude\") {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet"
+    },
+    {
+      "id": "provider-legacy-environment-rejected",
+      "file": "crates/hephaestus-control/src/run_records.rs",
+      "invariant": "Historical v1 provider records remain replayable under the new contract.",
+      "find": ".strip_prefix(\"provider-v1.\")",
+      "replace": ".strip_prefix(\"provider-v0.\")",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_environment_versions --quiet"
+    },
+    {
+      "id": "genome-model-family-lost",
+      "file": "crates/hephaestus-genome/src/genome.rs",
+      "invariant": "Compiled Genome retains the model identifier without changing canonical bytes.",
+      "find": "model_family: model.family,",
+      "replace": "model_family: \"default\".to_owned(),",
+      "test_cmd": "cargo test -p hephaestus-genome --test compiler_contracts --quiet"
+    },
+    {
+      "id": "provider-historical-family-canonical-bytes-normalized",
+      "file": "crates/hephaestus-genome/src/genome.rs",
+      "find": "    require_text(&raw.model.family, \"model.family\")?;",
+      "replace": "    require_text(&raw.model.family, \"model.family\")?;\n    raw.model.family = raw.model.family.replace(' ', \"_\");",
+      "test_cmd": "cargo test -p hephaestus-genome --test compiler_contracts hosted_free_form_model_family --quiet",
+      "invariant": "Historical hosted model labels preserve canonical bytes and replay identities."
     }
   ]
 }

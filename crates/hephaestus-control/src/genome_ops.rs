@@ -117,6 +117,10 @@ impl ControlPlane {
                 genome: existing.record().clone(),
             });
         }
+        if matches!(compiled.model_provider(), "codex" | "claude") {
+            hephaestus_runtime::RunSpec::validate_provider_model(compiled.model_family())
+                .map_err(|_| ExecuteError::Rejected("Genome model.family must be a CLI model identifier of at most 256 ASCII letters, digits or -_.:/ characters".to_owned()))?;
+        }
         let artifact = storage
             .artifacts
             .put(compiled.canonical_json())

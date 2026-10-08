@@ -25,12 +25,13 @@ pub use mutation_catalog::{
     family_name as mutation_family_name, is_catalog_edge,
     is_known_operation as is_known_mutation_operation,
 };
-pub use provider::ProviderInvocation;
+pub use provider::{PROVIDER_INPUT_VERSION, ProviderInvocation};
 pub use provider_events::{
     ProviderEventCursor, extract_actual_cost_microusd, extract_final_answer,
 };
 pub use reference_instruction::{
-    ReferenceInstruction, execute_reference_worker_request, frame_reference_instruction,
+    MAX_TASK_INPUT_BYTES, ReferenceInstruction, execute_reference_worker_request,
+    frame_reference_instruction,
 };
 pub use runtime::{
     AdapterCapabilities, CompletionReason, Provider, RunHandle, RunSnapshot, RunStatus,

@@ -1,0 +1,75 @@
+root:    .
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 900s default; selected mutation timeout(s): 900s
+
+baseline: unmutated suite is green
+
+RUN       provider-instruction-dropped-from-stdin command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-instruction-dropped-from-stdin crates/hephaestus-runtime/src/provider.rs (timeout 900s)
+RUN       provider-instruction-byte-length-normalized command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-instruction-byte-length-normalized crates/hephaestus-runtime/src/provider.rs (timeout 900s)
+RUN       provider-input-version-downgraded command=cargo test -p hephaestus-control --all-features --lib provider_environment_versions --quiet timeout=900s
+KILLED    provider-input-version-downgraded crates/hephaestus-runtime/src/provider.rs (timeout 900s)
+RUN       provider-instruction-empty-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-instruction-empty-accepted crates/hephaestus-runtime/src/spec.rs (timeout 900s)
+RUN       provider-instruction-oversized-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-instruction-oversized-accepted crates/hephaestus-runtime/src/spec.rs (timeout 900s)
+RUN       provider-model-malformed-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-model-malformed-accepted crates/hephaestus-runtime/src/spec.rs (timeout 900s)
+RUN       provider-model-oversized-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-model-oversized-accepted crates/hephaestus-runtime/src/spec.rs (timeout 900s)
+RUN       provider-reference-config-conflict-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-reference-config-conflict-accepted crates/hephaestus-runtime/src/spec.rs (timeout 900s)
+RUN       provider-config-ignored-by-deterministic command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-config-ignored-by-deterministic crates/hephaestus-runtime/src/deterministic.rs (timeout 900s)
+RUN       provider-config-ignored-by-supervisor command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=900s
+KILLED    provider-config-ignored-by-supervisor crates/hephaestus-runtime/src/supervisor.rs (timeout 900s)
+RUN       provider-paired-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-paired-instruction-omitted crates/hephaestus-control/src/run_exec.rs (timeout 900s)
+RUN       provider-direct-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-direct-instruction-omitted crates/hephaestus-control/src/run_exec.rs (timeout 900s)
+RUN       provider-submitted-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-submitted-instruction-omitted crates/hephaestus-control/src/job_exec.rs (timeout 900s)
+RUN       provider-paired-model-omitted    command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-paired-model-omitted    crates/hephaestus-control/src/run_exec.rs (timeout 900s)
+RUN       provider-direct-model-omitted    command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-direct-model-omitted    crates/hephaestus-control/src/run_exec.rs (timeout 900s)
+RUN       provider-submitted-model-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-submitted-model-omitted crates/hephaestus-control/src/job_exec.rs (timeout 900s)
+RUN       provider-prose-parsed-as-reference command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-prose-parsed-as-reference crates/hephaestus-control/src/run_exec.rs (timeout 900s)
+RUN       provider-registration-model-validation-skipped command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=900s
+KILLED    provider-registration-model-validation-skipped crates/hephaestus-control/src/genome_ops.rs (timeout 900s)
+RUN       provider-legacy-environment-rejected command=cargo test -p hephaestus-control --all-features --lib provider_environment_versions --quiet timeout=900s
+KILLED    provider-legacy-environment-rejected crates/hephaestus-control/src/run_records.rs (timeout 900s)
+RUN       genome-model-family-lost         command=cargo test -p hephaestus-genome --test compiler_contracts --quiet timeout=900s
+KILLED    genome-model-family-lost         crates/hephaestus-genome/src/genome.rs (timeout 900s)
+RUN       provider-historical-family-canonical-bytes-normalized command=cargo test -p hephaestus-genome --test compiler_contracts hosted_free_form_model_family --quiet timeout=900s
+KILLED    provider-historical-family-canonical-bytes-normalized crates/hephaestus-genome/src/genome.rs (timeout 900s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+provider-instruction-dropped-from-stdin crates/hephaestus-runtime/src/provider.rs KILLED
+provider-instruction-byte-length-normalized crates/hephaestus-runtime/src/provider.rs KILLED
+provider-input-version-downgraded crates/hephaestus-runtime/src/provider.rs KILLED
+provider-instruction-empty-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-instruction-oversized-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-model-malformed-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-model-oversized-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-reference-config-conflict-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-config-ignored-by-deterministic crates/hephaestus-runtime/src/deterministic.rs KILLED
+provider-config-ignored-by-supervisor crates/hephaestus-runtime/src/supervisor.rs KILLED
+provider-paired-instruction-omitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-direct-instruction-omitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-submitted-instruction-omitted crates/hephaestus-control/src/job_exec.rs KILLED
+provider-paired-model-omitted    crates/hephaestus-control/src/run_exec.rs KILLED
+provider-direct-model-omitted    crates/hephaestus-control/src/run_exec.rs KILLED
+provider-submitted-model-omitted crates/hephaestus-control/src/job_exec.rs KILLED
+provider-prose-parsed-as-reference crates/hephaestus-control/src/run_exec.rs KILLED
+provider-registration-model-validation-skipped crates/hephaestus-control/src/genome_ops.rs KILLED
+provider-legacy-environment-rejected crates/hephaestus-control/src/run_records.rs KILLED
+genome-model-family-lost         crates/hephaestus-genome/src/genome.rs KILLED
+provider-historical-family-canonical-bytes-normalized crates/hephaestus-genome/src/genome.rs KILLED
+
+21 mutations run, 21 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

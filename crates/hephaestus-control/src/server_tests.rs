@@ -15785,7 +15785,7 @@ fn provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_tra
     );
 
     // `submit` (the async job path) now supports a provider Genome too: its
-    // job-record projection accepts a `provider-v1.<digest>` environment
+    // job-record projection accepts a `provider-v2.<digest>` environment
     // identity pinned to the configured executable and a cost budget bounded
     // by the Genome's own registered World Law.
     let submit_response = dispatch_call(
@@ -15819,7 +15819,7 @@ fn provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_tra
         .expect("submitted provider job is recorded");
     assert_eq!(submitted_job.state, JobState::Succeeded);
     assert!(
-        submitted_job.environment_id.starts_with("provider-v1."),
+        submitted_job.environment_id.starts_with("provider-v2."),
         "provider job must bind a provider-shaped environment identity"
     );
     assert_eq!(submitted_job.budget.maximum_cost_microusd, 1_000_000);
@@ -18905,7 +18905,7 @@ fn arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_candidat
     assert_eq!(
         job.candidate_environment_id
             .as_deref()
-            .map(|id| id.starts_with("provider-v1.")),
+            .map(|id| id.starts_with("provider-v2.")),
         Some(true),
         "mixed pair must record both a reference parent and a provider candidate environment"
     );
@@ -18992,6 +18992,42 @@ fn provider_pair_scoring_fixture(
     actual: &str,
     reject_admission: bool,
 ) {
+    provider_pair_instruction_fixture(
+        output_scoring,
+        expected,
+        actual,
+        reject_admission,
+        false,
+        false,
+    );
+}
+
+#[test]
+fn provider_prose_instructions_reach_direct_submitted_and_paired_runs_and_replay() {
+    provider_pair_instruction_fixture(
+        "json_canonical",
+        r#"{"a":1,"b":2}"#,
+        " {\"b\":2.0,\"a\":1e0}\n",
+        false,
+        true,
+        false,
+    );
+}
+
+#[test]
+fn provider_historical_free_form_family_replays_and_rejects_new_launches() {
+    provider_pair_instruction_fixture("exact", "ANSWER", "ANSWER", false, false, true);
+}
+
+#[allow(clippy::too_many_lines)]
+fn provider_pair_instruction_fixture(
+    output_scoring: &str,
+    expected: &str,
+    actual: &str,
+    reject_admission: bool,
+    with_instructions: bool,
+    legacy_family: bool,
+) {
     let directory = tempdir().expect("fully provider Arena fixture");
     let data_dir = directory.path().join("data");
     let repository = directory.path().join("repository");
@@ -19031,14 +19067,48 @@ fn provider_pair_scoring_fixture(
     assert!(worker.is_file(), "missing worker {worker:?}");
     let fake_claude = directory.path().join("provider-pair-fake-claude");
     let result = serde_json::json!({"type":"result", "subtype":"success", "result":actual, "total_cost_usd":0.0042, "session_id":"fake-session"}).to_string();
-    fs::write(
-        &fake_claude,
+    let script = if with_instructions {
+        let wrong = serde_json::json!({"type":"result", "subtype":"success", "result":"wrong", "total_cost_usd":0.0042}).to_string();
+        for (role, instruction) in [
+            ("parent", "PARENT-INSTRUCTION\r\nAnswer wrong. "),
+            (
+                "candidate",
+                "REVISION-INSTRUCTION\r\nReturn the chosen answer. café ",
+            ),
+        ] {
+            for (index, task) in [
+                "Inventory the isolated repository without modifying it or using the network.",
+                "visible",
+                "sealed",
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let frame = format!(
+                    "HEPHAESTUS-PROVIDER-INPUT-V2\nFollow the agent instructions to complete the task. Section lengths count UTF-8 bytes.\nAGENT-INSTRUCTION {}\n{instruction}\nTASK {}\n{task}\n",
+                    instruction.len(),
+                    task.len()
+                );
+                fs::write(repository.join(format!("{role}-frame-{index}")), frame).unwrap();
+            }
+        }
+        fixture_git(&repository, &["add", "."]);
+        fixture_git(
+            &repository,
+            &["commit", "-m", "provider frame fixtures", "-q"],
+        );
+        format!(
+            "#!/bin/sh\ncat > \"$TMPDIR/frame\"\nfor role in candidate parent; do\nfor i in 0 1 2; do\nif cmp -s \"$TMPDIR/frame\" \"$role-frame-$i\"; then\nif [ \"$role\" = candidate ]; then\ncase \" $* \" in *' --model=opus '*) ;; *) exit 41 ;; esac\nprintf '%s\\n' '{}'; else\ncase \" $* \" in *' --model=sonnet '*) ;; *) exit 41 ;; esac\nprintf '%s\\n' '{}'; fi\nexit 0\nfi\ndone\ndone\nexit 42\n",
+            result.replace('\'', "'\"'\"'"),
+            wrong
+        )
+    } else {
         format!(
             "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
             result.replace('\'', "'\"'\"'")
-        ),
-    )
-    .unwrap();
+        )
+    };
+    fs::write(&fake_claude, script).unwrap();
     fs::set_permissions(&fake_claude, fs::Permissions::from_mode(0o700)).unwrap();
 
     let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
@@ -19087,6 +19157,13 @@ fn provider_pair_scoring_fixture(
     let verifier_id = artifacts
         .put(&plane.run_result_verifier.public_key_bytes())
         .expect("store result verifier");
+    let prompt_ids = with_instructions.then(|| {
+        [
+            "PARENT-INSTRUCTION\r\nAnswer wrong. ",
+            "REVISION-INSTRUCTION\r\nReturn the chosen answer. café ",
+        ]
+        .map(|text| artifacts.put(text.as_bytes()).unwrap().as_str().to_owned())
+    });
     drop(artifacts);
 
     let world_path = directory.path().join("provider-pair-world.json");
@@ -19114,17 +19191,61 @@ fn provider_pair_scoring_fixture(
         panic!("provider-pair World registration should succeed");
     };
 
-    let parent = register_claude_provider_genome(&mut plane, &token, &directory, &world.world_id);
+    if with_instructions {
+        let invalid_path = directory.path().join("invalid-provider-model.json");
+        fs::write(
+            &invalid_path,
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version":1, "name":"invalid-provider-model", "parents":[],
+                "model":{"provider":"claude","family":"model with spaces"},
+                "authority":{"workspace_write":false,"network":false}, "artifacts":{}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let before = plane.state.registered.genomes().count();
+        let error = plane
+            .register_genome(invalid_path.to_str().unwrap(), &world.world_id)
+            .unwrap_err();
+        assert!(
+            matches!(error, ExecuteError::Rejected(reason) if reason.starts_with("Genome model.family must"))
+        );
+        assert_eq!(plane.state.registered.genomes().count(), before);
+    }
+    let parent = if let Some([parent_prompt, _]) = &prompt_ids {
+        let path = directory.path().join("provider-parent.json");
+        fs::write(&path, serde_json::to_vec(&serde_json::json!({
+            "schema_version":1, "name":"provider-parent", "parents":[],
+            "model":{"provider":"claude","family":"sonnet"},
+            "authority":{"workspace_write":false,"network":false}, "artifacts":{"agent.prompt":parent_prompt}
+        })).unwrap()).unwrap();
+        let Some(ResponseData::Genome { genome }) = dispatch_call(
+            &mut plane,
+            &token,
+            "register-prose-parent",
+            Command::GenomeRegister {
+                path: path.display().to_string(),
+                world_id: world.world_id.clone(),
+            },
+        )
+        .data
+        else {
+            panic!("prose parent registration")
+        };
+        genome
+    } else {
+        register_claude_provider_genome(&mut plane, &token, &directory, &world.world_id)
+    };
     let candidate_path = directory.path().join("provider-pair-candidate.json");
     fs::write(
         &candidate_path,
         serde_json::to_vec(&serde_json::json!({
             "schema_version": 1,
             "name": "provider-pair-candidate",
-            "parents": [],
-            "model": {"provider": "claude", "family": "sonnet"},
+            "parents": if with_instructions {vec![parent.genome_id.clone()]} else {Vec::new()},
+            "model": {"provider": "claude", "family": if with_instructions {"opus"} else {"sonnet"}},
             "authority": {"workspace_write": false, "network": false},
-            "artifacts": {}
+            "artifacts": prompt_ids.as_ref().map_or_else(|| serde_json::json!({}), |ids| serde_json::json!({"agent.prompt":ids[1]}))
         }))
         .expect("encode candidate Genome"),
     )
@@ -19177,6 +19298,167 @@ fn provider_pair_scoring_fixture(
         assert!(plane.active_arena_job.is_none());
         return;
     }
+    if legacy_family {
+        // Seed the exact registration shape accepted before the v2 launch
+        // contract. Replay must preserve old canonical bytes without applying
+        // new-registration model validation to historical records.
+        let source = serde_json::json!({
+            "schema_version":1,"name":"historical-free-form","parents":[],
+            "model":{"provider":"claude","family":"historical model label"},
+            "authority":{"workspace_write":false,"network":false},"artifacts":{}
+        })
+        .to_string();
+        let compiled_world = plane.registered_world(&world.world_id).unwrap();
+        let storage = plane.storage.as_mut().unwrap();
+        let compiled = compile_genome(
+            &source,
+            SourceFormat::Json,
+            &compiled_world,
+            &BTreeMap::new(),
+            &storage.artifacts,
+        )
+        .unwrap();
+        let artifact = storage.artifacts.put(compiled.canonical_json()).unwrap();
+        let legacy = GenomeRecord {
+            genome_id: compiled.id().to_owned(),
+            name: compiled.name().to_owned(),
+            world_id: world.world_id.clone(),
+            artifact_id: artifact.as_str().to_owned(),
+            parent_ids: Vec::new(),
+        };
+        storage
+            .ledger
+            .append(EventInput::new(
+                format!("genome:{}:registered", legacy.genome_id),
+                &legacy.genome_id,
+                "genome.registered",
+                OPERATOR_ACTOR,
+                timestamp_millis().unwrap(),
+                serde_json::to_vec(&legacy).unwrap(),
+            ))
+            .unwrap();
+        plane.refresh_projection().unwrap();
+        assert_eq!(
+            plane
+                .compiled_genome(&legacy.genome_id)
+                .unwrap()
+                .model_family(),
+            "historical model label"
+        );
+        let before = plane
+            .storage
+            .as_ref()
+            .unwrap()
+            .ledger
+            .replay_verified()
+            .unwrap()
+            .len();
+        let failures = [
+            plane
+                .run_reference("invalid-family-direct", &legacy.genome_id)
+                .unwrap_err(),
+            plane
+                .submit_job("invalid-family-submit", &legacy.genome_id)
+                .unwrap_err(),
+            plane
+                .submit_arena_job(
+                    "invalid-family-pair",
+                    &legacy.genome_id,
+                    &candidate.genome_id,
+                    false,
+                )
+                .unwrap_err(),
+        ];
+        for failure in failures {
+            assert!(
+                matches!(failure, ExecuteError::Rejected(reason) if reason == "registered provider model is invalid")
+            );
+        }
+        assert_eq!(
+            plane
+                .storage
+                .as_ref()
+                .unwrap()
+                .ledger
+                .replay_verified()
+                .unwrap()
+                .len(),
+            before
+        );
+        assert!(plane.state.jobs.is_empty());
+        assert!(plane.state.arena_jobs.is_empty());
+        drop(plane);
+        let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+            &data_dir,
+            &repository,
+            &evaluator,
+            &worker,
+        )
+        .unwrap();
+        assert_eq!(
+            reopened
+                .compiled_genome(&legacy.genome_id)
+                .unwrap()
+                .model_family(),
+            "historical model label"
+        );
+        return;
+    }
+    if with_instructions {
+        let response = dispatch_call(
+            &mut plane,
+            &token,
+            "prose-direct-run",
+            Command::RunReference {
+                genome_id: candidate.genome_id.clone(),
+            },
+        );
+        let Some(ResponseData::Run {
+            stdout_artifact_id,
+            completion_reason,
+            ..
+        }) = response.data
+        else {
+            panic!("prose direct run: {:?}", response.error)
+        };
+        assert_eq!(completion_reason, RunCompletionReason::Success);
+        let artifacts = ArtifactStore::open(data_dir.join("blobs")).unwrap();
+        assert_eq!(
+            artifacts
+                .get(&ArtifactId::parse(stdout_artifact_id).unwrap())
+                .unwrap(),
+            actual.as_bytes()
+        );
+        plane
+            .submit_job("prose-submit", &candidate.genome_id)
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while plane.active_job.is_some() {
+            plane.service_async_messages().unwrap();
+            assert!(Instant::now() < deadline, "prose submitted job stalled");
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(plane.state.jobs["prose-submit"].state, JobState::Succeeded);
+        let history = plane
+            .storage
+            .as_ref()
+            .unwrap()
+            .ledger
+            .replay_verified()
+            .unwrap();
+        let event = history
+            .iter()
+            .find(|event| event.event_id == format!("result:{}", job_run_id("prose-submit")))
+            .unwrap();
+        let receipt =
+            RunResultReceipt::parse_from_event(event, &plane.run_result_verifier).unwrap();
+        assert_eq!(
+            artifacts
+                .get(&ArtifactId::parse(receipt.stdout_artifact_id).unwrap())
+                .unwrap(),
+            actual.as_bytes()
+        );
+    }
     complete_arena_test_job(
         &mut plane,
         "provider-pair-eval",
@@ -19199,7 +19481,36 @@ fn provider_pair_scoring_fixture(
          provenance, even though it was never pinned"
     );
     let evaluation = job.evaluation.as_ref().unwrap().clone();
-    assert_eq!(evaluation.parent_visible_correct, 1);
+    assert_eq!(
+        evaluation.parent_visible_correct,
+        u32::from(!with_instructions)
+    );
+    if with_instructions {
+        assert!(job.environment_id.starts_with("provider-v2."));
+        assert!(
+            job.candidate_environment_id.is_none(),
+            "prompt differences must not split execution environments"
+        );
+        let history = plane
+            .storage
+            .as_ref()
+            .unwrap()
+            .ledger
+            .replay_verified()
+            .unwrap();
+        let runs = history
+            .iter()
+            .filter(|event| event.event_type == "run.result_recorded")
+            .map(|event| {
+                RunResultReceipt::parse_from_event(event, &plane.run_result_verifier).unwrap()
+            });
+        for receipt in runs.filter(|receipt| receipt.task_id == "visible-task") {
+            assert_eq!(
+                receipt.input_commitment,
+                blake3::hash(b"visible").to_hex().as_str()
+            );
+        }
+    }
     assert_eq!(evaluation.candidate_visible_correct, 1);
     let response = dispatch_call(
         &mut plane,
@@ -19224,6 +19535,31 @@ fn provider_pair_scoring_fixture(
         &worker,
     )
     .expect("reopen provider scoring history");
+    if with_instructions {
+        assert_eq!(
+            reopened.state.jobs["prose-submit"].state,
+            JobState::Succeeded
+        );
+        assert!(
+            reopened.state.jobs["prose-submit"]
+                .environment_id
+                .starts_with("provider-v2.")
+        );
+        assert_eq!(
+            reopened
+                .compiled_genome(&parent.genome_id)
+                .unwrap()
+                .model_family(),
+            "sonnet"
+        );
+        assert_eq!(
+            reopened
+                .compiled_genome(&candidate.genome_id)
+                .unwrap()
+                .model_family(),
+            "opus"
+        );
+    }
     assert_eq!(
         reopened.state.arena_jobs["provider-pair-eval"]
             .evaluation

@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use crate::{Provider, RunSpec, RuntimeError, Sandbox};
 
+/// Instruction-delivery and model-selection contract for new hosted environments.
+pub const PROVIDER_INPUT_VERSION: u16 = 2;
+
 /// Fixed instruction telling Claude Code to read the task from stdin. Kept short
 /// and constant so argv length never depends on the genome prompt size.
 const CLAUDE_STDIN_INSTRUCTION: &str = "Complete the task specification piped in on standard input. Do not ask for confirmation; your last message is the final answer.";
@@ -50,6 +53,9 @@ impl ProviderInvocation {
         validate_executable(&executable)?;
         validate_sandbox_authority(spec, sandbox)?;
         let network = spec.capabilities().allows_network();
+        let model_arguments = spec
+            .provider_model()
+            .map(|model| format!("--model={model}"));
         Ok(Self {
             provider: Provider::Codex,
             program: executable,
@@ -68,9 +74,12 @@ impl ProviderInvocation {
                 sandbox.worktree().to_string_lossy().into_owned(),
                 "--config".to_owned(),
                 format!("sandbox_workspace_write.network_access={network}"),
-                "-".to_owned(),
-            ],
-            stdin: spec.prompt().as_bytes().to_vec(),
+            ]
+            .into_iter()
+            .chain(model_arguments)
+            .chain(["-".to_owned()])
+            .collect(),
+            stdin: provider_stdin(spec)?,
         })
     }
 
@@ -98,6 +107,9 @@ impl ProviderInvocation {
         let executable = executable.into();
         validate_executable(&executable)?;
         validate_sandbox_authority(spec, sandbox)?;
+        let model_arguments = spec
+            .provider_model()
+            .map(|model| format!("--model={model}"));
         Ok(Self {
             provider: Provider::Claude,
             program: executable,
@@ -121,8 +133,11 @@ impl ProviderInvocation {
                 } else {
                     "Read".to_owned()
                 },
-            ],
-            stdin: spec.prompt().as_bytes().to_vec(),
+            ]
+            .into_iter()
+            .chain(model_arguments)
+            .collect(),
+            stdin: provider_stdin(spec)?,
         })
     }
 
@@ -149,6 +164,25 @@ impl ProviderInvocation {
     pub fn stdin(&self) -> &[u8] {
         &self.stdin
     }
+}
+
+fn provider_stdin(spec: &RunSpec) -> Result<Vec<u8>, RuntimeError> {
+    if spec.prompt().len() > crate::reference_instruction::MAX_TASK_INPUT_BYTES
+        || spec.reference_instruction().is_some()
+    {
+        return Err(RuntimeError::InvalidSpec(
+            "invalid hosted-provider task spec",
+        ));
+    }
+    let Some(instruction) = spec.agent_instruction() else {
+        return Ok(spec.prompt().as_bytes().to_vec());
+    };
+    // Lengths count UTF-8 bytes. Instruction contents cannot change the frame's
+    // task boundary, and neither section is trimmed or otherwise normalized.
+    Ok(format!(
+        "HEPHAESTUS-PROVIDER-INPUT-V{PROVIDER_INPUT_VERSION}\nFollow the agent instructions to complete the task. Section lengths count UTF-8 bytes.\nAGENT-INSTRUCTION {}\n{instruction}\nTASK {}\n{}\n",
+        instruction.len(), spec.prompt().len(), spec.prompt(),
+    ).into_bytes())
 }
 
 fn validate_executable(path: &std::path::Path) -> Result<(), RuntimeError> {

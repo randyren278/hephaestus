@@ -23,7 +23,7 @@ customer-value gaps; Codex confirmed them against the checkout:
    and a report they can review alongside exact agent identities.
 
 The first implementation slice addressed item 3 and console reliability.
-The second adds World-pinned scoring for item 1. Item 2 and representative
+The second adds World-pinned scoring for item 1. The third fixes hosted instruction/model delivery and historical replay, a prerequisite for item 2. Item 2 and representative
 live-model improvement remain required.
 
 ## Acceptance for the full product
@@ -31,7 +31,7 @@ live-model improvement remain required.
 | Requirement | Evidence needed | Current status |
 |---|---|---|
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Existing implementation; current full acceptance still to run |
-| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Manual registration exists; registered prose instructions are not yet delivered to hosted providers; guided workflow incomplete |
+| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Manual registration and provider instruction/model delivery verified with offline CLI fixtures; guided workflow incomplete |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Missing in this checkout |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
@@ -45,33 +45,9 @@ inferred from deterministic Gauntlet evidence.
 
 ## Next implementation work
 
-Claude’s second review identified a prerequisite for useful prose revisions;
-Codex confirmed it against the current provider launch paths. Paired provider
-specs use the task input alone, and direct provider specs use the fixed
-inventory task. Both adapters send that spec prompt to stdin; neither path
-incorporates the registered `artifacts["agent.prompt"]` bytes. Paired admission also
-unconditionally parses both prompts as reference instructions, rejecting
-ordinary hosted-provider prose before execution. Changing a hosted agent’s
-prompt currently cannot establish a causal improvement. Runtime documentation now records this limitation until the delivery fix
-is verified.
+Verified hosted Genome instructions now reach direct, submitted and paired execution. Contract v2 preserves exact instruction bytes separately from task commitments, pins the requested model, and retains v1 history replay. The offline fixture verifies different role instructions and models through the actual stdin pipe and reopens the saved control plane. Real old/new daemon upgrade evidence is recorded below. This proves configuration delivery, not live-model quality.
 
-Next, wire verified Genome instructions into
-provider stdin while retaining the separate task-input commitment. Bind the
-new instruction-delivery contract into provider environment identities and
-prove through fake CLIs that two prompt artifacts produce different received
-instructions. Keep the instruction separate from `RunSpec::prompt()`, whose
-bytes must still hash to the task input commitment. Version the common
-provider environment, not each prompt: differing parent/candidate instructions
-remain comparable, with their exact artifacts bound through Genome identity.
-The replay validators in the control state and run records currently recognize
-provider-v1 identities; extend them for the new contract while retaining
-legacy acceptance before admitting new-format runs. Preserve historical
-replay. Then add bounded operator-authored
-prose prompt proposals with versioned replay validation and the same
-compiler/authority checks as catalog proposals. The current provider argument
-builders also omit the registered model family; pin the requested family
-before attributing a live result to a particular agent configuration. Use
-that workflow for a representative live-provider comparison before claiming product readiness.
+Next add bounded operator-authored prose prompt proposals with versioned replay validation and the same compiler/authority checks as catalog proposals. Then use that workflow for a representative live-provider comparison before claiming product readiness. Guided onboarding, commercial positioning and full final acceptance remain required.
 
 ## Verification of the comparison slice
 
@@ -145,3 +121,15 @@ They do not establish hosted-model quality or the effect of prose revisions.
   its decimal-boundary finding was fixed by bounding normalized magnitude.
   Its subsequent provider review found the instruction-delivery prerequisite
   described above, which Codex confirmed in the current source.
+
+## Verification of hosted instruction and model delivery
+
+Verified on macOS, 2026-10-08, using offline provider fixtures. Hosted quality and revenue remain unproven.
+
+- Both adapters frame exact verified Genome instruction bytes separately from the committed task input and pass the requested model as one CLI argument. The control fixture checks per-role golden stdin bytes and distinct requested models through direct, submitted and paired execution. Parent scores 0/1 and candidate 1/1; those fixture scores establish delivery, not real-model improvement.
+- Historical provider-v1 records and free-form model labels remain replayable. New registrations reject malformed model identifiers; direct, submitted and paired launches of old invalid labels fail before admission. Compiler and reopened-control-plane regression tests cover this boundary.
+- The real previous binary at `7bf55d0` created v1 history; the new daemon reopened the same data, completed v2 jobs/evaluations, and replayed **107 events**. [Upgrade readbacks and reproduction](evidence/2026-10-08-provider/README.md) include binary hashes and both Arena environment versions. Canonical World/Genome bytes and signed receipts were preserved.
+- Full workspace all-feature tests and all **50 critical coverage floors** passed. Supplemental instrumented tests cover the final historical-label cases. Provider invocation coverage is **100%**, run specs **96.7%**, and Genome compilation **100%**. The full uninstrumented mutation baseline also passed.
+- **21 new mutations ran: 21 killed, 0 survived, 0 stale, 0 timed out.** [Mutation results](evidence/2026-10-08-provider/mutation-results.txt) record the commands and verdicts. The configured matrix is now **402** entries; this does not establish a fresh pass of all matrix shards.
+- Python checks: **44/44 passed**. Default and all-feature Clippy, documentation, formatting and mutation-source anchors passed. Workspace binaries are rebuilt from restored source after the mutation run.
+- Actual Claude Code reviewed configuration delivery, role pairing, replay and migration evidence. Its compatibility-test findings were incorporated. Prose Forge proposals, guided acceptance, representative live evidence and commercial positioning remain required.
