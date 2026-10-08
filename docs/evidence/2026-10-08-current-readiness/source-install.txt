@@ -1,0 +1,72 @@
+
+▲ HEPHAESTUS
+  the forge that duels its own code
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+› Checking toolchain
+  ✓ cargo (cargo 1.98.0 (797e8a9bc 2026-08-05) (Homebrew))
+  ✓ git (git version 2.47.1)
+  ✓ npm (10.9.7)
+
+› Building 7 binaries (release)
+  ◆ heph
+  ◆ hephaestus
+  ◆ hephaestusd
+  ◆ hephaestus-reference-worker
+  ◆ hephaestus-reference-evaluator
+  ◆ hephaestus-process-guardian
+  ◆ senate
+   Compiling hephaestus-ledger v0.1.0 (/tmp/heph-source.plt2SV/checkout/crates/hephaestus-ledger)
+   Compiling hephaestus-runtime v0.1.0 (/tmp/heph-source.plt2SV/checkout/crates/hephaestus-runtime)
+   Compiling hephaestus-genome v0.1.0 (/tmp/heph-source.plt2SV/checkout/crates/hephaestus-genome)
+   Compiling hephaestus-experience v0.1.0 (/tmp/heph-source.plt2SV/checkout/crates/hephaestus-experience)
+   Compiling hephaestus-arena v0.1.0 (/tmp/heph-source.plt2SV/checkout/crates/hephaestus-arena)
+   Compiling hephaestus-control v0.1.0 (/tmp/heph-source.plt2SV/checkout/crates/hephaestus-control)
+    Finished `release` profile [optimized] target(s) in 1m 12s
+  ✓ built in 72s
+
+› Installing the operator TUI's dependencies
+
+added 47 packages, and audited 48 packages in 6s
+
+23 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+  ✓ installed in 6s
+
+› Building the browser console
+
+added 7 packages, and audited 8 packages in 1s
+
+found 0 vulnerabilities
+
+> @hephaestus/web-console@0.1.0 build
+> node scripts/build.mjs
+
+
+  dist/main.bundle.mjs  62.6kb
+
+⚡ Done in 13ms
+
+  dist/web/app.js  34.9kb
+
+⚡ Done in 6ms
+  ✓ browser console built; launch with heph web
+
+› Linking into /tmp/heph-source.plt2SV/install/bin
+  ✓ heph
+  ✓ hephaestus
+  ✓ hephaestusd
+  ✓ hephaestus-reference-worker
+  ✓ hephaestus-reference-evaluator
+  ✓ hephaestus-process-guardian
+  ✓ senate
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ◈ Installed Hephaestus
+   from /tmp/heph-source.plt2SV/checkout
+   into /tmp/heph-source.plt2SV/install/bin
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Add /tmp/heph-source.plt2SV/install/bin to your PATH, then run: heph
+Run: heph

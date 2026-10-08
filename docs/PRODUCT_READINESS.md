@@ -37,13 +37,46 @@ live-model improvement and full installation acceptance remain required.
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
-| Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current launch-settings checkpoint passes 728 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance and the two new attachment/refusal guards pass. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. All 428 mutations passed at immutable checkpoint 709d965; later affected scopes have separate results. A complete 432-entry audit is running at immutable 98ce84d; the current configured matrix is 434, without implying a fresh full 434-entry result. Full product acceptance remains |
+| Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established. The initial baseline/checklist comparison alone cannot close the evidence-bound Forge revision or measured-cost requirements; fixture CLIs cannot substitute |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current launch-settings checkpoint passes 728 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance and the two new attachment/refusal guards pass. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. All 432 mutations passed at immutable checkpoint 98ce84d, followed by source-hash restoration and 727 restored workspace tests. The complete current 434-entry audit is running at ebbb21b; no full current result is claimed. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
 is a readable summary, not a signed receipt. Live-model quality cannot be
 inferred from deterministic Gauntlet evidence.
+
+The requested first live experiment is the pack's baseline/checklist directed
+pair: **48 invocations**, under an explicitly approved provider, model and
+authentication handoff. It would establish real output and the initial comparison
+workflow. It would not establish a real model's response to an evidence-bound
+Forge revision. That follow-up requires a proposal grounded in the first run's
+Selection, a separate usage allowance and another verified comparison; the
+initial allowance does not authorize it. A win is not required: retain and
+interpret a tie or regression with the same evidence checks.
+
+Cost evidence must retain its source and limits. Record provider-reported USD
+when available and explicit absence otherwise. Codex does not report USD, so
+its initial run cannot close the measured-cost requirement through receipts
+alone. Actual billing or quota claims require attributable provider usage
+evidence; an unavailable figure or recorded zero must not be treated as measured
+free usage. A later authorized provider run or attributable usage statement is
+needed to close that gap.
+
+## Current source delivery and trust checkpoint, 2026-10-08
+
+The [current readiness evidence](evidence/2026-10-08-current-readiness/README.md)
+records an actual full source installation at `ebbb21b`, installed native pilot
+acceptance, and a fresh first-launch question and six-step terminal tour.
+The source run uses host Node 22.22.2; its installed release binary and copied
+pack hashes are recorded. Provider markers remain absent and owned processes
+were stopped. These are source-delivery and offline workflow checks.
+
+The same record includes the complete 432-entry mutation result at `98ce84d`
+and its subsequent clean rebuild: 727 workspace tests including doc tests pass
+on Rust 1.88.0, with every mutation target restored byte-for-byte. The current
+434-entry run at `ebbb21b` remains pending. Claude's actual read-only review
+found no material contradiction or concrete defect in the inspected evidence
+and identified the live-revision and measured-cost limits clarified above.
 
 ## Next implementation work
 

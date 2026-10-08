@@ -1,0 +1,28 @@
+I found no material contradictions, overclaims or concrete defects. The updated claims match the evidence I read. I only read files; I ran nothing and didn't assume the result of the running 434-entry audit.
+
+## What the evidence supports
+
+- **The 432-entry audit (`98ce84d`) checks out.**
+  - `checkpoint-432-mutations.txt:1308-1309` reads "432 mutations run, 432 killed, 0 survived, 0 stale, 0 timed out" and "PASS".
+  - There are exactly 432 `KILLED` summary lines, and none of them targets a TS, JS, shell or test file outside the hashed set.
+  - `checkpoint-432-proof.json` records `exit_code: 0`, `source_restoration_verified: true`, a 900-second baseline allowance (line 11), four test threads and the Rust 1.88.0 compiler. These match `README.md:12-15`.
+- **The 727 restored tests check out.** The `test result:` lines in `checkpoint-432-restored-tests.txt` add up to exactly 727 passed, with 0 failed and 0 ignored. The proof (`:78-89`) records that hashes were verified and the tracked checkout was clean after the tests. The 727 here and the 728 in `PRODUCT_READINESS.md:41` don't conflict: `launch-settings/README.md:55` attributes the 728 to the later checkpoint.
+- **The 98ce84d / ebbb21b split is stated the same way everywhere:** `README.md:6-8, 25-27`, `PRODUCT_READINESS.md:41, 74-77, 547-549`. No full current result is claimed.
+- **Source installation scope is accurate.** The proof's `scope` field (`source-proof.json:55`), `bundled_node_used: false`, `packaged_evaluator_lookup: false` and host Node v22.22.2 match `README.md:44-52` and `PRODUCT_READINESS.md:70-72`. Every pilot claim in `README.md:39-43` corresponds to a `true` field in `source-pilot-acceptance.txt`, with `provider_launches: 0`. The nine copied pack hashes match those in the installed-pilot, launch-settings, evaluator-recovery and support-triage preparation proofs.
+- **The first 48-invocation run vs. the Forge revision and measured-cost requirements is consistent.**
+  - `PRODUCT_READINESS.md:48-63` and `README.md:67-76` say clearly that the baseline/checklist pair can't prove a real model's response to a Forge revision. They also say it needs a separate allowance and that Codex's missing USD figure can't close the measured-cost requirement.
+  - `examples/support-triage/README.md:62, 97, 101-106` agree.
+  - This resolves both ambiguities raised in the earlier Claude review (`claude-readiness-review.txt:23-25`).
+
+## Minor, actionable (not material)
+
+1. **Binary coverage is partial.** `source-install.txt:12-18, 58-64` builds and links 7 binaries, but `source-proof.json:6-27` records hashes and symlinks for only 4. `hephaestus-reference-worker`, `hephaestus-process-guardian` and `senate` are missing. `PRODUCT_READINESS.md:70-71` ("its installed release binary … hashes are recorded") and `README.md:34-35` read as if all of them are covered. Either add the other three or say "four of seven".
+2. **The build directory isn't recorded.** Symlink targets point to `/private/tmp/heph-source.plt2SV/target/release/…` (`source-proof.json:10`), not `checkout/target`. So `CARGO_TARGET_DIR` was overridden, which `scripts/install.sh:190` supports. Also, `source-install.txt:19-24` compiled only the workspace crates, so the build directory was already warm, possibly from the excluded earlier attempt (`README.md:55-58`). "Rebuilt release binaries" is still true. Recording the target directory and that it was warm would avoid any reading of this as a fresh-target install like the earlier `5c2e5f4` one (`PRODUCT_READINESS.md:279`).
+3. **The live-evidence requirement row is ambiguous.** `PRODUCT_READINESS.md:40` still says "parent/revision … measured quality/cost". The prose at `:48-63` settles it, but one clause in the row saying that the baseline/checklist run alone doesn't close it would remove the ambiguity.
+
+## Next evidence that would change the full readiness verdict
+
+1. **The 434-entry audit at `ebbb21b`:** terminal result 434/434 killed with 0 survived, stale or timed out; verified source restoration; the restored workspace suite; and a clean tracked checkout. This would close the current trust gap only, not product readiness.
+2. **Your approval of the first 48-invocation live run:** provider, exact dated model, usage allowance and auth handoff. It should be followed by a separately approved, evidence-bound Forge revision comparison grounded in the first run's Selection. A win, tie or regression all count, as long as receipts and replay are verified.
+3. **Attributable provider usage or billing evidence** to close measured cost. Codex receipts alone can't do it.
+4. **Hosted signed release with Intel acceptance and first launch from a quarantined download**, then **fresh-user provider acceptance**, then **commercial approval**.

@@ -1,0 +1,91 @@
+{
+  "checkpoint": "ebbb21b3e853199995f338b0f1c3e0b2493b720b",
+  "source_install_prefix_owned": true,
+  "tracked_source_checkout_clean": true,
+  "installed_release_symlinks_verified": true,
+  "binaries": {
+    "heph": {
+      "sha256": "f7228fef9f22a4bb5d93da9eedbbeac9b1402843ac251cd45ac992c3dc7dbe34",
+      "bytes": 2892224,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/heph"
+    },
+    "hephaestus": {
+      "sha256": "ede581f9ebf99e4a4c397661cc16b97f36a7affba587f221fb5b5e739fb9fdf2",
+      "bytes": 3655952,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/hephaestus"
+    },
+    "hephaestusd": {
+      "sha256": "5bfec7ec4044ebb66db5de422b588710c399fdead9cf53c3eeb965f880979bc8",
+      "bytes": 9298528,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/hephaestusd"
+    },
+    "hephaestus-reference-evaluator": {
+      "sha256": "dc39814709f2b8c9ff212c9c4301114e8eabfb5f38ad6e9e342ab23f06c90bc8",
+      "bytes": 775968,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/hephaestus-reference-evaluator"
+    },
+    "hephaestus-reference-worker": {
+      "sha256": "806765913fb1492545760a56a595f069672f0dd0aaa26b213fa597ff565b0204",
+      "bytes": 590576,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/hephaestus-reference-worker"
+    },
+    "hephaestus-process-guardian": {
+      "sha256": "0cf82394aa5de90f05eab3f2920bad255fa81bcd54c36be5fa7c30450fa8d05a",
+      "bytes": 712752,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/hephaestus-process-guardian"
+    },
+    "senate": {
+      "sha256": "61204c87aebe58ce4eeeb825e6b87ba0a63e3f841a14c66ca9eb7e479a435337",
+      "bytes": 1363440,
+      "symlink_target": "/private/tmp/heph-source.plt2SV/target/release/senate"
+    }
+  },
+  "copied_pack_sha256": {
+    "candidate.template.md": "dec6de259407c5ae29164ad40d90b9b22b4761edc5ae3dd85668a0b2e8eb6b1d",
+    "checklist.prompt.md": "c5835a28565e39e034deede18474b6e02305ac263b6e9b83bdc14fcf6efb0dd4",
+    "baseline.template.md": "ced409e6a2317dbb60151d88ff8405d131bbb465263b5b04996898ad111c5833",
+    "world.template.json": "63d02d4e67b5252003a7945501fa77819c964ccb291c8043fecddae390a8ecd9",
+    "README.md": "afffc59b3089269a1cd4c9452ce520ae52796acdde6bf92821e412d79bce77ae",
+    "provider-setup.md": "0c6b25dc60b9e957d859e8801467b373e6c734e358c975fc92ef9a494697bc23",
+    "policy.md": "3c8d631da985a0201b3cc1876288de395989a8dd66b6a116ed6d92efcc33f4fd",
+    "tasks/visible.json": "35bade0f978e66a1c178f4e6bde5277ae8af7c0999e1b9e5e19fff88bf2516c3",
+    "tasks/sealed.json": "d300952bebb1c1c595c7b1c5221929e83ba4bb9336549007690644ea35c23357"
+  },
+  "host_node": "v22.22.2",
+  "bundled_node_used": false,
+  "source_first_launch_tour": {
+    "packaged_terminal": "80x24",
+    "empty_data_bootstrap": true,
+    "first_launch_prompt": true,
+    "packaged_evaluator_lookup": false,
+    "registered_fixture": true,
+    "arena_measured": true,
+    "metrics_selection_verified": true,
+    "replay_verified": true,
+    "completed_six_steps": true,
+    "terminal_restored": true
+  },
+  "provider_launch_marker_absent": true,
+  "owned_source_process_cleanup_verified": true,
+  "scope": "Source installed use, real PTY, frozen pilot, marker providers, no auth/model quality/billing/revenue.",
+  "evidence_log_sha256": {
+    "source-install.txt": "d58204f2ffff3a8e74755aa25636ce19f921d4b3efcf7f149c99ab84eaaa1015",
+    "source-pilot-acceptance.txt": "440101b324966d9eed954571cc46cf37dc17581998b6cb1bbfcf0b8d2ea1c797",
+    "source-tour.txt": "1cd54ea4a20edc2febfce0c89412e3f4ff6810cdb06f84353021010dfd0f6edc"
+  },
+  "post_install_artifact_readback": {
+    "exact_checkout_verified": true,
+    "tracked_checkout_clean": true,
+    "installed_binary_and_symlink_hashes_verified": 7,
+    "original_and_copied_pack_hashes_verified": 9,
+    "provider_marker_absent": true,
+    "owned_application_processes_stopped": true
+  },
+  "source_install_build": {
+    "checkout": "/tmp/heph-source.plt2SV/checkout",
+    "cargo_target_dir": "/tmp/heph-source.plt2SV/target",
+    "existing_build_target_reused": true,
+    "fresh_target_install_claimed": false,
+    "full_installer_exit_code": 0
+  }
+}

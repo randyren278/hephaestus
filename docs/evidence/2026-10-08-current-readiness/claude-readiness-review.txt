@@ -1,0 +1,44 @@
+I found no material overclaim and no concrete defect at `ebbb21b`. The product goal is not met yet, and the docs say so. I only read files; nothing was run, and I'm not assuming either mutation audit passes.
+
+## What is actually proven
+- **Install and first launch (Apple Silicon only):** a clean source install and a locally built, unsigned ARM64 package both pass the six-step tour, relocation, bundled Node with host Node/npm hidden, offline Arena, Gauntlets and replay. Sources: `docs/PRODUCT_READINESS.md:35`, `docs/evidence/2026-10-08-install/README.md`, `docs/evidence/2026-10-08-packaged-web/README.md`.
+- **Scoring and revisions:** World-pinned exact/trimmed/strict-JSON scoring, evidence-bound prose revisions and the guided Forge flow are all in place (`PRODUCT_READINESS.md:37-38`, `:99-228`).
+- **Installed pilot preparation:** the 24-case pack registers in a frozen daemon. Retries, crash/graceful restart and the socket-path fix are covered (`docs/evidence/2026-10-08-installed-pilot/README.md:39-70`).
+- **Evaluator recovery:** a mismatch refusal leaves the job unbound, and restarting with the matching evaluator completes 48 fixture trials (`docs/evidence/2026-10-08-evaluator-recovery/README.md:13-47`).
+- **Launch settings:** the helper refuses to silently reuse a running daemon when new settings are supplied. The previous archive fails the new check and the current one passes (`docs/evidence/2026-10-08-launch-settings/README.md:18-41`).
+- **Checks at this checkpoint:** 728 Rust tests, 51 coverage floors, both Clippy modes, Rust 1.88, and all 434 mutation anchors resolve (`launch-settings/README.md:53-63`). The only complete mutation run is 428/428 killed at `709d965` (`docs/evidence/2026-10-08-full-mutations/README.md:6`).
+
+All of this uses fixture CLIs, marker stubs or reference Gauntlets. None of it is live-model evidence, and the docs say that consistently (`PRODUCT_READINESS.md:44-46`, `launch-settings/README.md:73-76`).
+
+## Missing evidence the docs already admit
+- Live provider comparison: none yet (`PRODUCT_READINESS.md:40`). It is waiting on quota and auth-handoff approval (`:314-317`).
+- Fresh-user provider acceptance (`:36`).
+- Native Intel, a hosted signed release, and first launch from a quarantined download (`:35`, `:265-267`, `docs/MACOS_INSTALL.md:93`). Apple notarization is not implemented.
+- Paid offer: it is only a proposed scope (`:42`, `docs/PILOT_GUIDE.md:110-115`).
+- A complete 434-entry mutation result. The guards were only run at their own scope (`:513-516`).
+
+## Contradictions and overclaims
+None material. The status table is honest, and the 728 / 727 / 724 test totals add up across checkpoints. The pilot commands match the CLI form tested in `crates/hephaestus-control/tests/control_plane_e2e.rs:6565`.
+
+Two gaps in the acceptance wording should be settled before any quota is spent:
+1. **Cost may not be measurable.** Row 6 asks for "measured quality/cost" (`PRODUCT_READINESS.md:40`), but Codex reports no USD (`examples/support-triage/README.md:62`). A Codex run can't meet the cost part from receipts. Either use Claude or API billing, or rewrite the requirement to rely on the provider's usage statement.
+2. **"Parent/revision" is ambiguous.** The pack's baseline→checklist pair is a directed pair, "not an evidence-bound Forge proposal" (`examples/support-triage/README.md:97`). Decide whether one live baseline/checklist comparison satisfies row 6, or whether a live guided-Forge revision leg is also required.
+
+One minor stale line, not material: row 3 still cites "50 coverage floors" and 15 mutations from its own slice (`PRODUCT_READINESS.md:37`).
+
+## Concrete defect
+None found in what I reviewed.
+
+## What's needed next, in order
+1. **Audits:** both must show 0 survived, stale or timed out, plus a restored rebuild and a clean `git diff`. Only the 434 run at `ebbb21b` counts as the current full result; the 432 run is tied to `98ce84d`.
+2. **Your approval for one live run:** provider, exact dated model, the 48-invocation usage allowance and the auth-handoff method. The decisive evidence is then one real support-triage comparison following `examples/support-triage/README.md:109-140`:
+   - real outputs and protected scoring;
+   - Selection, restart and replay;
+   - a report checked against the daemon summary;
+   - provider version and cost, or its absence, recorded;
+   - the result kept whether it wins, ties or regresses.
+
+   At n=24 the confidence interval will be wide, so the pass condition should be an honest, replayable verdict on real output, not a required improvement.
+3. **A tagged hosted release run:** Intel acceptance, signing and verification, then first launch from a quarantined download.
+4. **A fresh-user provider run** by someone other than the author.
+5. **Commercial approval:** fee, allowance, data handling and support terms. Only after steps 2–4 can claims be "grounded in representative results" (`:42`).
