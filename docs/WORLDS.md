@@ -36,7 +36,7 @@ A World is the versioned root of evaluation semantics. Its content-derived ident
 
 | Field | Meaning |
 |---|---|
-| `laws` | Non-evolvable physics. `candidate_evaluator_access` must be `false`; `maximum_cost_microusd` caps every run's declared budget; `allow_mixed_environments` (optional, defaults `false`) permits a paired Arena trial to compare a parent and candidate running under two distinct execution environments (for example, a reference-worker parent against a provider-adapter candidate) — see [RUNTIMES.md](RUNTIMES.md); `auto_canary_on_drift` (optional, defaults `false`) opts this World in to the daemon's automatic drift-to-canary adaptation pipeline — see [CANARY.md](CANARY.md#automatic-drift-to-canary). |
+| `laws` | Non-evolvable physics. `output_scoring` (optional, defaults `exact`) selects output comparison as described below; `candidate_evaluator_access` must be `false`; `maximum_cost_microusd` caps every run's declared budget; `allow_mixed_environments` (optional, defaults `false`) permits a paired Arena trial to compare a parent and candidate running under two distinct execution environments (for example, a reference-worker parent against a provider-adapter candidate) — see [RUNTIMES.md](RUNTIMES.md); `auto_canary_on_drift` (optional, defaults `false`) opts this World in to the daemon's automatic drift-to-canary adaptation pipeline — see [CANARY.md](CANARY.md#automatic-drift-to-canary). |
 | `authority_ceiling` | The widest capabilities any Genome in this World may request. |
 | `mutation_scope` | Which targets the Forge may later change. Only `harness` compiles; `law` and `evaluator` are refused. |
 | `promotion` | Deterministic policy for the future selection engine; `confidence_bps` must lie in 1–10000. |
@@ -60,7 +60,38 @@ Register it with `hephaestus world register <file>`. `examples/quickstart/world.
 }
 ```
 
-Visible tasks may be shown to a candidate (inputs only, never `expected_output`); sealed tasks are evaluator-only. The exact-match evaluator compares a run's output bytes to `expected_output`.
+Visible tasks may be shown to a candidate (inputs only, never `expected_output`); sealed tasks are evaluator-only. The bundled evaluator compares output to `expected_output` using the immutable `laws.output_scoring` policy.
+
+### Output scoring
+
+Choose the rule before registering the World. A candidate cannot change it.
+
+| `laws.output_scoring` | Meaning |
+|---|---|
+| `exact` (default) | Every UTF-8 byte matches. A trailing newline changes the answer. |
+| `trimmed` | Ignore leading and trailing ASCII whitespace only. Interior whitespace, letter case and Unicode whitespace still matter. |
+| `json_canonical` | Compare strict JSON values. Object key order and formatting do not matter; arrays retain order, strings retain case, and numbers compare as exact decimal values. the numbers 1, 1.0 and 1e0 match without rounding large integers through floating point. |
+
+For example, add `"output_scoring": "json_canonical"` to `laws` for a
+structured extraction task. `{"answer":"unknown"}` then matches the same
+object with surrounding whitespace. A code fence, extra prose, duplicate
+decoded object keys, invalid JSON or a different value fails. JSON is bounded
+to 64 KiB per output, nesting depth 64 and normalized scientific exponent magnitude 1,000,000.
+Invalid expected JSON is rejected before paired provider work is admitted;
+error messages contain no expected output. Unsuccessful runs never score
+correctly, even when their output matches.
+
+Evaluation and failure-cluster analysis use the same rule. Omitted or explicit
+`exact` preserves historical canonical World bytes. Either non-default mode
+creates a different World identity. The worker retains schema-1 requests for
+exact scoring and uses schema 2 for non-default policies; response schema 1
+remains bound to the exact request hash. Existing receipt schemas and replay
+remain valid because the World identity already commits the scoring policy.
+
+A rebuilt evaluator has a new artifact digest. Store the new executable with
+`hephaestus artifact put <path>`, use that address for `arena.evaluator`, and
+register a new World. Historical Worlds remain replayable; executing them
+requires their originally committed evaluator bytes.
 
 ## Compilation contract
 
@@ -70,7 +101,7 @@ The compiled World retains that normalized, already-authorized mutation scope fo
 
 Evaluator artifacts are verified through the same content-addressed store used by Genomes. Candidates receive identities and policy outcomes, never evaluator bytes or hidden scoring internals.
 
-The current measurement Arena reserves four evaluator artifact names in a compiled World: `arena.visible_manifest`, `arena.sealed_manifest`, `arena.evaluator`, and `arena.runtime_verifier`. It hashes manifest bytes and requires each hash to equal the corresponding World commitment, then rehydrates only supported, expected-visibility, byte-exact canonical manifests. The verifier artifact contains the 32-byte Ed25519 public key authorized to attest runtime results; the signing seed remains daemon-only. `arena.evaluator` commits the exact executable bytes used by the process-backed exact-match evaluator; any different executable identity fails closed.
+The current measurement Arena reserves four evaluator artifact names in a compiled World: `arena.visible_manifest`, `arena.sealed_manifest`, `arena.evaluator`, and `arena.runtime_verifier`. It hashes manifest bytes and requires each hash to equal the corresponding World commitment, then rehydrates only supported, expected-visibility, byte-exact canonical manifests. The verifier artifact contains the 32-byte Ed25519 public key authorized to attest runtime results; the signing seed remains daemon-only. `arena.evaluator` commits the exact executable bytes used by the process-backed evaluator; any different executable identity fails closed.
 
 ```mermaid
 flowchart LR

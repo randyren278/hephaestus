@@ -6,6 +6,7 @@ mod error;
 pub mod evaluator_protocol;
 mod invariants;
 mod isolated_evaluator;
+mod scoring;
 mod selection;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,7 +21,7 @@ pub use error::ArenaError;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultVerifier,
 };
-use hephaestus_genome::CompiledWorld;
+use hephaestus_genome::{CompiledWorld, OutputScoring};
 use hephaestus_ledger::{
     ArtifactBackend, ArtifactId, ArtifactStore, EventIndex, EventInput, EventLedger, EventStore,
     StoredEvent,
@@ -346,6 +347,18 @@ impl TrustedManifest {
     /// error is propagated rather than hidden.
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ArenaError> {
         Ok(serde_json::to_vec(self)?)
+    }
+
+    /// Validates expected outputs against the World's scoring contract.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid strict-JSON expectations before candidate work is spent.
+    pub fn validate_scoring(&self, policy: OutputScoring) -> Result<(), ArenaError> {
+        for task in &self.tasks {
+            scoring::validate_expected(policy, &task.expected_output)?;
+        }
+        Ok(())
     }
 
     /// Returns candidate-safe tasks only for a visible manifest.
@@ -1294,6 +1307,7 @@ pub fn prepare_evaluation(
             sealed,
             &parent,
             &candidate,
+            world.evaluation_policy().output_scoring(),
         ),
         source_commitment,
     })
@@ -1355,6 +1369,7 @@ fn evaluate_and_record_inner(
         sealed,
         &parent,
         &candidate,
+        world.evaluation_policy().output_scoring(),
     );
     let aggregate = if let Some(scored) = scored {
         let request_bytes = serde_json::to_vec(&request)?;
@@ -1988,6 +2003,8 @@ fn validate_evaluation_inputs(
     if visible.manifest_id == sealed.manifest_id {
         return Err(ArenaError::DuplicateManifestId(visible.manifest_id.clone()));
     }
+    visible.validate_scoring(world.evaluation_policy().output_scoring())?;
+    sealed.validate_scoring(world.evaluation_policy().output_scoring())?;
     let mut task_inputs = BTreeMap::new();
     for task in visible.tasks.iter().chain(&sealed.tasks) {
         if task_inputs
@@ -2185,6 +2202,7 @@ fn make_evaluator_request(
     sealed: &TrustedManifest,
     parent: &ResolvedSubmission,
     candidate: &ResolvedSubmission,
+    output_scoring: OutputScoring,
 ) -> EvaluatorRequest {
     let make_trials = |manifest: &TrustedManifest| {
         manifest
@@ -2201,7 +2219,8 @@ fn make_evaluator_request(
             .collect()
     };
     EvaluatorRequest {
-        schema_version: 1,
+        schema_version: if output_scoring.is_exact() { 1 } else { 2 },
+        output_scoring,
         evaluation_id: evaluation_id.to_owned(),
         evaluator_id: binding.evaluator_id.clone(),
         visible: make_trials(visible),

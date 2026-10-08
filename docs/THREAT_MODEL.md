@@ -66,9 +66,9 @@ Every critical control path must have positive, negative, and mutation tests. `d
 
 ## Verifying it yourself
 
-Tests that pass are not evidence; tests that *fail when they should* are. CI runs the suite, then applies **368 deliberate source mutations**, each one disabling a specific documented invariant (from "an oversized request is accepted" to "a Genome registered before its World is accepted"), and requires the suite to go red for every single one. A mutation that survives fails the build. The mutation jobs run only after the deterministic job passes; inspect the latest CI result before treating a commit as verified. The count can only go up.
+Tests that pass are not evidence; tests that *fail when they should* are. CI runs the suite, then applies **381 deliberate source mutations**, each one disabling a specific documented invariant (from "an oversized request is accepted" to "a Genome registered before its World is accepted"), and requires the suite to go red for every single one. A mutation that survives fails the build. The mutation jobs run only after the deterministic job passes; inspect the latest CI result before treating a commit as verified. The count can only go up.
 
-Alongside that: a 92% per-module coverage floor on each of 49 production-critical modules (branch coverage where LCOV reports branches, line coverage otherwise), `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a docs gate (`checks/docs_gate.py`) that fails if any path this documentation mentions stops existing.
+Alongside that: a 92% per-module coverage floor on each of 50 production-critical modules (branch coverage where LCOV reports branches, line coverage otherwise), `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a docs gate (`checks/docs_gate.py`) that fails if any path this documentation mentions stops existing.
 
 To reproduce all of it locally: install the stable Rust toolchain with `clippy`, `rustfmt`, and `llvm-tools-preview`, plus `cargo-llvm-cov`. For quick code-quality feedback, run `scripts/check-fast.sh` (or pass a Cargo package name to check one package and its dependencies); it checks formatting and lints all Rust targets, including tests, without linking or launching test executables. Run the full gate before a milestone:
 

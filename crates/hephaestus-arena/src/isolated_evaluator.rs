@@ -306,6 +306,7 @@ mod tests {
         };
         EvaluatorRequest {
             schema_version: 1,
+            output_scoring: hephaestus_genome::OutputScoring::Exact,
             evaluation_id: "evaluation".to_owned(),
             evaluator_id: evaluator_id.to_owned(),
             visible: vec![trial("visible")],

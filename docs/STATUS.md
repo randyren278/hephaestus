@@ -15,7 +15,8 @@ customer’s live model agent.
   operator’s own CLI login, explicit authentication setup, network capability
   and World cost budget. See [Runtimes](RUNTIMES.md).
 - Compare parent and candidate against visible and sealed tasks using a
-  protected evaluator, then record seeded selection receipts with
+  protected evaluator with World-pinned exact, ASCII-trimmed or strict JSON
+  scoring, then record seeded selection receipts with
   correctness, reliability, cost and latency gates.
 - Verify independent invariants, record Forge assessments, and make
   policy-gated Champion promotions and rollbacks. A selection receipt by
@@ -44,16 +45,16 @@ customer’s live model agent.
 - **Execution needs macOS.** The verified isolation backend is Seatbelt;
   other hosts support registration, inspection and replay but refuse
   candidate execution.
-- **The bundled evaluator compares exact output.** It is useful for tasks
-  with one exact answer. It does not grade equivalent prose, JSON key order
-  or whitespace flexibly. A World binds its evaluator’s artifact digest;
-  silently changing scoring is not allowed. A broader scoring policy remains
-  product work.
+- **Scoring needs a declared answer contract.** The bundled evaluator supports
+  exact, ASCII-trimmed and strict JSON output comparison, pinned to the World.
+  It does not grade equivalent free-form prose. See [Worlds](WORLDS.md#output-scoring).
+  A rebuilt evaluator digest requires a newly registered World.
 - **Forge changes reference instructions, not arbitrary prose.** The
   operation catalog covers the seven Gauntlet failure families plus casing.
-  Operators can register and compare a manually revised Markdown child, but
-  the Forge proposal/assessment workflow cannot yet record a free-form
-  prompt revision. See [Genomes](GENOMES.md).
+  Operators can register a manually revised Markdown child, but hosted
+  provider runs currently omit its registered prose instructions, and paired
+  admission incorrectly requires reference syntax. The Forge proposal/assessment
+  workflow cannot yet record a free-form prompt revision. See [Genomes](GENOMES.md).
 - **Live execution is not live improvement evidence.** The runtime guide
   records a live Codex run on 2026-09-27. Repository tests use fake provider
   CLIs and deterministic agents. No live hosted-model Arena improvement or

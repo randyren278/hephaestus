@@ -986,8 +986,16 @@ impl ControlPlane {
             .artifacts
             .get(&id)
             .map_err(|_| ExecuteError::Internal)?;
-        TrustedManifest::from_canonical_bytes(&bytes, visibility)
-            .map_err(|_| ExecuteError::Internal)
+        let manifest = TrustedManifest::from_canonical_bytes(&bytes, visibility)
+            .map_err(|_| ExecuteError::Internal)?;
+        manifest
+            .validate_scoring(world.evaluation_policy().output_scoring())
+            .map_err(|_| {
+                ExecuteError::Rejected(
+                    "World task expectations do not match its output scoring policy".to_owned(),
+                )
+            })?;
+        Ok(manifest)
     }
 
     #[cfg(feature = "test-support")]

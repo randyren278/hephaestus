@@ -22,7 +22,9 @@ use hephaestus_core::authority::CapabilitySet;
 use hephaestus_experience::{
     RunBudgetReceipt, RunCompletionReason, RunResultReceipt, RunResultSigner,
 };
-use hephaestus_genome::{CompiledWorld, SourceFormat, compile_genome, compile_world};
+use hephaestus_genome::{
+    CompiledWorld, OutputScoring, SourceFormat, compile_genome, compile_world,
+};
 use hephaestus_ledger::{
     ArtifactBackend, ArtifactId, ArtifactStore, EventIndex, EventInput, EventLedger,
     FileEventLedger, MemoryArtifactBackend, StoredEvent,
@@ -266,12 +268,33 @@ fn make_fixture_with_options(
     invariant_manifest: Option<&[u8]>,
     output_overrides: &BTreeMap<String, (RunCompletionReason, Vec<u8>)>,
 ) -> Fixture {
+    make_fixture_with_scoring(
+        directory,
+        evaluator_path,
+        confidence_bps,
+        invariant_manifest,
+        output_overrides,
+        OutputScoring::Exact,
+        manifests(),
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn make_fixture_with_scoring(
+    directory: &TempDir,
+    evaluator_path: PathBuf,
+    confidence_bps: u16,
+    invariant_manifest: Option<&[u8]>,
+    output_overrides: &BTreeMap<String, (RunCompletionReason, Vec<u8>)>,
+    output_scoring: OutputScoring,
+    manifests: (TrustedManifest, TrustedManifest),
+) -> Fixture {
     let mut stores = EvaluationStores::open(
         directory.path().join("events.sqlite3"),
         directory.path().join("blobs"),
     )
     .unwrap();
-    let (visible, sealed) = manifests();
+    let (visible, sealed) = manifests;
     let visible_id = stores
         .artifacts
         .put(&serde_json::to_vec(&visible).unwrap())
@@ -329,6 +352,7 @@ fn make_fixture_with_options(
         "laws": {
             "candidate_network": false,
             "candidate_evaluator_access": false,
+            "output_scoring": output_scoring,
             "maximum_cost_microusd": 100
         },
         "authority_ceiling": {"workspace_write": false, "network": false},
@@ -3207,6 +3231,159 @@ fn make_cluster_fixture(directory: &TempDir) -> Fixture {
         ),
     ]);
     make_fixture_with_options(directory, evaluator_path, 9_500, None, &overrides)
+}
+
+#[test]
+fn prepare_evaluation_rejects_invalid_json_expectations_without_writing_artifacts() {
+    let directory = TempDir::new().unwrap();
+    let evaluator_path = directory.path().join("hephaestus-evaluator");
+    fs::copy(env!("CARGO_BIN_EXE_hephaestus-evaluator"), &evaluator_path).unwrap();
+    fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
+    let fixture = make_fixture_with_scoring(
+        &directory,
+        evaluator_path,
+        9_500,
+        None,
+        &BTreeMap::new(),
+        OutputScoring::JsonCanonical,
+        manifests(),
+    );
+    let before = artifact_file_count(&directory);
+    let error = prepare_evaluation(
+        &fixture.stores,
+        &context(),
+        &fixture.world,
+        EvaluationSources {
+            binding: &fixture.binding,
+            visible: &fixture.visible,
+            sealed: &fixture.sealed,
+            parent: &fixture.parent,
+            candidate: &fixture.candidate,
+        },
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(
+        error,
+        ArenaError::EvaluatorProtocol("expected output is not supported strict JSON")
+    ));
+    assert_eq!(artifact_file_count(&directory), before);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn world_scoring_matches_isolated_evaluation_failure_clusters_and_receipt_replay() {
+    for mode in [OutputScoring::Trimmed, OutputScoring::JsonCanonical] {
+        for introduce_failures in [false, true] {
+            let directory = TempDir::new().unwrap();
+            let evaluator_path = directory.path().join("hephaestus-evaluator");
+            fs::copy(env!("CARGO_BIN_EXE_hephaestus-evaluator"), &evaluator_path).unwrap();
+            fs::set_permissions(&evaluator_path, fs::Permissions::from_mode(0o700)).unwrap();
+            let expected = if mode == OutputScoring::JsonCanonical {
+                r#"{"a":1,"b":[true,null]}"#
+            } else {
+                "answer"
+            };
+            let actual = if mode == OutputScoring::JsonCanonical {
+                " {\"b\":[true,null],\"a\":1.00}\n"
+            } else {
+                " \tanswer\r\n"
+            };
+            let suites = [Visibility::Visible, Visibility::Sealed].map(|visibility| {
+                let label = if visibility == Visibility::Visible {
+                    "visible"
+                } else {
+                    "sealed"
+                };
+                TrustedManifest::new(
+                    format!("{label}-scoring"),
+                    visibility,
+                    ["a", "b"]
+                        .map(|suffix| {
+                            let task = format!("task-{label}-{suffix}");
+                            TrustedTask::new(&task, task_input(&task), expected).unwrap()
+                        })
+                        .to_vec(),
+                )
+                .unwrap()
+            });
+            let [visible, sealed] = suites;
+            let overrides = TASKS
+                .into_iter()
+                .flat_map(|task| {
+                    let candidate = if introduce_failures && task.ends_with("-a") {
+                        // Invalid JSON and a wrong answer remain genuine failures.
+                        "wrong"
+                    } else {
+                        actual
+                    };
+                    [
+                        (
+                            format!("parent-{task}"),
+                            (RunCompletionReason::Success, b"wrong".to_vec()),
+                        ),
+                        (
+                            format!("candidate-{task}"),
+                            (RunCompletionReason::Success, candidate.as_bytes().to_vec()),
+                        ),
+                    ]
+                })
+                .collect();
+            let fixture = make_fixture_with_scoring(
+                &directory,
+                evaluator_path,
+                9_500,
+                None,
+                &overrides,
+                mode,
+                (visible, sealed),
+            );
+            let world = fixture.world.clone();
+            let evaluation = evaluate(fixture).unwrap();
+            let summary = evaluation.candidate_result().summary.clone();
+            assert_eq!(summary.parent_visible_correct, 0);
+            assert_eq!(
+                summary.candidate_visible_correct,
+                if introduce_failures { 1 } else { 2 }
+            );
+            let measured = evaluation.operator_scores();
+            assert_eq!(evaluation.selection_evidence().world_id(), world.id());
+            assert_eq!(
+                measured.candidate_sealed_correct,
+                if introduce_failures { 1 } else { 2 }
+            );
+            let check = check_failure_clusters(
+                evaluation.into_stores(),
+                "scoring-analysis",
+                "evaluation-001",
+                &world,
+                None,
+                1_788_000_123_500,
+            )
+            .unwrap();
+            let analysis = check.analysis().clone();
+            assert_eq!(
+                analysis.total_visible_failed_trials,
+                u32::from(introduce_failures)
+            );
+            assert_eq!(
+                analysis.total_sealed_failed_trials,
+                u32::from(introduce_failures)
+            );
+            let stores = check.into_stores();
+            let history = stores.events.replay_verified().unwrap();
+            let event = history
+                .iter()
+                .find(|event| event.event_type == "forge.clustered")
+                .unwrap();
+            let verified = verify_cluster_event(stores, event, &world, None).unwrap();
+            assert_eq!(verified.analysis(), &analysis);
+            let loaded =
+                load_operator_evaluation(verified.into_stores(), "evaluation-001").unwrap();
+            assert_eq!(loaded.candidate_result().summary, summary);
+            assert_eq!(loaded.operator_scores(), measured);
+        }
+    }
 }
 
 #[test]

@@ -218,7 +218,7 @@ jobs:
         include:
           - scope: hephaestus-arena
             prefix: crates/hephaestus-arena/
-            minimum: 67
+            minimum: 80
             timeout_minutes: 20
           - scope: hephaestus-core
             prefix: crates/hephaestus-core/
@@ -230,7 +230,7 @@ jobs:
             timeout_minutes: 20
           - scope: hephaestus-genome
             prefix: crates/hephaestus-genome/
-            minimum: 31
+            minimum: 32
             timeout_minutes: 20
           - scope: hephaestus-control-1
             prefix: crates/hephaestus-control/
@@ -254,7 +254,7 @@ jobs:
             prefix: crates/hephaestus-control/
             shard_index: 3
             shard_count: 5
-            minimum: 20
+            minimum: 21
             timeout_minutes: 30
           - scope: hephaestus-control-5
             prefix: crates/hephaestus-control/

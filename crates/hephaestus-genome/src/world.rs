@@ -10,6 +10,27 @@ use crate::{
     genome::{RawAuthority, resolve_artifacts},
 };
 
+/// Version-one output comparison semantics pinned into the World's identity.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputScoring {
+    /// Every UTF-8 byte must match, preserving historical scoring.
+    #[default]
+    Exact,
+    /// Ignore leading and trailing ASCII whitespace, preserving the interior.
+    Trimmed,
+    /// Compare strict JSON values with unordered object keys and exact decimal numbers.
+    JsonCanonical,
+}
+
+impl OutputScoring {
+    /// Whether the policy uses the historical byte-exact scoring contract.
+    #[must_use]
+    pub const fn is_exact(&self) -> bool {
+        matches!(self, Self::Exact)
+    }
+}
+
 /// Immutable normalized World produced by the compiler.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledWorld {
@@ -32,9 +53,16 @@ pub struct WorldEvaluationPolicy {
     confidence_bps: u16,
     allow_mixed_environments: bool,
     auto_canary_on_drift: bool,
+    output_scoring: OutputScoring,
 }
 
 impl WorldEvaluationPolicy {
+    /// Returns the immutable task-output comparison rule.
+    #[must_use]
+    pub const fn output_scoring(self) -> OutputScoring {
+        self.output_scoring
+    }
+
     /// Maximum aggregate candidate spend permitted by the World.
     #[must_use]
     pub const fn maximum_cost_microusd(self) -> u64 {
@@ -159,6 +187,9 @@ struct RawLaws {
     /// while this stays absent or `false`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     auto_canary_on_drift: bool,
+    /// Omit the default so existing canonical Worlds keep their exact bytes.
+    #[serde(default, skip_serializing_if = "OutputScoring::is_exact")]
+    output_scoring: OutputScoring,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -216,6 +247,7 @@ pub fn compile_world(
         confidence_bps: raw.promotion.confidence_bps,
         allow_mixed_environments: raw.laws.allow_mixed_environments,
         auto_canary_on_drift: raw.laws.auto_canary_on_drift,
+        output_scoring: raw.laws.output_scoring,
     };
     Ok(CompiledWorld {
         id: content_id("world", &canonical_json),

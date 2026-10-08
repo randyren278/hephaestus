@@ -927,7 +927,13 @@ fn compute_analysis(
         } else if let Some(expected) = sealed_expected.get(task_id) {
             sealed_trials.push(SealedTrial {
                 completion_reason: trial.completion_reason,
-                output_matches: trial.stdout == expected.as_bytes(),
+                output_matches: std::str::from_utf8(&trial.stdout).is_ok_and(|actual| {
+                    crate::scoring::outputs_match(
+                        world.evaluation_policy().output_scoring(),
+                        actual,
+                        expected,
+                    )
+                }),
             });
         } else {
             return Err(ArenaError::InvalidStoredReceipt("cluster task binding"));
@@ -938,7 +944,13 @@ fn compute_analysis(
     // only.
     visible_trials.retain(|trial| {
         trial.completion_reason != RunCompletionReason::Success
-            || std::str::from_utf8(&trial.actual_output) != Ok(trial.expected_output.as_str())
+            || !std::str::from_utf8(&trial.actual_output).is_ok_and(|actual| {
+                crate::scoring::outputs_match(
+                    world.evaluation_policy().output_scoring(),
+                    actual,
+                    &trial.expected_output,
+                )
+            })
     });
 
     let clusters = cluster_trials_for(

@@ -15,4 +15,6 @@ pub use registry::{
     GenomeRecord, RegisteredGenome, RegisteredObjects, RegisteredWorld, RegistrationError,
     RegistrationKind, ReplayCursor, WorldRecord,
 };
-pub use world::{CompiledWorld, WorldEvaluationPolicy, compile_world, ensure_comparable};
+pub use world::{
+    CompiledWorld, OutputScoring, WorldEvaluationPolicy, compile_world, ensure_comparable,
+};

@@ -1,7 +1,8 @@
-//! Strict wire protocol for the trusted exact-match evaluator worker.
+//! Strict wire protocol for the trusted World-policy evaluator worker.
 
 use std::collections::BTreeSet;
 
+use hephaestus_genome::OutputScoring;
 use hephaestus_ledger::ArtifactId;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +13,7 @@ pub const MAX_EVALUATOR_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 /// Maximum canonical evaluator response size accepted across the process boundary.
 pub const MAX_EVALUATOR_RESPONSE_BYTES: usize = 64 * 1024;
 
-/// One evaluator-only exact-match trial.
+/// One evaluator-only output-comparison trial.
 #[doc(hidden)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +43,10 @@ pub struct EvaluatorRequest {
     pub evaluation_id: String,
     /// World-bound evaluator artifact identity.
     pub evaluator_id: String,
+    /// World-bound comparison policy. Schema 1 omits the exact default;
+    /// schema 2 requires an explicit non-default policy.
+    #[serde(default, skip_serializing_if = "OutputScoring::is_exact")]
+    pub output_scoring: OutputScoring,
     /// Candidate-visible trials.
     pub visible: Vec<EvaluatorTrial>,
     /// Evaluator-only trials.
@@ -80,7 +85,7 @@ pub struct EvaluatorResponse {
     pub schema_version: u16,
     /// Content address of the exact canonical request bytes consumed by the worker.
     pub request_artifact_id: String,
-    /// Aggregate exact-match scores.
+    /// Aggregate World-policy scores.
     pub scores: EvaluatorScores,
 }
 
@@ -115,7 +120,10 @@ pub fn evaluate_request(bytes: &[u8]) -> Result<Vec<u8>, ArenaError> {
 }
 
 fn validate_request(request: &EvaluatorRequest) -> Result<(), ArenaError> {
-    if request.schema_version != 1 {
+    if !matches!(
+        (request.schema_version, request.output_scoring.is_exact()),
+        (1, true) | (2, false)
+    ) {
         return Err(ArenaError::EvaluatorProtocol("unsupported request schema"));
     }
     super::validate_id("evaluation_id", &request.evaluation_id)?;
@@ -136,6 +144,7 @@ fn validate_request(request: &EvaluatorRequest) -> Result<(), ArenaError> {
         ] {
             super::validate_text(field, value)?;
         }
+        crate::scoring::validate_expected(request.output_scoring, &trial.expected_output)?;
         if !task_ids.insert(&trial.task_id) {
             return Err(ArenaError::DuplicateTaskId(trial.task_id.clone()));
         }
@@ -162,10 +171,18 @@ fn score(request: &EvaluatorRequest) -> Result<EvaluatorScores, ArenaError> {
         (false, request.sealed.as_slice()),
     ] {
         for trial in trials {
-            let parent_correct =
-                trial.parent_reliable && trial.parent_output == trial.expected_output;
-            let candidate_correct =
-                trial.candidate_reliable && trial.candidate_output == trial.expected_output;
+            let parent_correct = trial.parent_reliable
+                && crate::scoring::outputs_match(
+                    request.output_scoring,
+                    &trial.parent_output,
+                    &trial.expected_output,
+                );
+            let candidate_correct = trial.candidate_reliable
+                && crate::scoring::outputs_match(
+                    request.output_scoring,
+                    &trial.candidate_output,
+                    &trial.expected_output,
+                );
             if visible {
                 scores.parent_visible_correct += u32::from(parent_correct);
                 scores.candidate_visible_correct += u32::from(candidate_correct);
@@ -187,6 +204,7 @@ mod tests {
     fn request() -> EvaluatorRequest {
         EvaluatorRequest {
             schema_version: 1,
+            output_scoring: OutputScoring::Exact,
             evaluation_id: "evaluation-1".to_owned(),
             evaluator_id: ArtifactId::for_bytes(b"worker").as_str().to_owned(),
             visible: vec![EvaluatorTrial {
@@ -235,6 +253,93 @@ mod tests {
         assert_eq!(parsed.scores.parent_visible_correct, 1);
         assert_eq!(parsed.scores.candidate_visible_correct, 0);
         assert_eq!(parsed.scores.regressions, 2);
+    }
+
+    #[test]
+    fn versioned_scoring_keeps_historical_wire_bytes_and_binds_the_policy() {
+        let exact = request();
+        let exact_bytes = serde_json::to_vec(&exact).unwrap();
+        let historical = format!(
+            r#"{{"schema_version":1,"evaluation_id":"evaluation-1","evaluator_id":"{}","visible":[{{"task_id":"visible","expected_output":"yes","parent_output":"no","candidate_output":"yes","parent_reliable":true,"candidate_reliable":true}}],"sealed":[{{"task_id":"sealed","expected_output":"secret","parent_output":"secret","candidate_output":"wrong","parent_reliable":true,"candidate_reliable":true}}]}}"#,
+            exact.evaluator_id
+        );
+        assert_eq!(exact_bytes, historical.as_bytes());
+        let explicit_exact = historical.replacen(
+            ",\"visible\":",
+            ",\"output_scoring\":\"exact\",\"visible\":",
+            1,
+        );
+        assert!(matches!(
+            evaluate_request(explicit_exact.as_bytes()),
+            Err(ArenaError::EvaluatorProtocol(
+                "request is not canonical JSON"
+            ))
+        ));
+        for policy in [OutputScoring::Trimmed, OutputScoring::JsonCanonical] {
+            let mut versioned = exact.clone();
+            versioned.schema_version = 2;
+            versioned.output_scoring = policy;
+            let mode = serde_json::to_string(&policy).unwrap();
+            let golden = historical
+                .replacen("\"schema_version\":1", "\"schema_version\":2", 1)
+                .replacen(
+                    ",\"visible\":",
+                    &format!(",\"output_scoring\":{mode},\"visible\":"),
+                    1,
+                );
+            assert_eq!(serde_json::to_vec(&versioned).unwrap(), golden.as_bytes());
+        }
+        let mut request = exact;
+        request.visible[0].candidate_output = " yes\n".to_owned();
+        let parse = |request: &EvaluatorRequest| -> EvaluatorResponse {
+            serde_json::from_slice(
+                &evaluate_request(&serde_json::to_vec(request).unwrap()).unwrap(),
+            )
+            .unwrap()
+        };
+        let exact_response = parse(&request);
+        assert_eq!(exact_response.scores.candidate_visible_correct, 0);
+        request.schema_version = 2;
+        request.output_scoring = OutputScoring::Trimmed;
+        let normalized = parse(&request);
+        assert_eq!(normalized.scores.candidate_visible_correct, 1);
+        assert_ne!(
+            exact_response.request_artifact_id,
+            normalized.request_artifact_id
+        );
+        request.schema_version = 1;
+        assert!(evaluate_request(&serde_json::to_vec(&request).unwrap()).is_err());
+    }
+
+    #[test]
+    fn json_scoring_rejects_invalid_expectations_and_counts_only_reliable_semantic_matches() {
+        let mut request = request();
+        request.schema_version = 2;
+        request.output_scoring = OutputScoring::JsonCanonical;
+        for trial in request.visible.iter_mut().chain(&mut request.sealed) {
+            trial.expected_output = r#"{"a":1,"b":2}"#.to_owned();
+            trial.parent_output = r#"{"b":2.0,"a":1e0}"#.to_owned();
+            trial.candidate_output = r#"{"a":1,"a":1,"b":2}"#.to_owned();
+        }
+        request.sealed[0].candidate_output = "{\"b\":2,\"a\":1}\n".to_owned();
+        request.sealed[0].parent_reliable = false;
+        let response: EvaluatorResponse = serde_json::from_slice(
+            &evaluate_request(&serde_json::to_vec(&request).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response.scores.parent_visible_correct, 1);
+        assert_eq!(response.scores.candidate_visible_correct, 0);
+        assert_eq!(response.scores.parent_sealed_correct, 0);
+        assert_eq!(response.scores.candidate_sealed_correct, 1);
+        assert_eq!(response.scores.regressions, 1);
+        assert_eq!(response.scores.improvements, 1);
+        request.sealed[0].expected_output = r#"{"secret":1,"secret":2}"#.to_owned();
+        let error = evaluate_request(&serde_json::to_vec(&request).unwrap()).unwrap_err();
+        assert!(matches!(
+            error,
+            ArenaError::EvaluatorProtocol("expected output is not supported strict JSON")
+        ));
+        assert!(!error.to_string().contains("secret"));
     }
 
     #[test]

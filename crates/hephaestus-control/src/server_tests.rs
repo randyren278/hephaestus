@@ -18955,6 +18955,43 @@ fn arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_candidat
 #[test]
 #[allow(clippy::too_many_lines)]
 fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_worker() {
+    provider_pair_scoring_fixture(
+        "exact",
+        "Inventory complete: fixture.txt",
+        "Inventory complete: fixture.txt",
+        false,
+    );
+}
+
+#[test]
+fn provider_pair_world_scoring_replays_and_rejects_invalid_json_before_admission() {
+    provider_pair_scoring_fixture(
+        "trimmed",
+        "Inventory complete: fixture.txt",
+        " \tInventory complete: fixture.txt\n",
+        false,
+    );
+    provider_pair_scoring_fixture(
+        "json_canonical",
+        r#"{"a":1,"b":2}"#,
+        " {\"b\":2.0,\"a\":1e0}\n",
+        false,
+    );
+    provider_pair_scoring_fixture(
+        "json_canonical",
+        r#"{"private":1,"private":2}"#,
+        r#"{"private":2}"#,
+        true,
+    );
+}
+
+#[allow(clippy::too_many_lines)]
+fn provider_pair_scoring_fixture(
+    output_scoring: &str,
+    expected: &str,
+    actual: &str,
+    reject_admission: bool,
+) {
     let directory = tempdir().expect("fully provider Arena fixture");
     let data_dir = directory.path().join("data");
     let repository = directory.path().join("repository");
@@ -18993,7 +19030,16 @@ fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_work
     ));
     assert!(worker.is_file(), "missing worker {worker:?}");
     let fake_claude = directory.path().join("provider-pair-fake-claude");
-    write_fake_claude_binary(&fake_claude);
+    let result = serde_json::json!({"type":"result", "subtype":"success", "result":actual, "total_cost_usd":0.0042, "session_id":"fake-session"}).to_string();
+    fs::write(
+        &fake_claude,
+        format!(
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
+            result.replace('\'', "'\"'\"'")
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&fake_claude, fs::Permissions::from_mode(0o700)).unwrap();
 
     let mut plane = ControlPlane::open_with_repository_evaluator_and_reference_worker(
         &data_dir,
@@ -19015,7 +19061,7 @@ fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_work
         "provider-pair-visible",
         Visibility::Visible,
         vec![
-            hephaestus_arena::TrustedTask::new("visible-task", "visible", "VISIBLE")
+            hephaestus_arena::TrustedTask::new("visible-task", "visible", expected)
                 .expect("visible task"),
         ],
     )
@@ -19024,7 +19070,7 @@ fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_work
         "provider-pair-sealed",
         Visibility::Sealed,
         vec![
-            hephaestus_arena::TrustedTask::new("sealed-task", "sealed", "SEALED")
+            hephaestus_arena::TrustedTask::new("sealed-task", "sealed", expected)
                 .expect("sealed task"),
         ],
     )
@@ -19047,7 +19093,7 @@ fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_work
     fs::write(
         &world_path,
         format!(
-            r#"{{"schema_version":1,"name":"provider-pair","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
+            r#"{{"schema_version":1,"name":"provider-pair","laws":{{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":1000000,"output_scoring":"{output_scoring}"}},"authority_ceiling":{{"workspace_write":false,"network":false}},"mutation_scope":[],"promotion":{{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500}},"objectives":["correctness"],"evaluator_artifacts":{{"arena.visible_manifest":"{}","arena.sealed_manifest":"{}","arena.evaluator":"{}","arena.runtime_verifier":"{}"}}}}"#,
             visible_id.as_str(),
             sealed_id.as_str(),
             evaluator_id.as_str(),
@@ -19112,6 +19158,25 @@ fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_work
         plane.pinned_reference_worker.borrow().is_none(),
         "no pin before admission"
     );
+    if reject_admission {
+        let before = plane.state.jobs.len();
+        let error = plane
+            .submit_arena_job(
+                "invalid-scoring-eval",
+                &parent.genome_id,
+                &candidate.genome_id,
+                false,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ExecuteError::Rejected(reason) if reason == "World task expectations do not match its output scoring policy"
+        ));
+        assert_eq!(plane.state.jobs.len(), before);
+        assert!(plane.state.arena_jobs.is_empty());
+        assert!(plane.active_arena_job.is_none());
+        return;
+    }
     complete_arena_test_job(
         &mut plane,
         "provider-pair-eval",
@@ -19133,7 +19198,38 @@ fn arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_work
         "worker_digest still records the daemon's configured reference worker for \
          provenance, even though it was never pinned"
     );
-    assert!(job.evaluation.is_some());
+    let evaluation = job.evaluation.as_ref().unwrap().clone();
+    assert_eq!(evaluation.parent_visible_correct, 1);
+    assert_eq!(evaluation.candidate_visible_correct, 1);
+    let response = dispatch_call(
+        &mut plane,
+        &token,
+        "provider-pair-analyze",
+        Command::ForgeAnalyze {
+            analysis_id: "provider-pair-analysis".to_owned(),
+            evaluation_id: "provider-pair-eval".to_owned(),
+        },
+    );
+    let Some(ResponseData::ForgeAnalysis { analysis }) = response.data else {
+        panic!("provider scoring analysis: {:?}", response.error)
+    };
+    assert_eq!(analysis.analysis.total_visible_failed_trials, 0);
+    assert_eq!(analysis.analysis.total_sealed_failed_trials, 0);
+    plane.replay_response().expect("replay provider scoring");
+    drop(plane);
+    let reopened = ControlPlane::open_with_repository_evaluator_and_reference_worker(
+        &data_dir,
+        &repository,
+        &evaluator,
+        &worker,
+    )
+    .expect("reopen provider scoring history");
+    assert_eq!(
+        reopened.state.arena_jobs["provider-pair-eval"]
+            .evaluation
+            .as_ref(),
+        Some(&evaluation)
+    );
 }
 
 #[test]

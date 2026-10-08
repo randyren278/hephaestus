@@ -24,6 +24,7 @@
     "crates/hephaestus-arena/src/lib.rs",
     "crates/hephaestus-arena/src/selection.rs",
     "crates/hephaestus-arena/src/evaluator_protocol.rs",
+    "crates/hephaestus-arena/src/scoring.rs",
     "crates/hephaestus-arena/src/isolated_evaluator.rs",
     "crates/hephaestus-core/src/authority.rs",
     "crates/hephaestus-core/src/domain.rs",
@@ -1403,9 +1404,9 @@
     {
       "id": "arena-evaluator-reliability-ignored",
       "file": "crates/hephaestus-arena/src/evaluator_protocol.rs",
-      "invariant": "Exact output is correct only when the authenticated run completed successfully.",
-      "find": "            let parent_correct =\n                trial.parent_reliable && trial.parent_output == trial.expected_output;\n            let candidate_correct =\n                trial.candidate_reliable && trial.candidate_output == trial.expected_output;",
-      "replace": "            let parent_correct = trial.parent_output == trial.expected_output;\n            let candidate_correct = trial.candidate_output == trial.expected_output;"
+      "invariant": "A World-policy output match is correct only when the authenticated run completed successfully.",
+      "find": "            let parent_correct = trial.parent_reliable\n                && crate::scoring::outputs_match(\n                    request.output_scoring,\n                    &trial.parent_output,\n                    &trial.expected_output,\n                );\n            let candidate_correct = trial.candidate_reliable\n                && crate::scoring::outputs_match(\n                    request.output_scoring,\n                    &trial.candidate_output,\n                    &trial.expected_output,\n                );\n",
+      "replace": "            let parent_correct = crate::scoring::outputs_match(\n                    request.output_scoring,\n                    &trial.parent_output,\n                    &trial.expected_output,\n                );\n            let candidate_correct = crate::scoring::outputs_match(\n                    request.output_scoring,\n                    &trial.candidate_output,\n                    &trial.expected_output,\n                );\n"
     },
     {
       "id": "arena-authenticated-latency-discarded",
@@ -2441,7 +2442,7 @@
       "id": "cluster-sealed-data-excluded",
       "file": "crates/hephaestus-arena/src/clusters.rs",
       "invariant": "A sealed task's actual output and expected output are never shape-analyzed; sealed failures contribute only an aggregate completion-reason count.",
-      "find": "        } else if let Some(expected) = sealed_expected.get(task_id) {\n            sealed_trials.push(SealedTrial {\n                completion_reason: trial.completion_reason,\n                output_matches: trial.stdout == expected.as_bytes(),\n            });",
+      "find": "        } else if let Some(expected) = sealed_expected.get(task_id) {\n            sealed_trials.push(SealedTrial {\n                completion_reason: trial.completion_reason,\n                output_matches: std::str::from_utf8(&trial.stdout).is_ok_and(|actual| {\n                    crate::scoring::outputs_match(\n                        world.evaluation_policy().output_scoring(),\n                        actual,\n                        expected,\n                    )\n                }),\n            });\n",
       "replace": "        } else if let Some(expected) = sealed_expected.get(task_id) {\n            visible_trials.push(VisibleTrial {\n                completion_reason: trial.completion_reason,\n                expected_output: expected.clone(),\n                actual_output: trial.stdout.clone(),\n            });"
     },
     {
@@ -2769,6 +2770,110 @@
       "find": "        if value.len() > MAX_OBSERVATION_FIELD_BYTES {",
       "replace": "        if false && value.len() > MAX_OBSERVATION_FIELD_BYTES {",
       "test_cmd": "cargo test -p hephaestus-runtime --all-features --lib -- provider_events::tests::oversized_tool_results_are_bounded_with_a_truncation_marker --exact"
+    },
+    {
+      "id": "arena-trimmed-scoring-ignored",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "A trimmed World ignores only outer ASCII whitespace.",
+      "find": "OutputScoring::Trimmed => actual.trim_ascii() == expected.trim_ascii(),",
+      "replace": "OutputScoring::Trimmed => actual == expected,",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-json-scoring-ignored",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "A JSON World compares strict values rather than formatting.",
+      "find": "OutputScoring::JsonCanonical => match (parse_json(actual), parse_json(expected)) {\n            (Ok(actual), Ok(expected)) => actual == expected,\n            _ => false,\n        },",
+      "replace": "OutputScoring::JsonCanonical => actual == expected,",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-json-duplicate-keys-accepted",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "Duplicate decoded JSON object keys fail scoring even when outputs are identical.",
+      "find": "if values.insert(key, value).is_some() {",
+      "replace": "if { values.insert(key, value); false } {",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-json-number-values-discarded",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "Distinct decimal values cannot receive the same score after normalization.",
+      "find": "        negative,\n        digits,\n        scale,",
+      "replace": "        negative,\n        digits: \"0\".to_owned(),\n        scale,",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-schema1-nonexact-scoring-accepted",
+      "file": "crates/hephaestus-arena/src/evaluator_protocol.rs",
+      "invariant": "Historical schema-1 requests cannot carry nonexact semantics.",
+      "find": "(1, true) | (2, false)",
+      "replace": "(1, _) | (2, false)",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib evaluator_protocol::tests:: --quiet"
+    },
+    {
+      "id": "world-output-scoring-law-ignored",
+      "file": "crates/hephaestus-genome/src/world.rs",
+      "invariant": "The compiled evaluation policy retains the immutable World scoring Law.",
+      "find": "output_scoring: raw.laws.output_scoring,",
+      "replace": "output_scoring: OutputScoring::Exact,",
+      "test_cmd": "cargo test -p hephaestus-genome --test compiler_contracts output_scoring_preserves --quiet"
+    },
+    {
+      "id": "cluster-sealed-normalization-ignored",
+      "file": "crates/hephaestus-arena/src/clusters.rs",
+      "invariant": "Sealed failure counts use the same normalized World rule as the evaluator.",
+      "find": "output_matches: std::str::from_utf8(&trial.stdout).is_ok_and(|actual| {\n                    crate::scoring::outputs_match(\n                        world.evaluation_policy().output_scoring(),\n                        actual,\n                        expected,\n                    )\n                }),",
+      "replace": "output_matches: trial.stdout == expected.as_bytes(),",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --test evaluation_contracts world_scoring_matches --quiet"
+    },
+    {
+      "id": "cluster-visible-normalization-ignored",
+      "file": "crates/hephaestus-arena/src/clusters.rs",
+      "invariant": "Visible failure counts use the same normalized World rule as the evaluator.",
+      "find": "    visible_trials.retain(|trial| {\n        trial.completion_reason != RunCompletionReason::Success\n            || !std::str::from_utf8(&trial.actual_output).is_ok_and(|actual| {\n                crate::scoring::outputs_match(\n                    world.evaluation_policy().output_scoring(),\n                    actual,\n                    &trial.expected_output,\n                )\n            })\n    });",
+      "replace": "    visible_trials.retain(|trial| {\n        trial.completion_reason != RunCompletionReason::Success || trial.actual_output != trial.expected_output.as_bytes()\n    });",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --test evaluation_contracts world_scoring_matches --quiet"
+    },
+    {
+      "id": "arena-invalid-json-expectations-admitted",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Invalid strict-JSON expectations are rejected before any provider job is admitted.",
+      "find": "        manifest\n            .validate_scoring(world.evaluation_policy().output_scoring())\n            .map_err(|_| {\n                ExecuteError::Rejected(\n                    \"World task expectations do not match its output scoring policy\".to_owned(),\n                )\n            })?;\n",
+      "replace": "",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib provider_pair_world_scoring --quiet"
+    },
+    {
+      "id": "arena-trimmed-unicode-whitespace-accepted",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "Trimmed scoring is ASCII-only and cannot silently discard Unicode whitespace.",
+      "find": "actual.trim_ascii() == expected.trim_ascii()",
+      "replace": "actual.trim() == expected.trim()",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-json-depth-budget-ignored",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "JSON output exceeding the declared nesting limit is never correct.",
+      "find": "if depth > MAX_JSON_DEPTH {",
+      "replace": "if depth > MAX_JSON_DEPTH + 1 {",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-json-exponent-budget-ignored",
+      "file": "crates/hephaestus-arena/src/scoring.rs",
+      "invariant": "JSON output exceeding the normalized numeric magnitude limit is never correct.",
+      "find": "if !(-MAX_JSON_EXPONENT..=MAX_JSON_EXPONENT).contains(&magnitude) {",
+      "replace": "if !(-MAX_JSON_EXPONENT - 1..=MAX_JSON_EXPONENT + 1).contains(&magnitude) {",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet"
+    },
+    {
+      "id": "arena-library-json-preflight-skipped",
+      "file": "crates/hephaestus-arena/src/lib.rs",
+      "invariant": "Preparing evaluator work rejects invalid JSON expectations before creating evaluator artifacts.",
+      "find": "    visible.validate_scoring(world.evaluation_policy().output_scoring())?;\n    sealed.validate_scoring(world.evaluation_policy().output_scoring())?;\n",
+      "replace": "",
+      "test_cmd": "cargo test -p hephaestus-arena --all-features --test evaluation_contracts prepare_evaluation_rejects_invalid_json --quiet"
     }
   ]
 }

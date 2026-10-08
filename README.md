@@ -165,8 +165,8 @@ sizes, cost, and how to add a document for review: [the Senate](docs/SENATE.md).
   runs the same check whenever you like.
 - **You hold the brake.** Hephaestus starts frozen. Only you can unfreeze it,
   and stopping work is confirmed, not assumed.
-- **The tests are tested.** CI breaks the code on purpose in **368** separate
-  ways, and the test suite has to catch every one or the build fails. 49
+- **The tests are tested.** CI breaks the code on purpose in **381** separate
+  ways, and the test suite has to catch every one or the build fails. 50
   safety-critical modules must also stay at 92% test coverage or better.
 
 The threat model, including how to check all of this yourself, is in

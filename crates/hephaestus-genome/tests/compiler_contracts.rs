@@ -509,6 +509,49 @@ fn auto_canary_on_drift_law_is_absent_by_default_and_round_trips_when_set() {
 }
 
 #[test]
+fn output_scoring_preserves_historical_world_bytes_and_pins_nondefault_modes() {
+    use hephaestus_genome::OutputScoring;
+
+    let directory = tempdir().unwrap();
+    let store = ArtifactStore::open(directory.path()).unwrap();
+    let historical = r#"{"schema_version":1,"name":"scoring","laws":{"candidate_network":false,"candidate_evaluator_access":false,"maximum_cost_microusd":100,"allow_mixed_environments":false},"authority_ceiling":{"workspace_write":false,"network":false},"mutation_scope":[],"promotion":{"minimum_delta_bps":0,"maximum_regressions":0,"confidence_bps":9500},"objectives":["correctness"],"evaluator_artifacts":{}}"#;
+    let exact = compile_world(historical, SourceFormat::Json, &store).unwrap();
+    assert_eq!(exact.canonical_json(), historical.as_bytes());
+    assert_eq!(
+        exact.evaluation_policy().output_scoring(),
+        OutputScoring::Exact
+    );
+    let mut source: serde_json::Value = serde_json::from_str(historical).unwrap();
+    source["laws"]["output_scoring"] = serde_json::json!("exact");
+    let explicit = compile_world(&source.to_string(), SourceFormat::Json, &store).unwrap();
+    assert_eq!(exact, explicit);
+
+    let mut ids = std::collections::BTreeSet::from([exact.id().to_owned()]);
+    for mode in [OutputScoring::Trimmed, OutputScoring::JsonCanonical] {
+        source["laws"]["output_scoring"] = serde_json::to_value(mode).unwrap();
+        let world = compile_world(&source.to_string(), SourceFormat::Json, &store).unwrap();
+        assert_eq!(world.evaluation_policy().output_scoring(), mode);
+        assert!(ids.insert(world.id().to_owned()));
+        let reopened = compile_world(
+            std::str::from_utf8(world.canonical_json()).unwrap(),
+            SourceFormat::Json,
+            &store,
+        )
+        .unwrap();
+        assert_eq!(world, reopened);
+        assert!(hephaestus_genome::ensure_comparable(&exact, &world).is_err());
+    }
+    for invalid in [
+        serde_json::json!("fuzzy"),
+        serde_json::json!(null),
+        serde_json::json!(1),
+    ] {
+        source["laws"]["output_scoring"] = invalid;
+        assert!(compile_world(&source.to_string(), SourceFormat::Json, &store).is_err());
+    }
+}
+
+#[test]
 fn compilers_reject_unknown_versions_fields_and_oversized_input() {
     let directory = tempdir().expect("temporary directory");
     let store = ArtifactStore::open(directory.path()).expect("open artifact store");
