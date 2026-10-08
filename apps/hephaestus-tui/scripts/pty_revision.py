@@ -152,8 +152,11 @@ with tempfile.TemporaryDirectory(prefix='heph-revision-pty-') as private:
 
     terminal = Terminal(home)
     try:
+        start = len(terminal.text())
         terminal.resume()
-        terminal.until('COMPLETED', timeout=30)
+        # Match the recovered phase, not the earlier COMPLETED COMPARISONS
+        # heading. Assessment is admitted only after polling finishes.
+        terminal.until('COMPLETED:', start, timeout=30)
         start = len(terminal.text())
         terminal.press(b'a'); terminal.until('Metrics assessment verified.', start)
         terminal.until('METRICS PASSED', start)

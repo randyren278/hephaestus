@@ -391,7 +391,7 @@ fn retention_and_record_size_limits_survive_restart() {
         ),
         Err(ExperienceError::RecordTooLarge { .. })
     ));
-    assert!(bounded.replay_verified().expect("empty history").is_empty());
+    assert_eq!(bounded.replay_verified().expect("empty history"), []);
 }
 
 #[test]

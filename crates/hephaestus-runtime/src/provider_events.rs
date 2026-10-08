@@ -407,7 +407,7 @@ mod tests {
     fn cursor_buffers_partial_lines_and_flags_malformed_ones() {
         let mut cursor = ProviderEventCursor::new();
         let first = cursor.feed(Provider::Claude, br#"{"type":"system","subtype":"init""#);
-        assert!(first.is_empty());
+        assert_eq!(first, []);
         let second = cursor.feed(Provider::Claude, b"}\nnot json\n");
         assert_eq!(second.len(), 2);
         assert_eq!(second[0].kind, RuntimeObservationKind::ContextComposed);
@@ -517,7 +517,7 @@ mod tests {
             Provider::Deterministic,
             b"{\"type\":\"whatever\",\"subtype\":\"init\"}\n",
         );
-        assert!(observations.is_empty());
+        assert_eq!(observations, []);
     }
 
     #[test]
@@ -533,7 +533,7 @@ mod tests {
     fn codex_item_event_without_an_item_field_yields_no_observations() {
         let mut cursor = ProviderEventCursor::new();
         let observations = cursor.feed(Provider::Codex, b"{\"type\":\"item.completed\"}\n");
-        assert!(observations.is_empty());
+        assert_eq!(observations, []);
     }
 
     #[test]
@@ -561,14 +561,14 @@ mod tests {
     fn claude_unrecognized_system_subtype_yields_no_observations() {
         let mut cursor = ProviderEventCursor::new();
         let line = b"{\"type\":\"system\",\"subtype\":\"other\"}\n";
-        assert!(cursor.feed(Provider::Claude, line).is_empty());
+        assert_eq!(cursor.feed(Provider::Claude, line), []);
     }
 
     #[test]
     fn claude_conversation_event_with_no_content_array_yields_no_observations() {
         let mut cursor = ProviderEventCursor::new();
         let line = b"{\"type\":\"assistant\",\"message\":{}}\n";
-        assert!(cursor.feed(Provider::Claude, line).is_empty());
+        assert_eq!(cursor.feed(Provider::Claude, line), []);
     }
 
     #[test]
@@ -576,7 +576,7 @@ mod tests {
         let mut cursor = ProviderEventCursor::new();
         let line = br#"{"type":"assistant","message":{"content":[{"no_type":true}]}}
 "#;
-        assert!(cursor.feed(Provider::Claude, line).is_empty());
+        assert_eq!(cursor.feed(Provider::Claude, line), []);
     }
 
     #[test]
@@ -651,7 +651,7 @@ mod tests {
         let line =
             br#"{"type":"assistant","message":{"content":[{"type":"thinking","text":"..."}]}}
 "#;
-        assert!(cursor.feed(Provider::Claude, line).is_empty());
+        assert_eq!(cursor.feed(Provider::Claude, line), []);
     }
 
     #[test]
@@ -699,20 +699,18 @@ mod tests {
     #[test]
     fn codex_unrecognized_event_type_yields_no_observations() {
         let mut cursor = ProviderEventCursor::new();
-        assert!(
-            cursor
-                .feed(Provider::Codex, b"{\"type\":\"thread.started\"}\n")
-                .is_empty()
+        assert_eq!(
+            cursor.feed(Provider::Codex, b"{\"type\":\"thread.started\"}\n"),
+            []
         );
     }
 
     #[test]
     fn claude_unrecognized_message_type_yields_no_observations() {
         let mut cursor = ProviderEventCursor::new();
-        assert!(
-            cursor
-                .feed(Provider::Claude, b"{\"type\":\"stream_event\"}\n")
-                .is_empty()
+        assert_eq!(
+            cursor.feed(Provider::Claude, b"{\"type\":\"stream_event\"}\n"),
+            []
         );
     }
 

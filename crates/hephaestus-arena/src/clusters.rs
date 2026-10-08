@@ -1212,7 +1212,7 @@ mod tests {
 
     #[test]
     fn empty_input_produces_no_clusters() {
-        assert!(cluster_trials(&[], &[]).is_empty());
+        assert_eq!(cluster_trials(&[], &[]), []);
     }
 
     fn sample_analysis(analysis_id: &str, clusters: Vec<FailureCluster>) -> ClusterAnalysis {

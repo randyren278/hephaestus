@@ -105,7 +105,13 @@ def main() -> int:
         press(b"\r")
         if not until("RUNS", 5, start) or not until(short_world, 5, start):
             raise RuntimeError("TUI Runs screen did not show the World header")
-        if not until(short_genome, 5, start):
+        # The 80x24 disclosure leaves room for one run. Arena runs can be
+        # newer than the standalone parent run, so navigate the real list.
+        for _ in range(5):
+            if short_genome in latest_frame("RUNS"):
+                break
+            press(b"\x1b[B")
+        if short_genome not in latest_frame("RUNS"):
             raise RuntimeError("TUI Runs screen did not show the real registered Genome")
         for disclosure in ('Recorded USD, not a bill', 'Codex reports no USD', 'Totals may omit usage'):
             if not until(disclosure, 5, start):

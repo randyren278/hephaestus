@@ -896,10 +896,9 @@ mod runtime_exec_unit_tests {
             vec![b'x'; 32]
         );
         assert!(read_bounded_stream(std::io::Cursor::new(vec![b'x']), 0).is_err());
-        assert!(
-            read_bounded_stream(std::io::Cursor::new(Vec::<u8>::new()), 0)
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            read_bounded_stream(std::io::Cursor::new(Vec::<u8>::new()), 0).unwrap(),
+            [] as [u8; 0]
         );
     }
 

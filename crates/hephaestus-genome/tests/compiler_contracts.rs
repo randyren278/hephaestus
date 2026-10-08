@@ -416,7 +416,7 @@ fn world_compilation_protects_laws_evaluators_and_comparability() {
 
     ensure_comparable(&baseline, &same).expect("same World is comparable");
     assert_eq!(baseline.name(), "code-v1");
-    assert!(!baseline.canonical_json().is_empty());
+    assert_ne!(baseline.canonical_json(), b"");
     assert_eq!(
         baseline.authority_ceiling(),
         CapabilitySet::new(true, false)

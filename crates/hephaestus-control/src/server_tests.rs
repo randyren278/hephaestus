@@ -8357,15 +8357,15 @@ fn rejected_request_audit_failure_returns_safe_internal_and_recovers() {
         .expect("safe response to rejected audit failure");
     assert_eq!(error.code, ApiErrorCode::Internal);
     assert_eq!(error.message, "canonical operation failed");
-    assert!(
+    assert_eq!(
         plane
             .storage
             .as_ref()
             .expect("canonical storage")
             .ledger
             .replay_verified()
-            .expect("verify ledger after rejected request append")
-            .is_empty()
+            .expect("verify ledger after rejected request append"),
+        []
     );
 
     database
@@ -9293,11 +9293,11 @@ fn synchronous_markdown_run_evaluation_persists_signed_provenance_and_replays() 
             .expect("load output from CAS"),
         input.as_bytes()
     );
-    assert!(
+    assert_eq!(
         artifacts
             .get(&ArtifactId::parse(stderr_artifact_id).expect("stderr artifact ID"))
-            .expect("load diagnostics from CAS")
-            .is_empty()
+            .expect("load diagnostics from CAS"),
+        [] as [u8; 0]
     );
     drop(artifacts);
 
@@ -10063,7 +10063,7 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         projection.standby_genome_ids,
         vec![initial_candidate.genome_id.clone()]
     );
-    assert!(projection.quarantined_genome_ids.is_empty());
+    assert_eq!(projection.quarantined_genome_ids, [] as [String; 0]);
     assert_eq!(
         projection.transitions,
         vec![seeded.clone(), promoted.clone()]
@@ -10151,7 +10151,7 @@ fn champion_seed_promote_and_rollback_join_verified_evidence_and_replay() {
         projection.champion_genome_id.as_deref(),
         Some(initial_candidate.genome_id.as_str())
     );
-    assert!(projection.standby_genome_ids.is_empty());
+    assert_eq!(projection.standby_genome_ids, [] as [String; 0]);
     assert_eq!(
         projection.quarantined_genome_ids,
         vec![assessed.child.clone()]
@@ -10842,7 +10842,7 @@ fn evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides
         "recorded invariant evidence must be summarized"
     );
     assert!(entry.forge_assessment.is_none());
-    assert!(entry.champion_transition_ids.is_empty());
+    assert_eq!(entry.champion_transition_ids, [] as [String; 0]);
 
     let encoded = serde_json::to_string(&response).expect("response serializes");
     for forbidden in ["sealed", "expected_output", "task_input", "raw_output"] {
@@ -11843,7 +11843,7 @@ fn evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation(
         run.finish_reason,
         Some(EvolutionFinishReason::NoCandidateMutation)
     );
-    assert!(run.generations.is_empty());
+    assert_eq!(run.generations, []);
     // TD-22: the diagnostic evaluation that discovered there was no
     // candidate mutation still spent one trial, even though no
     // `evolution.generation` event is recorded for it (there was no
@@ -16621,7 +16621,7 @@ fn meta_read_commands_dispatch_through_the_client_socket_and_report_not_found() 
     else {
         panic!("meta strategy list should succeed with no registered strategies");
     };
-    assert!(strategies.is_empty());
+    assert_eq!(strategies, []);
 
     let show_error = dispatch_call(
         &mut plane,
@@ -16657,7 +16657,7 @@ fn meta_read_commands_dispatch_through_the_client_socket_and_report_not_found() 
     else {
         panic!("meta list should succeed with no recorded receipts");
     };
-    assert!(receipts.is_empty());
+    assert_eq!(receipts, []);
 }
 
 #[test]
@@ -22122,7 +22122,7 @@ fn forge_refuses_harness_mutations_when_the_world_scope_excludes_them() {
         .registered
         .world(&world.world_id)
         .expect("registered World");
-    assert!(registered_world.compiled().mutation_scope().is_empty());
+    assert_eq!(registered_world.compiled().mutation_scope(), []);
     let storage = plane.storage.as_ref().expect("canonical storage");
     let result = forge_prompt_mutation(
         &*storage.artifacts,

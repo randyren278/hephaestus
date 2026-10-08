@@ -1,0 +1,20 @@
+No blocking issues. All three fixes look correct, and none of them weaken an assertion. I only read the code (no edits, no tests run, no diff tool available), so this is based on the current file contents.
+
+**1. `pty_evidence.py` (Runs below the fold)**: correct.
+- The loop starts only after `short_world` has rendered, so the runs have loaded before it navigates.
+- Down-arrow stops at the last run (`ui.tsx:588`), so five presses can't overshoot with fewer runs.
+- The script's `short_genome` is computed the same way as the TUI's `shortId()` (`lineage-view.tsx:13`), so the match is exact.
+- `latest_frame("RUNS")` works because Ink 7.1.1 redraws the whole screen each time by default (the repo doesn't change that), so every frame contains the `RUNS (n)` header.
+- The test still fails if the Genome never shows up. It still checks all three disclosure lines. `runs_frame` is now taken after navigating, so the printed evidence line includes the Genome.
+- The only thing it no longer checks is that the parent run is the newest one, which was never meant to be guaranteed.
+- Minor, not new: the disclosure checks search all output since `start` rather than the latest frame. That was already true before this change.
+
+**2. `pty_revision.py` (recovery assessment)**: correct, and stricter than before.
+- `COMPLETED:` only appears in the state header, which renders `{PHASE}: {genome name}` (`revision-view.tsx:273`). The list heading is `COMPLETED COMPARISONS ·` and the job line is `COMPLETED / …`, so neither can match it.
+- That header appears exactly when the phase becomes `completed`, which is the phase where `a` is accepted (`revision-view.tsx:220`). So the race is gone rather than just made less likely.
+- `start` is taken in a new terminal process, so the previous session's output can't produce a false match. Every assertion after it is unchanged.
+
+**3. `provider_adapter_contracts.rs:277-281`**: equivalent in strength.
+- `RuntimeObservation` derives `PartialEq` and `Debug` (`runtime.rs:91`), so comparing the `Vec` to `[]` compiles and still prints the actual contents if it fails.
+- The multi-line layout looks like what rustfmt would produce: the `cursor.feed(…)` chain is 61 characters, just over rustfmt's default 60-character limit for keeping a chain on one line. CI's fmt check will confirm.
+- One caveat: other `assert!(x.is_empty())` calls remain at `provider_adapter_contracts.rs:71` and `runtime_contracts.rs:699,799,833`. If the new Clippy lint applies to every such call, rather than something specific to this one, those will fail next. Check that the CI 37854189571 log flagged only line 277.

@@ -1,0 +1,14 @@
+I found no weakened assertions and no correctness problems in the 10 sites. I couldn't view the diff because I only have read and search tools, so I checked each current assertion against the empty/nonempty check it replaced. One site probably has a formatting problem, below.
+
+**Assertions that should be empty (`assert_eq!(x, [])`, same as `x.is_empty()`):**
+- `server_tests.rs:8360`: `replay_verified()` returns `Result<Vec<StoredEvent>, _>`. It is still unwrapped with `.expect`, so a ledger that fails verification still panics. The check for no events is the same as before.
+- `server_tests.rs:9296` and `runtime_exec.rs:899`: these compare bytes to `[] as [u8; 0]`. The `.expect`/`.unwrap` calls are kept, so read and CAS failures are still caught.
+- `server_tests.rs:10066`, `10154` and `10845`: these compare `Vec<String>` to `[] as [String; 0]`. They are the same check. The other assertions around them that check for nonempty values are unchanged.
+- `server_tests.rs:11846`, `16624`, `16660` and `22125`: these compare to a bare `[]`, and the element type comes from the left side. That's the same check. At `22125`, `mutation_scope()` returns `&[MutationTarget]`, and the fixture comment at line 22118 matches `"mutation_scope":[]`.
+
+**Assertion that should be nonempty:**
+- `control_plane_e2e.rs:671`: `assert_ne!(…as_str().expect("text content"), "")` is the same as `!is_empty()`. The `.expect` still requires the value to be a string, so a missing or non-string value fails rather than passing.
+
+These compare the full value to an empty literal, so they're the same check as `is_empty()`, and when they fail the message now shows the actual contents.
+
+**Probable formatting issue:** at `server_tests.rs:22125-22128`, `assert_eq!(registered_world.compiled().mutation_scope(), []);` fits within 100 columns at 4-space indent. rustfmt would likely put it on one line, so `cargo fmt --check` may fail there if CI runs it. I didn't run it. The other multi-line sites are too long for one line, so their wrapping looks right.

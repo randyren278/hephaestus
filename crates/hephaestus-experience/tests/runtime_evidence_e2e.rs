@@ -60,11 +60,11 @@ fn real_offline_run_emits_provider_observations_and_truthful_terminal_evidence()
         .snapshot(fixture.spec.run_id())
         .expect("repeat terminal snapshot");
     assert_eq!(receipts(&runtime).len(), 5);
-    assert!(
+    assert_eq!(
         runtime
             .drain_observations(fixture.spec.run_id())
-            .expect("wrapper observation drain")
-            .is_empty()
+            .expect("wrapper observation drain"),
+        []
     );
 
     runtime
@@ -255,10 +255,10 @@ fn interrupt_records_natural_completion_race_and_terminal_state_is_closed() {
         RuntimeObservationKind::Retry,
         BTreeMap::new(),
     ));
-    assert!(
+    assert_eq!(
         RuntimeAdapter::drain_observations(&mut runtime, fixture.spec.run_id())
-            .expect("guarded observation drain")
-            .is_empty()
+            .expect("guarded observation drain"),
+        []
     );
     runtime
         .interrupt(fixture.spec.run_id())

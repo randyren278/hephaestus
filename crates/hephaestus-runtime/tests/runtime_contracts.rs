@@ -407,10 +407,9 @@ fn supervisor_streams_stdin_and_reports_bounded_success_artifacts() {
         fs::read_to_string(snapshot.stdout_path).expect("read supervised stdout"),
         run_spec.prompt()
     );
-    assert!(
-        fs::read(snapshot.stderr_path)
-            .expect("read supervised stderr")
-            .is_empty()
+    assert_eq!(
+        fs::read(snapshot.stderr_path).expect("read supervised stderr"),
+        [] as [u8; 0]
     );
     assert!(matches!(
         runtime.resume(&run_spec, &sandbox, &token, "checkpoint"),
@@ -696,7 +695,7 @@ fn deterministic_runtime_reports_wall_overrun_instead_of_success() {
         snapshot.completion_reason,
         Some(hephaestus_runtime::CompletionReason::WallBudgetExceeded)
     );
-    assert!(fs::read(&snapshot.stdout_path).unwrap().is_empty());
+    assert_eq!(fs::read(&snapshot.stdout_path).unwrap(), [] as [u8; 0]);
     assert_eq!(
         fs::read(&snapshot.stderr_path).unwrap(),
         b"wall budget exceeded\n"
@@ -796,7 +795,7 @@ fn deterministic_runtime_reports_failed_status_when_inventory_exceeds_output_bud
         snapshot.completion_reason,
         Some(hephaestus_runtime::CompletionReason::OutputBudgetExceeded)
     );
-    assert!(fs::read(&snapshot.stdout_path).unwrap().is_empty());
+    assert_eq!(fs::read(&snapshot.stdout_path).unwrap(), [] as [u8; 0]);
     assert_eq!(
         fs::read(&snapshot.stderr_path).unwrap(),
         b"output budget exceeded\n"
@@ -830,7 +829,7 @@ fn deterministic_runtime_drains_observations_once_and_then_empties() {
     let second_drain = runtime
         .drain_observations(run_spec.run_id())
         .expect("drain observations again");
-    assert!(second_drain.is_empty());
+    assert_eq!(second_drain, []);
 
     assert!(matches!(
         runtime.drain_observations("missing"),

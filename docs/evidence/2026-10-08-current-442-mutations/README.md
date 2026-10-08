@@ -12,7 +12,10 @@ The guard restored every target byte-for-byte. The subsequent ordinary
 [restored full-workspace test run](restored-tests.txt) passed **732 tests
 including doc tests**, zero failed or ignored, on the same exact toolchain.
 Post-test hashes and tracked checkout cleanliness were verified again.
-The main worktree's mutation targets and manifest match that immutable source.
+At audit completion the main worktree's target files and manifest matched that
+immutable source. Later Rust 1.99 compatibility edits change test assertions only;
+the [main CI follow-up](../2026-10-08-main-ci/README.md) verifies unchanged
+production code, the same manifest and all 442 source anchors.
 The [proof](proof.json) records commands, hashes, compiler, thread count and
 terminal exits. Audit plus restored tests took 83.2 minutes.
 

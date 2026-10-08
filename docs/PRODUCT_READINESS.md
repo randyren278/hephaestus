@@ -620,3 +620,14 @@ Claude found no blocking issue
 in the code and identified documentation limits that were corrected. All model
 fixtures here are local; authentication, representative quality and revenue
 remain unproved. The full product objective remains open.
+
+## Main CI compatibility follow-up, 2026-10-08
+
+After the main push, GitHub Rust 1.99 found new empty-assertion lint failures,
+and two live-daemon PTY checks assumed the parent run was the first visible row
+or confused a menu heading with the completed revision phase. The correction
+updates equivalent test assertions, navigates the real run list and waits for
+the exact completed phase. Production behavior and quality gates are unchanged.
+The [current follow-up evidence](evidence/2026-10-08-main-ci/README.md) records
+fresh local checks and the precise relationship to the immutable 442-entry audit.
+A pending GitHub follow-up run is not counted as passing.

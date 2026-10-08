@@ -1,0 +1,17 @@
+**Verdict: no correctness blocker and no weakened assertions in the revised code.** I couldn't run `git diff` (no shell here), so I reviewed the current state of each file rather than the diff itself.
+
+**Rust empty and non-empty checks are equivalent and compile cleanly**
+- **Lists compared to `[]`:** `provider_events.rs:410,520,536,564,571,579,654`, `runtime_contracts.rs:832`, `clusters.rs:1215`, `evidence_contracts.rs:394` and `runtime_evidence_e2e.rs:67,261`. All of these return `Vec<T>`, and every element type derives `PartialEq` and `Debug` (`RuntimeObservation`, `StoredEvent`, `FailureCluster`), so comparing against `[]` works.
+- **Byte files compared to an empty byte array:** `runtime_contracts.rs:412,698,798` read files as bytes and compare against `[] as [u8; 0]`. The explicit type is correct and needed.
+- **Non-empty check:** `compiler_contracts.rs:419` uses `assert_ne!(baseline.canonical_json(), b"")`. `World::canonical_json()` returns `&[u8]`, and `&[u8]` vs `&[u8; 0]` compiles. It's the same as `!is_empty()`.
+- **Bonus:** comparing to `[]` is stronger than `is_empty()` because a failure prints the unexpected items.
+
+**Possible leftover for the Rust 1.99 lint**
+- **`provider_adapter_contracts.rs:70-73`** still reads `assert!(unexpected.is_empty(), "...{unexpected:?}")`. If the lint also fires on `assert!` calls that carry a message, this is the one remaining hit. A same-strength fix would be `assert_eq!(unexpected, [] as [&str; 0], "...")`. Whether it's flagged depends on that lint detail.
+
+**Weak assertion that probably predates this change**
+- **`provider_adapter_contracts.rs:329-332`** asserts `!first_listing.contains("fixture.txt") || !second_listing.is_empty()`. Line 328 already confirms `second_listing` contains `"marker"`, so this can never fail. It doesn't actually test that each sibling sees only its own worktree. It's not a CI blocker, but it is a test that checks nothing.
+
+**PTY scripts:** nothing new since my earlier positive review.
+- `pty_evidence.py` still fails with an error on every missing screen or disclosure and on a bad terminal restore.
+- `pty_revision.py` still checks exactly one proposal, comparison and assessment, an exact byte match on the snapshot, mode `0o400`, the unchanged source hash, and that the restart doesn't reopen the editor.

@@ -668,11 +668,11 @@ fn mcp_gateway_speaks_json_rpc_framing_over_stdio_against_a_real_daemon() {
     assert_eq!(allowed_call["id"], 3);
     assert_eq!(allowed_call["result"]["isError"], false);
     assert_eq!(allowed_call["result"]["content"][0]["type"], "text");
-    assert!(
-        !allowed_call["result"]["content"][0]["text"]
+    assert_ne!(
+        allowed_call["result"]["content"][0]["text"]
             .as_str()
-            .expect("text content")
-            .is_empty()
+            .expect("text content"),
+        ""
     );
 
     // `world_list` is not in this client's `allow` list.

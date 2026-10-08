@@ -274,10 +274,9 @@ echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"done\",\"total_c
 fn provider_event_cursor_never_panics_on_truncated_or_oversized_input() {
     let mut cursor = ProviderEventCursor::new();
     // No trailing newline: still buffered, no panic, no observation yet.
-    assert!(
-        cursor
-            .feed(Provider::Codex, b"{\"type\":\"item.completed\"")
-            .is_empty()
+    assert_eq!(
+        cursor.feed(Provider::Codex, b"{\"type\":\"item.completed\""),
+        []
     );
     // A pathologically long unterminated line is reported and dropped rather
     // than growing the buffer without bound.
