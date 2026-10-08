@@ -1,0 +1,30 @@
+Diagnostic repetition 1
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src/lib.rs (/tmp/heph-launch-guard-os2fxey_/target188/debug/deps/hephaestus_control-7c1bd7b47088ef1b)
+
+running 1 test
+test server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 3.58s
+
+exit_code=0
+Diagnostic repetition 2
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (/tmp/heph-launch-guard-os2fxey_/target188/debug/deps/hephaestus_control-7c1bd7b47088ef1b)
+
+running 1 test
+test server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 3.58s
+
+exit_code=0
+Diagnostic repetition 3
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (/tmp/heph-launch-guard-os2fxey_/target188/debug/deps/hephaestus_control-7c1bd7b47088ef1b)
+
+running 1 test
+test server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 3.35s
+
+exit_code=0

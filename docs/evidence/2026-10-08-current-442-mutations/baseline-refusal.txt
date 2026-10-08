@@ -1,0 +1,20 @@
+FAIL: the unmutated suite is already failing (exit 101); every mutation would 'kill' trivially and the gate would prove nothing. Fix the suite first.
+    running 6 tests
+    test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+    running 259 tests
+    ..................................................................... 69/259
+    server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor --- FAILED
+    ....................................................................................... 157/259
+    ....................................................................................... 244/259
+    failures:
+    ---- server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor stdout ----
+    thread 'server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor' panicked at crates/hephaestus-control/src/server_tests.rs:14906:5:
+    the injected delay should make the candidate measurably slower
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    failures:
+        server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor
+    test result: FAILED. 258 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 218.33s
+root:    /private/tmp/heph-launch-guard-os2fxey_/checkout
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 120s, 240s, 480s
+baseline timeout: 900s

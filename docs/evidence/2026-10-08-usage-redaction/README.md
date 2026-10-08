@@ -33,7 +33,7 @@ patch.
 Current verification:
 
 - The [workspace coverage run](workspace-coverage.txt) passed **728 unit and
-  integration tests**, zero failed or ignored. All
+  integration tests** on stable Rust 1.98.0, zero failed or ignored. All
   [51 critical module floors](coverage-gate.txt) passed at 92% or above;
   redaction reached 100% and the recorder 99.6%.
 - The default full-workspace mutation baseline passed on exact Rust 1.88.0.
@@ -72,3 +72,9 @@ Native Intel, a published browser download and independent fresh-user
 acceptance remain unverified. The current-source browser report also
 [uses the corrected verdict wording](../2026-10-08-live-forge/current-template-report.md);
 its measured values remain identical to the historical export.
+
+The subsequent [complete current audit](../2026-10-08-current-442-mutations/README.md)
+at immutable `632b4bc` killed all **442** configured entries, restored every
+source target and passed **732** restored full-workspace tests including docs
+on exact Rust 1.88.0. That separate record preserves the initial baseline
+timing refusal and unchanged-test retry.

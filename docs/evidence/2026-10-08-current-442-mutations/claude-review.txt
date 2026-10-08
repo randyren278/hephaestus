@@ -1,0 +1,36 @@
+I found no blockers to pushing this code. The usage-redaction change and the docs you listed match each other, and the 442 count matches what CI is configured to run. I reviewed the files as they sit in the working tree. I didn't run any commands, so I couldn't diff the uncommitted `README.md` and `docs/PILOT_GUIDE.md` edits against `632b4bc`.
+
+## Code: no defects found
+
+- **Allowed keys are narrow** (`crates/hephaestus-experience/src/redaction.rs:88-95`). Only the four exact counter names get through. Each value must be ASCII digits only, with no leading zero (except `"0"` itself), and must fit in a u64. An empty string is still masked because it fails the number parse.
+- **Only cost traces get the exception** (`redaction.rs:28-34`). The general redaction path (`redaction.rs:24-26`, used at `recorder.rs:260`) still masks everything, and `recorder.rs:186` only relaxes it for `CostObserved` traces.
+- **Valid counts still go through known-secret redaction.** If a known secret appears inside a count, the whole field is masked and counted once (`redaction.rs:49-56`).
+- **Quoted numbers stay masked.** Codex counters go through `Value::to_string()` (`crates/hephaestus-runtime/src/provider_events.rs:165-167`), so a JSON string `"2048"` arrives with quotes and is rejected.
+- **Tests match the claims** (`crates/hephaestus-experience/tests/evidence_contracts.rs:161-329`): real Codex NDJSON surviving a restart, 13 malformed inputs, near-miss key names (`Input_Tokens`, `input_tokens_secret`), the wrong trace kind, and secret collisions.
+- **Mutation minimums add up to 442.** The CI shard minimums in `.github/workflows/ci.yml:284-378` sum to exactly 442, the experience minimum is 80, and the five control shards are 29/29/28/28/28. That matches `docs/evidence/2026-10-08-usage-redaction/proof.json:3-12`.
+
+## Small wording issues (optional before push)
+
+1. **Misattributed review sentence.** In `docs/PRODUCT_READINESS.md:126-131`, the sentence starting "Claude's actual read-only review found no material contradiction…" follows the redaction sentence with no blank line. It renders as one paragraph, so readers may think it describes a review of the redaction fix. It actually refers to the earlier `ebbb21b` checkpoint. A blank line, or "That earlier review…", would fix it.
+2. **Compiler versions are split.** The 728 coverage tests ran on stable Rust 1.98 (`usage-redaction/proof.json:24`). The 1.88 results are the workspace check, the doc tests and the restored experience suite. `PRODUCT_READINESS.md:86-90` and `usage-redaction/README.md:35-49` are accurate, but a quick reader could think all 732 tests ran on 1.88. Naming the compiler next to the 728 would make that clear.
+3. **The fix only covers Codex.** The Claude provider records only USD and subtype, with no token counters (`provider_events.rs:303-316`). The docs never claim Claude token counts, so nothing is wrong today. Just don't generalize "usage preserved" to both providers later.
+
+## Before you push
+
+- **Running audit:** `README.md:182-184` says CI is configured to run the 442 mutations, which is accurate. Pushing to main will run that matrix in CI. Until your `632b4bc` audit finishes, no 442 pass is established, and none of the docs I read claims one (`PRODUCT_READINESS.md:92-93`, `usage-redaction/README.md:28-31,62-63`).
+- **Repo state:**
+  - The current branch is `polish/revenue-readiness-2026-10-07`, not `main`, and your saved preferences say to work on main directly with no side branches. Make sure the commits you push are the reviewed ones.
+  - `.DS_Store` and `python/.DS_Store` are untracked and shouldn't be committed.
+  - The modified `README.md` and `docs/PILOT_GUIDE.md` aren't covered by the `632b4bc` audit. They look like docs-only edits, so that shouldn't matter, but I couldn't confirm it.
+
+## Disclosed outside gaps (not code defects)
+
+These are stated consistently across `PILOT_GUIDE.md:60-63,93-101,120-125`, `PRODUCT_READINESS.md:40,42,104-108` and `live-forge/README.md:28,64-75`:
+
+- No measured USD cost: Codex reports none, and the 96 historical runs still have masked token counts.
+- No private holdout or customer acceptance (the pack is public and fictional).
+- Intel Macs, published downloads and fresh-user installs are unverified.
+- The paid pilot is only a proposed scope.
+- Both comparisons tied 24/24, and Forge recorded `metrics_rejected` with no promotion.
+
+The 96-call total, the authorization quotes and "no further experiments" also match `live-forge/proof.json:1-24`.

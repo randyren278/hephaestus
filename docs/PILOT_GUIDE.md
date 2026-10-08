@@ -95,6 +95,10 @@ completed 48 Codex calls: both prompts scored 24/24 and the checklist did not
 pass the measured gates. The record includes the checked browser report and
 restart/replay evidence. It establishes this workflow on a public fictional
 pack; it does not establish an improvement, measured USD cost or customer value.
+The [evidence-bound Forge follow-up](evidence/2026-10-08-live-forge/README.md)
+completed 48 more calls. It also tied 24/24, and Forge recorded
+`metrics_rejected`; no revision was promoted. Both authorized experiments
+are complete, with 96 successful experimental calls in total.
 
 If the evidence identifies a useful next change, use the guided Forge revision
 flow to bind a new prompt and hypothesis to the evaluated candidate's source
