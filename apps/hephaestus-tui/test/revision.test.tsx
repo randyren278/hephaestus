@@ -347,3 +347,19 @@ test('a stale cancel confirmation cannot cancel a newer attempt started by anoth
 	assert.ok(daemon.commands.slice(beforeCancel).every(command => command.command !== 'job_kill'));
 	assert.equal(daemon.jobs.get(second.job!.evaluation_id)!.state, 'running');
 }));
+
+test('polling cannot replace the attempt displayed in a cancellation confirmation', async () => fixture(async (controller, daemon, workspace, draft) => {
+	const recorded = await record(controller, workspace, draft);
+	const displayed = await controller.compare(recorded.cursor, recorded.child!);
+	const confirmedId = displayed.job!.evaluation_id;
+	daemon.finish(confirmedId, 'failed');
+	const other = new RevisionController(daemon, workspace);
+	const failed = await other.reconcile(draft.proposal_id);
+	const newer = await other.compare(failed.cursor, failed.child!);
+	const start = daemon.commands.length;
+	await assert.rejects(controller.poll(displayed), /Comparison changed/);
+	assert.equal(displayed.job!.evaluation_id, confirmedId);
+	await assert.rejects(controller.cancel(displayed), /Comparison changed/);
+	assert.ok(daemon.commands.slice(start).every(command => command.command !== 'job_kill'));
+	assert.equal(daemon.jobs.get(newer.job!.evaluation_id)!.state, 'running');
+}));

@@ -204,6 +204,7 @@ export class RevisionController {
 	async poll(value: RevisionState, isCurrent: () => boolean = () => true): Promise<RevisionState> {
 		if (!value.revision) throw new Error('Reconcile the proposal before polling its comparison');
 		const cursor = await this.workspace.load(value.cursor.proposal_id);
+		if (cursor.evaluation_ids.at(-1) !== value.cursor.evaluation_ids.at(-1)) throw new Error('Comparison changed; refresh before confirming cancellation');
 		const job = await this.job(cursor);
 		if (!isCurrent()) return value;
 		if (!job) {

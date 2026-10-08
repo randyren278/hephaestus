@@ -38,7 +38,7 @@ live-model improvement and full installation acceptance remain required.
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Guided revision checkpoint passes 711 Rust, 184 UI and 44 Python tests, all 51 coverage floors, both Clippy modes and 25 affected mutations. Full product acceptance and the complete mutation matrix remain to verify |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Guided revision checkpoint passes 711 Rust, 185 UI and 44 Python tests, all 51 coverage floors, both Clippy modes and 25 affected mutations. Full product acceptance and the complete mutation matrix remain to verify |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Positioning and delivery work remains |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -205,14 +205,16 @@ Private content snapshots and recovery cursors persist before write requests.
 Unknown outcomes retry saved identities, recovery verifies canonical proposal
 and receipt bindings, and background progress reads only the already-bound
 job. Cancellation uses that job's directed identity without waiting for prompt
-reads. Successful comparisons cannot be rerun in this guided flow. Assessment
+reads. Polling cannot replace the displayed attempt in a cancellation prompt;
+a changed saved attempt requires explicit reconciliation. Successful comparisons
+cannot be rerun in this guided flow. Assessment
 never performs invariant verification or promotion.
 
 The packaged 80×24 offline terminal check exercised real editor input,
 Unicode/CRLF snapshot preservation, a restart after recording, another restart
 during the live comparison, one canonical proposal/evaluation/assessment,
 source preservation and an unchanged Champion. A full Rust workspace coverage
-run passed 711 tests and all 51 critical coverage floors. All 184 UI tests pass
+run passed 711 tests and all 51 critical coverage floors. All 185 UI tests pass
 on both the development runtime and Node 22; all 44 Python tests pass. Both
 Clippy modes, typechecking, packaging, formatting and documentation checks pass.
 All 25 affected mutations were killed, with no survivors, stale entries or

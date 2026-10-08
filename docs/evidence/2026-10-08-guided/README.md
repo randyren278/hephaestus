@@ -44,6 +44,14 @@ build, default/all-feature Clippy, formatting and documentation checks passed.
 The [existing registration/evidence terminal flow](existing-pty.txt) and packaged
 editor success and failure checks also passed after restoration.
 
+A subsequent [Claude cancellation review](claude-cancellation-review.txt)
+confirmed the fix for a poll that could replace the attempt shown in an open
+cancellation prompt. Polling now refuses a different saved attempt; the existing
+confirmation remains bound to its displayed job. Both polling and cancellation
+refuse after another console starts a new attempt, and no kill request reaches
+that newer job. The expanded suite passes 185 tests, and the
+[packaged guided flow passed again](cancellation-pty.txt) after this correction.
+
 Reproduce the main checks from the repository root:
 
 ```sh

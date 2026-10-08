@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/control_plane_e2e.rs (target/debug/deps/control_plane_e2e-315966be956dc242)
+
+running 1 test
+{"packaged_terminal": "80x24", "editor_input_verified": true, "exact_snapshot_verified": true, "source_unchanged": true, "record_restart_verified": true, "running_restart_verified": true, "proposal_id": "tui-rev-d7f8965a-00d8-4206-aed5-348f90aeb344", "evaluation_id": "tui-arena-60101ae2-5f5d-40e8-a2a4-77af2420523e", "assessment_id": "tui-assess-fd03cafb-9250-4453-b046-8488e9b40bc6", "canonical_proposals": 1, "canonical_comparisons": 1, "canonical_assessments": 1, "promotion_eligible": false}
+
+test tui_hosted_prompt_revision_recovers_and_assesses_through_a_pty ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 34.70s

@@ -1,0 +1,13 @@
+Yes, this closes the blocker. I found no remaining concrete blockers in this fix.
+
+**Why it holds:**
+
+- **The guard rejects a newer attempt.** `poll` (`revision.ts:206-207`) reloads the saved recovery cursor and compares its latest evaluation ID with the one on screen. If another attempt has been started, it throws before it fetches a job or builds new state. A poll can no longer quietly swap in a newer attempt.
+- **The screen keeps the old attempt when the guard fires.** The poll path in `revision-view.tsx:110-113` only shows the error message, so the confirmation keeps the attempt it was showing. If the user then presses Y, `cancel` (`revision.ts:275`) compares that displayed job with the saved cursor and refuses with "Comparison changed". It fails closed, and no `job_kill` is sent.
+- **Polls can't race this app's own actions.** Polls are skipped while an action is running (`revision-view.tsx:106`). Starting an action also bumps `generation`, so an earlier poll that finishes late is thrown away (`isCurrent` at `revision.ts:209` and `active()` at `revision-view.tsx:111`).
+- **A save during a poll can't overwrite a newer cursor.** There is still a short gap between the guard check and the save inside `withJob`, and another process could start an attempt in that gap. `workspace.save` rejects a stale cursor (`revision-workspace.ts:211`, plus `EEXIST` at 238), so that poll's save fails instead of writing over the newer attempt.
+- **The test covers the scenario.** At `revision.test.tsx:351-365`, a second controller starts a newer attempt. The test then checks that `poll` rejects, `cancel` rejects, no `job_kill` is sent, and the newer job is still running.
+
+Two small non-blocking points, if you want them:
+- The poll error says "refresh before confirming cancellation" even when the user is on the state screen and not cancelling.
+- The test only exercises the controller, not the view. The `displayed.job!.evaluation_id` assertion at line 361 is close to meaningless because nothing modifies that object.
