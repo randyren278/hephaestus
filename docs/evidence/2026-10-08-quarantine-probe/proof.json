@@ -1,0 +1,73 @@
+{
+  "archive_sha256": "66d4c06b47e6f6bf3e791b48b40268b8c8dbbc369d6acef2c6a577d6b2365dd5",
+  "acceptance_exit_code": 0,
+  "synthetic_quarantine": true,
+  "actual_browser_download": false,
+  "fresh_user_context_verified": false,
+  "gatekeeper_first_launch_acceptance_claimed": false,
+  "source_checkout_commit": "0870fabc4554bfc70adb77df7e840bee8975d11e",
+  "security_settings_changed_by_probe": false,
+  "quarantine_removed_by_probe": false,
+  "installed_quarantine": {
+    "heph": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "hephaestus": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "hephaestusd": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "hephaestus-reference-worker": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "hephaestus-reference-evaluator": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "hephaestus-process-guardian": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "senate": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+    "node": "0083;6ac7e748;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  },
+  "installed_binary_sha256": {
+    "heph": "a7dfad4dc311c639df4263c4a62149e1e81b3553936188a7b6bea76a6f44b9af",
+    "hephaestus": "5834d6487863149fb7bc734eddff78d7c76329c878462bb1b0f17b2837545dbe",
+    "hephaestusd": "73974faa7c49b5ce899b79c137a44a040f23bddbe9807d1326b911802297bf45",
+    "hephaestus-reference-worker": "4875785b4e3cec60620af9e95b3db88841827ec257de5cf0918c727750619def",
+    "hephaestus-reference-evaluator": "5edf2ff25e99650a5fa4230896b4246cfc71da1c7fafcd2ae705b66e7683b6f8",
+    "hephaestus-process-guardian": "9a8385766a884a6b3089e050549e0671482125bf34c772ebddb3d2ae4618104c",
+    "senate": "0c0ad3be8d42ea02ed906b2a79b7aeb5a5631290a2758ca463351d18ea1398c1",
+    "node": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b"
+  },
+  "acceptance_workspace": "/tmp/hpkg.Bhyffz",
+  "provider_launch_marker_absent": true,
+  "owned_application_processes_stopped": true,
+  "archived_log_sha256": {
+    "quarantine-extraction-proof.json": "300a7bb5e17964d79790f8ee9d65fcc99981bb986e2ce2febfda6fdc2bf1bcd4",
+    "quarantine-launch-proof.json": "bf2c1aca59073954780ecb1988a4164a47485e11a06a1c5dd82e07d3f3999e78",
+    "quarantined-package-acceptance.txt": "5105739e88f70bcd60da44ffe803e77f1552cfb13326146b9092ddfb35af38be"
+  },
+  "installed_quarantine_paths": {
+    "heph": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/heph",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/heph"
+    },
+    "hephaestus": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/hephaestus",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus"
+    },
+    "hephaestusd": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/hephaestusd",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestusd"
+    },
+    "hephaestus-reference-worker": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/hephaestus-reference-worker",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-reference-worker"
+    },
+    "hephaestus-reference-evaluator": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/hephaestus-reference-evaluator",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-reference-evaluator"
+    },
+    "hephaestus-process-guardian": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/hephaestus-process-guardian",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-process-guardian"
+    },
+    "senate": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/senate",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/senate"
+    },
+    "node": {
+      "checked_path": "/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/current/bin/node",
+      "resolved_path": "/private/tmp/hpkg.Bhyffz/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/node"
+    }
+  }
+}

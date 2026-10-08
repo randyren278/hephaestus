@@ -1,0 +1,25 @@
+I've finished reading every file in scope. I found no blocking defect and no unsafe recovery guidance, but there are two wording problems worth fixing and two smaller ones.
+
+## What checks out
+
+- **Synthetic quarantine vs. real download:** this is clearly separated. The extraction proof labels the flag as synthetic and makes no browser-download or released-artifact claim. `proof.json` sets `synthetic_quarantine: true`, `actual_browser_download: false` and `fresh_user_context_verified: false`.
+- **Quarantine kept on files:** the extraction proof shows the flag on the archive, the extracted installer, helper and Node, and the installed helper and Node. `proof.json` shows all 8 installed binaries still flagged, with the same hashes as the launch proof.
+- **Gatekeeper rejection vs. actual execution:** the evidence README keeps them apart. The assessments for `heph`, `hephaestus` and `node` all exit 3, and Node's "valid but does not seem to be an app" message is quoted accurately. The successful `--version` runs are recorded as a separate `agent_process_launch` entry, with the caveat that Developer Tools exemptions weren't ruled out.
+- **Acceptance log:** it backs every step the README lists, including 0 provider launches. The Git-present / host-Node-excluded scope is stated.
+- **No security changes:** `security_settings_changed: false` and `quarantine_removed: false` are recorded. No document tells users to run `xattr -d`, turn off Gatekeeper, or apply a blanket override. Approval is limited to "where macOS offers it" and to "the specific verified build", and the probe README says it doesn't show macOS offers that flow for every command-line binary.
+- **Apple guidance:** the description matches 102445 (Privacy & Security → Open Anyway after a launch attempt).
+- **What's still open:** Developer ID signing/notarization, a published browser download, and a fresh user's first launch are listed as unverified in all three documents.
+
+## Issues
+
+1. **"Malware warning" is ambiguous (`docs/MACOS_INSTALL.md:104-109`).** On recent macOS, the usual prompt for software that isn't notarized reads roughly "Apple could not verify '…' is free of malware…". Please confirm the exact text on a real block. If that's what users see, the instruction "A damaged-software or malware warning needs investigation before use" applies to the normal case for these binaries. Users could then treat the expected prompt as a stop, or start treating every "malware" prompt as approvable. Suggested fix: quote the expected "could not verify … free of malware" prompt as the one Open Anyway is for. Then say that "will damage your computer", "is damaged" or "contains malware" messages mean don't open the file.
+
+2. **Rejection is overstated in PRODUCT_READINESS (`docs/PRODUCT_READINESS.md:85`).** "Gatekeeper execute assessment rejects the Hephaestus binaries" sounds like all seven were checked. The launch proof only has assessments for `heph` and `hephaestus`, plus `node`, which isn't a Hephaestus binary. `hephaestusd`, the worker, the evaluator, the guardian and `senate` only have signature and quarantine data. The evidence README gets this right ("the Hephaestus helper and CLI"), so this line should match it.
+
+3. **Minor: published-build signatures are asserted without evidence (`docs/MACOS_INSTALL.md:98`).** "Hephaestus binaries have linker-generated ad-hoc signatures" is stated as fact about downloadable builds. The evidence only covers a locally built archive. It's probably true for CI builds too, but nothing here shows it. Scope it to local builds, or note that release builds weren't inspected.
+
+4. **Minor: the relocation claim can't be checked from the recorded files.** The README and PRODUCT_READINESS say quarantine was kept "after relocation". `proof.json`'s `installed_quarantine` doesn't record which paths were checked, and the acceptance log doesn't show any quarantine values. The claim is plausible but can't be verified from what's here. Adding the checked paths would fix that.
+
+**Gap, not an error:** "If macOS offers no approval for the blocked command" assumes the user ran the blocked binary themselves. `hephaestusd`, the worker, the evaluator and the guardian are started by other Hephaestus processes. If one of those is blocked, the failure may show up only as a daemon error, with no prompt for the user to act on. You might add a line saying that a daemon or helper failure after first launch counts as reportable too.
+
+There's no concrete bug, and nothing in these docs touches production code. I'd fix items 1 and 2 before treating this checkpoint as recorded.

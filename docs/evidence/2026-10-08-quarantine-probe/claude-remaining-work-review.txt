@@ -1,0 +1,54 @@
+## Bottom line
+
+From what I read, there's one concrete piece of offline work that fits your current scope and would move the full goal: testing first launch of a quarantined download locally, simulating a browser download on this machine. There's also one optional, conditional item about token usage. Everything else that remains depends on your authorization, a native Intel machine or hosted run, an independent user, or a commercial decision.
+
+I found no verified defect. The 434-entry mutation audit is still treated as unproven (`docs/evidence/2026-10-08-current-readiness/README.md:6-8`).
+
+## 1. Work that fits the current scope
+
+### A. Quarantined first launch, simulated locally (recommended)
+
+**Untested risk:** Hephaestus's own binaries have no Apple code signing or notarization (`docs/MACOS_INSTALL.md:93`, `docs/RELEASES.md:5`). macOS adds a quarantine flag to browser downloads, and Gatekeeper may block unsigned binaries carrying it. This flag would probably survive installation:
+- **Extraction:** the docs tell users to extract with `tar -xzf` (`docs/MACOS_INSTALL.md:27`). macOS tar has historically copied the archive's quarantine flag onto extracted files. That's from general macOS knowledge, not checked here.
+- **Installation:** the installer copies the package with `cp -R` (`scripts/package/install.sh:68`). On macOS, `cp` keeps extended attributes unless you pass `-X`.
+
+**Why current evidence doesn't cover it:**
+- Acceptance extracts a locally built, unquarantined archive (`scripts/package_macos_acceptance.sh:32`).
+- No script or user doc mentions `xattr`, Gatekeeper or `spctl`. Outside dated evidence, the only matches for that search are the two "not implemented" notes above.
+
+So someone directed to the release could hit a first-launch block with no recovery guidance. This is a hypothesis, not a verified defect.
+
+**What to do:** add the quarantine flag to a locally built ARM64 archive, extract it with system tar, install, then run the existing acceptance steps. Launch from a terminal that is *not* listed under Developer Tools; that exemption can hide the result (`docs/MACOS_INSTALL.md:101`). It's reversible, offline and uses no provider.
+- **If it passes:** you have evidence that a quarantined archive installs and runs on Apple Silicon.
+- **If it fails:** the in-scope fix is documented, honest recovery guidance.
+
+Notarization itself needs an Apple Developer ID, so it belongs to you (section 2). This doesn't replace testing an actual downloaded release.
+
+### B. Codex token usage in comparisons (optional, depends on your call)
+
+Codex reports token counts, and they're saved with the run's evidence (`crates/hephaestus-runtime/src/provider_events.rs:156-176`). However, `input_tokens`/`output_tokens` appear only in that parser and `docs/RUNTIMES.md`. No summary, report or console shows them, and recorded Codex USD is always zero (`:170-172`). Showing tokens per prompt would give Codex comparisons a real usage measure.
+
+It would **not** close the cost requirement as currently written, which needs provider-reported USD or attributable usage evidence (`docs/PRODUCT_READINESS.md:57-63`). It's worth doing only if you'd accept token counts as cost evidence. Otherwise skip it.
+
+### Not new work
+
+- When the 434-entry audit finishes, its result, source restoration and restored tests need checking against the bar Claude set (`claude-updated-readiness-review.txt:25`).
+- **Closed hypothesis:** Claude hadn't checked whether other entry points silently ignore new launch settings (`docs/evidence/2026-10-08-launch-settings/claude-followup.txt:40`). The only process that starts the daemon is `heph` (`crates/hephaestus-control/src/bin/heph.rs:381`). The `hephaestus` CLI only starts node, npm, git or a given program (`hephaestus.rs:852,868,885,1075`), never the daemon. So there's no equivalent silent-ignore path.
+- Claude's three minor evidence requests were addressed: `README.md:32-38,72-74` and `PRODUCT_READINESS.md:40`.
+
+## 2. What depends on someone else, and the proof each needs
+
+| Requirement | Depends on | Proof that closes it |
+|---|---|---|
+| First live comparison: baseline vs checklist, 48 invocations (`PRODUCT_READINESS.md:48-51`; `examples/support-triage/README.md:101-107`) | Your approval of provider, exact model, usage and login handoff (request pending, not repeated here) | Real outputs, scoring, a Selection for this pair, and replay after restarting the same daemon. Record the items listed at `README.md:127-133` and check the report against the daemon. A tie or regression counts. |
+| Live response to an evidence-bound Forge revision (`PRODUCT_READINESS.md:51-55`) | A **separate** approval, after the first Selection | A distinct revision based on that Selection, plus its own verified comparison, assessment and replay |
+| Measured cost (`PRODUCT_READINESS.md:57-63`) | Your provider account (Codex reports no USD) | Provider-reported USD, or an attributable usage or billing statement for those runs |
+| Native Intel acceptance (`RELEASES.md:17-18,102-103`) | An Intel Mac, or a hosted `macos-15-intel` run (an external CI run) | A passing installed-acceptance log for the x86_64 archive |
+| Signed release delivery (`RELEASES.md:9-14`) | A `v*` tag push, which publishes externally | Successful release workflow, plus the checksum, Cosign and attestation checks at `RELEASES.md:48-63` |
+| First launch of an actual downloaded release (`PILOT_GUIDE.md:60-63`) | A published release; work item A narrows the risk first | Browser download, quarantine flag confirmed, install, then first launch and tour |
+| Apple notarization (`MACOS_INSTALL.md:93`) | An Apple Developer ID (credentials, owner decision) | Notarized binaries that pass Gatekeeper's check |
+| Fresh-user provider acceptance (`PRODUCT_READINESS.md:36`) | An independent user with their own account | Their setup → pilot prepare → login handoff → comparison, finished from the docs alone |
+| Independent reproducibility (`RELEASES.md:86-93`) | A second, differently set-up builder | Matching archive hashes from that independent rebuild |
+| Commercial offer (`PRODUCT_READINESS.md:42`; `PILOT_GUIDE.md:110-115`) | Your decisions on fee, support terms, data handling and claims | An approved offer, with claims grounded in the live results above |
+
+Apart from item A (and B if you choose it), I found no other concrete in-scope work in the current evidence. Adding more fixture tests or docs wouldn't close any of the open requirements in section 2.

@@ -1,0 +1,132 @@
+{
+  "heph": {
+    "sha256": "a7dfad4dc311c639df4263c4a62149e1e81b3553936188a7b6bea76a6f44b9af",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/heph\nIdentifier=heph-c162d4fe5235a559\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=22552 flags=0x20002(adhoc,linker-signed) hashes=701+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "gatekeeper_assessment": {
+      "exit_code": 3,
+      "stdout": "",
+      "stderr": "/tmp/hq.mxxnq7kc/install/bin/heph: rejected\n"
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "hephaestus": {
+    "sha256": "5834d6487863149fb7bc734eddff78d7c76329c878462bb1b0f17b2837545dbe",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus\nIdentifier=hephaestus-d4aad606b97a84be\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=28472 flags=0x20002(adhoc,linker-signed) hashes=886+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "gatekeeper_assessment": {
+      "exit_code": 3,
+      "stdout": "",
+      "stderr": "/tmp/hq.mxxnq7kc/install/bin/hephaestus: rejected\n"
+    },
+    "agent_process_launch": {
+      "exit_code": 0,
+      "stdout": "hephaestus 0.1.0\n",
+      "stderr": ""
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "node": {
+    "sha256": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/node\nIdentifier=node\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20500 size=946928 flags=0x10000(runtime) hashes=29581+7 location=embedded\nSignature size=8984\nAuthority=Developer ID Application: Node.js Foundation (HX7739G8FX)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Sep 7, 2026 at 4:37:22\u202fPM\nInfo.plist=not bound\nTeamIdentifier=HX7739G8FX\nRuntime Version=15.0.0\nSealed Resources=none\nInternal requirements count=1 size=164\nTotal signatures=1\nChosen signature=1\n"
+    },
+    "gatekeeper_assessment": {
+      "exit_code": 3,
+      "stdout": "",
+      "stderr": "/tmp/hq.mxxnq7kc/install/share/hephaestus/current/bin/node: rejected (the code is valid but does not seem to be an app)\n"
+    },
+    "agent_process_launch": {
+      "exit_code": 0,
+      "stdout": "v24.21.0\n",
+      "stderr": ""
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "hephaestusd": {
+    "sha256": "73974faa7c49b5ce899b79c137a44a040f23bddbe9807d1326b911802297bf45",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestusd\nIdentifier=hephaestusd-95e3b0508aeb1b15\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=72088 flags=0x20002(adhoc,linker-signed) hashes=2249+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "hephaestus-reference-worker": {
+    "sha256": "4875785b4e3cec60620af9e95b3db88841827ec257de5cf0918c727750619def",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-reference-worker\nIdentifier=hephaestus_reference_worker-08212ae99c0559e6\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=4744 flags=0x20002(adhoc,linker-signed) hashes=144+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "hephaestus-reference-evaluator": {
+    "sha256": "5edf2ff25e99650a5fa4230896b4246cfc71da1c7fafcd2ae705b66e7683b6f8",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-reference-evaluator\nIdentifier=hephaestus_reference_evaluator-6afcedfef19a77c9\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=6152 flags=0x20002(adhoc,linker-signed) hashes=188+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "hephaestus-process-guardian": {
+    "sha256": "9a8385766a884a6b3089e050549e0671482125bf34c772ebddb3d2ae4618104c",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-process-guardian\nIdentifier=hephaestus_process_guardian-699b8d70f26bd687\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=5672 flags=0x20002(adhoc,linker-signed) hashes=173+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "senate": {
+    "sha256": "0c0ad3be8d42ea02ed906b2a79b7aeb5a5631290a2758ca463351d18ea1398c1",
+    "signature": {
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/senate\nIdentifier=senate-ee9ec45ca3cc3831\nFormat=Mach-O thin (arm64)\nCodeDirectory v=20400 size=10712 flags=0x20002(adhoc,linker-signed) hashes=331+0 location=embedded\nSignature=adhoc\nInfo.plist=not bound\nTeamIdentifier=not set\nSealed Resources=none\nInternal requirements=none\n"
+    },
+    "quarantine_after_probe": {
+      "exit_code": 0,
+      "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+    }
+  },
+  "host": {
+    "macos_version": "27.0.1",
+    "macos_build": "26A434",
+    "architecture": "arm64",
+    "gatekeeper_status": "assessments enabled",
+    "security_settings_changed": false,
+    "quarantine_removed": false,
+    "launch_context": "agent subprocess; Developer Tools exemptions not ruled out; no fresh-user claim"
+  }
+}

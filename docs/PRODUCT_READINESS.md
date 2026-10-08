@@ -78,6 +78,15 @@ on Rust 1.88.0, with every mutation target restored byte-for-byte. The current
 found no material contradiction or concrete defect in the inspected evidence
 and identified the live-revision and measured-cost limits clarified above.
 
+Claude's remaining-work review identified local quarantine handling as a
+concrete delivery check. The [quarantine probe](evidence/2026-10-08-quarantine-probe/README.md)
+confirms quarantine survives extraction, installation and relocation, and the
+complete package acceptance script passes from this agent's process context.
+Gatekeeper execute assessment rejects the tested helper and CLI. The guide now
+links Apple's approval instructions and requires archive verification first.
+This context does not rule out host exemptions; actual published-download and
+fresh-user first-launch acceptance remain open.
+
 ## Next implementation work
 
 Verified hosted Genome instructions now reach direct, submitted and paired execution. Contract v2 preserves exact instruction bytes separately from task commitments, pins the requested model, and retains v1 history replay. The offline fixture verifies different role instructions and models through the actual stdin pipe and reopens the saved control plane. Real old/new daemon upgrade evidence is recorded below. This proves configuration delivery, not live-model quality.

@@ -1,0 +1,32 @@
+{
+  "archive_sha256": "66d4c06b47e6f6bf3e791b48b40268b8c8dbbc369d6acef2c6a577d6b2365dd5",
+  "probe": "synthetic quarantine flag on owned local archive; no browser download or released-artifact claim",
+  "quarantine_flag": "0083;6ac7e6fb;CodexLocalQuarantineProbe;c3633a1f-ba63-4508-bd30-1e1ebec58aa2",
+  "archive_quarantine": {
+    "exit_code": 0,
+    "value": "0083;6ac7e6fb;CodexLocalQuarantineProbe;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  },
+  "extracted_installer_quarantine": {
+    "exit_code": 0,
+    "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  },
+  "extracted_helper_quarantine": {
+    "exit_code": 0,
+    "value": "0083;6ac7e6fb;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  },
+  "extracted_node_quarantine": {
+    "exit_code": 0,
+    "value": "0083;6ac7e6fb;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  },
+  "install_exit_code": 0,
+  "install_stdout": "Installed Hephaestus in /tmp/hq.mxxnq7kc/install/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64\nAdd /tmp/hq.mxxnq7kc/install/bin to PATH, then run: heph\nBrowser console and evidence reports: heph web\n",
+  "install_stderr": "",
+  "installed_helper_quarantine": {
+    "exit_code": 0,
+    "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  },
+  "installed_node_quarantine": {
+    "exit_code": 0,
+    "value": "0083;6ac7e6fc;;c3633a1f-ba63-4508-bd30-1e1ebec58aa2"
+  }
+}

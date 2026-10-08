@@ -23,6 +23,11 @@ The Rust build uses a separate package-build target directory by default. The ou
 
 After obtaining an archive, extract it and run its installer. Installation is user-local by default and requires no administrator privileges. The installed CLI and daemon require a Git executable on `PATH`. Git is not bundled in this milestone: fixture initialization and deterministic execution use Git to create and inspect the private source worktree. A macOS setup without Git can install and inspect the package, but cannot initialize or run the quickstart fixture.
 
+Before running a downloaded release, complete the checksum, Sigstore signature
+and build-provenance checks in [release verification](RELEASES.md#verifying-a-downloaded-archive).
+These establish the published archive's identity; macOS evaluates downloaded
+executables separately.
+
 ```sh
 tar -xzf hephaestus-v0.1.0-macos-arm64.tar.gz
 cd hephaestus-v0.1.0-macos-arm64
@@ -87,6 +92,34 @@ provider. It works from this package without a checkout or host Node/npm/Python.
 Actual evaluation requires your own provider CLI, authorized usage and explicit
 authentication handoff. The cases are public and fictional; use independent
 private holdouts for customer decisions.
+
+## If macOS blocks a downloaded build
+
+The locally tested ARM64 Hephaestus binaries have linker-generated ad-hoc
+signatures. Apple Developer ID signing and notarization are not implemented in
+the release workflow. macOS quarantine survives the documented
+archive extraction and installation steps, so a downloaded build can require
+an additional owner decision before launch.
+
+Retain the exact warning and confirm the archive's release verification first.
+For a warning that Apple cannot verify the developer or check whether software
+is free of malware, Apple's
+[instructions for opening downloaded software](https://support.apple.com/en-us/102445#openanyway)
+describe the **System Settings → Privacy & Security → Open Anyway** option
+after a launch attempt, where macOS offers it. Approve only the specific
+verified build you intend to run. Stop and investigate messages reporting
+detected malware, revoked authorization, or damaged or modified software.
+If macOS offers no approval for the blocked command,
+report the command, macOS version and exact warning through the
+[issue tracker](https://github.com/randyren278/hephaestus/issues), or use the
+[source installation](GETTING_STARTED.md).
+A blocked daemon or helper can appear as an error from its parent command
+without a macOS prompt; include that error when reporting the failure.
+
+The [local quarantine evidence](evidence/2026-10-08-quarantine-probe/README.md)
+records retained attributes, Gatekeeper assessment rejection and successful
+package acceptance from the agent's process context. It does not establish
+first launch from a published browser download on a fresh user's Mac.
 
 ## Platform and release limits
 
