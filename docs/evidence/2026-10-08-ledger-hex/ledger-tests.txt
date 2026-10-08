@@ -1,0 +1,54 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling serde_json v1.0.151
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling quote v1.0.47
+   Compiling tempfile v3.27.0
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling serde v1.0.229
+   Compiling hephaestus-ledger v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-ledger)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.86s
+     Running unittests src/lib.rs (target/debug/deps/hephaestus_ledger-e3219a558c607587)
+
+running 9 tests
+test storage::storage_contract::memory_artifact_backend_satisfies_the_shared_contract_suite ... ok
+test storage::storage_contract::memory_artifact_backend_satisfies_the_artifact_backend_contract ... ok
+test storage::storage_contract::arc_wrapped_memory_backend_shares_state_across_clones_and_satisfies_the_contract ... ok
+test storage::storage_contract::jsonl_event_ledger_satisfies_the_event_ledger_contract ... ok
+test storage::storage_contract::filesystem_artifact_store_satisfies_the_artifact_backend_contract ... ok
+test storage::storage_contract::filesystem_cas_satisfies_the_shared_contract_suite ... ok
+test storage::storage_contract::jsonl_event_ledger_satisfies_the_shared_contract_suite ... ok
+test storage::storage_contract::sqlite_event_store_satisfies_the_event_ledger_contract ... ok
+test storage::storage_contract::sqlite_event_ledger_satisfies_the_shared_contract_suite ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/durable_spine.rs (target/debug/deps/durable_spine-5941ff242965ce9c)
+
+running 4 tests
+test duplicate_event_ids_are_rejected_without_advancing_history ... ok
+test artifact_store_deduplicates_and_detects_substitution ... ok
+test sqlite_event_history_survives_restart_and_replays_deterministically ... ok
+test event_replay_detects_payload_and_chain_tampering ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/file_ledger_durability.rs (target/debug/deps/file_ledger_durability-a0625e8ff2a921ed)
+
+running 7 tests
+test file_duplicate_event_ids_are_rejected_without_advancing_history ... ok
+test file_replay_preserves_unicode_payload_and_uppercase_hex ... ok
+test file_ledger_reports_a_complete_but_malformed_line_as_an_error_not_a_torn_write ... ok
+test file_event_history_survives_restart_and_replays_deterministically ... ok
+test file_ledger_drops_a_torn_trailing_write_and_keeps_appending ... ok
+test file_replay_rejects_non_ascii_hex_without_altering_the_file ... ok
+test file_replay_detects_payload_chain_sequence_and_reorder_tampering ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+   Doc-tests hephaestus_ledger
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

@@ -2615,6 +2615,14 @@
       "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon"
     },
     {
+      "id": "jsonl-non-ascii-hex-suffix-accepted",
+      "file": "crates/hephaestus-ledger/src/file_event_store.rs",
+      "invariant": "Every hexadecimal ledger field rejects non-ASCII bytes rather than silently dropping a trailing Unicode character.",
+      "find": "    if !value.is_ascii() {\n        return Err(LedgerError::MalformedRecord(\n            \"non-ASCII hex field\".to_owned(),\n        ));\n    }",
+      "replace": "    // mutation: permit non-ASCII hex fields",
+      "test_cmd": "cargo test -p hephaestus-ledger --test file_ledger_durability file_replay_rejects_non_ascii_hex_without_altering_the_file -- --exact"
+    },
+    {
       "id": "jsonl-chain-link-ignored",
       "file": "crates/hephaestus-ledger/src/file_event_store.rs",
       "invariant": "Every JSONL-backed canonical event links to the verified hash of its immediate predecessor.",

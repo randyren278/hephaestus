@@ -366,3 +366,79 @@ fn file_ledger_reports_a_complete_but_malformed_line_as_an_error_not_a_torn_writ
         Err(LedgerError::MalformedRecord(_))
     ));
 }
+
+#[test]
+fn file_replay_rejects_non_ascii_hex_without_altering_the_file() {
+    let directory = tempdir().expect("temporary directory");
+    let log = directory.path().join("unicode-hex.jsonl");
+    seed_two_events(&log);
+    let original = fs::read_to_string(&log).expect("read seeded ledger");
+    let (first_line, remaining) = original.split_once('\n').expect("complete first line");
+
+    for field in ["payload_hex", "previous_hash_hex", "hash_hex"] {
+        // Both suffixes have an even UTF-8 byte length but one character.
+        // The prior character-pair decoder silently discarded that character.
+        for suffix in ["é", "🛠"] {
+            let mut record: serde_json::Value =
+                serde_json::from_str(first_line).expect("parse seeded record");
+            let encoded = record[field].as_str().expect("hex field").to_owned();
+            record[field] = serde_json::Value::String(format!("{encoded}{suffix}"));
+            let tampered = format!(
+                "{}\n{remaining}",
+                serde_json::to_string(&record).expect("record JSON")
+            );
+            fs::write(&log, &tampered).expect("write malformed complete record");
+
+            assert!(
+                matches!(
+                    FileEventLedger::open(&log),
+                    Err(LedgerError::MalformedRecord(_))
+                ),
+                "non-ASCII suffix in {field} must reject"
+            );
+            assert_eq!(
+                fs::read_to_string(&log).expect("read rejected ledger"),
+                tampered
+            );
+        }
+    }
+}
+
+#[test]
+fn file_replay_preserves_unicode_payload_and_uppercase_hex() {
+    let directory = tempdir().expect("temporary directory");
+    let log = directory.path().join("unicode-payload.jsonl");
+    let mut ledger = FileEventLedger::open(&log).expect("open ledger");
+    let event = ledger
+        .append(EventInput::new(
+            "unicode-event",
+            "genome:g0",
+            "observed",
+            "runtime",
+            1_000,
+            "Café 🛠 support ticket".as_bytes(),
+        ))
+        .expect("append Unicode payload");
+    drop(ledger);
+    let mut record: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&log).expect("read ledger"))
+            .expect("parse record");
+    for field in ["payload_hex", "previous_hash_hex", "hash_hex"] {
+        record[field] = serde_json::Value::String(
+            record[field]
+                .as_str()
+                .expect("hex field")
+                .to_ascii_uppercase(),
+        );
+    }
+    fs::write(
+        &log,
+        format!("{}\n", serde_json::to_string(&record).expect("record JSON")),
+    )
+    .expect("write uppercase hex record");
+    let reopened = FileEventLedger::open(&log).expect("reopen valid record");
+    assert_eq!(
+        reopened.replay_verified().expect("verified replay"),
+        vec![event]
+    );
+}

@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Checking serde_json v1.0.151
+    Checking serde v1.0.229
+    Checking getrandom v0.4.3
+    Checking rustix v1.1.4
+    Checking hephaestus-ledger v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-ledger)
+    Checking tempfile v3.27.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 49.93s

@@ -1,0 +1,22 @@
+   Compiling hephaestus-ledger v0.1.0 (/private/tmp/heph-source.plt2SV/checkout/crates/hephaestus-ledger)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.93s
+     Running tests/file_ledger_durability.rs (/tmp/heph-source.plt2SV/target/debug/deps/file_ledger_durability-a0625e8ff2a921ed)
+
+running 1 test
+test file_replay_rejects_non_ascii_hex_without_altering_the_file ... FAILED
+
+failures:
+
+---- file_replay_rejects_non_ascii_hex_without_altering_the_file stdout ----
+
+thread 'file_replay_rejects_non_ascii_hex_without_altering_the_file' (18484490) panicked at crates/hephaestus-ledger/tests/file_ledger_durability.rs:389:13:
+non-ASCII suffix in payload_hex must reject
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    file_replay_rejects_non_ascii_hex_without_altering_the_file
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p hephaestus-ledger --test file_ledger_durability`

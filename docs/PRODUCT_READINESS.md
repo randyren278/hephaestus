@@ -38,7 +38,7 @@ live-model improvement and full installation acceptance remain required.
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 715 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. Earlier coverage passed all 51 floors. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 717 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. A subsequent strict ledger repair passes all 15 ledger mutations; the configured matrix is now 429, without implying a fresh full 429-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -308,10 +308,40 @@ killed all 428 mutations at `709d965`, then rebuilt binaries and verified a
 clean checkout. Subsequent source edits have their own affected-guard checks.
 Claude identified a pre-existing ledger hex-decoding edge case: a non-ASCII
 trailing character can be dropped by the character-pair decoder. It cannot
-forge a signed event, but strict malformed-record rejection still needs a
-focused repair and regression test before the full trust audit closes.
+forge a signed event. The subsequent strict decoding checkpoint below repairs
+this behavior and adds a regression guard.
 
 Representative live-provider output, current hosted release/Intel acceptance,
 downloaded-package first launch and the remaining trust audit are still open.
 The requested provider comparison remains pending explicit quota/auth-handoff
 authorization; preparation alone does not prove model availability or quality.
+
+## Strict ledger decoding checkpoint, 2026-10-08
+
+The shared hex decoder now rejects non-ASCII encoded fields after its existing
+length check, preserving legitimate binary and UTF-8 payloads and uppercase
+hex. The current exact regression fails without the guard, then passes after
+restoration. It covers both Unicode suffixes in all three fields and verifies
+that rejected complete records remain untouched. Actual Claude Code reviewed
+the fix and found no introduced defect or material regression gap.
+
+The refreshed workspace passes 717 tests including doc tests, both Clippy
+modes, and the Rust 1.88 all-target/all-feature check. All 15 ledger mutations
+are killed, including the new ASCII-guard removal; no survivors, stale entries
+or timeouts remain, and restored sources match the working tree. The CI ledger
+floor is now 15 and the configured full matrix is 429. The earlier full 428-entry
+and 45 affected-source runs retain their separate source scopes. The rebuilt
+ARM64 package passes installed acceptance again. See the
+[strict ledger evidence](evidence/2026-10-08-ledger-hex/README.md).
+
+Claude also caught an installed evaluator symlink in the pilot daemon command.
+The corrected Node path resolution works for source and relocated package
+installs and passes real offline Arena, recorded Selection and replay. No
+provider quota is spent by this reference-fixture path check.
+
+Live-provider output and authorized quota/auth handoff, hosted release delivery,
+native Intel acceptance and downloaded/quarantined first launch remain open.
+The native archive currently provides the terminal console; report export
+through the browser still requires a source checkout and Node 22. That delivery
+gap should be removed before describing the full pilot as a polished packaged
+workflow. These checkpoints do not complete the owner's product objective.

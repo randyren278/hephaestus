@@ -1,0 +1,41 @@
+{
+  "base_commit": "0256f9f2ef5907b15b2bc66ad491cec6d3dfba66",
+  "configured_mutations": 429,
+  "ledger_mutations": 15,
+  "mutations_killed": 15,
+  "mutation_survivors": 0,
+  "stale_mutations": 0,
+  "timed_out_mutations": 0,
+  "isolated_mutation_command": "CARGO_TARGET_DIR=/tmp/heph-source.plt2SV/target python3 -u checks/mutation_guard.py --manifest checks/checks.json --root /tmp/heph-source.plt2SV/checkout --file-prefix crates/hephaestus-ledger/ --assert-min 15 --test-cmd \"cargo test -p hephaestus-ledger --quiet\"",
+  "restored_sources_match_working_tree": true,
+  "source_hashes": {
+    "crates/hephaestus-ledger/src/artifact_store.rs": "76b68f01dcb49cccaab886344140664f0be8c70eeee595cf55b42ff3fe89ffba",
+    "crates/hephaestus-ledger/src/event_store.rs": "7d41a7f5964fbc7b1c09384c677555df39bbb9911585a2b84bf90b599f6cdf89",
+    "crates/hephaestus-ledger/src/file_event_store.rs": "49a9ff8334485bc836468415bf2e9cfc795784fa33c7a5dadd9f4decd55670d0",
+    "crates/hephaestus-ledger/src/memory_artifact_store.rs": "8a8e6e86de1f0c71cebac71799e7ed07e5183d8b211ed8fc7063321b3d9880db",
+    "crates/hephaestus-ledger/tests/file_ledger_durability.rs": "2d25752c0a982418011d0b352ed57edd93d0c2f0a8a0a81b27dcea0d5e7cb4c2",
+    "checks/checks.json": "faae5e65af76b1c76210972c661190a00722c6e03d8e6d80d15d149128447c30",
+    ".github/workflows/ci.yml": "8ec8315955f8c6396158b73e7bd76167d25c544b5d06beab6d7b1eb3c09f560f"
+  },
+  "rust_1_88_command": "RUSTC=<rustup which 1.88.0 rustc> <rustup which 1.88.0 cargo> check --frozen --workspace --all-targets --all-features",
+  "ledger_test_command": "cargo test -p hephaestus-ledger",
+  "ledger_clippy_command": "cargo clippy -p hephaestus-ledger --all-targets --all-features -- -D warnings",
+  "current_exact_test_fails_without_guard": true,
+  "restored_ledger_tests_exit": 0,
+  "current_archive_sha256": "571e94bcf9edc08fd75f923f99de360a2707cae8f76494bbd04d8faad4bc3d6c",
+  "current_archive_bytes": 46562330,
+  "tested_tui_bundle_sha256": "a2db3039d89b1b088b17b7ca1239545e77b6f878fe2f7fb063c9a0280fadc0ca",
+  "package_acceptance_exit": 0,
+  "workspace_tests": {
+    "command": "RUST_TEST_THREADS=2 cargo test --workspace --all-features",
+    "passed_including_doc_tests": 717,
+    "failed": 0,
+    "ignored": 0,
+    "exit": 0
+  },
+  "clippy_workspace": {
+    "all_features": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "default_features": "cargo clippy --workspace --all-targets -- -D warnings",
+    "exit": 0
+  }
+}

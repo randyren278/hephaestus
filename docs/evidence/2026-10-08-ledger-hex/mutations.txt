@@ -1,0 +1,58 @@
+root:    /private/tmp/heph-source.plt2SV/checkout
+suite:   cargo test -p hephaestus-ledger --quiet (CLI override)
+timeout: 120s default; selected mutation timeout(s): 120s
+baseline timeout: 120s
+
+baseline: unmutated suite is green
+
+RUN       duplicate-event-id-accepted      command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    duplicate-event-id-accepted      crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       empty-event-field-accepted       command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    empty-event-field-accepted       crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       changed-ledger-head-accepted     command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    changed-ledger-head-accepted     crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       event-sequence-gap-accepted      command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    event-sequence-gap-accepted      crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       event-chain-link-ignored         command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    event-chain-link-ignored         crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       modified-event-content-accepted  command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    modified-event-content-accepted  crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       malformed-artifact-id-accepted   command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    malformed-artifact-id-accepted   crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       artifact-content-address-collapsed command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    artifact-content-address-collapsed crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       artifact-substitution-accepted   command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    artifact-substitution-accepted   crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       artifact-preflight-address-forged command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    artifact-preflight-address-forged crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       jsonl-non-ascii-hex-suffix-accepted command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-non-ascii-hex-suffix-accepted crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       jsonl-chain-link-ignored         command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-chain-link-ignored         crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       jsonl-duplicate-event-id-accepted command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-duplicate-event-id-accepted crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       jsonl-torn-tail-not-repaired     command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-torn-tail-not-repaired     crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       memory-artifact-substitution-accepted command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    memory-artifact-substitution-accepted crates/hephaestus-ledger/src/memory_artifact_store.rs (timeout 120s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+duplicate-event-id-accepted      crates/hephaestus-ledger/src/event_store.rs KILLED
+empty-event-field-accepted       crates/hephaestus-ledger/src/event_store.rs KILLED
+changed-ledger-head-accepted     crates/hephaestus-ledger/src/event_store.rs KILLED
+event-sequence-gap-accepted      crates/hephaestus-ledger/src/event_store.rs KILLED
+event-chain-link-ignored         crates/hephaestus-ledger/src/event_store.rs KILLED
+modified-event-content-accepted  crates/hephaestus-ledger/src/event_store.rs KILLED
+malformed-artifact-id-accepted   crates/hephaestus-ledger/src/artifact_store.rs KILLED
+artifact-content-address-collapsed crates/hephaestus-ledger/src/artifact_store.rs KILLED
+artifact-substitution-accepted   crates/hephaestus-ledger/src/artifact_store.rs KILLED
+artifact-preflight-address-forged crates/hephaestus-ledger/src/artifact_store.rs KILLED
+jsonl-non-ascii-hex-suffix-accepted crates/hephaestus-ledger/src/file_event_store.rs KILLED
+jsonl-chain-link-ignored         crates/hephaestus-ledger/src/file_event_store.rs KILLED
+jsonl-duplicate-event-id-accepted crates/hephaestus-ledger/src/file_event_store.rs KILLED
+jsonl-torn-tail-not-repaired     crates/hephaestus-ledger/src/file_event_store.rs KILLED
+memory-artifact-substitution-accepted crates/hephaestus-ledger/src/memory_artifact_store.rs KILLED
+
+15 mutations run, 15 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

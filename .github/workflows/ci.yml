@@ -289,7 +289,7 @@ jobs:
             timeout_minutes: 20
           - scope: hephaestus-ledger
             prefix: crates/hephaestus-ledger/
-            minimum: 10
+            minimum: 15
             timeout_minutes: 20
           - scope: hephaestus-genome
             prefix: crates/hephaestus-genome/

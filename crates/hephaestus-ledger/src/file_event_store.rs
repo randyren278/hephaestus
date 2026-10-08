@@ -225,6 +225,11 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, LedgerError> {
             "odd-length hex field: {value}"
         )));
     }
+    if !value.is_ascii() {
+        return Err(LedgerError::MalformedRecord(
+            "non-ASCII hex field".to_owned(),
+        ));
+    }
     let digits: Vec<char> = value.chars().collect();
     let mut bytes = Vec::with_capacity(digits.len() / 2);
     for pair in digits.as_chunks::<2>().0 {

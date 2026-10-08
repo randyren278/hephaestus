@@ -1,0 +1,33 @@
+# Ledger hex repair review
+
+I found no new defects and no missing regression coverage that matters. Everything below was checked by reading files only; I ran nothing.
+
+## The fix (`crates/hephaestus-ledger/src/file_event_store.rs:222-245`)
+- **Check order:** the odd-length check still runs first (line 223), then the new `value.is_ascii()` guard (228). After both pass, the string is ASCII with an even length, so `as_chunks::<2>()` never has leftovers. That leftover was where a trailing Unicode character used to be silently dropped.
+- **Nothing valid is lost:** `to_digit(16)` still accepts uppercase hex. Payloads are stored as hex, so any binary or UTF-8 payload still round-trips. All three fields (payload, previous hash, hash) go through this one function (190-192), so the fix covers all of them.
+- **Odd-length Unicode is still handled:** a 3-byte character like `€` gives an odd byte length and was already rejected by the first check.
+- **Rust 1.88:** `as_chunks` became stable in 1.88 and `is_multiple_of` in 1.87, so both fit the stated minimum.
+
+## Tests (`tests/file_ledger_durability.rs:370-444`)
+- **Rejection test:** 3 fields × {`é`, `🛠`}. Each case requires `MalformedRecord` and an unchanged complete file. All six cases would have failed before the fix, because the dropped character left the bytes and hashes unchanged.
+- **Compatibility test:** replays a `Café 🛠` payload with uppercase hex and checks it matches the original event exactly. One small gap: this ledger has only one event, so its `previous_hash_hex` is probably the all-zero hash. Uppercasing that changes nothing, so this field isn't really tested with letters A-F. Payload and `hash_hex` are. This doesn't matter much, since all three use the same decoder.
+
+## Evidence
+- **Before the fix (red):** confirmed. `file_replay_rejects_non_ascii_hex_without_altering_the_file` failed with "non-ASCII suffix in payload_hex must reject".
+  - **Provenance caveat:** the failure points to line `389:13` and says "5 filtered out" (6 tests). The current `assert!` is at line 392 and there are 7 tests. So the red run used an earlier draft of the test, 3 lines shorter above the assert, not this exact file. The mutation entry below proves the current test is red without the guard, so the risk is low. Either re-capture the red run or note the difference in the evidence README.
+- **After the fix:** confirmed. `ledger-tests.txt` shows 9 + 4 + 7 passing, including both new tests.
+- **`clippy.txt` and `rust-1.88-check.txt`:** both finish cleanly, and the second shows `rustc 1.88.0`. Neither file records the command or flags (`--all-targets`, `-D warnings`). The 1.88 log shows no `tempfile` line, so I can't tell whether the test files were compiled on 1.88. Recording the commands would close that gap.
+
+## Mutation entry and CI
+- **`jsonl-non-ascii-hex-suffix-accepted` (`checks/checks.json:2618-2624`):** the `find` text matches the source byte for byte. Deleting the guard brings back the old dropping behavior, and the exact `test_cmd` targets the rejection test. Valid.
+- **Counts:** I counted 429 `"find":` entries and 15 ledger entries. `ci.yml:290-292` sets the ledger minimum to 15, matching the actual count. README (429), `THREAT_MODEL.md:82` (`--assert-min 429`) and `PRODUCT_READINESS.md:307` (428 at `709d965`, kept as a historical checkpoint) agree. I didn't check the 45 MSRV guards.
+
+## Pilot blocker resolution
+- **The command:** `examples/support-triage/README.md:43` resolves the evaluator with `node -p 'require("node:fs").realpathSync(process.argv[1])' "$HEPH_BIN/hephaestus-reference-evaluator"`. With `-p`, `argv[1]` is the first argument, so it's correct, and Node 22 is a stated requirement. Lines 53-54 explain why the symlink must be resolved. `PILOT_GUIDE.md` points to this pack and doesn't repeat the command.
+- **`evaluator-resolution.txt`:** gives one summary sentence per alias (source and package) rather than raw command output. Neither line shows the original symlink path next to the resolved one.
+- **`evaluator-path-acceptance.json`:** shows a real offline Arena evaluation, a Selection and a replay (`events=329`), using the **package** evaluator only. The source alias has the resolution line but no Arena/Selection/replay run of its own.
+- **Promotion fields:** the Selection receipt has `invariant_gate_verified: false` and `promotion_eligible: false`. That's correct for a run that records a Selection without promoting. It should be called a recorded Selection, not a promotion.
+- **Ambiguous placeholder:** line 90 uses `artifact put <installed-reference-evaluator>` without saying whether to pass the symlink or the resolved path. If `artifact put` follows symlinks this doesn't matter. I couldn't confirm that by reading.
+
+## Out of scope / housekeeping
+This review doesn't cover live-provider, hosted, or full product release acceptance. The untracked `.DS_Store` and `python/.DS_Store` files should stay out of the commit.
