@@ -1,0 +1,22 @@
+Initialized empty Git repository in /private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-pilot-docs-alu5742m/.local/share/hephaestus/pilots/pilot.cuU4br/source/.git/
+Global commit.gpgsign: true
+Commit without override rejected: 128
+[master (root-commit) f33cfd6] Initialize pilot source
+ 1 file changed, 1 insertion(+)
+ create mode 100644 README.md
+drwx------
+Documented override and private directory verified
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: is subject to change. To configure the initial branch name to use in all
+hint: of your new repositories, which will suppress this warning, call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+fatal: cannot exec '/bin/false': No such file or directory
+error: gpg failed to sign the data:
+(no gpg output)
+fatal: failed to write commit object

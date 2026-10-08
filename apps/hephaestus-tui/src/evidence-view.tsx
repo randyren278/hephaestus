@@ -1,6 +1,6 @@
 import React from 'react';
 import {Box, Text} from 'ink';
-import {aggregateCosts, denialSummary, formatLatency, formatMicroUsd, formatWorldLabel, groupByWorld, totalDataRows, windowedGroups, type CostEntry} from './evidence.js';
+import {aggregateCosts, COMPACT_COST_DISCLOSURE, COST_DISCLOSURE, denialSummary, formatLatency, formatMicroUsd, formatWorldLabel, groupByWorld, totalDataRows, windowedGroups, type CostEntry} from './evidence.js';
 import {shortId} from './lineage-view.js';
 import {borderColorProps, colorProps, useTheme, type Role, type Theme} from './theme.js';
 import {safeText, type DenialEntry, type EvaluationListEntry, type RunListEntry} from './protocol.js';
@@ -19,13 +19,16 @@ function Receipt({children, theme}: {children: React.ReactNode; theme: Theme}) {
 	return <Text {...colorProps(theme.color('sealed'))}>{children}</Text>;
 }
 
-export function RunsPanel({runs, selected, height}: {runs: RunListEntry[]; selected: number; height: number}) {
+export function RunsPanel({runs, selected, height, columns = 80}: {runs: RunListEntry[]; selected: number; height: number; columns?: number}) {
 	const theme = useTheme();
 	const grouped = groupByWorld(runs, run => run.world_id);
 	const total = totalDataRows(grouped);
-	const view = windowedGroups(grouped, selected, height);
-	return <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
+	const compact = columns < 72 || height < 1 + COST_DISCLOSURE.length + 1;
+	const disclosure = compact ? [COMPACT_COST_DISCLOSURE] : COST_DISCLOSURE;
+	const view = windowedGroups(grouped, selected, height + (compact ? 2 : 0) - 1 - disclosure.length);
+	return <Box flexDirection="column" {...(compact ? {} : {borderStyle: 'single' as const})} {...borderColorProps(theme.color('border'))} paddingX={1}>
 		<Text bold {...colorProps(theme.color('judge'))}>RUNS <Text {...colorProps(theme.color('muted'))}>({total})</Text></Text>
+		{disclosure.map(line => <Text key={line} wrap="truncate" {...colorProps(theme.color('muted'))}>{line}</Text>)}
 		{runs.length === 0 && <Text {...colorProps(theme.color('muted'))}>No runs recorded yet.</Text>}
 		{view.rows.map((row, index) => row.kind === 'header'
 			? <Header key={`h-${row.worldId ?? 'none'}-${index}`} worldId={row.worldId} theme={theme} />
@@ -60,14 +63,17 @@ export function EvidencePanel({evaluations, selected, height}: {evaluations: Eva
 	</Box>;
 }
 
-export function CostsPanel({costs, selected, height}: {costs: CostEntry[]; selected: number; height: number}) {
+export function CostsPanel({costs, selected, height, columns = 80}: {costs: CostEntry[]; selected: number; height: number; columns?: number}) {
 	const theme = useTheme();
 	const grouped = groupByWorld(costs, entry => entry.world_id);
 	const total = totalDataRows(grouped);
-	const view = windowedGroups(grouped, selected, height);
+	const compact = columns < 72 || height < 1 + COST_DISCLOSURE.length + 1;
+	const disclosure = compact ? [COMPACT_COST_DISCLOSURE] : COST_DISCLOSURE;
+	const view = windowedGroups(grouped, selected, height + (compact ? 2 : 0) - 1 - disclosure.length);
 	const grandTotal = costs.reduce((sum, entry) => sum + entry.total_microusd, 0);
-	return <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
-		<Text bold {...colorProps(theme.color('judge'))}>COSTS <Text {...colorProps(theme.color('muted'))}>({total}) · total {formatMicroUsd(grandTotal)}</Text></Text>
+	return <Box flexDirection="column" {...(compact ? {} : {borderStyle: 'single' as const})} {...borderColorProps(theme.color('border'))} paddingX={1}>
+		<Text bold wrap="truncate" {...colorProps(theme.color('judge'))}>RECORDED COSTS <Text {...colorProps(theme.color('muted'))}>({total}) · recorded total {formatMicroUsd(grandTotal)}</Text></Text>
+		{disclosure.map(line => <Text key={line} wrap="truncate" {...colorProps(theme.color('muted'))}>{line}</Text>)}
 		{costs.length === 0 && <Text {...colorProps(theme.color('muted'))}>No costed runs or evaluations yet.</Text>}
 		{view.rows.map((row, index) => row.kind === 'header'
 			? <Header key={`h-${row.worldId ?? 'none'}-${index}`} worldId={row.worldId} theme={theme} />

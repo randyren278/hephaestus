@@ -1,5 +1,6 @@
 import type {ApiResponse, Champion, Command, EvaluationListEntry, Genome, World} from '../../../hephaestus-tui/src/protocol.js';
 import {escapeHtml, renderComparison, comparisonReport} from './comparison.js';
+import {COST_DISCLOSURE, formatMicroUsd} from '../../../hephaestus-tui/src/evidence.js';
 import {sessionToken, clearSession, requestCommand} from './session.js';
 import {lineDiff, lineageRows, roleOf, type ChampionRole} from '../../../hephaestus-tui/src/lineage.js';
 
@@ -326,11 +327,6 @@ async function loadGenes(): Promise<void> {
   </table></div>`;
 }
 
-function formatCost(microusd: number | null): string {
-	if (microusd === null) return '—';
-	return `$${(microusd / 1_000_000).toFixed(6)}`;
-}
-
 async function loadActivity(): Promise<void> {
 	const el = views.activity;
 	el.innerHTML = '<div class="card"><h2>Activity</h2><p class="notice">Loading…</p></div>';
@@ -341,13 +337,13 @@ async function loadActivity(): Promise<void> {
 	]);
 	const runsHtml =
 		runs.data?.type === 'run_list'
-			? `<table class="kv"><tr><th>Run</th><th>Genome</th><th>State</th><th>Cost</th><th>Latency</th></tr>${runs.data.runs
+			? `<table class="kv"><tr><th>Run</th><th>Genome</th><th>State</th><th>Recorded cost</th><th>Latency</th></tr>${runs.data.runs
 					.map(
 						run => `<tr>
           <td>${escapeHtml(shortId(run.run_id))}</td>
           <td>${escapeHtml(shortId(run.genome_id))}</td>
           <td>${escapeHtml(run.state)}</td>
-          <td>${formatCost(run.actual_cost_microusd)}</td>
+          <td>${formatMicroUsd(run.actual_cost_microusd)}</td>
           <td>${run.latency_millis ?? '—'}</td>
         </tr>`,
 					)
@@ -372,7 +368,7 @@ async function loadActivity(): Promise<void> {
 					.join('')}</table>`
 			: noticeHtml(denials) || '<p class="notice error">unexpected response</p>';
 	el.innerHTML = `
-    <div class="card"><h2>Runs &amp; costs</h2>${runsHtml}</div>
+    <div class="card"><h2>Runs &amp; costs</h2><p class="notice">${COST_DISCLOSURE.join(' ')}</p>${runsHtml}</div>
     <div class="card"><h2>Agent comparisons</h2><p class="notice">Scores and receipts from the daemon. Visible task scores exclude sealed tasks. Measured gates and promotion are separate decisions.</p></div>${evaluationsHtml}
     <div class="card"><h2>Authority &amp; denial history</h2>${denialsHtml}</div>`;
 	el.querySelectorAll<HTMLButtonElement>('[data-report]').forEach(button => {

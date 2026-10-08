@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>A fair referee for AI agents.</strong><br>
-  Change your agent, and Hephaestus tells you whether it actually got better, with proof you can check.
+  Compare prompt versions on your own tasks, with results you can replay.
 </p>
 
 <p align="center">
@@ -18,16 +18,23 @@
 
 ## What is this?
 
-You have an AI agent, meaning a model plus a prompt plus some permissions.
-You tweak the prompt. Is the new version better? Usually the honest answer is
-"it felt better on a few tries." Nobody can say afterwards what changed, and
-nobody can get the old version back.
+You have an AI agent: a model, a prompt and some permissions. You change its
+prompt. Which version gets more of your tasks right, and what changed in its
+latency or reported usage?
 
 Hephaestus replaces that guesswork with a fair fight. It runs the old and new
 versions on the same tasks, each locked in its own sandbox, and a judge they
-cannot see scores them. It writes the result into a record that cannot be
-quietly rewritten, so "version B is better" becomes a claim anyone can check
-later.
+cannot directly read scores them under fixed rules. It keeps the exact versions
+and results in a tamper-evident ledger you can replay. A comparison measures
+those tasks; its confidence interval and separate gates help you decide what
+the result supports.
+
+Start with a workflow that has checkable answers, such as ticket routing or
+structured extraction. The [24-case support-triage pack](examples/support-triage/README.md)
+provides fictional inputs and two reasonable prompt variants. You can prepare
+it while the daemon is frozen, then review the provider allowance before
+running a model. The [pilot guide](docs/PILOT_GUIDE.md) explains the deliverables
+and how to evaluate a change on your own workflow.
 
 <p align="center">
   <img src="docs/assets/how-it-works.svg" width="100%" alt="Six steps. 1, write the agent: a Genome is the agent's sealed recipe. 2, set the rules: a World is the exam, its limits, and what agents may never touch. 3, try a change: the new version remembers which version it came from. 4, fair fight: the Arena runs old and new on the same tasks in separate sandboxes. 5, sealed judge: an Evaluator the agents can never read scores both. 6, write it down: the verdict is a receipt in a tamper-evident Ledger, and a clear winner can be promoted to Champion.">
@@ -47,7 +54,7 @@ More terms, such as Forge, Gene, Lineage, Drift, and Canary, are in
 
 ## Install
 
-You need **macOS**, **git**, **npm**, and **Rust 1.85 or newer**. If you
+You need **macOS**, **git**, **Node.js 22 or newer with npm**, and **Rust 1.88 or newer**. If you
 don't have Rust, install it from [rustup.rs](https://rustup.rs).
 
 **1. Download and install**
@@ -156,16 +163,17 @@ sizes, cost, and how to add a document for review: [the Senate](docs/SENATE.md).
 
 ## Why you can trust it
 
-- **The agents can't cheat.** Each agent runs in a locked-down macOS sandbox
-  with hard time and output limits. The judge and the answers are kept where
-  an agent can never read them.
-- **The record can't be quietly edited.** Every entry in the Ledger is chained
+- **Separate execution and scoring.** Each agent runs in a macOS sandbox
+  with enforced time and output limits. Protected evaluator files are outside
+  its filesystem authority. Keep your holdout labels out of its repository
+  and use private tasks for a confidential benchmark.
+- **A tamper-evident record.** Every entry in the Ledger is chained
   to the one before it. On every start, Hephaestus rebuilds its state from that
   record and refuses to start if anything doesn't match. `hephaestus replay`
   runs the same check whenever you like.
 - **You hold the brake.** Hephaestus starts frozen. Only you can unfreeze it,
   and stopping work is confirmed, not assumed.
-- **The tests are tested.** CI breaks the code on purpose in **420** separate
+- **The tests are tested.** CI is configured to break the code in **428** separate
   ways, and the test suite has to catch every one or the build fails. 51
   safety-critical modules must also stay at 92% test coverage or better.
 
@@ -188,6 +196,7 @@ map.
 - [Getting started](docs/GETTING_STARTED.md): install, first launch, and the guided tour
 - [Glossary](docs/TERMINOLOGY.md): every Hephaestus word in plain English
 - [What works today](docs/STATUS.md): built versus not yet built
+- [Pilot guide](docs/PILOT_GUIDE.md): evaluate one change on your workflow
 - [The Senate](docs/SENATE.md): the multi-perspective debate tool
 
 **Using it**

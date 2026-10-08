@@ -1,0 +1,1 @@
+Downloaded report matches exact real daemon IDs, visible scores, both costs and latencies; full disclosure retained.

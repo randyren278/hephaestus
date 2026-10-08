@@ -60,6 +60,30 @@ test('rendered and exported evidence include costs, scores, units and uncertaint
 	assert.match(comparisonReport(entry), /Visible scores exclude sealed tasks/);
 });
 
+test('a recorded zero is shown with missing-provider-cost context in the screen and export', () => {
+	const entry = evaluation();
+	entry.selection!.parent_cost_microusd = 0;
+	entry.selection!.candidate_cost_microusd = 0;
+	for (const text of [renderComparison(entry), comparisonReport(entry)]) {
+		assert.match(text, /Total recorded cost/);
+		assert.match(text, /\$0\.000000/);
+		assert.match(text, /Hosted zero may be unreported/);
+		assert.match(text, /Codex reports no USD/);
+		assert.doesNotMatch(text, /Total measured cost/);
+	}
+});
+
+test('small recorded amounts retain all six micro-USD decimals in the screen and export', () => {
+	const entry = evaluation();
+	entry.selection!.parent_cost_microusd = 1;
+	entry.selection!.candidate_cost_microusd = 2;
+	for (const text of [renderComparison(entry), comparisonReport(entry)]) {
+		assert.match(text, /\$0\.000001/);
+		assert.match(text, /\$0\.000002/);
+		assert.match(text, /Totals may omit usage/);
+	}
+});
+
 test('agent and evaluation identifiers cannot inject markup or button attributes', () => {
 	const entry = evaluation(); entry.evaluation.evaluation_id = '"><img src=x onerror=alert(1)>';
 	entry.evaluation.parent_genome_id = '<script>bad()</script>';

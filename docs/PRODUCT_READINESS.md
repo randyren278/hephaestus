@@ -38,8 +38,8 @@ live-model improvement and full installation acceptance remain required.
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current UI checks pass 189 tests; guided revision checkpoint passes 711 Rust and 44 Python tests, all 51 coverage floors, both Clippy modes and 25 affected mutations. Full product acceptance and the complete mutation matrix remain to verify |
-| Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Positioning and delivery work remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 715 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. Earlier coverage passed all 51 floors. Full product acceptance remains |
+| Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
 is a readable summary, not a signed receipt. Live-model quality cannot be
@@ -276,3 +276,42 @@ passed without any provider launch. Claude checked all labels and found no
 conflicts. The [preparation evidence](evidence/2026-10-08-support-triage/README.md)
 distinguishes this from model availability, authentication and actual quality.
 Real outputs, authorized usage and representative measured results remain open.
+
+## Compiler, cost and pilot checkpoint, 2026-10-08
+
+The advertised Rust 1.85 minimum failed against the locked dependencies. Rust
+1.88 passes an explicit Cargo/rustc-pinned all-target/all-feature check, and a
+real source installation at the prepared checkpoint passes the first-launch
+choice and six-step tour. Current-source syntax edits keep both stable Clippy
+modes green without weakening the rules. See the
+[minimum compiler evidence](evidence/2026-10-08-msrv/README.md).
+
+Runs, Costs, browser comparisons and downloaded reports now share six-decimal
+recorded-USD formatting. Visible disclosures explain that hosted zero can mean
+missing reporting, Codex reports no USD, and totals can omit provider usage.
+The real 80×24 terminal retains all three disclosure lines. The source tests
+cover the selected row in a compact 60×12 slot and a full 80-column panel.
+The current native ARM64 archive passes isolated installation, relocation,
+the first-launch tour, offline Arena, both Gauntlets and replay with host
+Node/npm hidden. The actual browser download matches daemon identities,
+visible scores, costs and latency; its mobile comparison has no page overflow.
+See the [cost and delivery evidence](evidence/2026-10-08-cost-disclosure/README.md).
+
+The [pilot guide](PILOT_GUIDE.md) names the intended engineer audience, concrete
+deliverables, private holdout expectations, provider allowance, report controls
+and support boundaries. It describes an assisted paid pilot as a proposed
+scope, rather than an active paid plan. The support pack's durable private
+directory and Git initialization also pass with global commit signing enabled.
+
+The [complete mutation checkpoint](evidence/2026-10-08-full-mutations/README.md)
+killed all 428 mutations at `709d965`, then rebuilt binaries and verified a
+clean checkout. Subsequent source edits have their own affected-guard checks.
+Claude identified a pre-existing ledger hex-decoding edge case: a non-ASCII
+trailing character can be dropped by the character-pair decoder. It cannot
+forge a signed event, but strict malformed-record rejection still needs a
+focused repair and regression test before the full trust audit closes.
+
+Representative live-provider output, current hosted release/Intel acceptance,
+downloaded-package first launch and the remaining trust audit are still open.
+The requested provider comparison remains pending explicit quota/auth-handoff
+authorization; preparation alone does not prove model availability or quality.

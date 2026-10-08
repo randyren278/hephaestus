@@ -1,0 +1,12 @@
+
+> @hephaestus/operator-tui@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @hephaestus/operator-tui@0.1.0 build:package
+> node scripts/build-package.mjs
+
+
+  dist/main.bundle.mjs  1.9mb ⚠️
+
+⚡ Done in 76ms

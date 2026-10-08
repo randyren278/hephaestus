@@ -1,0 +1,83 @@
+{
+  "scope": "Actual documented evaluator resolution from relocated installed binary symlink, followed by reference-only Arena, Selection and replay; no hosted provider calls",
+  "resolved_evaluator": "/private/tmp/hpkg.4Q4F8j/moved-local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64/bin/hephaestus-reference-evaluator",
+  "evaluation": {
+    "version": 1,
+    "request_id": "cli-7912-1791472478038213000",
+    "data": {
+      "type": "evaluation",
+      "evaluation": {
+        "evaluation_id": "pilot-evaluator-path-v1",
+        "world_id": "hephaestus:world:09764ccb51afaa5f52b9c125ac074751ecac529ee88d7f4fb145098f365348a3",
+        "parent_genome_id": "hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71",
+        "candidate_genome_id": "hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21",
+        "parent_visible_correct": 0,
+        "candidate_visible_correct": 1,
+        "visible_total": 1,
+        "event": {
+          "sequence": 324,
+          "event_id": "arena:evaluation:pilot-evaluator-path-v1:recorded",
+          "aggregate_id": "arena:evaluation:pilot-evaluator-path-v1",
+          "event_type": "evaluation.recorded",
+          "actor": "arena-plane",
+          "timestamp_millis": 1791472477594
+        }
+      }
+    }
+  },
+  "selection": {
+    "version": 1,
+    "request_id": "cli-8023-1791472478062283000",
+    "data": {
+      "type": "selection",
+      "selection": {
+        "evaluation_id": "pilot-evaluator-path-v1",
+        "world_id": "hephaestus:world:09764ccb51afaa5f52b9c125ac074751ecac529ee88d7f4fb145098f365348a3",
+        "receipt": {
+          "schema_version": 1,
+          "algorithm": "histogram-bootstrap-pareto-tolerant-v2",
+          "resamples": 10000,
+          "seed": 42,
+          "evaluation_id": "pilot-evaluator-path-v1",
+          "evaluation_event_id": "arena:evaluation:pilot-evaluator-path-v1:recorded",
+          "evaluation_event_hash": "9493954e9833abb35d85eecc088d6b5b5d4e73a83db2fc41f3dca53a36b1e04b",
+          "world_id": "hephaestus:world:09764ccb51afaa5f52b9c125ac074751ecac529ee88d7f4fb145098f365348a3",
+          "parent_genome_id": "hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71",
+          "candidate_genome_id": "hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21",
+          "maximum_cost_microusd": 0,
+          "minimum_delta_bps": 0,
+          "maximum_regressions": 0,
+          "confidence_bps": 9500,
+          "correctness_regressions": 0,
+          "correctness_unchanged": 0,
+          "correctness_improvements": 2,
+          "estimate_bps": 10000,
+          "lower_bps": 10000,
+          "upper_bps": 10000,
+          "parent_correctness_bps": 0,
+          "candidate_correctness_bps": 10000,
+          "parent_reliability_bps": 10000,
+          "candidate_reliability_bps": 10000,
+          "parent_cost_microusd": 0,
+          "candidate_cost_microusd": 0,
+          "parent_latency_millis": 80,
+          "candidate_latency_millis": 72,
+          "candidate_pareto_dominates": true,
+          "metrics_eligible": true,
+          "invariant_gate_verified": false,
+          "promotion_eligible": false
+        },
+        "event": {
+          "sequence": 328,
+          "event_id": "arena:selection:pilot-evaluator-path-v1:selected",
+          "aggregate_id": "arena:selection:pilot-evaluator-path-v1",
+          "event_type": "selection.recorded",
+          "actor": "arena-plane",
+          "event_hash": "5df5540cdd49994545ba25650ba0c07c05b0a9903ab628dbf4ed518064cba90a",
+          "receipt_artifact_id": "aea11e08759653c057d845aebd287867c5b45d6e7683d4ef5f9c3cba4d5080c9"
+        }
+      }
+    }
+  },
+  "replay": "replayed events=329 frozen=false active_runs=0 projection=78bd467ff976d37de7f57ee22fc9e6cdd69703c3d5b67d46a9dce85b87d5f4e7"
+}

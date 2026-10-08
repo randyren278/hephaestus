@@ -1,0 +1,61 @@
+## Final acceptance review: current Hephaestus tree (read-only)
+
+I found one pilot-blocking defect in the support-triage docs and nothing in the Rust changes that breaks behavior. The pre-existing ledger hex weakness is still open and is correctly tracked as unresolved.
+
+### Introduced blockers
+**None in the Rust/MSRV changes.** I read every edited site in the nine Rust files:
+
+- **Hex decoders:**
+  - `run_records.rs:652` and `run_result.rs:597` check for exactly 64/128 bytes before `as_chunks::<2>()`, so nothing is ever left over.
+  - `runtime_exec.rs:671` and `hephaestus-remote-worker.rs:147` replace `% 2 != 0` with `!is_multiple_of(2)`, which means the same thing, and keep the ASCII-hex check before byte slicing.
+- **Let chains:** each one short-circuits exactly like the nested `if` it replaced:
+  - `job_exec.rs:663`
+  - `handlers_evolve_meta.rs:1145, 1316, 1981, 1998`
+  - `control_plane_e2e.rs:3541, 4222, 5081`
+  - In the denial list, the event-type tests rule each other out and there is no final `else`, so a failed inner match can't fall through into another branch.
+- **Guardian anchor:** `guardian.rs:352` matches the `find` text at `checks.json:2069` byte for byte. Its targeted command is at `checks.json:12`, and the mutation was KILLED (`affected-mutations.txt:55`).
+- **Version declarations:**
+  - `Cargo.toml:17` declares `rust-version = "1.88"`.
+  - `install.sh:133` now says "1.88+". No `1.85` claim remains outside the evidence folder and its history note.
+  - The CI `msrv` job (`ci.yml:15-33`) pins both `rustc` and `cargo` with `rustup which`. If 1.88.0 isn't installed, that command fails loudly rather than passing.
+- **Counts check out:**
+  - The workspace test sections add up to exactly **715**, with 0 failed and 0 ignored.
+  - `checks.json` has exactly **45** entries for the changed files, and all 45 were run and killed.
+  - The 428-mutation `proof.json` and the full-mutations README both keep the immutable `709d965` run separate from the 45-guard run on the updated source.
+
+### Remaining must-fix defects
+1. **The support-triage daemon command will fail at `arena evaluate` (new finding, blocks the pilot).**
+   - `examples/support-triage/README.md:41-45` passes `--evaluator-executable "$HEPH_BIN/hephaestus-reference-evaluator"`, where `HEPH_BIN` is the directory holding `hephaestus` on your PATH.
+   - Both installers put **symlinks** there (`scripts/install.sh:199`, `scripts/package/install.sh:77`).
+   - The daemon stores that path unchanged (`server.rs:1051`). The evaluator check then rejects any path that is itself a symlink (`isolated_evaluator.rs:209-217`), and the error surfaces only as `Internal` (`run_exec.rs:1237`).
+   - The evaluator is opened at admission (`run_exec.rs:432`), before any trial runs, so no provider quota is spent. But the documented pilot cannot reach Selection.
+   - The package acceptance run didn't catch this because it uses `share/hephaestus/current/bin/...`, where the last path component is a regular file (`package_macos_acceptance.sh:51`). The support-triage preparation run stopped before `arena evaluate`.
+   - **Fix:** point the docs at the real file (for a package, `~/.local/share/hephaestus/current/bin/hephaestus-reference-evaluator`; for a source install, `target/release/...`), or resolve the path once when the daemon starts. Then add a test that exercises this exact command.
+2. **`file_event_store.rs:222-238` (already known, unchanged):** the length check counts bytes but the decoder walks characters, so a trailing non-ASCII character can be silently dropped. This is correctly tracked as open at `PRODUCT_READINESS.md:309-312`. This syntax-only checkpoint does not complete trust readiness.
+
+**Minor:**
+- `PILOT_GUIDE.md:58-62`: the button labels match the source exactly ("Evidence & activity" at `index.html:22`, "Agent identities and report" and "Download evidence report" at `comparison.ts:41,43`). But the guide should spell out `HEPHAESTUS_HOME="$PILOT_DIR/data" npm start`. Right now that setting appears only in prose at `apps/hephaestus-web/README.md:35-36`.
+- The MSRV README says Clippy passes "with warnings denied". The all-features CI step (`ci.yml:67`) has no `-D warnings`; only Clippy lints are denied, through the workspace config. Ordinary compiler warnings wouldn't fail that mode.
+
+### Evidence gaps
+- **Hashes:**
+  - I can't compute SHA-256 with Read/Grep. I confirmed the 11 hashes are identical across `current-source-proof.json`, `affected-mutations-proof.json` and `package-browser-proof.json`. I did not confirm they match the working tree or `main`.
+  - The git snapshot at the start of this session showed branch `polish/revenue-readiness-2026-10-07` with all of these files uncommitted. "Matches main" still needs a commit-and-push check.
+- **Logs:**
+  - `clippy-all.txt`, `clippy-default.txt` and `workspace-tests.txt` don't record their commands, toolchain version or source hashes.
+  - The tests ran in the live working tree, not the pinned checkout.
+  - `current-rust-1.88-check.txt` has no "Checking" line for `hephaestus-core` or `hephaestus-senate`, probably because they were already built in a shared target directory.
+- **No mutation guards:** `hephaestus-remote-worker.rs` and `control_plane_e2e.rs` have none. The remote-worker hex decoder is exercised only by `remote_worker_binary_round_trips…`.
+- **Summary-only checks:** `report-check.txt` and `terminal-evidence.txt` contain script conclusions rather than raw output.
+  - I spot-checked the report against `evaluation-summaries.json`: latencies 105/93 ms and costs $0.000000 match.
+  - `pty_evidence.py:110-112` and `139-141` check for all three disclosure lines on both the Runs and Costs screens.
+- **Pilot setup:** the "unusable signer" was a nonexistent `/bin/false`, so git couldn't run it ("cannot exec"). Exit 128 with the override passing is still valid, and `drwx------` is recorded.
+- **Not established by anything here:**
+  - the hosted CI result (including the new `msrv` job)
+  - Intel acceptance
+  - first launch from a quarantined download
+  - provider quality or model availability
+  - billing
+  - any end-to-end run of the support-triage `arena evaluate` path
+
+  None of these is claimed in the docs, and the paid pilot is described as a proposed scope only (`PILOT_GUIDE.md:94-99`).

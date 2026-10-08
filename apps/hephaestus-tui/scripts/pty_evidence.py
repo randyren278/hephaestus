@@ -107,6 +107,9 @@ def main() -> int:
             raise RuntimeError("TUI Runs screen did not show the World header")
         if not until(short_genome, 5, start):
             raise RuntimeError("TUI Runs screen did not show the real registered Genome")
+        for disclosure in ('Recorded USD, not a bill', 'Codex reports no USD', 'Totals may omit usage'):
+            if not until(disclosure, 5, start):
+                raise RuntimeError("TUI Runs screen omitted the cost reporting disclosure")
         runs_frame = latest_frame("RUNS")
         start = mark()
         press(b"\x1b")
@@ -133,6 +136,9 @@ def main() -> int:
         press(b"\r")
         if not until("COSTS", 5, start) or not until("total $", 5, start):
             raise RuntimeError("TUI Costs screen did not show a real dollar total")
+        for disclosure in ('Recorded USD, not a bill', 'Codex reports no USD', 'Totals may omit usage'):
+            if not until(disclosure, 5, start):
+                raise RuntimeError("TUI Costs screen omitted the cost reporting disclosure")
         costs_frame = latest_frame("COSTS")
         start = mark()
         press(b"\x1b")
@@ -160,6 +166,7 @@ def main() -> int:
             raise RuntimeError("TUI did not restore terminal settings on exit")
 
         print("PTY 80x24: Runs, Evidence receipts, Costs, and Denials all showed real daemon data.")
+        print("Runs and Costs both retained all three cost reporting disclosure lines.")
         print("Runs evidence: " + " | ".join(line.strip(" │") for line in runs_frame.splitlines() if short_genome in line)[:300])
         print("Evidence evidence: " + " | ".join(line.strip(" │") for line in evidence_frame.splitlines() if "bps" in line)[:300])
         print("Costs evidence: " + next((line.strip(" │") for line in costs_frame.splitlines() if "total $" in line), ""))

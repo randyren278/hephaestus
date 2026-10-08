@@ -27,6 +27,38 @@ documented in [Runtimes](../../docs/RUNTIMES.md). Registration, profiles and
 replay do not call a model. Authenticate with your provider's own tools; do
 not put credentials in Genomes, task files or reports.
 
+For example, with the installed commands on your PATH and Node.js 22 or newer
+(also required by the source web console), create a new private workspace and
+start a foreground daemon:
+
+```sh
+mkdir -p "$HOME/.local/share/hephaestus/pilots"
+PILOT_DIR=$(mktemp -d "$HOME/.local/share/hephaestus/pilots/pilot.XXXXXX")
+mkdir "$PILOT_DIR/source"
+printf 'Isolated pilot source; no task labels.\n' > "$PILOT_DIR/source/README.md"
+git -C "$PILOT_DIR/source" init
+git -C "$PILOT_DIR/source" add README.md
+git -C "$PILOT_DIR/source" -c user.name='Hephaestus pilot' -c user.email='pilot@localhost' -c commit.gpgsign=false commit -m 'Initialize pilot source'
+HEPH_BIN=$(dirname "$(command -v hephaestus)")
+HEPH_EVALUATOR=$(node -p 'require("node:fs").realpathSync(process.argv[1])' "$HEPH_BIN/hephaestus-reference-evaluator")
+printf 'Pilot directory: %s\n' "$PILOT_DIR"
+hephaestusd --data-dir "$PILOT_DIR/data" \
+  --source-repository "$PILOT_DIR/source" \
+  --evaluator-executable "$HEPH_EVALUATOR"
+```
+
+Leave that terminal running; use the printed pilot directory's data subdirectory
+as `<fresh-data-dir>` in another terminal. The installed reference evaluator
+launcher is beside `hephaestus`, normally under your installation prefix's bin
+directory. The command resolves that launcher to its real file; the protected
+evaluator boundary rejects a symlink as the final path component.
+Before starting a daemon for actual hosted work, configure the selected CLI's
+subscription or API authentication handoff using
+[Live runs against your own subscription](../../docs/RUNTIMES.md#live-runs-against-your-own-subscription).
+These launch arguments alone do not make your host login available inside a
+provider's private HOME. You can perform the frozen preparation first and
+restart the same data directory with the authorized provider configuration.
+
 Choose one provider (`codex` or `claude`) and an explicit model identifier
 available to your installed CLI. Use the same identifier for both prompts.
 Do not use a moving model alias when you need comparable dated results.
@@ -38,6 +70,11 @@ Do not use a moving model alias when you need comparable dated results.
    directory. Replace its four artifact placeholders. Replace the quoted
    cost placeholder with a non-negative **JSON integer** in micro-US-dollars,
    then register the World. The immutable policy is `json_canonical`.
+   For example, `250000` means a $0.25 reported per-trial ceiling and a $12
+   aggregate allowance for this pack's 48 invocations. Choose the ceiling
+   using your provider's expected usage; it is not a billing cap. Codex records
+   no USD cost, so its recorded cost gates cannot prove actual spending stayed
+   within the allowance.
 3. Copy [the baseline template](baseline.template.md), replace the provider
    and model placeholders and register it under that World.
 4. Copy [the candidate template](candidate.template.md), replace those same

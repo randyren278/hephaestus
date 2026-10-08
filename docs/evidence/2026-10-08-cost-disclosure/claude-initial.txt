@@ -1,0 +1,45 @@
+I found no misleading commercial promises. The cost wording now avoids claiming a measured cost, and it never says every zero is unknown. One blocker remains: the cost disclosure overflows the TUI layout on small terminals. The new engineer is also missing some setup steps.
+
+## Blockers
+
+**1. Cost disclosure overflows the TUI on small terminals.**
+- `ui.tsx:837` sets `panelHeight = max(3, rows-10)` in compact mode. At rows < 13 that gives `height = 1`.
+- `windowedGroups(..., height - 2)` then rounds up to 1 row (`evidence.ts:62`). The panel draws border (2) + title (1) + disclosure (2) + 1 row, which is 6 lines in a 3-line slot.
+- Before this change the overrun was 1 line; the disclosure makes it 3.
+- Compact mode also applies below 72 columns. The disclosure lines (`evidence-view.tsx:29,72`) aren't `wrap="truncate"`. With about 5 columns of border and padding, line 1 (63 chars) wraps below about 68 columns and line 2 (55 chars) below about 60. Each wrap is a line the budget doesn't count.
+- The panels were already off by one: they get `panelHeight - 2` but don't subtract their title line, unlike `worldListHeight` (`ui.tsx:842`). The new test locks that in: `height=12` passes with `<= 15` lines, which is 1 more than the 14-line slot (`evidence-screens.test.tsx:119`).
+- **Fix:** subtract title + disclosure from the budget. In compact mode, collapse the disclosure to one short line that still fits (e.g. "Recorded USD, not a bill; $0 may be unreported"). Add a test at about 60×12 that compares against `panelHeight`, not `height+3`.
+
+**2. The TUI and the browser/report show different precision.**
+- The TUI's `formatMicroUsd` uses 4 decimals (`evidence.ts:11`). The browser and report use 6 (`comparison.ts:18`, `app.ts:332`).
+- So a real recorded cost under $0.00005 shows as `$0.0000` in the TUI, right next to the "Hosted zero can mean unreported cost" line. A small real cost then looks like a missing one, and the numbers won't match when the engineer checks the exported report against the console, which the guide tells them to do.
+- **Fix:** use 6 decimals everywhere, sharing one formatter as `COST_DISCLOSURE` already is.
+
+**3. The support-triage pack doesn't show how to start the daemon.**
+- `examples/support-triage/README.md:23-28` says to use a fresh data directory, a separate source repo, and to start frozen. It never gives the `hephaestusd --data-dir … --source-repository … --evaluator-executable …` command; that only appears in `docs/CLI.md:24` and `MACOS_INSTALL.md:53`.
+- It also doesn't say where `<installed-reference-evaluator>` is after `scripts/install.sh` (presumably `~/.local/bin/`).
+- A new engineer can't get from `heph`, which uses the default data directory, to a fresh-directory daemon without piecing this together. Add the command and the evaluator path, or link the exact section.
+
+## Should fix
+
+**4. The cost ceiling placeholder gives no guidance.** `README.md:39-40` asks for a micro-USD integer with no example or guidance on choosing it. It also doesn't say that for Codex the ceiling, and the cost part of the measured gates, can never trigger because Codex reports nothing. Both guides say the limits are "not billing caps", but they don't connect that to this step.
+
+**5. A non-zero grand total can hide unreported costs.**
+- `CostsPanel`'s `total $X` (`evidence-view.tsx:69-71`) adds up across Worlds and providers.
+- If some of the inputs are unreported zeros, the total looks complete. The current disclosure only covers individual zero values, not a total that's partly made of them.
+- One phrase fixes it: "totals include unreported zeros".
+
+**6. The mutation-test count doesn't match the local command.** `THREAT_MODEL.md:69` says CI applies 428 mutations, but the local reproduction runs `mutation_guard.py --assert-min 343` (`:82`). The wording itself is fine: "configured", plus "inspect the latest CI result", so it doesn't claim the 709d965 run passed. Neither does the README (`:176`). But the engineer's local run checks a lower bar than the number they were told about. Align the numbers or explain the gap.
+
+## Checked and fine
+- **Audience, deliverables and preparation** (`PILOT_GUIDE.md:9-48`): clear. Usage approval is in step 4 and in "Run only within authorized usage", which gives the 48-invocation count and the limits.
+- **Platform limits** (`:50-54`) and the statements that there's no response-time guarantee and no subscription supplied: honest.
+- **Assisted pilot** (`:91-96`): explicitly "proposed… not an available paid plan", with no fee, hosted service or improvement promise. Nothing else in the README suggests it exists.
+- **Cost wording:**
+  - "Total measured cost" is gone, which a test checks (`comparison.test.tsx:72`).
+  - "Recorded" is used consistently across the browser comparison card, runs table, TUI panels and report.
+  - "Can mean unreported" doesn't claim every zero is unknown.
+  - The disclosure appears whether or not a Selection exists.
+- **Minor:** "Reference runs use no paid model" uses a term the reader hasn't seen in that context, and it isn't relevant on a Claude/Codex pilot report. It's harmless but could be clearer.
+
+I didn't run anything (read-only, no shell). The precision mismatch and the overflow line counts come from reading the code, not from rendering it.

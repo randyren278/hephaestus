@@ -1,0 +1,55 @@
+{
+  "archive_sha256": "54687e6151ee514b67b474502aedcc4e56832692f60a621427dde13cb80c24a0",
+  "archive_bytes": 46560672,
+  "architecture": "arm64",
+  "bundled_node": "24.21.0",
+  "tested_tui_bundle_sha256": "a2db3039d89b1b088b17b7ca1239545e77b6f878fe2f7fb063c9a0280fadc0ca",
+  "tested_bundle_matches_current_build": true,
+  "package_acceptance_exit": 0,
+  "first_launch_tour": {
+    "packaged_terminal": "80x24",
+    "empty_data_bootstrap": true,
+    "first_launch_prompt": true,
+    "packaged_evaluator_lookup": true,
+    "registered_fixture": true,
+    "arena_measured": true,
+    "metrics_selection_verified": true,
+    "replay_verified": true,
+    "completed_six_steps": true,
+    "terminal_restored": true
+  },
+  "browser": {
+    "surface": "agent-browser 0.27.0 fresh Chromium session; in-app browser bootstrap referenced missing browser-service module",
+    "desktop_viewport": [
+      1280,
+      900
+    ],
+    "mobile_viewport": [
+      390,
+      844
+    ],
+    "mobile_document_width": 375,
+    "report_downloaded_through_actual_button": true,
+    "report_matches_daemon": true
+  },
+  "source_hashes": {
+    "Cargo.toml": "07486745f123821d2a111a04c0f3672257b7385e4323ff6ea1e26842d0e2d27f",
+    "apps/hephaestus-tui/scripts/pty_evidence.py": "96ab4ad7443c6d3806e3bba6fe919b115959933aaa5d6e52211868cf2fe18aed",
+    "apps/hephaestus-tui/src/evidence-view.tsx": "cfebeee3aacca7bfa5e7ef2feecab315715e2a8e06b51e47979376be630cd1c2",
+    "apps/hephaestus-tui/src/evidence.ts": "a902172a0af16f0ad7a0f2d4eb674c963ac67d4657da4a5c37798ee366e4f002",
+    "apps/hephaestus-tui/src/ui.tsx": "e665267846d5445ddb834bc3f743483a74c185c7230c69b11ad8ac24eabe16cc",
+    "apps/hephaestus-tui/test/evidence-screens.test.tsx": "c3f2a126309fec30c5ab801dfd138e87555f73b1e02b9b8babc8baa685a5d1eb",
+    "apps/hephaestus-web/src/web/app.ts": "132c21b2039d7909b20060ad6e930afce691f68899f01e6a93a4e637147c308c",
+    "apps/hephaestus-web/src/web/comparison.ts": "6ce7d2edd9217d1c242ab1237491646676eff58c541d9ff317bd29f8fcc958c7",
+    "apps/hephaestus-web/test/comparison.test.tsx": "1bbaa3a7275fd84632484c57d861aec0d1ba2dbe255563dcb49bf0fd503bf1be",
+    "crates/hephaestus-control/src/bin/hephaestus-remote-worker.rs": "a107e4e120b529c7663a73fa4e3a326e532361d6a56114f011ddf6fa110aa186",
+    "crates/hephaestus-control/src/handlers_evolve_meta.rs": "0787f3f2fbb86410bbb6a05ea5a42440bc18b881b1e4a1bbedcb7e9e92fe5aee",
+    "crates/hephaestus-control/src/job_exec.rs": "20241304163d5fbfec8bd73ba4fd35c7770e4ad805dfb330a561a34b911b5479",
+    "crates/hephaestus-control/src/run_records.rs": "32e23844230727c9b2436ceaa8c843d1ed71d89b4a5d3b31c34fde744792fce6",
+    "crates/hephaestus-control/src/runtime_exec.rs": "a00d8d701cfffa8f50490fa40ab7b82604e18a4cb9ff195ad710f59e346b1667",
+    "crates/hephaestus-control/tests/control_plane_e2e.rs": "9db2c9f05ad14548a393b3af1d421dfe2f406f16207ee583d6a0200f4d7d1dc3",
+    "crates/hephaestus-experience/src/run_result.rs": "f05f80e67b09c4a8bc437dde8c1969a345ba48d61767b4bbfbae298558205ccb",
+    "crates/hephaestus-ledger/src/file_event_store.rs": "5122a5e8cfe341c6b3d403ff3b8a5d91833f82abd12f05cdbb2dd0f48572375b",
+    "crates/hephaestus-runtime/src/guardian.rs": "9add577a978c7b471247a4fac357d21a12707f6865f86d327f5301bd824ed463"
+  }
+}

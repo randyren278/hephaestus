@@ -21,7 +21,8 @@ const runC: RunListEntry = {
 
 test('formatMicroUsd and formatLatency render absent values as an em dash', () => {
 	assert.equal(formatMicroUsd(null), '—');
-	assert.equal(formatMicroUsd(1_500_000), '$1.5000');
+	assert.equal(formatMicroUsd(1), '$0.000001');
+	assert.equal(formatMicroUsd(1_500_000), '$1.500000');
 	assert.equal(formatLatency(null), '—');
 	assert.equal(formatLatency(500), '500ms');
 	assert.equal(formatLatency(12_000), '12.00s');
@@ -74,7 +75,7 @@ test('RunsPanel renders World-separated headers and the run state/cost/latency',
 	assert.match(output, /world-1/);
 	assert.match(output, /world-2/);
 	assert.match(output, /SUCCEEDED/);
-	assert.match(output, /\$1\.5000/);
+	assert.match(output, /\$1\.500000\b/);
 });
 
 test('EvidencePanel renders selection, invariant, and Forge summaries without sealed content', () => {
@@ -102,7 +103,39 @@ test('CostsPanel shows a grand total and per-Genome totals grouped by World', ()
 	const costs = aggregateCosts([runA, runB], []);
 	const output = renderToString(<CostsPanel costs={costs} selected={0} height={10} />);
 	assert.match(output, /COSTS/);
-	assert.match(output, /total \$1\.7500/);
+	assert.match(output, /total \$1\.750000\b/);
+});
+
+test('cost disclosure preserves the selected row and panel height at 80 columns', () => {
+	const runs = Array.from({length: 30}, (_, index) => ({
+		...runA, run_id: `run-${index}`, genome_id: `genome-${index}`, actual_cost_microusd: 0,
+	}));
+	const costs = runs.map(run => ({world_id: run.world_id, genome_id: run.genome_id, total_microusd: 0, samples: 1}));
+	for (const panel of [<RunsPanel runs={runs} selected={29} height={12} />, <CostsPanel costs={costs} selected={29} height={12} />]) {
+		const output = renderToString(<Box width={80}>{panel}</Box>, {columns: 80});
+		assert.match(output, /genome-29/);
+		assert.match(output, /\$0\.000000\b/);
+		assert.match(output, /Hosted zero may be unreported/);
+		assert.match(output, /Codex reports no USD/);
+		assert.match(output, /Totals may omit usage/);
+		assert.ok(output.split('\n').length <= 14, output);
+		assert.ok(output.split('\n').every(line => line.length <= 80), output);
+	}
+});
+
+test('compact cost panels retain disclosure and selection in a 60 by 12 terminal slot', () => {
+	const run = {...runA, genome_id: 'chosen-9', actual_cost_microusd: 1};
+	const costs = [{world_id: run.world_id, genome_id: run.genome_id, total_microusd: 1, samples: 1}];
+	// The compact App allocates panelHeight=3 and passes its inner height=1.
+	for (const panel of [<RunsPanel runs={[run]} selected={0} height={1} columns={60} />, <CostsPanel costs={costs} selected={0} height={1} columns={60} />]) {
+		const output = renderToString(<Box width={58}>{panel}</Box>, {columns: 60});
+		assert.match(output, /chosen-9/);
+		assert.match(output, /\$0\.000001/);
+		assert.match(output, /0 may be unreported/);
+		assert.match(output, /USD may be incomplete/);
+		assert.ok(output.split('\n').length <= 3, output);
+		assert.ok(output.split('\n').every(line => line.length <= 58), output);
+	}
 });
 
 test('DenialsPanel renders kind, command, and scope for both denial kinds', () => {

@@ -1,0 +1,48 @@
+I found no blockers. There is one stale Rust version string to fix before merge, and a few gaps between what the source says and what the evidence proves. I used only Read, Glob and Grep. I couldn't run git, so I compared the current files against the descriptions of the change, not against a diff.
+
+## Blockers
+None.
+
+## Should fix before merge
+1. **`scripts/install.sh:133` still says Rust 1.85+.** The message reads `"cargo (a stable Rust toolchain, 1.85+) is required"`. Everything else now says 1.88: `Cargo.toml:17`, the CI job, `README.md:57`, `GETTING_STARTED.md:20` and `MACOS_INSTALL.md:12`. A user who follows this message and installs an older toolchain will hit a build error later. The install script is the first thing a new user runs, so update it.
+
+## Current source correctness
+- **Rust 1.88 is the correct minimum.** `rust-1.85-check.txt` fails with 33 E0658 errors, all inside the locked dependency `serde-saphyr 1.1.0`: let chains (stable in 1.88) and `is_multiple_of` (stable in 1.87). So the old 1.85 claim was already wrong at 709d965, not something the Clippy changes caused. The new source also uses `as_chunks` (stable in 1.88), so 1.88 is exactly the floor.
+- **The CI job is a real gate.** It pins both `rustc` and `cargo` to 1.88.0 through `rustup which` and runs `check --locked --workspace --all-targets --all-features`. Clippy still runs on stable with `pedantic = "deny"`, so no gate got weaker.
+- **`guardian.rs:352` behaves the same as before.** `if !cancellation_sent && let Err(..)` short-circuits exactly like a nested `if`.
+- **The `guardian-leader-exit-leaves-descendants-running` mutation still matches the source.** Its `find` text matches the source byte for byte, including the 16-space indent, and its targeted test command is still at `checks.json:12`. Nothing in this evidence shows the mutation was re-run after the edit.
+- **`run_result.rs:591-598` behaves the same as before.** The length is checked to equal 128 first, so `as_chunks::<2>()` gives exactly 64 pairs with no remainder.
+- **`file_event_store.rs:222-238` has a weakness, low severity.** The odd-length check counts bytes but the decoder walks characters. A field like `<64 hex digits>é` (66 bytes, 65 characters) passes the check, and `as_chunks` silently drops the trailing `é`. If the old code used `chunks_exact(2)`, behaviour is unchanged; if it used `chunks(2)`, the old code panicked here. Hashes are computed from the decoded bytes, so this lets a tampered file decode silently but can't forge an entry. Not caused by the MSRV change. Decoding over `as_bytes()` with an ASCII hex check, like `run_result.rs`, would close it.
+- **The other `% 2 != 0` checks** at `runtime_exec.rs:671` and `hephaestus-remote-worker.rs:147` weren't converted. Stable Clippy CI will show whether that matters.
+
+## What the evidence covers, and what it doesn't
+- `proof.json`, `rust-1.88-check.txt`, `source-install.txt` (cargo 1.88.0, 7 binaries) and `source-tour.txt` (all six steps, terminal restored) cover **709d965 with only the `rust-version` change**.
+- They do **not** cover the current branch's `as_chunks`/`is_multiple_of`/let-chain changes, or the TUI and web changes. Compiling the current tree on 1.88 has only been done by CI on this push, if it has run.
+- The logs don't record the exact commands or a `rustc -V` line. The 1.85 log reached dependency compilation, so either the metadata was still 1.85 or `--ignore-rust-version` was passed. `proof.json` doesn't say which.
+- `packaged_evaluator_lookup: false`, so this is a source-install tour, not a package acceptance.
+- There is no hosted or live-model evidence anywhere, and none is claimed.
+
+## The four earlier review comments
+| Item | Status |
+|---|---|
+| Durable 0700 pilot directory | Fixed. The guide now uses `mktemp -d` under `~/.local/share/hephaestus/pilots`, and `pilot-setup-check.txt` shows `drwx------`. |
+| Commit works with global signing | Fixed in the source: `-c commit.gpgsign=false` plus `user.name`/`user.email` overrides. The check ran with a temporary HOME, so it proves a commit works with no git identity, but it never ran with global signing turned on. |
+| Six-decimal regex | Fixed. `evidence-screens.test.tsx:78,106` now use `\$1\.500000\b` and `total \$1\.750000\b`. |
+| Third cost disclosure line | Fixed and tested at `:120` (`Totals may omit usage`). `tui-tests.txt` shows 191/191 passing, including tests 43, 44 and 115. |
+
+## Docs: fresh-reader usability and cost honesty
+- **Cost claims are honest.** The docs say figures are provider-reported USD, not a bill. They say Codex reports no USD and a hosted zero may mean missing data. They also say the World ceilings are not billing caps.
+- The "48 invocations / $12" example checks out: 24 tasks × 2 prompts = 48, and 48 × 250,000 micro-USD = $12.
+- **The paid-pilot wording is fine.** The paid pilot is described as a proposed scope, not an available plan or a promise of improvement. The docs state there is no hosted service or payment flow.
+- The README's "428 mutations" matches the 428 `"id"` entries in `checks.json`.
+- **Minor usability gaps:**
+  - `PILOT_GUIDE.md:58-59` says "export its report" without saying which console (TUI or web) or where to find it.
+  - The support-triage README repeats the cost caveat at lines 70-73 and 100-103. This is acceptable but could be trimmed.
+
+## Still needed for full-product acceptance
+None of this is a source defect:
+- A real provider comparison run with support-triage (the guide already says none exists).
+- An install and tour re-run on the current tree, not just 709d965.
+- A mutation-guard run covering the edited guardian `find` text.
+- The setup check repeated with global `commit.gpgsign=true`.
+- Native Intel, hosted release delivery and launch from a quarantined download, all of which `PILOT_GUIDE.md:50-54` correctly lists as unverified.

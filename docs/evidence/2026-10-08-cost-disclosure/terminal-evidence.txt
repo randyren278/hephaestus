@@ -1,0 +1,6 @@
+PTY 80x24: Runs, Evidence receipts, Costs, and Denials all showed real daemon data.
+Runs and Costs both retained all three cost reporting disclosure lines.
+Runs evidence: › SUCCEEDED 68a6d30130c5 · 50ms · $0.000000 · success
+Evidence evidence: › a68564e2f31c→68a6d30130c5 1/1 visible · 10000bps | ee58e1c12906→a0e5747ba8a8 0/1 visible · -10000bps · invariants ok · For… | bbdf53f4b7a1→ee58e1c12906 1/1 visible · 0bps | ee58e1c12906→c4678479ea78 0/1 visible · -10000bps · invariants ok · For…
+Costs evidence: COSTS (7) · recorded total $0.000000
+Denials evidence: › request rejected status

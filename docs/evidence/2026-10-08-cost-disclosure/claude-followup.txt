@@ -1,0 +1,23 @@
+**Verdict: yes, the cited blockers are resolved in source. I found no new correctness bug in the code.** The remaining items are test gaps and doc nits. I couldn't verify the check logs: Glob and Grep on `/tmp` were denied, and I don't know the exact `/tmp/hephaestus-cost-disclosure-*-checks.log` filenames. So the typecheck, test and build results haven't been verified by me. Give me the exact paths and I'll read them.
+
+**Fixes, all confirmed:**
+- **Disclosure line:** the full disclosure now has a third line, "Totals may omit usage not reported by a provider." (`apps/hephaestus-tui/src/evidence.ts:6`). The browser screen (`app.ts:371`), the comparison card (`comparison.ts:37`) and the report (`comparison.ts:60`) all use it.
+- **Shared `formatMicroUsd`:** it uses `toFixed(6)` (`evidence.ts:13`). Both browser modules import it and no local copy is left. `comparison.test.tsx:76-85` covers `$0.000001`/`$0.000002` plus the new line on screen and in the export.
+- **Panel height:** the panel goes compact when `columns < 72 || height < 5`. The row budget is `height + (compact ? 2 : 0) - 1 - disclosure.length` (`evidence-view.tsx:26-28, 70-72`), so it never overflows:
+  - Full: 2 border + 1 title + 3 disclosure + `height-4` rows = `height+2`.
+  - Compact: 1 title + 1 disclosure + `height` rows = `height+2`.
+  - The smallest inner height `ui.tsx` can pass is 1 (`panelHeight` ≥ 3). That leaves one row, and `windowedGroups` anchors it on the selected data row rather than a header.
+  - I checked the boundaries. Terminal rows 20–22 give inner height 2–4 (compact); 23 gives 5 (full, 7 rows = `panelHeight`).
+- **Columns:** the parent passes the real `columns` (`ui.tsx:877,879`).
+- **Tests:** they cover 60×12 → inner height 1, ≤3 lines, ≤58 wide, the selected row and `$0.000001`. They also cover 80 columns at inner height 12, ≤14 lines and selection of item 29 of 30.
+- **Pack commands match the code:** the `hephaestusd` flags are `--data-dir`, `--source-repository` and `--evaluator-executable`. `scripts/install.sh:148` symlinks `hephaestus-reference-evaluator` into the same bin directory as `hephaestus`, so `$HEPH_BIN/...` resolves. The `RUNTIMES.md#live-runs-against-your-own-subscription` anchor exists.
+- **Cost example:** 24 tasks × 2 = 48, and 250000 µUSD × 48 = $12. The Codex caveat says recorded costs can't establish actual spending.
+- **Threat model:** `checks/checks.json` has 428 entries. `--baseline-timeout` and `--assert-min` are real flags in `checks/mutation_guard.py`, and the command matches the 2026-10-08 evidence README.
+
+**Remaining issues (minor):**
+1. **TUI test gap:** the 80-column test doesn't check the new third line. `evidence-screens.test.tsx:118-119` asserts only lines 1–2, so dropping "Totals may omit usage" would still pass the TUI suite. Add `assert.match(output, /Totals may omit usage/)`.
+2. **Old assertions use 4-decimal regexes:** `evidence-screens.test.tsx:78` (`/\$1\.5000/`) and `:106` (`/total \$1\.7500/`) still pass under 6 decimals, so they don't pin the format. Change them to `\$1\.500000` and `\$1\.750000`.
+3. **Pack workspace is in `mktemp -d` under `$TMPDIR`:** on macOS that's under `/var/folders`, which the system cleans periodically. The pack asks people to keep the World, Genomes and replay evidence, so the canonical data directory shouldn't live in a temp tree (`examples/support-triage/README.md:34`). Suggest a durable path such as `~/hephaestus-pilot`.
+4. **`git commit` in the setup snippet can fail** for users with `commit.gpgsign=true`. Adding `-c commit.gpgsign=false` would make it robust. This is low priority.
+
+**Not introduced, just for context:** `EvidencePanel` and `DenialsPanel` still draw border + title + `height` rows. That is one line more than their `panelHeight` slot, the same overrun Runs/Costs just fixed. It predates this change, so it isn't a blocker here.

@@ -66,7 +66,7 @@ Every critical control path must have positive, negative, and mutation tests. `d
 
 ## Verifying it yourself
 
-Tests that pass are not evidence; tests that *fail when they should* are. CI runs the suite, then applies **420 deliberate source mutations**, each one disabling a specific documented invariant (from "an oversized request is accepted" to "a Genome registered before its World is accepted"), and requires the suite to go red for every single one. A mutation that survives fails the build. The mutation jobs run only after the deterministic job passes; inspect the latest CI result before treating a commit as verified. The count can only go up.
+Tests that pass are not evidence; tests that *fail when they should* are. CI is configured to run the suite, then apply **428 deliberate source mutations**, each one disabling a specific documented invariant (from "an oversized request is accepted" to "a Genome registered before its World is accepted"), and requires the suite to go red for every single one. A mutation that survives fails the build. The mutation jobs run only after the deterministic job passes; inspect the latest CI result before treating a commit as verified. The count can only go up.
 
 Alongside that: a 92% per-module coverage floor on each of 51 production-critical modules (branch coverage where LCOV reports branches, line coverage otherwise), `clippy::pedantic` at deny, `unsafe` forbidden workspace-wide, and a docs gate (`checks/docs_gate.py`) that fails if any path this documentation mentions stops existing.
 
@@ -79,7 +79,7 @@ cargo test --workspace --all-features
 PYTHONPATH=python python3 -m unittest discover -s python/tests -v
 cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
 python3 checks/coverage_gate.py --manifest checks/checks.json --report lcov.info
-python3 checks/mutation_guard.py --manifest checks/checks.json --assert-min 343
+python3 checks/mutation_guard.py --manifest checks/checks.json --baseline-timeout 900 --assert-min 428
 python3 checks/docs_gate.py --root . --min-diagrams 1 README.md docs/ARCHITECTURE.md
 ```
 

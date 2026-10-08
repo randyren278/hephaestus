@@ -874,9 +874,9 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false, r
 				<Text bold {...colorProps(theme.color('judge'))}>EVIDENCE &amp; COSTS</Text>
 				{EVIDENCE_MENU.map((label, index) => <Text key={label} {...colorProps(theme.color(evidenceMenuIndex === index ? 'champion' : 'inkDim'), evidenceMenuIndex === index)}>{evidenceMenuIndex === index ? `${theme.glyphs.caret} ` : '  '}{label}</Text>)}
 			</Box>}
-			{view === 'runs' && <RunsPanel runs={runs} selected={runIndex} height={panelHeight - 2} />}
+			{view === 'runs' && <RunsPanel runs={runs} selected={runIndex} height={panelHeight - 2} columns={columns} />}
 			{view === 'evidence' && <EvidencePanel evaluations={evaluations} selected={evaluationIndex} height={panelHeight - 2} />}
-			{view === 'costs' && <CostsPanel costs={costs} selected={costIndex} height={panelHeight - 2} />}
+			{view === 'costs' && <CostsPanel costs={costs} selected={costIndex} height={panelHeight - 2} columns={columns} />}
 			{view === 'denials' && <DenialsPanel denials={denials} selected={denialIndex} height={panelHeight - 2} />}
 		</Box>}
 		{geneMode && <Box marginTop={compact ? 0 : 1} flexDirection="column">

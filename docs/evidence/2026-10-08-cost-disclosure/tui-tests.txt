@@ -1,0 +1,1161 @@
+
+> @hephaestus/operator-tui@0.1.0 test
+> tsx --test test/*.test.tsx
+
+TAP version 13
+# Subtest: slugify lowercases, collapses separators, and trims edges
+ok 1 - slugify lowercases, collapses separators, and trims edges
+  ---
+  duration_ms: 3.805542
+  type: 'test'
+  ...
+# Subtest: defaultAgentPath joins the workspace and a slugified World name with a .md extension
+ok 2 - defaultAgentPath joins the workspace and a slugified World name with a .md extension
+  ---
+  duration_ms: 0.176041
+  type: 'test'
+  ...
+# Subtest: expandPath resolves a leading tilde against the home directory and leaves other paths unchanged
+ok 3 - expandPath resolves a leading tilde against the home directory and leaves other paths unchanged
+  ---
+  duration_ms: 0.683125
+  type: 'test'
+  ...
+# Subtest: editorCommand prefers VISUAL, falls back to EDITOR, then vi
+ok 4 - editorCommand prefers VISUAL, falls back to EDITOR, then vi
+  ---
+  duration_ms: 1.20625
+  type: 'test'
+  ...
+# Subtest: ensureAgentSource creates the workspace directory and a starter template only when the file is missing
+ok 5 - ensureAgentSource creates the workspace directory and a starter template only when the file is missing
+  ---
+  duration_ms: 14.621083
+  type: 'test'
+  ...
+# Subtest: markdownAgentTemplate body is exactly the strict fenced reference instruction the deterministic runtime consumes (no surrounding prose)
+ok 6 - markdownAgentTemplate body is exactly the strict fenced reference instruction the deterministic runtime consumes (no surrounding prose)
+  ---
+  duration_ms: 0.148166
+  type: 'test'
+  ...
+# Subtest: ensureAgentSource refuses a relative path
+ok 7 - ensureAgentSource refuses a relative path
+  ---
+  duration_ms: 0.282542
+  type: 'test'
+  ...
+# hephaestus-editor: /definitely-missing-hephaestus-editor: No such file or directory
+# Subtest: launchEditor accepts flags and shell quoting while passing metacharacters in the path literally
+ok 8 - launchEditor accepts flags and shell quoting while passing metacharacters in the path literally
+  ---
+  duration_ms: 36.725833
+  type: 'test'
+  ...
+# Subtest: launchEditor reports nonzero status, a missing command and interruption as failures
+ok 9 - launchEditor reports nonzero status, a missing command and interruption as failures
+  ---
+  duration_ms: 39.89275
+  type: 'test'
+  ...
+# Subtest: drift and canary commands carry the exact fields the daemon requires
+ok 10 - drift and canary commands carry the exact fields the daemon requires
+  ---
+  duration_ms: 1.710458
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a drift record
+ok 11 - parseResponse accepts a drift record
+  ---
+  duration_ms: 0.729625
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a drift record with an unknown kind
+ok 12 - parseResponse rejects a drift record with an unknown kind
+  ---
+  duration_ms: 0.529542
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a drift record with a non-integer observed delta
+ok 13 - parseResponse rejects a drift record with a non-integer observed delta
+  ---
+  duration_ms: 0.139958
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a healthy canary advance transition
+ok 14 - parseResponse accepts a healthy canary advance transition
+  ---
+  duration_ms: 0.5355
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts an aborted canary transition with a reason and no evidence regression gap
+ok 15 - parseResponse accepts an aborted canary transition with a reason and no evidence regression gap
+  ---
+  duration_ms: 0.18625
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a canary transition with an unknown stage
+ok 16 - parseResponse rejects a canary transition with an unknown stage
+  ---
+  duration_ms: 0.107084
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a canary transition whose evidence is malformed
+ok 17 - parseResponse rejects a canary transition whose evidence is malformed
+  ---
+  duration_ms: 0.193958
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a canary projection with its transition history
+ok 18 - parseResponse accepts a canary projection with its transition history
+  ---
+  duration_ms: 0.6965
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a canary projection with a tampered transition list
+ok 19 - parseResponse rejects a canary projection with a tampered transition list
+  ---
+  duration_ms: 0.567375
+  type: 'test'
+  ...
+# Subtest: drift_list and canary_list commands carry the exact fields the daemon requires
+ok 20 - drift_list and canary_list commands carry the exact fields the daemon requires
+  ---
+  duration_ms: 0.095583
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a bounded, newest-first drift list
+ok 21 - parseResponse accepts a bounded, newest-first drift list
+  ---
+  duration_ms: 0.146334
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a drift list containing an invalid entry
+ok 22 - parseResponse rejects a drift list containing an invalid entry
+  ---
+  duration_ms: 0.093584
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a bounded, newest-first canary list
+ok 23 - parseResponse accepts a bounded, newest-first canary list
+  ---
+  duration_ms: 0.28025
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a canary list containing an invalid entry
+ok 24 - parseResponse rejects a canary list containing an invalid entry
+  ---
+  duration_ms: 0.410667
+  type: 'test'
+  ...
+# Subtest: rejects oversized and non-regular operator tokens before socket access
+ok 25 - rejects oversized and non-regular operator tokens before socket access
+  ---
+  duration_ms: 29.311375
+  type: 'test'
+  ...
+# Subtest: aborting an in-flight daemon request destroys its socket promptly
+ok 26 - aborting an in-flight daemon request destroys its socket promptly
+  ---
+  duration_ms: 28.415583
+  type: 'test'
+  ...
+# Subtest: DriftListPanel renders each drift record with its kind and observed delta
+ok 27 - DriftListPanel renders each drift record with its kind and observed delta
+  ---
+  duration_ms: 166.907167
+  type: 'test'
+  ...
+# Subtest: DriftListPanel reports no drift explicitly
+ok 28 - DriftListPanel reports no drift explicitly
+  ---
+  duration_ms: 4.07575
+  type: 'test'
+  ...
+# Subtest: DriftDetailPanel shows a loading state before the record resolves
+ok 29 - DriftDetailPanel shows a loading state before the record resolves
+  ---
+  duration_ms: 3.704542
+  type: 'test'
+  ...
+# Subtest: DriftDetailPanel renders baseline, shifted Genome, and threshold
+ok 30 - DriftDetailPanel renders baseline, shifted Genome, and threshold
+  ---
+  duration_ms: 3.515583
+  type: 'test'
+  ...
+# Subtest: CanaryListPanel renders each canary with its stage and transition count
+ok 31 - CanaryListPanel renders each canary with its stage and transition count
+  ---
+  duration_ms: 4.150375
+  type: 'test'
+  ...
+# Subtest: CanaryListPanel reports no canaries explicitly
+ok 32 - CanaryListPanel reports no canaries explicitly
+  ---
+  duration_ms: 1.610375
+  type: 'test'
+  ...
+# Subtest: CanaryDetailPanel shows a loading state before the projection resolves
+ok 33 - CanaryDetailPanel shows a loading state before the projection resolves
+  ---
+  duration_ms: 22.446959
+  type: 'test'
+  ...
+# Subtest: CanaryDetailPanel renders candidate, stage, and transition evidence health
+ok 34 - CanaryDetailPanel renders candidate, stage, and transition evidence health
+  ---
+  duration_ms: 59.146584
+  type: 'test'
+  ...
+# Subtest: formatMicroUsd and formatLatency render absent values as an em dash
+ok 35 - formatMicroUsd and formatLatency render absent values as an em dash
+  ---
+  duration_ms: 1.160625
+  type: 'test'
+  ...
+# Subtest: groupByWorld sorts Worlds deterministically with unassigned last and preserves item order within a group
+ok 36 - groupByWorld sorts Worlds deterministically with unassigned last and preserves item order within a group
+  ---
+  duration_ms: 1.525584
+  type: 'test'
+  ...
+# Subtest: windowedGroups keeps the selected data row inside the slice and headers are never selectable
+ok 37 - windowedGroups keeps the selected data row inside the slice and headers are never selectable
+  ---
+  duration_ms: 0.221333
+  type: 'test'
+  ...
+# Subtest: aggregateCosts sums run costs and paired-evaluation parent/candidate costs per World and Genome
+ok 38 - aggregateCosts sums run costs and paired-evaluation parent/candidate costs per World and Genome
+  ---
+  duration_ms: 0.225458
+  type: 'test'
+  ...
+# Subtest: aggregateCosts ignores runs with no verified cost
+ok 39 - aggregateCosts ignores runs with no verified cost
+  ---
+  duration_ms: 0.071458
+  type: 'test'
+  ...
+# Subtest: RunsPanel renders World-separated headers and the run state/cost/latency
+ok 40 - RunsPanel renders World-separated headers and the run state/cost/latency
+  ---
+  duration_ms: 259.799666
+  type: 'test'
+  ...
+# Subtest: EvidencePanel renders selection, invariant, and Forge summaries without sealed content
+ok 41 - EvidencePanel renders selection, invariant, and Forge summaries without sealed content
+  ---
+  duration_ms: 14.609542
+  type: 'test'
+  ...
+# Subtest: CostsPanel shows a grand total and per-Genome totals grouped by World
+ok 42 - CostsPanel shows a grand total and per-Genome totals grouped by World
+  ---
+  duration_ms: 38.336333
+  type: 'test'
+  ...
+# Subtest: cost disclosure preserves the selected row and panel height at 80 columns
+ok 43 - cost disclosure preserves the selected row and panel height at 80 columns
+  ---
+  duration_ms: 46.683
+  type: 'test'
+  ...
+# Subtest: compact cost panels retain disclosure and selection in a 60 by 12 terminal slot
+ok 44 - compact cost panels retain disclosure and selection in a 60 by 12 terminal slot
+  ---
+  duration_ms: 12.16475
+  type: 'test'
+  ...
+# Subtest: DenialsPanel renders kind, command, and scope for both denial kinds
+ok 45 - DenialsPanel renders kind, command, and scope for both denial kinds
+  ---
+  duration_ms: 3.354709
+  type: 'test'
+  ...
+# Subtest: run_list parses a bounded list of run entries newest-first
+ok 46 - run_list parses a bounded list of run entries newest-first
+  ---
+  duration_ms: 1.579708
+  type: 'test'
+  ...
+# Subtest: run_list rejects an unknown state or completion reason
+ok 47 - run_list rejects an unknown state or completion reason
+  ---
+  duration_ms: 0.450042
+  type: 'test'
+  ...
+# Subtest: run_list rejects more than 200 entries
+ok 48 - run_list rejects more than 200 entries
+  ---
+  duration_ms: 0.288875
+  type: 'test'
+  ...
+# Subtest: evaluation_list accepts visible aggregates plus optional selection, invariant, and Forge evidence
+ok 49 - evaluation_list accepts visible aggregates plus optional selection, invariant, and Forge evidence
+  ---
+  duration_ms: 0.600917
+  type: 'test'
+  ...
+# Subtest: evaluation_list allows evidence fields to be absent but never sealed or raw content
+ok 50 - evaluation_list allows evidence fields to be absent but never sealed or raw content
+  ---
+  duration_ms: 0.203917
+  type: 'test'
+  ...
+# Subtest: evaluation_list rejects an unrecognized Forge outcome
+ok 51 - evaluation_list rejects an unrecognized Forge outcome
+  ---
+  duration_ms: 0.084042
+  type: 'test'
+  ...
+# Subtest: denial_list accepts request-rejected and runtime-capability-denied entries newest-first
+ok 52 - denial_list accepts request-rejected and runtime-capability-denied entries newest-first
+  ---
+  duration_ms: 0.103333
+  type: 'test'
+  ...
+# Subtest: denial_list rejects an unknown kind and an oversized entry count
+ok 53 - denial_list rejects an unknown kind and an oversized entry count
+  ---
+  duration_ms: 1.156
+  type: 'test'
+  ...
+# Subtest: evolve commands carry the exact fields the daemon requires
+ok 54 - evolve commands carry the exact fields the daemon requires
+  ---
+  duration_ms: 1.199625
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a running evolution projection with one recorded generation
+ok 55 - parseResponse accepts a running evolution projection with one recorded generation
+  ---
+  duration_ms: 1.995792
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a finished evolution projection with a finish reason
+ok 56 - parseResponse accepts a finished evolution projection with a finish reason
+  ---
+  duration_ms: 0.225166
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects an evolution run with an unknown state
+ok 57 - parseResponse rejects an evolution run with an unknown state
+  ---
+  duration_ms: 0.385792
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects an evolution run with an unknown finish reason
+ok 58 - parseResponse rejects an evolution run with an unknown finish reason
+  ---
+  duration_ms: 0.135917
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a generation entry missing required payload fields
+ok 59 - parseResponse rejects a generation entry missing required payload fields
+  ---
+  duration_ms: 0.297458
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a generation whose promoted field is not boolean
+ok 60 - parseResponse rejects a generation whose promoted field is not boolean
+  ---
+  duration_ms: 0.535042
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects an evolution run reported with a negative trial count
+ok 61 - parseResponse rejects an evolution run reported with a negative trial count
+  ---
+  duration_ms: 1.72325
+  type: 'test'
+  ...
+# Subtest: gene commands carry the exact fields the daemon requires
+ok 62 - gene commands carry the exact fields the daemon requires
+  ---
+  duration_ms: 1.508416
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts one extracted Gene
+ok 63 - parseResponse accepts one extracted Gene
+  ---
+  duration_ms: 0.734292
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a Gene payload missing required fields
+ok 64 - parseResponse rejects a Gene payload missing required fields
+  ---
+  duration_ms: 0.654833
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts an unrecorded transfer trial with null recorded fields
+ok 65 - parseResponse accepts an unrecorded transfer trial with null recorded fields
+  ---
+  duration_ms: 0.402459
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a recorded transfer trial and its measured outcome
+ok 66 - parseResponse accepts a recorded transfer trial and its measured outcome
+  ---
+  duration_ms: 0.580708
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects negative transfer with an unknown outcome enum value
+ok 67 - parseResponse rejects negative transfer with an unknown outcome enum value
+  ---
+  duration_ms: 0.42925
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a negative transfer outcome; negative transfer is never dropped
+ok 68 - parseResponse accepts a negative transfer outcome; negative transfer is never dropped
+  ---
+  duration_ms: 0.685
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a species record admitted from persistent domain advantage
+ok 69 - parseResponse accepts a species record admitted from persistent domain advantage
+  ---
+  duration_ms: 1.005667
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a full Gene aggregate with a contradiction and a species
+ok 70 - parseResponse accepts a full Gene aggregate with a contradiction and a species
+  ---
+  duration_ms: 2.446917
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a Gene aggregate with no contradiction recorded
+ok 71 - parseResponse accepts a Gene aggregate with no contradiction recorded
+  ---
+  duration_ms: 5.749625
+  type: 'test'
+  ...
+# Subtest: parseResponse accepts a Gene list with aggregate transfer counts
+ok 72 - parseResponse accepts a Gene list with aggregate transfer counts
+  ---
+  duration_ms: 0.828583
+  type: 'test'
+  ...
+# Subtest: parseResponse rejects a Gene list entry with a non-boolean contradiction flag
+ok 73 - parseResponse rejects a Gene list entry with a non-boolean contradiction flag
+  ---
+  duration_ms: 0.17925
+  type: 'test'
+  ...
+# Subtest: GeneListPanel renders each Gene with its transfer tally and flags contradictions
+ok 74 - GeneListPanel renders each Gene with its transfer tally and flags contradictions
+  ---
+  duration_ms: 203.206792
+  type: 'test'
+  ...
+# Subtest: GeneListPanel reports an empty Gene Bank explicitly
+ok 75 - GeneListPanel reports an empty Gene Bank explicitly
+  ---
+  duration_ms: 4.926209
+  type: 'test'
+  ...
+# Subtest: GeneDetailPanel shows a loading state before the aggregate resolves
+ok 76 - GeneDetailPanel shows a loading state before the aggregate resolves
+  ---
+  duration_ms: 8.347792
+  type: 'test'
+  ...
+# Subtest: GeneDetailPanel renders origin, transfer trials, contradiction, and speciation
+ok 77 - GeneDetailPanel renders origin, transfer trials, contradiction, and speciation
+  ---
+  duration_ms: 42.895042
+  type: 'test'
+  ...
+# Subtest: lineage rows draw each World Genome once under its first registered parent
+ok 78 - lineage rows draw each World Genome once under its first registered parent
+  ---
+  duration_ms: 3.728334
+  type: 'test'
+  ...
+# Subtest: lineage keeps Genomes whose parents are outside the World as roots
+ok 79 - lineage keeps Genomes whose parents are outside the World as roots
+  ---
+  duration_ms: 0.941208
+  type: 'test'
+  ...
+# Subtest: line diff reports removed and added lines around shared context
+ok 80 - line diff reports removed and added lines around shared context
+  ---
+  duration_ms: 0.61875
+  type: 'test'
+  ...
+# Subtest: windowing keeps the selection visible
+ok 81 - windowing keeps the selection visible
+  ---
+  duration_ms: 0.369042
+  type: 'test'
+  ...
+# Subtest: lineage panels render roles, prompt diffs, and unavailable prompts
+ok 82 - lineage panels render roles, prompt diffs, and unavailable prompts
+  ---
+  duration_ms: 394.3245
+  type: 'test'
+  ...
+# Subtest: lineage responses are parsed strictly
+ok 83 - lineage responses are parsed strictly
+  ---
+  duration_ms: 15.44925
+  type: 'test'
+  ...
+# Subtest: MetaStrategyListPanel renders each strategy with its prioritization and generation count
+ok 84 - MetaStrategyListPanel renders each strategy with its prioritization and generation count
+  ---
+  duration_ms: 258.455208
+  type: 'test'
+  ...
+# Subtest: MetaStrategyListPanel reports no strategies explicitly
+ok 85 - MetaStrategyListPanel reports no strategies explicitly
+  ---
+  duration_ms: 47.778875
+  type: 'test'
+  ...
+# Subtest: MetaStrategyDetailPanel shows a loading state before the strategy resolves
+ok 86 - MetaStrategyDetailPanel shows a loading state before the strategy resolves
+  ---
+  duration_ms: 35.108375
+  type: 'test'
+  ...
+# Subtest: MetaStrategyDetailPanel renders every EvolverStrategyConfig field
+ok 87 - MetaStrategyDetailPanel renders every EvolverStrategyConfig field
+  ---
+  duration_ms: 7.008875
+  type: 'test'
+  ...
+# Subtest: MetaEvaluationListPanel renders each receipt with its strategies and lineage count
+ok 88 - MetaEvaluationListPanel renders each receipt with its strategies and lineage count
+  ---
+  duration_ms: 18.856875
+  type: 'test'
+  ...
+# Subtest: MetaEvaluationListPanel reports no meta-evaluations explicitly
+ok 89 - MetaEvaluationListPanel reports no meta-evaluations explicitly
+  ---
+  duration_ms: 3.765417
+  type: 'test'
+  ...
+# Subtest: MetaEvaluationDetailPanel shows a loading state before the receipt resolves
+ok 90 - MetaEvaluationDetailPanel shows a loading state before the receipt resolves
+  ---
+  duration_ms: 1.899708
+  type: 'test'
+  ...
+# Subtest: MetaEvaluationDetailPanel renders the bootstrap quality and cost intervals and per-lineage promotions
+ok 91 - MetaEvaluationDetailPanel renders the bootstrap quality and cost intervals and per-lineage promotions
+  ---
+  duration_ms: 28.7965
+  type: 'test'
+  ...
+# Subtest: TorchFlicker cycles glyph and color deterministically across fixed frames
+ok 92 - TorchFlicker cycles glyph and color deterministically across fixed frames
+  ---
+  duration_ms: 241.700125
+  type: 'test'
+  ...
+# Subtest: Typewriter reveals text progressively at a fixed frame and holds once fully revealed
+ok 93 - Typewriter reveals text progressively at a fixed frame and holds once fully revealed
+  ---
+  duration_ms: 8.878875
+  type: 'test'
+  ...
+# Subtest: Typewriter renders the full text immediately when animate is false
+ok 94 - Typewriter renders the full text immediately when animate is false
+  ---
+  duration_ms: 1.610417
+  type: 'test'
+  ...
+# Subtest: Typewriter renders the full text immediately off a TTY with no frame given (the App default)
+ok 95 - Typewriter renders the full text immediately off a TTY with no frame given (the App default)
+  ---
+  duration_ms: 41.712084
+  type: 'test'
+  ...
+# Subtest: ProgressBar fills the ratio it is given and never exceeds width regardless of frame
+ok 96 - ProgressBar fills the ratio it is given and never exceeds width regardless of frame
+  ---
+  duration_ms: 41.687542
+  type: 'test'
+  ...
+# Subtest: CrestClash renders a deterministic idle frame including its spark frame
+ok 97 - CrestClash renders a deterministic idle frame including its spark frame
+  ---
+  duration_ms: 4.118583
+  type: 'test'
+  ...
+# Subtest: CelebrationBurst renders nothing when inactive, something while active, and stops after its frame budget while live
+ok 98 - CelebrationBurst renders nothing when inactive, something while active, and stops after its frame budget while live
+  ---
+  duration_ms: 1.502667
+  type: 'test'
+  ...
+# Subtest: CelebrationBurst holds its resting frame when not live (no timer, no crash)
+ok 99 - CelebrationBurst holds its resting frame when not live (no timer, no crash)
+  ---
+  duration_ms: 0.8935
+  type: 'test'
+  ...
+# Subtest: DangerFlash settles on the danger color once its flash frame budget passes
+ok 100 - DangerFlash settles on the danger color once its flash frame budget passes
+  ---
+  duration_ms: 11.838375
+  type: 'test'
+  ...
+# Subtest: GeneHelix alternates its two strand glyphs deterministically
+ok 101 - GeneHelix alternates its two strand glyphs deterministically
+  ---
+  duration_ms: 76.016042
+  type: 'test'
+  ...
+# Subtest: Spinner cycles through its braille frames deterministically
+ok 102 - Spinner cycles through its braille frames deterministically
+  ---
+  duration_ms: 12.273959
+  type: 'test'
+  ...
+# Subtest: useFrame never starts a timer for a fixed frame or animate=false, and reports live=false when disabled
+ok 103 - useFrame never starts a timer for a fixed frame or animate=false, and reports live=false when disabled
+  ---
+  duration_ms: 3.332459
+  type: 'test'
+  ...
+# Subtest: useFrame ticks forward over real time when explicitly animated, and its ticker stops on unmount
+ok 104 - useFrame ticks forward over real time when explicitly animated, and its ticker stops on unmount
+  ---
+  duration_ms: 286.520791
+  type: 'test'
+  ...
+# Subtest: client authenticates over the owner-only Unix socket without displaying its token
+ok 105 - client authenticates over the owner-only Unix socket without displaying its token
+  ---
+  duration_ms: 458.817667
+  type: 'test'
+  ...
+# Subtest: client refuses unsafe token permissions and oversized frames
+ok 106 - client refuses unsafe token permissions and oversized frames
+  ---
+  duration_ms: 20.579792
+  type: 'test'
+  ...
+# Subtest: terminal text strips control characters and the interface renders a safe compact frame
+ok 107 - terminal text strips control characters and the interface renders a safe compact frame
+  ---
+  duration_ms: 90.692792
+  type: 'test'
+  ...
+# Subtest: job projections accept full-width u64 seeds without displaying them
+ok 108 - job projections accept full-width u64 seeds without displaying them
+  ---
+  duration_ms: 0.242333
+  type: 'test'
+  ...
+# Subtest: Arena job progress accepts authoritative trial and visible-score projections only
+ok 109 - Arena job progress accepts authoritative trial and visible-score projections only
+  ---
+  duration_ms: 45.655958
+  type: 'test'
+  ...
+# Subtest: terminal Arena progress renders visible aggregate receipt fields without sealed metrics
+ok 110 - terminal Arena progress renders visible aggregate receipt fields without sealed metrics
+  ---
+  duration_ms: 4.953667
+  type: 'test'
+  ...
+# Subtest: Arena progress shows an explicit stale state when the daemon is unavailable
+ok 111 - Arena progress shows an explicit stale state when the daemon is unavailable
+  ---
+  duration_ms: 3.930125
+  type: 'test'
+  ...
+# Subtest: execution profiles keep precise decimal limits and reject malformed settings
+ok 112 - execution profiles keep precise decimal limits and reject malformed settings
+  ---
+  duration_ms: 13.599834
+  type: 'test'
+  ...
+# Subtest: selection, revision and assessment responses retain their exact event hash chains
+ok 113 - selection, revision and assessment responses retain their exact event hash chains
+  ---
+  duration_ms: 3.643084
+  type: 'test'
+  ...
+# Subtest: explicit rejection markers are preserved only on the compatible invalid_request category
+ok 114 - explicit rejection markers are preserved only on the compatible invalid_request category
+  ---
+  duration_ms: 0.30975
+  type: 'test'
+  ...
+# Subtest: comparison confirmation keeps full model and limits visible and separates reported billing
+ok 115 - comparison confirmation keeps full model and limits visible and separates reported billing
+  ---
+  duration_ms: 101.209
+  type: 'test'
+  ...
+# Subtest: a revision gets stable reserved-prefix-free IDs and private exact UTF-8 source copies
+ok 116 - a revision gets stable reserved-prefix-free IDs and private exact UTF-8 source copies
+  ---
+  duration_ms: 125.74
+  type: 'test'
+  ...
+# Subtest: review preserves BOM, CRLF, Unicode and trailing spaces and fixes editor replacement permissions
+ok 117 - review preserves BOM, CRLF, Unicode and trailing spaces and fixes editor replacement permissions
+  ---
+  duration_ms: 44.138833
+  type: 'test'
+  ...
+# Subtest: a reviewed snapshot is private, retryable across restart and independent of later draft edits
+ok 118 - a reviewed snapshot is private, retryable across restart and independent of later draft edits
+  ---
+  duration_ms: 204.197
+  type: 'test'
+  ...
+# Subtest: snapshot refuses a draft changed since review and detects later snapshot tampering
+ok 119 - snapshot refuses a draft changed since review and detects later snapshot tampering
+  ---
+  duration_ms: 151.504583
+  type: 'test'
+  ...
+# Subtest: invalid prompt bodies reject without recording, and the exact maximum size is accepted
+ok 120 - invalid prompt bodies reject without recording, and the exact maximum size is accepted
+  ---
+  duration_ms: 80.322458
+  type: 'test'
+  ...
+# Subtest: workspace and files reject symlinks, and reads verify the original prompt digest
+ok 121 - workspace and files reject symlinks, and reads verify the original prompt digest
+  ---
+  duration_ms: 74.922125
+  type: 'test'
+  ...
+# Subtest: unsafe directories, traversing IDs and malformed recovery cursors reject
+ok 122 - unsafe directories, traversing IDs and malformed recovery cursors reject
+  ---
+  duration_ms: 58.038333
+  type: 'test'
+  ...
+# Subtest: review calls out whitespace-only changes without normalizing the recorded bytes
+ok 123 - review calls out whitespace-only changes without normalizing the recorded bytes
+  ---
+  duration_ms: 49.743917
+  type: 'test'
+  ...
+# Subtest: corrupt cursors and foreign JSON files do not hide healthy recoveries, which list newest first
+ok 124 - corrupt cursors and foreign JSON files do not hide healthy recoveries, which list newest first
+  ---
+  duration_ms: 151.678083
+  type: 'test'
+  ...
+# Subtest: stale and concurrent cursor updates cannot overwrite saved IDs or bindings
+ok 125 - stale and concurrent cursor updates cannot overwrite saved IDs or bindings
+  ---
+  duration_ms: 93.333791
+  type: 'test'
+  ...
+# Subtest: phases require their bindings and prevent losing comparison IDs or rolling back a recorded snapshot
+ok 126 - phases require their bindings and prevent losing comparison IDs or rolling back a recorded snapshot
+  ---
+  duration_ms: 187.323083
+  type: 'test'
+  ...
+# Subtest: hard-linked drafts, FIFOs and symlinked retry snapshots reject without changing other files
+ok 127 - hard-linked drafts, FIFOs and symlinked retry snapshots reject without changing other files
+  ---
+  duration_ms: 253.420166
+  type: 'test'
+  ...
+# Subtest: a revision permits 100 distinct attempts and then reports the exact limit
+ok 128 - a revision permits 100 distinct attempts and then reports the exact limit
+  ---
+  duration_ms: 3764.558417
+  type: 'test'
+  ...
+# Subtest: leftover unpublished snapshots do not lock a draft to bytes that were never sent
+ok 129 - leftover unpublished snapshots do not lock a draft to bytes that were never sent
+  ---
+  duration_ms: 60.937834
+  type: 'test'
+  ...
+# Subtest: definite rejections have explicit recovery states and controls in source IDs reject
+ok 130 - definite rejections have explicit recovery states and controls in source IDs reject
+  ---
+  duration_ms: 138.996834
+  type: 'test'
+  ...
+# Subtest: an unpublished matching snapshot resumes while a corrupt copy refuses to overwrite
+ok 131 - an unpublished matching snapshot resumes while a corrupt copy refuses to overwrite
+  ---
+  duration_ms: 47.530833
+  type: 'test'
+  ...
+# Subtest: failed or interrupted running comparisons preserve their IDs and can retry without assessment
+ok 132 - failed or interrupted running comparisons preserve their IDs and can retry without assessment
+  ---
+  duration_ms: 103.512042
+  type: 'test'
+  ...
+# Subtest: explicit record, comparison and metrics assessment preserve exact bytes and never promote
+ok 133 - explicit record, comparison and metrics assessment preserve exact bytes and never promote
+  ---
+  duration_ms: 355.464625
+  type: 'test'
+  ...
+# Subtest: lost record response reconciles after restart without another proposal or changed draft bytes
+ok 134 - lost record response reconciles after restart without another proposal or changed draft bytes
+  ---
+  duration_ms: 128.027125
+  type: 'test'
+  ...
+# Subtest: lost comparison response preserves the pending ID and reconciles without another launch
+ok 135 - lost comparison response preserves the pending ID and reconciles without another launch
+  ---
+  duration_ms: 181.095625
+  type: 'test'
+  ...
+# Subtest: an unadmitted comparison retries the same ID and a terminal failure starts a fresh attempt
+ok 136 - an unadmitted comparison retries the same ID and a terminal failure starts a fresh attempt
+  ---
+  duration_ms: 258.764208
+  type: 'test'
+  ...
+# Subtest: lost assessment response retries the same assessment and selection binding after restart
+ok 137 - lost assessment response retries the same assessment and selection binding after restart
+  ---
+  duration_ms: 360.386834
+  type: 'test'
+  ...
+# Subtest: freeze and busy failures retain a retryable snapshot and do not imply recording succeeded
+ok 138 - freeze and busy failures retain a retryable snapshot and do not imply recording succeeded
+  ---
+  duration_ms: 264.608542
+  type: 'test'
+  ...
+# Subtest: a double record action cannot publish or submit two proposals
+ok 139 - a double record action cannot publish or submit two proposals
+  ---
+  duration_ms: 181.540417
+  type: 'test'
+  ...
+# Subtest: changed execution limits require a fresh confirmation before allocating an attempt ID
+ok 140 - changed execution limits require a fresh confirmation before allocating an attempt ID
+  ---
+  duration_ms: 143.957875
+  type: 'test'
+  ...
+# Subtest: registered child metadata alone cannot replace a missing canonical Forge proposal
+ok 141 - registered child metadata alone cannot replace a missing canonical Forge proposal
+  ---
+  duration_ms: 93.661833
+  type: 'test'
+  ...
+# Subtest: canonical revision recovery rejects changed prompt evidence
+ok 142 - canonical revision recovery rejects changed prompt evidence
+  ---
+  duration_ms: 97.644209
+  type: 'test'
+  ...
+# Subtest: canonical revision recovery rejects changed family evidence
+ok 143 - canonical revision recovery rejects changed family evidence
+  ---
+  duration_ms: 91.010208
+  type: 'test'
+  ...
+# Subtest: canonical revision recovery rejects changed network evidence
+ok 144 - canonical revision recovery rejects changed network evidence
+  ---
+  duration_ms: 93.850958
+  type: 'test'
+  ...
+# Subtest: canonical revision recovery rejects changed artifact evidence
+ok 145 - canonical revision recovery rejects changed artifact evidence
+  ---
+  duration_ms: 95.942958
+  type: 'test'
+  ...
+# Subtest: canonical revision recovery rejects changed source evidence
+ok 146 - canonical revision recovery rejects changed source evidence
+  ---
+  duration_ms: 96.192666
+  type: 'test'
+  ...
+# Subtest: comparison pair substitution and successful jobs without receipts fail closed
+ok 147 - comparison pair substitution and successful jobs without receipts fail closed
+  ---
+  duration_ms: 123.889791
+  type: 'test'
+  ...
+# Subtest: assessment outcome must match verified metrics and cancellation waits for a terminal job
+ok 148 - assessment outcome must match verified metrics and cancellation waits for a terminal job
+  ---
+  duration_ms: 221.200334
+  type: 'test'
+  ...
+# Subtest: an explicit admission refusal retains the draft without treating a temporary freeze as permanent
+ok 149 - an explicit admission refusal retains the draft without treating a temporary freeze as permanent
+  ---
+  duration_ms: 110.764584
+  type: 'test'
+  ...
+# Subtest: progress polling reads only the bound job and never replays the proposal or locks cancellation behind it
+ok 150 - progress polling reads only the bound job and never replays the proposal or locks cancellation behind it
+  ---
+  duration_ms: 152.771958
+  type: 'test'
+  ...
+# Subtest: successful comparisons cannot be rerun and invalidated background polls do not publish a phase
+ok 151 - successful comparisons cannot be rerun and invalidated background polls do not publish a phase
+  ---
+  duration_ms: 161.520666
+  type: 'test'
+  ...
+# Subtest: missing nested prompt evidence cannot make an existing proposal appear absent
+ok 152 - missing nested prompt evidence cannot make an existing proposal appear absent
+  ---
+  duration_ms: 100.021792
+  type: 'test'
+  ...
+# Subtest: a selection refusal before assessment leaves the successful comparison available for a later assessment
+ok 153 - a selection refusal before assessment leaves the successful comparison available for a later assessment
+  ---
+  duration_ms: 208.3545
+  type: 'test'
+  ...
+# Subtest: a stale cancel confirmation cannot cancel a newer attempt started by another console
+ok 154 - a stale cancel confirmation cannot cancel a newer attempt started by another console
+  ---
+  duration_ms: 229.167
+  type: 'test'
+  ...
+# Subtest: polling cannot replace the attempt displayed in a cancellation confirmation
+ok 155 - polling cannot replace the attempt displayed in a cancellation confirmation
+  ---
+  duration_ms: 233.537209
+  type: 'test'
+  ...
+# Subtest: resolveColorLevel reports truecolor when COLORTERM says so on a TTY
+ok 156 - resolveColorLevel reports truecolor when COLORTERM says so on a TTY
+  ---
+  duration_ms: 0.737916
+  type: 'test'
+  ...
+# Subtest: resolveColorLevel falls back to the 16-color basic level on a plain TTY
+ok 157 - resolveColorLevel falls back to the 16-color basic level on a plain TTY
+  ---
+  duration_ms: 0.539708
+  type: 'test'
+  ...
+# Subtest: resolveColorLevel treats an unset or dumb TERM as no color, even on a TTY
+ok 158 - resolveColorLevel treats an unset or dumb TERM as no color, even on a TTY
+  ---
+  duration_ms: 0.143416
+  type: 'test'
+  ...
+# Subtest: resolveColorLevel honors NO_COLOR over everything else
+ok 159 - resolveColorLevel honors NO_COLOR over everything else
+  ---
+  duration_ms: 0.075875
+  type: 'test'
+  ...
+# Subtest: resolveColorLevel lets an explicit FORCE_COLOR override NO_COLOR
+ok 160 - resolveColorLevel lets an explicit FORCE_COLOR override NO_COLOR
+  ---
+  duration_ms: 0.979083
+  type: 'test'
+  ...
+# Subtest: resolveColorLevel degrades to plain text when the process is not attached to a TTY
+ok 161 - resolveColorLevel degrades to plain text when the process is not attached to a TTY
+  ---
+  duration_ms: 0.575458
+  type: 'test'
+  ...
+# Subtest: colorFor resolves hero hex values at truecolor and the 16-color fallback at basic, and nothing at none
+ok 162 - colorFor resolves hero hex values at truecolor and the 16-color fallback at basic, and nothing at none
+  ---
+  duration_ms: 0.395
+  type: 'test'
+  ...
+# Subtest: buildTheme reports enabled=false only at level none, and exposes the shared glyphs
+ok 163 - buildTheme reports enabled=false only at level none, and exposes the shared glyphs
+  ---
+  duration_ms: 0.119208
+  type: 'test'
+  ...
+# Subtest: useTheme wires resolveColorLevel and colorFor together for a component
+ok 164 - useTheme wires resolveColorLevel and colorFor together for a component
+  ---
+  duration_ms: 26.647375
+  type: 'test'
+  ...
+# Subtest: useTheme renders plain text (no crash, no color) when NO_COLOR is set
+ok 165 - useTheme renders plain text (no crash, no color) when NO_COLOR is set
+  ---
+  duration_ms: 3.810833
+  type: 'test'
+  ...
+# Subtest: stepProgressLabel and progressBar report bounded, monotonic progress
+ok 166 - stepProgressLabel and progressBar report bounded, monotonic progress
+  ---
+  duration_ms: 1.153792
+  type: 'test'
+  ...
+# Subtest: controlsLine always names Next, Back, Skip, and Quit
+ok 167 - controlsLine always names Next, Back, Skip, and Quit
+  ---
+  duration_ms: 0.176583
+  type: 'test'
+  ...
+# Subtest: introTorchGlyph cycles deterministically and never throws on negative frames
+ok 168 - introTorchGlyph cycles deterministically and never throws on negative frames
+  ---
+  duration_ms: 0.082709
+  type: 'test'
+  ...
+# Subtest: arenaLights lights exactly the completed trials, clamped to total
+ok 169 - arenaLights lights exactly the completed trials, clamped to total
+  ---
+  duration_ms: 0.08125
+  type: 'test'
+  ...
+# Subtest: celebrationBanner and replaySeal state the honest outcome plainly
+ok 170 - celebrationBanner and replaySeal state the honest outcome plainly
+  ---
+  duration_ms: 0.085125
+  type: 'test'
+  ...
+# Subtest: renderWorldTemplate and renderCandidateTemplate substitute every placeholder
+ok 171 - renderWorldTemplate and renderCandidateTemplate substitute every placeholder
+  ---
+  duration_ms: 0.082916
+  type: 'test'
+  ...
+# Subtest: the first-run marker reads as incomplete until the tour writes it
+ok 172 - the first-run marker reads as incomplete until the tour writes it
+  ---
+  duration_ms: 16.736458
+  type: 'test'
+  ...
+# Subtest: a malformed marker file reads as incomplete rather than throwing
+ok 173 - a malformed marker file reads as incomplete rather than throwing
+  ---
+  duration_ms: 5.12575
+  type: 'test'
+  ...
+# Subtest: quickstartFixtureAvailable is false until every fixture file exists
+ok 174 - quickstartFixtureAvailable is false until every fixture file exists
+  ---
+  duration_ms: 52.990041
+  type: 'test'
+  ...
+# Subtest: applyTourInput advances, retreats, and clamps at both ends
+ok 175 - applyTourInput advances, retreats, and clamps at both ends
+  ---
+  duration_ms: 1.801833
+  type: 'test'
+  ...
+# Subtest: applyTourInput reports skip, quit, and retry without moving the step
+ok 176 - applyTourInput reports skip, quit, and retry without moving the step
+  ---
+  duration_ms: 0.302208
+  type: 'test'
+  ...
+# Subtest: registerLineage does not adopt an unrelated registered World when its fixture is missing
+ok 177 - registerLineage does not adopt an unrelated registered World when its fixture is missing
+  ---
+  duration_ms: 0.337167
+  type: 'test'
+  ...
+# Subtest: registerLineage explains plainly when no bundled fixture exists yet
+ok 178 - registerLineage explains plainly when no bundled fixture exists yet
+  ---
+  duration_ms: 7.450625
+  type: 'test'
+  ...
+# Subtest: registerLineage registers a fresh World and both Genomes from the bundled fixture
+ok 179 - registerLineage registers a fresh World and both Genomes from the bundled fixture
+  ---
+  duration_ms: 58.472791
+  type: 'test'
+  ...
+# Subtest: unfreezeAndRun says so plainly when the run is refused (no OS sandbox)
+ok 180 - unfreezeAndRun says so plainly when the run is refused (no OS sandbox)
+  ---
+  duration_ms: 1.518208
+  type: 'test'
+  ...
+# Subtest: unfreezeAndRun reports a successful terminal run
+ok 181 - unfreezeAndRun reports a successful terminal run
+  ---
+  duration_ms: 0.232042
+  type: 'test'
+  ...
+# Subtest: measureInArena surfaces the visible score, eligibility, and CI from a scripted evaluation
+ok 182 - measureInArena surfaces the visible score, eligibility, and CI from a scripted evaluation
+  ---
+  duration_ms: 0.492791
+  type: 'test'
+  ...
+# Subtest: tour run IDs distinguish full canonical identities and remain stable on retries
+ok 183 - tour run IDs distinguish full canonical identities and remain stable on retries
+  ---
+  duration_ms: 0.214792
+  type: 'test'
+  ...
+# Subtest: tour comparison IDs distinguish both directed roles and remain stable on retries
+ok 184 - tour comparison IDs distinguish both directed roles and remain stable on retries
+  ---
+  duration_ms: 0.306541
+  type: 'test'
+  ...
+# Subtest: the tour retains measured scores but reports a retryable selection refusal
+ok 185 - the tour retains measured scores but reports a retryable selection refusal
+  ---
+  duration_ms: 0.238083
+  type: 'test'
+  ...
+# Subtest: the tour refuses substituted comparison evidence before requesting a selection
+ok 186 - the tour refuses substituted comparison evidence before requesting a selection
+  ---
+  duration_ms: 0.104708
+  type: 'test'
+  ...
+# Subtest: proveReplay seals a matching replay and flags a divergent one
+ok 187 - proveReplay seals a matching replay and flags a divergent one
+  ---
+  duration_ms: 0.184291
+  type: 'test'
+  ...
+# Subtest: TourScreen renders the welcome step with progress, why, and controls
+ok 188 - TourScreen renders the welcome step with progress, why, and controls
+  ---
+  duration_ms: 56.758875
+  type: 'test'
+  ...
+# Subtest: TourScreen can jump straight to the Done step, fully progressed
+ok 189 - TourScreen can jump straight to the Done step, fully progressed
+  ---
+  duration_ms: 5.553208
+  type: 'test'
+  ...
+# Subtest: TourScreen renders every step of the tour with its progress label, title, and controls
+ok 190 - TourScreen renders every step of the tour with its progress label, title, and controls
+  ---
+  duration_ms: 35.600375
+  type: 'test'
+  ...
+# Subtest: the home menu (including Evidence & Costs and Author Markdown agent) fits an 80x24 terminal without overlap
+ok 191 - the home menu (including Evidence & Costs and Author Markdown agent) fits an 80x24 terminal without overlap
+  ---
+  duration_ms: 99.758209
+  type: 'test'
+  ...
+1..191
+# tests 191
+# suites 0
+# pass 191
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8732.549125

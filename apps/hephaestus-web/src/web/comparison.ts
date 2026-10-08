@@ -1,4 +1,5 @@
 import type {EvaluationListEntry} from '../../../hephaestus-tui/src/protocol.js';
+import {COST_DISCLOSURE, formatMicroUsd} from '../../../hephaestus-tui/src/evidence.js';
 
 export function escapeHtml(value: string): string {
 	return value.replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[char]!);
@@ -14,7 +15,6 @@ export function comparisonVerdict(entry: EvaluationListEntry): {label: string; e
 	return {label: 'Evidence gates passed', explanation: 'Measured, invariant and Forge checks passed. Champion changes remain a separate policy-gated decision; check the World’s transition history.', tone: 'passed'};
 }
 
-function money(value: number): string { return `$${(value / 1_000_000).toFixed(6)}`; }
 function percentagePoints(value: number): string { return `${value > 0 ? '+' : ''}${(value / 100).toFixed(2)} pp`; }
 
 export function renderComparison(entry: EvaluationListEntry): string {
@@ -30,10 +30,11 @@ export function renderComparison(entry: EvaluationListEntry): string {
       <thead><tr><th scope="col">Measure</th><th scope="col">Parent</th><th scope="col">Candidate</th></tr></thead>
       <tbody>
         <tr><th scope="row">Visible tasks correct</th><td>${evaluation.parent_visible_correct} / ${evaluation.visible_total}</td><td>${evaluation.candidate_visible_correct} / ${evaluation.visible_total}</td></tr>
-        <tr><th scope="row">Total measured cost</th><td>${selection ? money(selection.parent_cost_microusd) : 'Selection pending'}</td><td>${selection ? money(selection.candidate_cost_microusd) : 'Selection pending'}</td></tr>
+        <tr><th scope="row">Total recorded cost</th><td>${selection ? formatMicroUsd(selection.parent_cost_microusd) : 'Selection pending'}</td><td>${selection ? formatMicroUsd(selection.candidate_cost_microusd) : 'Selection pending'}</td></tr>
         <tr><th scope="row">Total measured latency</th><td>${selection ? `${selection.parent_latency_millis} ms` : 'Selection pending'}</td><td>${selection ? `${selection.candidate_latency_millis} ms` : 'Selection pending'}</td></tr>
       </tbody>
     </table></div>
+    <p class="notice">${COST_DISCLOSURE.join(' ')}</p>
     <p class="notice">${selection ? `Paired correctness change: ${percentagePoints(selection.estimate_bps)}. Bootstrap interval: [${percentagePoints(selection.lower_bps)}, ${percentagePoints(selection.upper_bps)}].` : 'No selection receipt has been recorded.'}</p>
     <p class="notice">${invariant ? `Invariant checks: ${invariant.total_checks}; candidate violations: ${invariant.total_candidate_violations}; paired regressions: ${invariant.total_paired_regressions} / ${invariant.maximum_regressions} allowed.` : 'Independent invariant checks: not recorded.'}</p>
     <p class="notice">Forge assessment: ${entry.forge_assessment ? escapeHtml(entry.forge_assessment.outcome) : 'not recorded'}. Champion transitions linked to this evaluation: ${entry.champion_transition_ids.length}.</p>
@@ -55,7 +56,8 @@ export function comparisonReport(entry: EvaluationListEntry): string {
 		`Evaluation: ${JSON.stringify(e.evaluation_id)}`, `World: ${JSON.stringify(e.world_id)}`, `Parent: ${JSON.stringify(e.parent_genome_id)}`, `Candidate: ${JSON.stringify(e.candidate_genome_id)}`, '',
 		`Verdict: ${verdict.label}`, verdict.explanation, '',
 		`Visible correctness: parent ${e.parent_visible_correct}/${e.visible_total}; candidate ${e.candidate_visible_correct}/${e.visible_total}.`,
-		s ? `Paired correctness change: ${percentagePoints(s.estimate_bps)}; bootstrap interval [${percentagePoints(s.lower_bps)}, ${percentagePoints(s.upper_bps)}].\nTotal measured cost: parent ${money(s.parent_cost_microusd)}; candidate ${money(s.candidate_cost_microusd)}.\nTotal measured latency: parent ${s.parent_latency_millis} ms; candidate ${s.candidate_latency_millis} ms.\nMeasured gates passed: ${s.metrics_eligible}.` : 'Selection receipt: not recorded.',
+		s ? `Paired correctness change: ${percentagePoints(s.estimate_bps)}; bootstrap interval [${percentagePoints(s.lower_bps)}, ${percentagePoints(s.upper_bps)}].\nTotal recorded cost: parent ${formatMicroUsd(s.parent_cost_microusd)}; candidate ${formatMicroUsd(s.candidate_cost_microusd)}.\nTotal measured latency: parent ${s.parent_latency_millis} ms; candidate ${s.candidate_latency_millis} ms.\nMeasured gates passed: ${s.metrics_eligible}.` : 'Selection receipt: not recorded.',
+		COST_DISCLOSURE.join(' '),
 		i ? `Invariant checks: ${i.total_checks}; candidate violations: ${i.total_candidate_violations}; paired regressions: ${i.total_paired_regressions}/${i.maximum_regressions} allowed.\nRegression budget satisfied: ${i.regressions_within_budget}. Candidate contract satisfied: ${i.candidate_contract_satisfied}.` : 'Invariant checks: not recorded.',
 		`Forge assessment: ${entry.forge_assessment ? `${JSON.stringify(entry.forge_assessment.assessment_id)} (${entry.forge_assessment.outcome})` : 'not recorded'}.`,
 		`Linked Champion transitions: ${entry.champion_transition_ids.map(id => JSON.stringify(id)).join(', ') || 'none'}.`, '',

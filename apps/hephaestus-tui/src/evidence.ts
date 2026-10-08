@@ -1,9 +1,16 @@
 import type {DenialEntry, EvaluationListEntry, RunListEntry} from './protocol.js';
 
+export const COST_DISCLOSURE = [
+	'Recorded USD, not a bill. Hosted zero may be unreported.',
+	'Codex reports no USD. Reference runs use no paid model.',
+	'Totals may omit usage not reported by a provider.',
+] as const;
+export const COMPACT_COST_DISCLOSURE = 'USD may be incomplete; 0 may be unreported.';
+
 /** Formats a micro-US-dollar integer as a human dollar amount, or an em dash when absent. */
 export function formatMicroUsd(value: number | null): string {
 	if (value === null) return '—';
-	return `$${(value / 1_000_000).toFixed(4)}`;
+	return `$${(value / 1_000_000).toFixed(6)}`;
 }
 
 /** Formats a millisecond duration compactly, or an em dash when absent. */
