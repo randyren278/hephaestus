@@ -1,0 +1,35 @@
+{
+  "scope": "Local workflow syntax, documentation and whitespace; no hosted CI claim",
+  "tool": "actionlint 1.7.12",
+  "workflow_sha256": {
+    ".github/workflows/ci.yml": "be8e502039e8ba45acad018235453ffca34c5729fbce4a4b79ac4d78950a7a60",
+    ".github/workflows/release.yml": "d79c34e4e264f5515291ed20810230973c6f8626c0329edd4fd9987f9817aa95"
+  },
+  "checks": [
+    {
+      "check": "actionlint",
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "check": "documentation",
+      "exit": 0,
+      "output": "PASS: docs ok (README.md, AUDIT.md, docs/ADVERSARIAL.md, docs/ARCHITECTURE.md, docs/CANARY.md, docs/CLI.md, docs/CONSTITUTION.md, docs/CONTROL_PLANE.md, docs/EVALUATION_PHILOSOPHY.md, docs/EVOLUTION.md, docs/EXPERIENCE.md, docs/GENE_BANK.md, docs/GENOMES.md, docs/GETTING_STARTED.md, docs/HERA_INHERITANCE.md, docs/IRIS_INHERITANCE.md, docs/LAB_CROSSCHECK.md, docs/LEDGERS.md, docs/MACOS_INSTALL.md, docs/MCP_GATEWAY.md, docs/META_EVOLUTION.md, docs/PRODUCT_READINESS.md, docs/RELEASES.md, docs/REMOTE_WORKERS.md, docs/RUNTIMES.md, docs/SELF_DOGFOODING.md, docs/SENATE.md, docs/STATUS.md, docs/TERMINOLOGY.md, docs/THREAT_MODEL.md, docs/TUI_THEME.md, docs/WORLDS.md)\n"
+    },
+    {
+      "check": "whitespace",
+      "exit": 0,
+      "output": ""
+    }
+  ],
+  "repeated_contracts": {
+    "macos_package": {
+      "tests": 9,
+      "passed": 9
+    },
+    "source_installer": {
+      "tests": 7,
+      "passed": 7
+    }
+  }
+}

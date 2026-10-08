@@ -1,0 +1,69 @@
+Creates a CycloneDX Software Bill-of-Materials (SBOM) for Rust project
+
+Usage: cargo cyclonedx [OPTIONS]
+
+Options:
+      --manifest-path <PATH>
+          Path to Cargo.toml
+
+  -f, --format <FORMAT>
+          Output BOM format: json, xml
+
+      --describe <DESCRIBE>
+          Possible values:
+          - crate:             Describe the entire crate in a single SBOM file, with Cargo targets as subcomponents. (default)
+          - binaries:          A separate SBOM is emitted for each binary (bin, cdylib) while all other targets are ignored
+          - all-cargo-targets: A separate SBOM is emitted for each Cargo target, including things that aren't directly executable (e.g rlib)
+
+  -v, --verbose...
+          Use verbose output (-vv for debug logging, -vvv for tracing)
+
+  -q, --quiet...
+          Disable progress reports (-qq to suppress warnings)
+
+      --all-features
+          Activate all available features
+
+      --no-default-features
+          Do not activate the `default` feature
+
+  -F, --features <FEATURES>
+          Space or comma separated list of features to activate
+
+      --target <TARGET>
+          The target to generate the SBOM for, e.g. 'x86_64-unknown-linux-gnu'.
+          Use 'all' to include dependencies for all possible targets.
+          Defaults to the host target, as printed by 'rustc -vV'
+
+      --target-in-filename
+          Include the target platform of the BOM in the filename
+
+  -a, --all
+          List all dependencies instead of only top-level ones (default)
+
+      --top-level
+          List only top-level dependencies
+
+      --override-filename <FILENAME>
+          Custom string to use for the output filename
+
+      --license-strict
+          Reject the deprecated '/' separator for licenses, treating 'MIT/Apache-2.0' as an error
+
+      --license-accept-named <LICENSE_ACCEPT_NAMED>
+          Add license names which will not be warned about when parsing them as a SPDX expression fails
+
+      --spec-version <SPEC_VERSION>
+          The CycloneDX specification version to output: `1.3`, `1.4` or `1.5`. Defaults to 1.3
+
+      --no-build-deps
+          Do not include build-time dependencies in the SBOM
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+The SOURCE_DATE_EPOCH env var is honored to enable reproducible builds,
+see https://reproducible-builds.org/docs/source-date-epoch/

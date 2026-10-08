@@ -1,0 +1,43 @@
+{
+  "scope": "Local dependency and trigger checks from actual YAML, not a hosted run",
+  "signing_prerequisites": [
+    "build",
+    "sbom",
+    "reproducibility"
+  ],
+  "publication_prerequisites": [
+    "build",
+    "reproducibility",
+    "sign-and-attest"
+  ],
+  "publication_expression": "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+  "publication_cases": [
+    {
+      "event_name": "push",
+      "ref": "refs/tags/v0.1.0",
+      "signs_and_attests": true,
+      "publishes": true
+    },
+    {
+      "event_name": "workflow_dispatch",
+      "ref": "refs/tags/v0.1.0",
+      "signs_and_attests": false,
+      "publishes": false
+    },
+    {
+      "event_name": "workflow_dispatch",
+      "ref": "refs/heads/main",
+      "signs_and_attests": false,
+      "publishes": false
+    },
+    {
+      "event_name": "push",
+      "ref": "refs/heads/main",
+      "signs_and_attests": false,
+      "publishes": false
+    }
+  ],
+  "public_rulesets_response": [],
+  "workflow_sha256": "d79c34e4e264f5515291ed20810230973c6f8626c0329edd4fd9987f9817aa95",
+  "signing_expression": "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+}

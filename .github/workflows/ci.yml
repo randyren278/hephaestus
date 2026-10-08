@@ -98,6 +98,44 @@ jobs:
       - name: Prepare mutation build dependencies
         run: cargo test --workspace --all-features --no-run
 
+  macos-package:
+    name: Native macOS package acceptance (arm64)
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Require native Apple Silicon
+        run: test "$(uname -m)" = arm64
+
+      - name: Build the archive
+        run: python3 scripts/package_macos.py --arch arm64
+
+      - name: Accept the installed archive
+        run: |
+          set -o pipefail
+          scripts/package_macos_acceptance.sh target/packages/*.tar.gz 2>&1 | tee target/package-acceptance.log
+
+      - name: Preserve acceptance output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: macos-package-acceptance
+          path: target/package-acceptance.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   supply-chain:
     name: Supply chain (cargo deny)
     runs-on: ubuntu-24.04

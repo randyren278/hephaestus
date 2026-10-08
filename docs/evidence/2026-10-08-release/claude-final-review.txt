@@ -1,0 +1,43 @@
+I found no hard blockers in the workflow logic. One issue needs fixing before the docs can claim that a manual dispatch is only a rehearsal. Everything else is either correct as written or can only be confirmed by a hosted run.
+
+## Should fix: a manual dispatch on a tag can't be told apart from the official release
+
+- **Where:** `release.yml:10` and `:201–237` (signing has no event gate), and `docs/RELEASES.md:10–12` and `:49–64`.
+- **What happens:** `sign-and-attest` also runs on `workflow_dispatch`. The docs explicitly allow dispatching on a tag ref. That run signs with the identity `…/release.yml@refs/tags/vX` and creates attestations with source ref `refs/tags/vX`. Those are exactly what the documented `cosign verify-blob` and `gh attestation verify` commands accept. So line 63 ("do not accept … a branch rehearsal") only works for branches. A tag rehearsal passes every check. The Intel archive isn't covered by the reproducibility job, so it can produce a different, unpublished digest that still verifies as official.
+- **Why "rehearsal" is overstated:** even a branch rehearsal writes public Rekor entries and repo attestations. "Without publishing" is only true of the GitHub Release.
+- **Smallest fix (recommended):** in the `version` step (`release.yml:53`), fail when `GITHUB_EVENT_NAME == workflow_dispatch` and the ref is a tag. Then reword `RELEASES.md:10–12`: dispatch runs only on branches, and it still creates public signatures and attestations under a branch identity.
+- **Alternative:** add `--certificate-github-workflow-trigger push` to the cosign command. But `gh attestation verify` has no trigger filter, so this only half-fixes it.
+
+## Checked and correct
+
+- **Native architecture acceptance before signing:** the order is version/tag check → `uname -m` check → build → acceptance (with `pipefail`) → checksum → upload. Acceptance tests the exact bytes that get uploaded, and nothing rebuilds them afterwards. If either architecture fails, `build` fails and signing is skipped. `package_macos.py:230,250` also checks single-architecture output with `lipo`.
+- **Artifact pattern merging:** `hephaestus-*` matches the two archive artifacts and the two `hephaestus-sbom-*` artifacts. The acceptance logs (`package-acceptance-*`) are excluded. `hephaestus-signatures` only exists after signing, so publish gets it and sign doesn't. File names are distinct per architecture and target (`--target-in-filename`), so merging overwrites nothing. If a glob matches nothing, cosign fails rather than skipping.
+- **Prerequisites and publication:** publish needs `sign-and-attest`, which needs `sbom`, so the inventory is a prerequisite indirectly. Publish only runs on a `push` to `refs/tags/v*`, and `contents: write` is limited to that job.
+- **Package/SBOM isolation:** the inventory jobs run on Ubuntu with `persist-credentials: false` and no write or id-token permission. They never download the archives. Default features match the default-feature `cargo build` in `package_macos.py:219`. The collector selects only the 7 `BINARIES`, so `hephaestus-evaluator`, `-remote-worker` and `-mcp-gateway` are left out. It fails if a name matches zero or several files.
+- **Repo/workflow/tag identity:** `.git/config` confirms `randyren278/hephaestus`. The Fulcio identity format and the `--signer-workflow` / `--source-ref` formats are correct.
+- **Docs gate:** no code span in `RELEASES.md` names a missing file.
+
+## Minor (optional)
+
+- `release.yml:39` and `:211`: checkout keeps the token in `.git/config` while acceptance runs packaged binaries. The token is read-only, so this is low risk. The `sign-and-attest` checkout isn't needed at all.
+- `RELEASES.md:49`: name the Cosign client version. A v3 bundle may need Cosign ≥ 3 (or a 2.x release that reads the new format) to verify.
+- `.DS_Store` and `python/.DS_Store` are untracked. Don't commit them.
+
+## Proven locally vs. needs a hosted run
+
+**Proven locally** (ARM64, commit `5c2e5f4`; the uncommitted changes touch only CI and docs, so this still applies):
+- 9 package contract tests and 7 source-installer contract tests pass.
+- A real source install built all 7 binaries.
+- The source tour completed all six steps.
+- The full installed ARM64 acceptance passed.
+
+**Unknown until a hosted run:**
+- Whether the `macos-15-intel` runner is available and Intel acceptance passes, including PTY timing on a slower runner.
+- Whether `cargo-cyclonedx` 0.5.9 accepts these flags and names files `<bin>_bin_<triple>.cdx.json`. If it doesn't, the collector fails rather than producing a bad inventory.
+- Whether `cosign-installer` v4.1.2 installs Cosign v3.1.3.
+- Whether `upload-artifact` v7 and `download-artifact` v6 work together.
+- Whether Fulcio, Rekor and the attestation API are reachable from the runner.
+
+## Is the evidence enough for its narrow claims?
+
+Yes. `source-tour.txt` shows a 6-step tour with measured Arena and verified Selection, and it correctly records `packaged_evaluator_lookup: false` for a source install. The README says the source contract tests use fake build tools and separates them from the real install. It also states that the fixtures are deterministic and use no paid model. None of it says anything about real provider quality, and the docs don't claim otherwise.

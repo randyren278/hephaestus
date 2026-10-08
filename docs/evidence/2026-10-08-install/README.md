@@ -26,8 +26,13 @@ promotes a Champion. Transport failures show a retry message.
   passed; the reference Gauntlet stopped/restarted its daemon and replayed.
 - [Nine package contracts](package-contracts.txt) and
   [seven source-installer contracts](source-contracts.txt) passed. Source
-  contracts use fake build tools and do not establish an actual clean source
-  installation.
+  contracts use fake build tools. The subsequent
+  [actual source installation](source-install.txt) built all seven binaries
+  from detached commit `5c2e5f4` with a fresh Cargo target directory and
+  installed them into a new prefix. The [source tour](source-tour.txt) passed
+  all six steps from an empty data directory after the real first-launch
+  choice, including measured Arena, Selection, replay and terminal restoration.
+  [Source proof](source-proof.json) records toolchain versions and binary hashes.
 - [Node 22 UI checks](ui-node22-tests.txt): all 189 passed. The development
   runtime, typecheck and package build also passed. New checks cover canonical
   job identity collisions, directed roles, fixture binding, selection refusal
@@ -57,8 +62,8 @@ npm --prefix apps/hephaestus-tui test
 ```
 
 This is a locally built, unsigned archive. Native Intel acceptance,
-first launch after a quarantined browser download, actual clean source
-installation and release-workflow acceptance gates remain to verify. The
+first launch after a quarantined browser download and hosted release-workflow
+acceptance gates remain to verify. The
 fixtures are deterministic and use no paid model; representative hosted-model
 quality and the commercial offer remain open in
 [product readiness](../../PRODUCT_READINESS.md).

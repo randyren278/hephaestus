@@ -1,0 +1,1 @@
+{"packaged_terminal": "80x24", "empty_data_bootstrap": true, "first_launch_prompt": true, "packaged_evaluator_lookup": false, "registered_fixture": true, "arena_measured": true, "metrics_selection_verified": true, "replay_verified": true, "completed_six_steps": true, "terminal_restored": true}

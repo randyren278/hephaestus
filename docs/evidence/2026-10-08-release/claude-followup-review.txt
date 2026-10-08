@@ -1,0 +1,18 @@
+**Yes, the fix resolves the concern.** I found no remaining blockers introduced by this change.
+
+**Why manual tag runs can't sign under the official identity anymore**
+- `sign-and-attest` (`.github/workflows/release.yml:205`) and `publish` (`:250`) both run only when the event is a `push` and the ref starts with `refs/tags/v`.
+- A manual run on a tag ref has the event `workflow_dispatch`, so both jobs are skipped. They never get the `id-token: write` permission, so they can't get the OIDC token that would produce a `release.yml@refs/tags/vX` certificate.
+- `sign-and-attest` waits on `[build, sbom, reproducibility]` (`:206`). `publish` waits on `sign-and-attest`, so it inherits the same gate.
+- On a real tag push, the build fails first if the tag doesn't match the workspace version (`:55-58`). That keeps both jobs from running.
+- Signing and publishing don't check out the repo anymore. `build` uses `persist-credentials: false` (`:41`), and so does `sbom` (`:123`).
+- `docs/RELEASES.md:10-14` matches this: manual runs build, accept, inventory and check reproducibility, but never sign, attest or publish, even on a tag. The docs require Cosign 3.1.3 (`:35`, `:44`), the same version pinned at `:225`.
+
+**Evidence you asked me to check**
+- **`sbom-proof.json`:** shows 7 separate CycloneDX 1.5 inventories for each target, all with the target in the filename. These are exactly the 7 entries in `BINARIES` (`scripts/package_macos.py:29-37`). So the collect step's "exactly one inventory per binary" check holds, and the `merge-multiple` downloads (`:218`, `:261`) won't overwrite files across the two architectures.
+- **`cosign-bundle-proof.json`:** Cosign 3.1.3 verifies a real upstream bundle (exit 0). It rejects the same bundle when told to expect the Hephaestus release identity (exit 1, SAN mismatch). This settles the bundle-format and identity checks I previously marked unknown. As the file itself says, it proves the CLI behaviour, not a Hephaestus signature.
+
+**One non-blocking note**
+- The `reproducibility` checkout (`:168`) still keeps its credentials. The token there is read-only, and nothing later in that job uses it. Adding `persist-credentials: false` there would make all three checkouts consistent. This setting was already there before this change, so it isn't a blocker.
+
+Still not proven, as `docs/RELEASES.md:102-103` already says: a hosted run of this workflow, including native Intel acceptance and actual keyless signing and attestation.

@@ -1,0 +1,57 @@
+# Release review: native arch matrix and package acceptance gate
+
+The plan works, but four things need fixing in the same change before anyone runs it remotely. More importantly, the published verification commands would accept archives built by a fork or by a rehearsal run. That has to be fixed before any public offer.
+
+**Evidence basis.** Everything below comes from reading `release.yml`, `ci.yml`, `package_macos_acceptance.sh`, `RELEASES.md`, plus `package_macos.py`, `pty_tour.py`, `MACOS_INSTALL.md` and `Cargo.toml`. I ran nothing. The runtime evidence is yours: the local ARM64 installed tour, 189 UI tests and 9 package contracts, plus the clean source install that's still running. There is no runtime evidence yet for any of these:
+- the release workflow on any runner
+- acceptance of an x86_64 archive anywhere
+- cosign signing, attestation, or the publish job
+- launching from a quarantined download
+
+I didn't recheck the runner labels; I'm relying on your check.
+
+## Blockers in the proposed change
+
+1. **The build job will likely time out.** `release.yml:23` allows 30 minutes. That already covers `npm ci`, an uncached release build of the whole workspace, the Node download, and `cargo install cargo-cyclonedx` compiling from source. Acceptance adds the PTY tour, which alone has deadlines of 45s, 70s and 15s (`pty_tour.py:30,116,123`), then Arena, `evolve coding`, and the gauntlet reference run. Intel runners are slower. Raise the timeout (around 60) and move SBOM generation out of this job (see A5).
+2. **Matrix shape.** Two runners need `include: [{arch: arm64, runner: macos-15}, {arch: x86_64, runner: macos-15-intel}]` with `runs-on: ${{ matrix.runner }}`. Also add a step that fails if `uname -m` doesn't match `matrix.arch`. The installer already refuses a mismatch, but this makes a wrong label fail with a clear message.
+3. **The reproducibility job would describe a different build.** It stays on `macos-14` (`release.yml:83`) and never compares against the archive that ships. After the change, the reproducibility claim would be about a different OS image than the shipped arm64 archive. Move it to `macos-15` too. Ideally also compare its hash to the arm64 archive from the build job.
+4. **Cost in ordinary CI.** `ci.yml` runs on both `push` and `pull_request`, so every PR push triggers it twice. If the repo is private, macOS minutes are billed at a multiplier, which is a paid change you haven't approved. Confirm repo visibility first. Then limit the new job, for example to pushes to main plus PRs.
+   - The job needs `setup-node` (for `npm ci` in `package_macos.py:211`), the Rust toolchain, a macOS-specific rust-cache key, and a cache for the Node archive keyed on `NODE_SHA256`, to avoid nodejs.org flakiness.
+
+**Not blockers, but worth doing:**
+- **Failure logs are lost.** The cleanup trap deletes `$WORK`, including `daemon.log`, so a remote failure leaves little to debug. Set `KEEP_PACKAGE_ACCEPTANCE=1` and upload `/tmp/hpkg.*` only on failure, as a separate diagnostics artifact.
+- **Acceptance isn't self-contained.** It runs harness scripts from the source checkout (`$ROOT/...pty_tour.py`, `tui_acceptance.py`, `gauntlet_reference.py`). That's fine in CI, but it means acceptance can't be run against a downloaded release on its own.
+- **The first x86_64 run is new territory.** It will be the first x86_64 acceptance anywhere, so expect timing or arch-specific failures and don't read one as a regression.
+- **A failed arch blocks signing, as intended.** With `fail-fast: false`, the arm64 leg still uploads its unsigned artifact if x86_64 fails. `sign-and-attest` needs `build` to fully succeed, so nothing gets signed or published.
+
+## Authenticity issues to fix before a public offer
+
+- **A1 (High): the cosign identity check accepts forks and any ref.** The docs use `--certificate-identity-regexp 'https://github.com/.+/hephaestus/.github/workflows/release.yml@.+'` (`RELEASES.md:38`).
+  - Any fork named `hephaestus` can trigger its own copy of `release.yml` and get a valid certificate. A tampered archive signed that way passes the check.
+  - The `.sha256` file ships next to the archive, so step 1 adds no protection.
+  - Fix: use an exact `--certificate-identity https://github.com/<owner>/hephaestus/.github/workflows/release.yml@refs/tags/vX.Y.Z`.
+- **A2 (High): the attestation check is scoped only to the owner.** `gh attestation verify --owner` (`RELEASES.md:43`) accepts any workflow, repo or ref under that owner.
+  - `sign-and-attest` also runs on `workflow_dispatch` from any branch (`release.yml:123-157`). So a rehearsal from an unreviewed branch creates a permanent attestation that would pass the documented check.
+  - Fix: use `--repo <owner>/hephaestus` plus a pinned signer workflow and source ref. Check which of these flags your `gh` version supports.
+  - Fix A1 and A2 before the first dispatch, because the first dispatch creates these attestations.
+- **A3 (Medium): the tag and version are never compared.** `steps.version.outputs.version` is computed but never used. A tag `v0.2.0` on a commit where `Cargo.toml` says 0.1.0 would publish `hephaestus-v0.1.0-*` archives under release v0.2.0.
+  - The workflow's regex also takes the first `version =` anywhere in `Cargo.toml`, while `package_macos.py` reads the workspace section. They agree today only because line 18 happens to come first.
+  - Fix: fail when `github.ref != refs/tags/v$version`.
+- **A4 (Medium, needs a settings check): any `v*` tag on any commit publishes.** Main being a protected branch doesn't restrict tags, and nothing checks that the tagged commit is on main or passed CI. You need a tag ruleset; I can't confirm one exists from the repo files.
+- **A5 (Medium): an unpinned tool runs next to the release bytes.** `cargo install cargo-cyclonedx --locked` has no `--version` (`release.yml:59`). It runs the latest crate code in the same job that holds the archive and its checksum, before upload, and could rewrite both.
+  - Fix: pin the version and generate SBOMs in a separate job that never touches `target/packages`.
+  - Also, both arches upload SBOMs with the same filenames and `merge-multiple: true` lets one overwrite the other. SBOMs are also neither signed nor attested, although the docs list them as release contents.
+- **A6 (Unverified risk): cosign v3 may not produce the documented files.** The pinned `cosign-installer` v4.x probably installs cosign v3. As far as I know, v3 defaults to the new bundle format, which may change or ignore `--output-signature`/`--output-certificate`. I'm not certain.
+  - It fails safely: `if-no-files-found: error` would fail the job.
+  - Check the pinned version's `sign-blob` behaviour locally, or switch to `--bundle` with `verify-blob --bundle` in the docs.
+- **A7 (Product): "signed" may be read as Apple-signed.** The summary line in `RELEASES.md` says "signed", but there's no Apple Developer ID signing or notarization. `MACOS_INSTALL.md:59` already says so honestly. The acceptance script extracts a local file with `tar`, so the quarantine attribute is never set and the six-step tour pass doesn't cover a browser download.
+  - Before a paid offer, either notarize, or make the summary say "Sigstore-signed, not Apple-notarized" and test a quarantined first launch.
+
+## Suggested order
+
+1. **One surgical change:** the matrix and acceptance gate, a higher timeout, moving reproducibility to `macos-15`, the A3 version guard, and the A1/A2 doc fixes.
+2. **Next change:** pin cyclonedx in its own job (A5) and check the cosign format (A6).
+3. **Settings, needing your approval:** the tag ruleset (A4) and repo visibility/billing (blocker 4).
+4. **Before the public offer:** a decision on A7.
+
+The publishing behaviour for tags and manual runs stays the same throughout.

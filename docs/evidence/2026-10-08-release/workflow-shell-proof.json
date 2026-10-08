@@ -1,0 +1,35 @@
+{
+  "scope": "Local execution of actual workflow shell steps; fixtures do not prove hosted GitHub success",
+  "checks": [
+    {
+      "check": "tag_version",
+      "ref": "refs/tags/v0.1.0",
+      "exit": 0,
+      "output_written": true
+    },
+    {
+      "check": "tag_version",
+      "ref": "refs/tags/v9.9.9",
+      "exit": 1,
+      "output_written": false
+    },
+    {
+      "check": "tag_version",
+      "ref": "refs/heads/rehearsal",
+      "exit": 0,
+      "output_written": true
+    },
+    {
+      "check": "acceptance_failure_through_tee",
+      "fixture_exit": 0,
+      "workflow_step_exit": 0,
+      "diagnostic_preserved": true
+    },
+    {
+      "check": "acceptance_failure_through_tee",
+      "fixture_exit": 23,
+      "workflow_step_exit": 23,
+      "diagnostic_preserved": true
+    }
+  ]
+}

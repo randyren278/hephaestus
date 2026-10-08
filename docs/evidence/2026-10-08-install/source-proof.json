@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-08",
+  "source_commit": "5c2e5f4d29629c4d99503f4bd6fd0718ce4dba72",
+  "tracked_source_diff": "",
+  "installation": "Actual scripts/install.sh --full into a new prefix, separate initially empty Cargo target directory, detached worktree",
+  "platform": "Darwin arm64",
+  "rust": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Homebrew)",
+  "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05) (Homebrew)",
+  "node": "v22.22.2",
+  "installer_exit": 0,
+  "tour_exit": 0,
+  "binaries": [
+    {
+      "name": "heph",
+      "symlink": true,
+      "sha256": "6c81412bc5466c301483aa91ce501a322ad672f2abb0619fb9eac6589aca5e72"
+    },
+    {
+      "name": "hephaestus",
+      "symlink": true,
+      "sha256": "7328124f43ac834887268295de5f04155f30156e0d6d0774232fe1630980921b"
+    },
+    {
+      "name": "hephaestusd",
+      "symlink": true,
+      "sha256": "c946e6f053d637075c5ac853e6e75918925196cb821f08834b0ba3cafa31b1a7"
+    },
+    {
+      "name": "hephaestus-reference-worker",
+      "symlink": true,
+      "sha256": "806765913fb1492545760a56a595f069672f0dd0aaa26b213fa597ff565b0204"
+    },
+    {
+      "name": "hephaestus-reference-evaluator",
+      "symlink": true,
+      "sha256": "c711f6e402737e24553410bd8c10af81bfeee7657e6c57eeee78179f3f9ae27e"
+    },
+    {
+      "name": "hephaestus-process-guardian",
+      "symlink": true,
+      "sha256": "0cf82394aa5de90f05eab3f2920bad255fa81bcd54c36be5fa7c30450fa8d05a"
+    },
+    {
+      "name": "senate",
+      "symlink": true,
+      "sha256": "61204c87aebe58ce4eeeb825e6b87ba0a63e3f841a14c66ca9eb7e479a435337"
+    }
+  ],
+  "tour": {
+    "empty_data_bootstrap": true,
+    "first_launch_prompt": true,
+    "packaged_evaluator_lookup": false,
+    "registered_fixture": true,
+    "arena_measured": true,
+    "metrics_selection_verified": true,
+    "replay_verified": true,
+    "completed_six_steps": true,
+    "terminal_restored": true,
+    "terminal": "80x24"
+  },
+  "limitations": [
+    "Deterministic reference agents; no hosted-model quality claim",
+    "Source install relies on its checkout and host Node/npm",
+    "No native Intel, quarantined browser download or hosted release proof",
+    "Minimum supported Rust version not tested"
+  ]
+}

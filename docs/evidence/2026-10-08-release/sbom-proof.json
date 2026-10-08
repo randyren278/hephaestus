@@ -1,0 +1,86 @@
+{
+  "generator": "cargo-cyclonedx 0.5.9",
+  "scope": "Actual target-specific metadata generated locally and collected with the workflow run block; not hosted signing or native Intel runtime proof",
+  "targets": [
+    {
+      "target": "aarch64-apple-darwin",
+      "inventories": [
+        {
+          "name": "heph_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "d1ca7e4f2525e4355cd44a8fd9755cdc40d9256fc963c289a5417144299d9d2f",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus-process-guardian_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "3c7e225de540a22eab7ff8f0fe2f37a17f6a4ca8bee8702b41052818d98218ff",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus-reference-evaluator_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "89962ff0b79164d43f730e92e7cb31bd646f2983aa8cb97b57d67c2162c6bddc",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus-reference-worker_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "40067b1aebcbc23e08ff7068d3437e0b7ccc7ee3908e91720a32ab8d61bcd473",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "dbc6118940dee59849fdb161d65f08c1651878cc2c6d2ed3b4a80511e270f8d4",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestusd_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "4b6e1c8fa01d4fae74457a10078a698fa1204b024ec2b5d91da7fa34d9b9b6c6",
+          "spec": "1.5"
+        },
+        {
+          "name": "senate_bin_aarch64-apple-darwin.cdx.json",
+          "sha256": "63e3dcb891f61113fc3f23679cb08f643a9f9dc8ffaa8d7979f77d1d7815ee89",
+          "spec": "1.5"
+        }
+      ]
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "inventories": [
+        {
+          "name": "heph_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "c1f08f8ec70cf278f0d96cb39aa0800d614a8b7f3e9940e2e0af0c129c9bbc68",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus-process-guardian_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "edeb939be6a60324e74772788c86d6588b2c9e073588f725562586054ae497ce",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus-reference-evaluator_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "98ef4bd552377d8e25c6a2765f1a63c72769dfef7bdd8c5119ab62f719a99b74",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus-reference-worker_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "0c162ec7179c3c1791f7903bec4d703cdb368ad4dd2f1a3483834c05f8382af6",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestus_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "ba695b97ac1dd1050f5ecf53adec63c323d458e65f923f08d5b5ae6f22f38461",
+          "spec": "1.5"
+        },
+        {
+          "name": "hephaestusd_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "cb84cc0d583c4df525b9935e8774c5302c09ff5ee9de6619043e7f2e95e94a04",
+          "spec": "1.5"
+        },
+        {
+          "name": "senate_bin_x86_64-apple-darwin.cdx.json",
+          "sha256": "9f833bc01c9c0b20c45c75c031391ff0867ac1db06b8fe748bbef66e1ca91712",
+          "spec": "1.5"
+        }
+      ]
+    }
+  ]
+}

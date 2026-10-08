@@ -18,8 +18,8 @@ assumes you're building from source.
   Seatbelt is supported today — see [How it works](../README.md#under-the-hood)).
 - `git`.
 - A stable Rust toolchain, 1.85 or newer (`cargo --version`).
-- `npm`, to install the operator TUI's dependencies. No separate Node
-  install step is needed beyond that — the TUI runs from source.
+- Node.js 22 or newer with `npm`, to install and run the operator TUI from
+  source. Clean source installation and the tour were verified with Node 22.
 
 ## Install
 
@@ -33,9 +33,9 @@ scripts/install.sh
 worker/evaluator/guardian helper binaries in release mode, installs the
 operator TUI's npm dependencies, and symlinks the binaries into
 `~/.local/bin` (pass `--prefix /some/other/path` to install elsewhere). It
-never uses `sudo` and never writes outside your checkout's own `target/`
-directory and the chosen prefix, so it's safe to re-run — a second run just
-rebuilds and relinks.
+never uses `sudo`. Build output stays in the checkout (or your chosen
+`CARGO_TARGET_DIR`), dependencies use the usual Cargo/npm caches, and installed
+links go into the chosen prefix. A second run rebuilds and relinks.
 
 Run from a terminal, the installer first asks whether you're just here for
 the Senate, the standalone debate tool. Answer yes, or pass `--senate-only`,

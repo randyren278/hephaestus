@@ -32,7 +32,7 @@ live-model improvement and full installation acceptance remain required.
 
 | Requirement | Evidence needed | Current status |
 |---|---|---|
-| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Native ARM64 package verified through install, relocation, the real first-launch choice and six-step tour, bundled Node with host Node/npm hidden, offline Arena and restart/replay. Clean source installation, native Intel acceptance and downloaded-archive first launch remain |
+| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
@@ -242,7 +242,26 @@ of choosing arbitrary registered agents. Full identity hashes distinguish
 directed runs and comparisons. Selection failures preserve the visible score
 and offer retry; substituted evidence refuses. All 189 UI checks pass on the
 development runtime and Node 22, and nine package plus seven source-installer
-contracts pass. Source contracts use fake build tools. Actual clean source
-installation, native Intel acceptance, downloaded-archive first launch and
-release-workflow acceptance gates remain; this checkpoint establishes neither
+contracts pass. Source contracts use fake build tools; a subsequent actual
+clean source installation from detached commit `5c2e5f4`, a fresh Cargo target
+directory and a new install prefix also passes its six-step first-launch tour
+under Node 22. Native Intel acceptance, downloaded-archive first launch and
+hosted release-workflow acceptance remain; this checkpoint establishes neither
 representative live-model improvement nor the commercial offer.
+
+## Release gate checkpoint, 2026-10-08
+
+Both native package builds now require installed acceptance before archive
+upload or signing, and ordinary pull-request/main CI includes the ARM64 check.
+Pinned target-specific Rust inventory generation runs separately from accepted
+archives. Signing waits for builds, inventories and reproducibility and uses
+pinned Cosign bundles; signing, attestation and publication require a tag push
+whose version matches the workspace. Manual rehearsals do not sign or publish.
+Verification constrains the repository, workflow and version tag.
+
+Actionlint, actual shell failure/tag checks, both target inventories and real
+upstream Cosign bundle/identity verification passed locally. Claude identified
+and reviewed the trust gaps addressed here. See the
+[release gate evidence](evidence/2026-10-08-release/README.md). A hosted run is
+still needed for native Intel acceptance, actual Hephaestus signing and release
+delivery; local syntax checks do not establish those results.
