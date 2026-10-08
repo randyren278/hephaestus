@@ -38,7 +38,7 @@ live-model improvement and full installation acceptance remain required.
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 717 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. A subsequent strict ledger repair passes all 15 ledger mutations; the configured matrix is now 429, without implying a fresh full 429-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 721 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. A subsequent strict ledger repair passes all 15 ledger mutations; the configured matrix is now 429, without implying a fresh full 429-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -341,7 +341,34 @@ provider quota is spent by this reference-fixture path check.
 
 Live-provider output and authorized quota/auth handoff, hosted release delivery,
 native Intel acceptance and downloaded/quarantined first launch remain open.
-The native archive currently provides the terminal console; report export
-through the browser still requires a source checkout and Node 22. That delivery
-gap should be removed before describing the full pilot as a polished packaged
-workflow. These checkpoints do not complete the owner's product objective.
+These checkpoints do not complete the owner's product objective.
+
+## Installed browser and report export
+
+`heph web` now launches the browser console from native packages using their
+bundled Node runtime and complete assets. Full source installation builds it
+once and checks Node 22+ before building. Runtime preflight rejects missing or
+old Node and missing assets before starting a daemon. The browser launch skips
+the Senate question and tour, honors the selected data directory, and starts a
+missing daemon frozen without running agents. Unix exec keeps the foreground
+server's signal behavior predictable; Ctrl+C closes it while preserving the daemon.
+
+The rebuilt and relocated ARM64 archive passes the complete installed acceptance
+with host Node/npm hidden, including both consoles, the actual tour, offline Arena,
+Selection, replay and Gauntlets. Browser acceptance checks static bytes, CLI evidence,
+token/Host/Origin boundaries, rejected write commands, ignored host Node options,
+damaged-bundle failure and fresh frozen bootstrap. Actual desktop/mobile Chromium
+checks downloaded a report matching the daemon's scores, identities, recorded costs,
+latency and separate gates. Source installation and browser launch also pass on Node 22.
+Claude's second review found no material launcher defect. See the
+[installed browser evidence](evidence/2026-10-08-packaged-web/README.md).
+
+The refreshed workspace passes 721 Rust tests including doc tests, 191 TUI tests,
+40 web tests, 47 Python tests and 20 installer contracts. Both Clippy modes and
+the exact Rust 1.88 all-target/all-feature check pass. All 429 configured mutation
+source anchors remain valid; no new full mutation or coverage run is implied.
+
+The browser export no longer needs a source checkout for package users. The public
+support-triage acceptance pack still needs a checkout; bundling its preparation
+materials is the next delivery gap. Live-provider acceptance, hosted delivery,
+native Intel and downloaded/quarantined first launch remain open.

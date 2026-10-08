@@ -30,6 +30,9 @@ PACKAGE="$ROOT/hephaestus"
 [ -x "$PACKAGE/bin/node" ] || { echo "pinned Node runtime is missing" >&2; exit 1; }
 [ -f "$PACKAGE/share/hephaestus/package.json" ] || { echo "package metadata is missing" >&2; exit 1; }
 [ -f "$PACKAGE/share/hephaestus/architecture" ] || { echo "package architecture is missing" >&2; exit 1; }
+for asset in main.mjs main.bundle.mjs web/index.html web/app.js web/styles.css web/web-header-crest.svg; do
+    [ -f "$PACKAGE/share/hephaestus/web/$asset" ] || { echo "web console asset is missing: $asset" >&2; exit 1; }
+done
 PACKAGE_ARCH="$(cat "$PACKAGE/share/hephaestus/architecture")"
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH:$PACKAGE_ARCH" in
@@ -79,3 +82,4 @@ done
 
 echo "Installed Hephaestus in $DESTINATION"
 echo "Add $PREFIX/bin to PATH, then run: heph"
+echo "Browser console and evidence reports: heph web"

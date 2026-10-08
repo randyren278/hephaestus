@@ -1,0 +1,38 @@
+I found no material defects in the current launcher code. The four first-review fixes are present and correct. The remaining items are gaps in the acceptance test and optional hardening. I only read the files; nothing was run.
+
+## The four first-review fixes, checked against the code
+
+- **Node check now runs first.** `run_web` checks the assets (`heph.rs:240-252`), then the Node version (`:253`), and only then starts or contacts the daemon (`:257`). The version check (`:214-237`) rejects a missing binary, a failed run, unparseable output, and versions below 22, and unit tests cover each case (`:595-616`). The acceptance test's broken-bundle case confirms no daemon starts when an asset is missing (`web_acceptance.py:146`).
+- **Ctrl+C no longer orphans Node.** On Unix, `heph` replaces itself with Node (`heph.rs:272-278`), so only one process is left to receive Ctrl+C. The daemon runs in its own process group (`:385, 393-397`), so it survives, and `web_acceptance.py:162` confirms that.
+- **Package detection no longer needs `package.json`.** An install counts as packaged if `../share/hephaestus` exists or a `node` sits beside `heph` (`heph.rs:188-189`). Paths are resolved through symlinks (`:330`), so the installer's `bin/heph → current → releases/R/bin/heph` chain lands in the right release folder. A source install links to `target/release/`, and the packager never writes to `target/share/`, so a source install won't be mistaken for a package. A unit test covers the case without `package.json` (`:555-556`).
+- **Stop hint and Node environment.** The hint about `heph stop` prints before Node starts (`:261-263`). `NODE_OPTIONS` and `NODE_PATH` are cleared for both the version check (`:217-218`) and the real launch (`:268-269`). `HEPHAESTUS_HOME` is set to the chosen data directory (`:267`), and the web server's client reads it (`client.ts:15`).
+
+## Gaps in `web_acceptance.py` (current code passes; these are what the test would miss if the code regressed)
+
+1. **It would not catch the orphaned-Node bug coming back.** The test's Ctrl+C signals the whole process group (`:66`), which reaches Node even if `heph` went back to spawning Node as a child. After the browser exits it never checks that the port is closed. Adding a check that connecting to `127.0.0.1:port` is refused would catch it.
+2. **It never sends `freeze`.** The pilot data directory is unfrozen at `package_macos_acceptance.sh:111`, so a forwarded `freeze` is the one blocked command whose effect the `frozen` comparison at `:123-124` would actually notice. The probe list at `:110` leaves it out, and `job_kill` too. A wrongly accepted `unfreeze` or `kill_all` would change nothing in that state. Today the allowlist unit tests are the only real protection here.
+3. **It never checks that `NODE_OPTIONS` is cleared.** Setting `NODE_OPTIONS=--require=/nonexistent` in the `console()` environment would make that guarantee fail loudly if it broke.
+4. **Launch failures hide the reason.** `:56` and `:59` raise without showing the launcher's output, so a Node-version or asset error doesn't appear in the acceptance log. Printing the output only when no URL was found would keep the token private.
+
+These parts are sound:
+- **Data directory:** `HEPHAESTUS_HOME` points at a wrong directory (`:36`), so ignoring `--data-dir` would fail the `--no-daemon` launch or the CLI cross-checks (`:119`, `:160`).
+- **Assets:** served bytes are compared with the installed release's files (`:96-104`).
+- **Bundled Node:** host Node is removed from `PATH`, so silently falling back to it would fail.
+- **No side effects:** `--no-daemon` with no daemon running (`:133`) and a broken bundle (`:146`) create nothing.
+- **Origin, host and token checks:** each is tested; `http.client` does send the overridden `Host` header.
+- Comparing operational state and evaluations instead of the event count is sound, given that authenticated reads are audited.
+
+## Cleanup
+
+- **Broken-bundle test:** `app.js` is restored in a `finally` (`:147-148`), so it's fine.
+- **Fresh-bootstrap daemon:** stopped in a `finally` only if `heph.pid` exists (`:163-165`). That daemon is not in the shell's `DAEMON_PID`. So if `heph stop` fails, or the Python helper is killed, the daemon outlives the `rm -rf "$WORK"` at `package_macos_acceptance.sh:25`. That's hardening, not a current defect. Separately, `check=True` inside that `finally` can hide the original assertion error if the stop also fails.
+
+## Optional hardening (not defects)
+
+- The stop hint (`heph.rs:261-263`) prints with `--no-daemon` too, which suggests `heph stop` on a pilot daemon `heph` didn't start. The same applies to `apps/hephaestus-web/README.md:22-23` and `docs/MACOS_INSTALL.md:53-55`. A wording like "stop it with `heph stop` if you no longer need it" would be safer.
+- `HEPHAESTUS_WEB_PORT` is still inherited, so if it names a busy port, the launch fails after a fresh daemon has started. The daemon is left running; the hint already covers that.
+- The docs say a missing daemon starts with the quickstart fixture, but `HEPHAESTUS_SOURCE_REPOSITORY` overrides that (`heph.rs:407`).
+- In source mode, any complete but stale `apps/hephaestus-web/dist` passes the check; `scripts/install.sh --full` rebuilds it.
+- The browser-related doc changes in `GETTING_STARTED`, `MACOS_INSTALL`, `PILOT_GUIDE` and the web README match the code. `PILOT_GUIDE.md:50-53` correctly keeps Intel, hosted delivery and quarantine as unverified.
+
+This review doesn't establish product readiness, and it isn't hosted-delivery, Intel, or quarantined-download acceptance.

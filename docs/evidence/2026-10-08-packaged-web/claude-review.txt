@@ -1,0 +1,37 @@
+I found no blocking defects. All five goals hold up when I read the code, with one partial exception: on a source install, a missing or too-old host Node is only detected after the daemon has started (finding 1). No test runs a real `heph web` against a real bundle, so none of this has been seen working at runtime yet. I only used Read, Grep and Glob.
+
+## What holds up in the code
+
+- **Relocated package uses its own Node and assets.** `heph.rs:283-290` resolves symlinks to the real binary path, so both `$PREFIX/bin/heph` and an unpacked tarball find `share/hephaestus` next to the release. When `share/hephaestus/package.json` exists, `web_runtime` (`heph.rs:187-212`) uses only the packaged `bin/node` and `share/hephaestus/web`. It never falls back to the checkout or host npm, and the test at `heph.rs:498-529` covers this.
+- **Assets are complete.** The six required files match what the server can actually serve (`server.ts:21-27`) and what `index.html` references (`/styles.css`, `/web-header-crest.svg`, `/app.js`). `main.ts:12` looks for `web/` next to the entry script, so `share/hephaestus/web/web/*` is the right layout. The web app has no third-party runtime dependencies (only `node:*` imports), so no license notices are missing.
+- **Source `--full` builds the browser console once.** `install.sh:179` runs `npm ci && npm run build` a single time, and a failed build stops before anything is linked (`test_source_install.py:93-97`).
+- **The selected data directory is honored.** `--data-dir` applies to every subcommand (`heph.rs:45`). The daemon gets it, and Node gets it as `HEPHAESTUS_HOME` (`heph.rs:234`). That matches how the TUI client reads it (`client.ts:15`) and how the Rust side does (`server.rs:370`).
+- **No tour or provider execution.** The `web` branch returns at `heph.rs:88-94`, before the Senate question and the tour. `heph --tour web` gives a clear error; `heph web --tour` is rejected by the argument parser because `--tour` isn't a global flag. The server only allows read-only commands.
+- **A broken package bundle fails before daemon side effects.** `run_web` checks the runtime (`heph.rs:215-227`) before `ensure_daemon` (`:228`).
+
+## Implementation defects
+
+1. **Medium — source mode starts the daemon before checking for Node.** In source mode, `web_runtime` returns a bare `"node"` (`heph.rs:200`) without checking that it's on PATH or at least version 22 (`package.json` requires `>=22`; the server bundle targets `node22`). If it's missing, the error only appears when launching it (`heph.rs:241-245`). By then `ensure_daemon` may already have created the data directory, written `heph.pid`, run `hephaestus init --fixture quickstart`, and left a detached daemon running. **Fix:** find `node` on PATH (and ideally run `node --version`) inside `web_runtime`, before any daemon work. `install.sh:143` also only checks for npm, never for Node 22+.
+
+2. **Medium-low — killing `heph` directly leaves an orphaned web server.** Node runs in the same process group (`heph.rs:232-235`) and `heph` has no signal handling. Ctrl+C and closing the terminal reach both processes, which is fine. But `kill <heph-pid>` (SIGTERM to `heph` only) leaves Node serving on 127.0.0.1 with a valid token until someone finds it. Also, when Node dies from a signal, `heph` exits with a plain 1 instead of 128+signal (`heph.rs:237-240`).
+
+3. **Low — a packaged binary can still fall back to source mode.** The binary has the build machine's checkout path compiled in (`heph.rs:218`, via `CARGO_MANIFEST_DIR`). If `share/hephaestus/package.json` is missing (a damaged install, or someone copying just `bin/`), the packaged `heph` quietly switches to host `node` plus `<build-machine-path>/apps/hephaestus-web/dist/main.mjs`. Whether it's a package should be decided when it's built (e.g. a compile-time flag), not by checking for a file at runtime. As it stands, it also leaks the build machine's path into the release binary.
+
+4. **Low — the asset list is maintained by hand in four places.** It appears in `heph.rs:176-183`, `package_macos.py:163-166`, `package/install.sh:33` and `server.ts:21-27`, and no test checks they agree. Also, the package records no hashes for the web assets: `is_file()` accepts a truncated or empty file, and the `heph.rs` tests write the placeholder `b"asset"`.
+
+5. **Low (UX):**
+   - If `heph web` started the daemon, it keeps running after Ctrl+C, and nothing tells the user to run `heph stop`.
+   - There's no `--port` flag; the only way to set the port is the undocumented `HEPHAESTUS_WEB_PORT` (`main.ts:18`).
+   - `heph stop --no-daemon` is accepted and does nothing, because the flag is global.
+   - Node inherits the full environment, including `NODE_OPTIONS` and `NODE_PATH`, so host settings can change how the bundled runtime behaves.
+
+6. **Low (test gap) — "builds once" isn't actually tested.** `test_source_install.py:90` checks that `run build` appeared, not that it appeared exactly once.
+
+## Not yet shown at runtime (for your acceptance run)
+
+- The `test_macos_package.py` tests use a fake `node` and placeholder asset text, so nothing yet shows the real Node 24.21.0 bundle serving the console from a moved install.
+- No test runs `run_web` end to end. Daemon-before-runtime ordering, `HEPHAESTUS_HOME` reaching the Node client, and nothing being spawned when the bundle is broken are only verified by reading the code.
+- Whether macOS Gatekeeper lets the unsigned `bin/node` run when the downloaded tarball has the quarantine flag set.
+- Whether the bundled server's top-level-await wrapper (`main.mjs`) works under Node 24.
+
+Also, there are untracked `.DS_Store` and `python/.DS_Store` files in the working tree; leave them out of the commit.

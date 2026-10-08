@@ -35,6 +35,10 @@ done
 
 FAKE_NPM = """#!/bin/sh
 echo "$@" >> "$FAKE_LOG/npm.log"
+echo "$PWD $@" >> "$FAKE_LOG/npm-cwd.log"
+if [ "${FAKE_WEB_FAIL:-}" = 1 ] && [ "$1 $2" = 'run build' ]; then
+    exit 7
+fi
 """
 
 
@@ -44,7 +48,7 @@ class SourceInstallTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.work, ignore_errors=True)
         self.bin = self.work / "fake-bin"
         self.bin.mkdir()
-        for name, body in (("cargo", FAKE_CARGO), ("npm", FAKE_NPM)):
+        for name, body in (("cargo", FAKE_CARGO), ("npm", FAKE_NPM), ("node", "#!/bin/sh\necho 22\n")):
             path = self.bin / name
             path.write_text(body)
             path.chmod(0o755)
@@ -71,6 +75,7 @@ class SourceInstallTests(unittest.TestCase):
 
     def test_senate_only_installs_just_the_senate_without_npm(self) -> None:
         (self.bin / "npm").unlink()
+        (self.bin / "node").unlink()
         result = self.install("--senate-only")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.installed(), {"senate"})
@@ -83,7 +88,22 @@ class SourceInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.installed(), FULL)
         self.assertIn("ci", self.log("npm.log"))
+        self.assertEqual(self.log("npm-cwd.log").splitlines().count(f"{ROOT}/apps/hephaestus-web run build"), 1)
         self.assertIn("Run: heph", result.stderr)
+
+    def test_full_install_stops_before_linking_if_the_web_build_fails(self) -> None:
+        self.env["FAKE_WEB_FAIL"] = "1"
+        result = self.install("--full")
+        self.assertEqual(result.returncode, 7)
+        self.assertFalse(self.prefix.exists())
+
+    def test_full_install_rejects_old_node_before_building(self) -> None:
+        (self.bin / "node").write_text("#!/bin/sh\necho 20\n")
+        result = self.install("--full")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Node.js 22+ is required", result.stderr)
+        self.assertNotIn("build", self.log("cargo.log"))
+        self.assertFalse(self.prefix.exists())
 
     def test_non_interactive_default_is_the_full_install(self) -> None:
         result = self.install()

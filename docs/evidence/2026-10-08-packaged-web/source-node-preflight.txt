@@ -1,0 +1,1 @@
+Real source-installed launcher: missing and Node 20 runtimes rejected before data-directory or daemon creation.

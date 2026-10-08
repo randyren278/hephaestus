@@ -1,0 +1,5 @@
+Cargo: /Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo
+Rustc: /Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/rustc
+Updated Rust sources: []
+    Checking hephaestus-control v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-control)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.73s

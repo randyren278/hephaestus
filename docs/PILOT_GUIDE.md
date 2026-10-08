@@ -56,16 +56,14 @@ current acceptance evidence before choosing a delivery route.
 ## Measure and decide
 
 Run the paired comparison and record Selection. Start the
-[web console from a source checkout](../apps/hephaestus-web/README.md#run-from-a-source-checkout)
+[installed web console](../apps/hephaestus-web/README.md#launch-from-an-installation)
 with your pilot data directory. Open **Evidence & activity**, then the
 comparison's **Agent identities and report** details and choose
 **Download evidence report**. Check its scores and gate results against the daemon.
-For a fresh checkout, use the printed pilot directory in the console command:
+Use the printed pilot directory in the console command:
 
 ```sh
-cd apps/hephaestus-web
-npm ci
-HEPHAESTUS_HOME="/your/printed/pilot/directory/data" npm start
+heph web --data-dir "/your/printed/pilot/directory/data" --no-daemon
 ```
 
 Restart the same daemon and replay the saved history. Retain a tie or regression

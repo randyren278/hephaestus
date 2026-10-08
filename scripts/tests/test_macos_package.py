@@ -37,6 +37,10 @@ def write_package(directory: Path, architecture: str = "arm64", version: str = "
     (share / "architecture").write_text(architecture + "\n", encoding="utf-8")
     (share / "tui").mkdir()
     (share / "tui/main.mjs").write_text("process.exit(0)\n", encoding="utf-8")
+    for asset in PACKAGE_BUILDER.WEB_ASSETS:
+        path = share / "web" / asset
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"web asset: {asset}\n", encoding="utf-8")
     for name, relative in PACKAGE_BUILDER.FIXTURES.items():
         PACKAGE_BUILDER.copy_tree(ROOT / relative, share / "fixtures" / name)
     installer = root / "install.sh"
@@ -158,6 +162,50 @@ class MacosPackageTests(unittest.TestCase):
             self.assertEqual(subprocess.check_output([str(node), "--version"], text=True).strip(), "v24.21.0")
             tui = moved / "share/hephaestus/current/share/hephaestus/tui/main.mjs"
             self.assertTrue(tui.is_file())
+            for asset in PACKAGE_BUILDER.WEB_ASSETS:
+                path = moved / "share/hephaestus/current/share/hephaestus/web" / asset
+                self.assertEqual(path.read_text(), f"web asset: {asset}\n")
+
+    def test_web_bundle_copies_complete_assets_and_rejects_missing_payloads(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="hephaestus-web-bundle-") as temporary:
+            root = Path(temporary)
+            dist = root / "apps/hephaestus-web/dist"
+            share = root / "share/hephaestus"
+            for asset in PACKAGE_BUILDER.WEB_ASSETS:
+                path = dist / asset
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(f"payload: {asset}".encode())
+            PACKAGE_BUILDER.bundle_web(root, share)
+            for asset in PACKAGE_BUILDER.WEB_ASSETS:
+                self.assertEqual((share / "web" / asset).read_bytes(), (dist / asset).read_bytes())
+                with self.subTest(missing=asset):
+                    (dist / asset).unlink()
+                    with self.assertRaisesRegex(RuntimeError, "web console asset was not produced"):
+                        PACKAGE_BUILDER.bundle_web(root, root / "incomplete")
+                    self.assertFalse((root / "incomplete").exists())
+                    (dist / asset).write_bytes(b"restored")
+
+    def test_installer_rejects_incomplete_web_assets_before_changing_the_prefix(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="hephaestus-install-web-") as temporary:
+            base = Path(temporary)
+            package_root = write_package(base / "archive")
+            fake_bin = base / "fake-bin"
+            fake_bin.mkdir()
+            self.add_platform_tools(fake_bin)
+            prefix = base / "prefix"
+            env = dict(os.environ, HOME=str(base), PATH=f"{fake_bin}:/usr/bin:/bin")
+            for asset in PACKAGE_BUILDER.WEB_ASSETS:
+                with self.subTest(missing=asset):
+                    path = package_root / "hephaestus/share/hephaestus/web" / asset
+                    path.unlink()
+                    result = subprocess.run(
+                        [str(package_root / "install.sh"), "--prefix", str(prefix)],
+                        env=env, capture_output=True, text=True, timeout=20,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"web console asset is missing: {asset}", result.stderr)
+                    self.assertFalse(prefix.exists())
+                    path.write_text("restored")
 
     def test_installer_rejects_a_mismatched_architecture_without_installing(self) -> None:
         with tempfile.TemporaryDirectory(prefix="hephaestus-install-arch-") as temporary:

@@ -1,0 +1,22 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.11s
+     Running unittests src/bin/heph.rs (target/debug/deps/heph-f2c121e8bfb4d232)
+
+running 15 tests
+test tests::only_an_explicit_yes_chooses_the_senate ... ok
+test tests::data_dir_flag_parses_as_a_path ... ok
+test tests::stop_subcommand_parses ... ok
+test tests::tour_and_no_daemon_flags_parse ... ok
+test tests::default_invocation_starts_the_daemon_and_shows_no_forced_tour ... ok
+test tests::senate_hint_points_at_the_installed_binary_or_the_installer ... ok
+test tests::web_accepts_data_directory_and_no_daemon_flags_after_the_subcommand ... ok
+test tests::tour_marker_is_incomplete_when_the_file_is_absent ... ok
+test tests::tour_marker_is_complete_once_the_tui_writes_it ... ok
+test tests::tour_marker_is_incomplete_when_the_file_is_malformed ... ok
+test tests::source_web_requires_a_prebuilt_complete_bundle ... ok
+test tests::installed_web_uses_its_runtime_and_never_falls_back_to_source_assets ... ok
+test tests::web_node_preflight_rejects_missing_old_and_failed_runtimes ... ok
+test tests::wait_until_ready_succeeds_once_the_probe_reports_ready ... ok
+test tests::wait_until_ready_times_out_when_the_probe_never_succeeds ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s

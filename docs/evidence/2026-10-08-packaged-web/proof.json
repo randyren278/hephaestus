@@ -1,0 +1,60 @@
+{
+  "base_commit": "e07a1212944ecc5e7b98ac7e71e8cc70b04aa02e",
+  "archive_sha256": "959668ef03b666248f2b180638fcbaa22af96689c449d26ebb10268560ad7169",
+  "archive_bytes": 46597818,
+  "packaged_files_sha256": {
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/heph": "524118e5b0dfa31b2633c87128e1bd4a7df7da263e31f62b629b0d0742031fbf",
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/main.bundle.mjs": "0ccf56ec3809d385473513ce22a03694ba585d2728c276c646e4b25ae6e58c98",
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/main.mjs": "9eb8cee40880e34cc0d6c593479b596a02fcbeb8ea00762e1cfb0291ffa9f33c",
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/web/app.js": "2d549fef21c5cf4cabb2f6b2717af6681414c9ec0e284c8d4a5e3fb335af5b3d",
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/web/index.html": "fb60fd0f696414e5ac0cad17e6634ac4fbbabae1422c53e2d421c772546308da",
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/web/styles.css": "cf1028cb82234035ffec2f142b8d66032c25596f382e210e5b5878adee7bffd3",
+    "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/web/web-header-crest.svg": "8248f79fded60babfc884cdc87f3ddca742078843ccc72e06f6758ef29a10163"
+  },
+  "source_hashes": {
+    "crates/hephaestus-control/src/bin/heph.rs": "12aa1dff8718a71108ad8b02d1e4ef8088db3f80e9f3510982d75e61a67bdbaa",
+    "scripts/install.sh": "e07cd5751015c5590ab7e84a6a824dc971d490c7046a9c1531b3f5dc15b5590f",
+    "scripts/package_macos.py": "a7e9618b0c79eda6cc1a91e2d26172247a4114a983de398acfe49b8a79c33b26",
+    "scripts/package/install.sh": "65be8ed19889c5f43b6021306097dd4bf534d77340255aa1f8b353f69b3b79b0",
+    "scripts/package/web_acceptance.py": "3aeb26f0c8ee7c8cf399fb2019049d23fe846aaef1b5a5093ab9b3701220d5c0",
+    "scripts/package_macos_acceptance.sh": "ffb9e146c8ba93ba3ac5a59609ebe17fe5f886c70ac5c6408eb25af48f8cbb4d"
+  },
+  "package_acceptance_exit": 0,
+  "browser_boundary_exit": 0,
+  "source_install_exit": 0,
+  "source_browser_acceptance_exit": 0,
+  "source_node_preflight_exit": 0,
+  "rust_1_88_launcher_check_exit": 0,
+  "launcher_tests_passed": 15,
+  "installer_contracts_passed": 20,
+  "desktop_viewport": [
+    1280,
+    900
+  ],
+  "mobile_viewport": [
+    390,
+    844
+  ],
+  "mobile_document_width": 375,
+  "actual_report_button_clicked": true,
+  "browser_report_identities_match_cli": true,
+  "scope": "native ARM64 locally built unsigned archive; deterministic offline reference agents; no live-provider, hosted-release, Intel or quarantine evidence",
+  "browser_report_scores_cost_latency_and_gates_match_cli": true,
+  "browser_session_fragment_removed": true,
+  "bundled_foreground_node_verified": true,
+  "browser_and_owned_daemon_stopped": true,
+  "workspace_tests": {
+    "command": "RUST_TEST_THREADS=2 cargo test --workspace --all-features",
+    "passed_including_doc_tests": 721,
+    "failed": 0,
+    "ignored": 0,
+    "exit": 0
+  },
+  "rust_1_88_all_targets_all_features_exit": 0,
+  "tui_tests_passed": 191,
+  "web_tests_passed": 40,
+  "python_tests_passed": 47,
+  "clippy_workspace_both_modes_exit": 0,
+  "mutation_source_anchors": 429,
+  "installed_files_match_tested_archive": true
+}

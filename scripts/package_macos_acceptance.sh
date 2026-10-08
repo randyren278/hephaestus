@@ -124,6 +124,7 @@ printf '%s\n' "$SELECTION"
 }
 "$CLI" --data-dir "$DATA" replay
 "$WORK/tools/python3" "$ROOT/scripts/package/tui_acceptance.py" "$CLI" "$DATA" "$HOME" "$PATH"
+"$WORK/tools/python3" "$ROOT/scripts/package/web_acceptance.py" "$HEPH" "$CLI" "$DATA" "$HOME" "$EVALUATION_ID"
 
 CODING=$("$CLI" --data-dir "$DATA" --json evolve coding --budget 6)
 printf '%s\n' "$CODING"
@@ -145,4 +146,4 @@ printf '%s\n' "$GAUNTLET_REFERENCE" | grep -q '"status":"complete"' || {
   exit 1
 }
 
-echo "Isolated-home macOS package install, relocation, fresh six-step tour, fixture init, offline Arena, replay, bundled TUI, gauntlet-coding evolve, and gauntlet-reference acceptance passed (host Git prerequisite)."
+echo "Isolated-home macOS package install, relocation, fresh six-step tour, fixture init, offline Arena, replay, bundled TUI and browser, gauntlet-coding evolve, and gauntlet-reference acceptance passed (host Git prerequisite)."

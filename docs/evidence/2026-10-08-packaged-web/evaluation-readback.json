@@ -1,0 +1,34 @@
+{
+  "evaluation": {
+    "evaluation_id": "package-9126ea8973b16f7fed00d348fb628172cfc1639e",
+    "world_id": "hephaestus:world:154142f177eb4c254ce1184af94a09e7ffa17c41f25db337d3a97177e2fc727e",
+    "parent_genome_id": "hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71",
+    "candidate_genome_id": "hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21",
+    "parent_visible_correct": 0,
+    "candidate_visible_correct": 1,
+    "visible_total": 1,
+    "event": {
+      "sequence": 38,
+      "event_id": "arena:evaluation:package-9126ea8973b16f7fed00d348fb628172cfc1639e:recorded",
+      "aggregate_id": "arena:evaluation:package-9126ea8973b16f7fed00d348fb628172cfc1639e",
+      "event_type": "evaluation.recorded",
+      "actor": "arena-plane",
+      "timestamp_millis": 1791474919239
+    }
+  },
+  "selection": {
+    "metrics_eligible": true,
+    "estimate_bps": 10000,
+    "lower_bps": 10000,
+    "upper_bps": 10000,
+    "parent_cost_microusd": 0,
+    "candidate_cost_microusd": 0,
+    "parent_latency_millis": 68,
+    "candidate_latency_millis": 71,
+    "invariant_gate_verified": false,
+    "promotion_eligible": false
+  },
+  "invariants": null,
+  "forge_assessment": null,
+  "champion_transition_ids": []
+}

@@ -6,6 +6,23 @@ are separate daemon-adjacent processes, not part of this browser surface;
 this console cannot mutate canonical state — it forwards a fixed allowlist
 of read-only commands to the daemon and nothing else.
 
+## Launch from an installation
+
+The macOS package includes the console, static assets and Node runtime. A full
+source installation builds the console once and uses your Node.js 22+ runtime.
+
+```sh
+heph web
+# Inspect an existing pilot without starting another daemon:
+heph web --data-dir /path/to/pilot/data --no-daemon
+```
+
+`heph web` starts a missing daemon frozen with the quickstart source fixture.
+It skips the Senate question and terminal tour. It never unfreezes or executes
+an agent. Ctrl+C stops the browser server; the daemon keeps running. Stop it
+with `heph stop --data-dir /path/to/pilot/data` when finished. Host
+`NODE_OPTIONS` and `NODE_PATH` do not affect this launch.
+
 ## Run from a source checkout
 
 Requires Node.js 22 or newer and a running Hephaestus daemon.
@@ -16,7 +33,7 @@ npm ci
 npm start
 ```
 
-`npm start` prints a URL once bound, for example:
+Both launch paths print a URL once bound, for example:
 
 ```
 Hephaestus web console: http://127.0.0.1:47213/#token=<64 hex characters>

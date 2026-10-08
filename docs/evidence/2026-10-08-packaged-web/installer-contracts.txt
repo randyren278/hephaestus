@@ -1,0 +1,25 @@
+test_bundle_fixtures_copies_every_named_fixture_by_its_installed_name (scripts.tests.test_macos_package.MacosPackageTests.test_bundle_fixtures_copies_every_named_fixture_by_its_installed_name) ... ok
+test_bundled_fixtures_cover_quickstart_gauntlet_coding_and_gauntlet_reference (scripts.tests.test_macos_package.MacosPackageTests.test_bundled_fixtures_cover_quickstart_gauntlet_coding_and_gauntlet_reference) ... ok
+test_first_run_launcher_is_bundled (scripts.tests.test_macos_package.MacosPackageTests.test_first_run_launcher_is_bundled) ... ok
+test_installer_refuses_to_replace_a_broken_release_symlink (scripts.tests.test_macos_package.MacosPackageTests.test_installer_refuses_to_replace_a_broken_release_symlink) ... ok
+test_installer_rejects_a_mismatched_architecture_without_installing (scripts.tests.test_macos_package.MacosPackageTests.test_installer_rejects_a_mismatched_architecture_without_installing) ... ok
+test_installer_rejects_incomplete_web_assets_before_changing_the_prefix (scripts.tests.test_macos_package.MacosPackageTests.test_installer_rejects_incomplete_web_assets_before_changing_the_prefix) ... ok
+test_installer_survives_relocation_and_keeps_binaries_adjacent (scripts.tests.test_macos_package.MacosPackageTests.test_installer_survives_relocation_and_keeps_binaries_adjacent) ... ok
+test_node_runtime_is_pinned_for_both_macos_architectures (scripts.tests.test_macos_package.MacosPackageTests.test_node_runtime_is_pinned_for_both_macos_architectures) ... ok
+test_senate_binary_is_bundled (scripts.tests.test_macos_package.MacosPackageTests.test_senate_binary_is_bundled) ... ok
+test_version_comes_from_workspace_metadata (scripts.tests.test_macos_package.MacosPackageTests.test_version_comes_from_workspace_metadata) ... ok
+test_web_bundle_copies_complete_assets_and_rejects_missing_payloads (scripts.tests.test_macos_package.MacosPackageTests.test_web_bundle_copies_complete_assets_and_rejects_missing_payloads) ... ok
+test_conflicting_modes_are_rejected (scripts.tests.test_source_install.SourceInstallTests.test_conflicting_modes_are_rejected) ... ok
+test_force_color_emits_truecolor_escapes (scripts.tests.test_source_install.SourceInstallTests.test_force_color_emits_truecolor_escapes) ... ok
+test_full_install_rejects_old_node_before_building (scripts.tests.test_source_install.SourceInstallTests.test_full_install_rejects_old_node_before_building) ... ok
+test_full_install_stops_before_linking_if_the_web_build_fails (scripts.tests.test_source_install.SourceInstallTests.test_full_install_stops_before_linking_if_the_web_build_fails) ... ok
+test_full_installs_everything_including_the_senate (scripts.tests.test_source_install.SourceInstallTests.test_full_installs_everything_including_the_senate) ... ok
+test_interactive_run_asks_and_yes_means_senate_only (scripts.tests.test_source_install.SourceInstallTests.test_interactive_run_asks_and_yes_means_senate_only) ... ok
+test_non_interactive_default_is_the_full_install (scripts.tests.test_source_install.SourceInstallTests.test_non_interactive_default_is_the_full_install) ... ok
+test_non_tty_output_has_no_escape_codes (scripts.tests.test_source_install.SourceInstallTests.test_non_tty_output_has_no_escape_codes) ... ok
+test_senate_only_installs_just_the_senate_without_npm (scripts.tests.test_source_install.SourceInstallTests.test_senate_only_installs_just_the_senate_without_npm) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 2.449s
+
+OK

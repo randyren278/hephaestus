@@ -5,7 +5,8 @@
 # including the `heph` launcher — into a user-local prefix (default
 # ~/.local/bin). Installs the operator TUI's npm dependencies so `heph`/
 # `hephaestus tui` can run it straight from this checkout; nothing is
-# compiled or bundled for the TUI, it runs from source via `tsx`.
+# compiled or bundled for the TUI, it runs from source via `tsx`. Builds the
+# browser console once for `heph web`, which uses the host Node.js 22+ runtime.
 #
 # Never uses sudo and never writes outside this checkout's own `target/`
 # directory (or $CARGO_TARGET_DIR) and the chosen --prefix. Safe to re-run:
@@ -140,6 +141,12 @@ if [ "$MODE" = "--senate-only" ]; then
     BINARIES="senate"
 else
     command -v npm >/dev/null 2>&1 || fail "npm is required to run the operator TUI from a source checkout"
+    command -v node >/dev/null 2>&1 || fail "Node.js 22+ is required for the source consoles"
+    NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
+    case "$NODE_MAJOR" in
+        ''|*[!0-9]*) fail "could not determine the Node.js version" ;;
+    esac
+    [ "$NODE_MAJOR" -ge 22 ] || fail "Node.js 22+ is required for the source consoles"
     NPM_V="$(npm --version 2>/dev/null | head -n1)"
     ok "npm${NPM_V:+ ($NPM_V)}"
     # `heph` is the launcher; the rest are the binaries it and `hephaestus`
@@ -173,6 +180,10 @@ if [ "$MODE" = "--full" ]; then
     ( cd "$ROOT/apps/hephaestus-tui" && npm ci )
     NPM_ELAPSED=$(($(date +%s) - NPM_START))
     ok "installed in ${NPM_ELAPSED}s"
+    echo >&2
+    step "Building the browser console"
+    ( cd "$ROOT/apps/hephaestus-web" && npm ci && npm run build )
+    ok "browser console built; launch with heph web"
     echo >&2
 fi
 

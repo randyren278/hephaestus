@@ -1,0 +1,1 @@
+Real full source install: Node 22 serves prebuilt browser assets, selects requested data directory, bootstraps frozen with no evaluation, ignores invalid host NODE_OPTIONS, and stops its browser on Ctrl+C while preserving the daemon. Owned daemon explicitly stopped afterward.

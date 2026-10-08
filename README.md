@@ -92,6 +92,11 @@ heph --tour
 
 Prefer a prebuilt macOS package? See [macOS installation](docs/MACOS_INSTALL.md).
 
+Run `heph web` to inspect the same daemon in your browser and download
+comparison reports. The macOS package includes its Node runtime and browser
+assets. For a separate pilot, use `heph web --data-dir /path/to/data --no-daemon`
+and open the printed local URL.
+
 ## Try it in five minutes
 
 The quickest proof is one script. It builds everything and runs the whole

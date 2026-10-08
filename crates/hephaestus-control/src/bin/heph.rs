@@ -8,6 +8,8 @@
 //! `hephaestus` subcommands (spawning `hephaestusd`, running
 //! `hephaestus init --fixture quickstart`, running `hephaestus tui`), and the
 //! daemon it starts still boots frozen exactly as it does launched by hand.
+//! `heph web` serves the read-only browser console using the same daemon
+//! bootstrap, without the first-run question or terminal tour.
 //! An operator who prefers to drive each step themselves can do everything
 //! `heph` does with the ordinary CLI.
 //!
@@ -40,13 +42,13 @@ const DAEMON_READY_POLL: Duration = Duration::from_millis(20);
 )]
 struct Arguments {
     /// Canonical daemon data directory (defaults like `hephaestus`).
-    #[arg(long)]
+    #[arg(long, global = true)]
     data_dir: Option<PathBuf>,
     /// Force the first-run tour to play even if it was already completed.
     #[arg(long)]
     tour: bool,
     /// Never start a daemon; fail if one is not already running.
-    #[arg(long = "no-daemon")]
+    #[arg(long = "no-daemon", global = true)]
     no_daemon: bool,
     #[command(subcommand)]
     command: Option<HephCommand>,
@@ -56,6 +58,8 @@ struct Arguments {
 enum HephCommand {
     /// Stop the daemon serving this data directory.
     Stop,
+    /// Serve the local, read-only browser console and evidence reports.
+    Web,
 }
 
 /// Durable first-run marker shared with the TUI at `<data_dir>/tui/tour.json`.
@@ -80,6 +84,13 @@ fn main() -> ExitCode {
     };
     if matches!(arguments.command, Some(HephCommand::Stop)) {
         return run_stop(&data_dir);
+    }
+    if matches!(arguments.command, Some(HephCommand::Web)) {
+        if arguments.tour {
+            eprintln!("heph: --tour is for the terminal console; omit it when running `heph web`");
+            return ExitCode::FAILURE;
+        }
+        return run_web(&data_dir, arguments.no_daemon);
     }
     let first_run = !arguments.tour && !tour_marker_completed(&data_dir);
     if first_run && io::stdin().is_terminal() && ask_senate_only() {
@@ -132,31 +143,152 @@ fn run_stop(data_dir: &Path) -> ExitCode {
 }
 
 fn run_launch(data_dir: &Path, force_tour: bool, no_daemon: bool) -> ExitCode {
+    if let Err(error) = ensure_daemon(data_dir, no_daemon) {
+        eprintln!("heph: {error}");
+        return ExitCode::FAILURE;
+    }
+    let show_tour = force_tour || !tour_marker_completed(data_dir);
+    run_tui(data_dir, show_tour)
+}
+
+fn ensure_daemon(data_dir: &Path, no_daemon: bool) -> Result<(), String> {
     if !daemon_reachable(data_dir) {
         if no_daemon {
-            eprintln!(
-                "heph: no daemon is running for {}; omit --no-daemon to start one automatically",
+            return Err(format!(
+                "no daemon is running for {}; omit --no-daemon to start one automatically",
                 data_dir.display()
-            );
-            return ExitCode::FAILURE;
+            ));
         }
-        if let Err(error) = start_daemon(data_dir) {
-            eprintln!("heph: {error}");
-            return ExitCode::FAILURE;
-        }
+        start_daemon(data_dir)?;
         let client = Client::new(data_dir.to_path_buf());
         if !wait_until_ready(DAEMON_READY_TIMEOUT, || {
             client.request(Command::Status).is_ok()
         }) {
-            eprintln!(
-                "heph: hephaestusd did not become ready within {DAEMON_READY_TIMEOUT:?}; see {}",
+            return Err(format!(
+                "hephaestusd did not become ready within {DAEMON_READY_TIMEOUT:?}; see {}",
                 data_dir.join("logs/hephaestusd.log").display()
-            );
-            return ExitCode::FAILURE;
+            ));
         }
     }
-    let show_tour = force_tour || !tour_marker_completed(data_dir);
-    run_tui(data_dir, show_tour)
+    Ok(())
+}
+
+const WEB_ASSETS: [&str; 6] = [
+    "main.mjs",
+    "main.bundle.mjs",
+    "web/index.html",
+    "web/app.js",
+    "web/styles.css",
+    "web/web-header-crest.svg",
+];
+
+/// An installed package must use its own runtime and complete bundle, even
+/// when the build checkout still happens to be present on the machine.
+fn web_runtime(exe_dir: &Path, source_web: &Path) -> Result<(PathBuf, PathBuf), String> {
+    let share = exe_dir.join("../share/hephaestus");
+    let packaged = share.is_dir() || sibling_binary(exe_dir, "node").is_file();
+    let (node, bundle) = if packaged {
+        let node = sibling_binary(exe_dir, "node");
+        if !node.is_file() {
+            return Err(
+                "installed web console's bundled Node runtime is missing; reinstall the package"
+                    .to_owned(),
+            );
+        }
+        (node, share.join("web"))
+    } else {
+        (PathBuf::from("node"), source_web.join("dist"))
+    };
+    for asset in WEB_ASSETS {
+        if !bundle.join(asset).is_file() {
+            return Err(if packaged {
+                format!("installed web console asset is missing: {asset}; reinstall the package")
+            } else {
+                "source web console bundle is unavailable; run scripts/install.sh --full or `npm ci && npm run build` in apps/hephaestus-web".to_owned()
+            });
+        }
+    }
+    Ok((node, bundle.join("main.mjs")))
+}
+
+fn check_web_node(node: &Path) -> Result<(), String> {
+    let output = ProcessCommand::new(node)
+        .arg("--version")
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .output()
+        .map_err(|error| {
+            format!("could not start web runtime ({error}); Node.js 22+ is required")
+        })?;
+    let version = String::from_utf8_lossy(&output.stdout);
+    let major = version.trim().strip_prefix('v').and_then(|version| {
+        version
+            .split('.')
+            .next()
+            .and_then(|major| major.parse::<u32>().ok())
+    });
+    if !output.status.success() || major.is_none_or(|major| major < 22) {
+        return Err(
+            "web console requires Node.js 22+; update source Node or reinstall the macOS package"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn run_web(data_dir: &Path, no_daemon: bool) -> ExitCode {
+    let runtime = current_exe_dir().and_then(|exe_dir| {
+        web_runtime(
+            &exe_dir,
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/hephaestus-web"),
+        )
+    });
+    let (node, entrypoint) = match runtime {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("heph: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(error) = check_web_node(&node) {
+        eprintln!("heph: {error}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(error) = ensure_daemon(data_dir, no_daemon) {
+        eprintln!("heph: {error}");
+        return ExitCode::FAILURE;
+    }
+    eprintln!(
+        "heph: stopping the browser leaves the daemon running; use `heph stop` with the same data directory to stop it"
+    );
+    let mut command = ProcessCommand::new(node);
+    command
+        .arg(entrypoint)
+        .env("HEPHAESTUS_HOME", data_dir)
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH");
+    // The browser owns this foreground process. Exec preserves normal
+    // terminal signals and avoids leaving Node behind if heph is killed.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let error = command.exec();
+        eprintln!("heph: could not start the web console: {error}");
+        ExitCode::FAILURE
+    }
+    #[cfg(not(unix))]
+    {
+        match command.status() {
+            Ok(status) => status
+                .code()
+                .and_then(|code| u8::try_from(code).ok())
+                .map_or(ExitCode::FAILURE, ExitCode::from),
+            Err(error) => {
+                eprintln!("heph: could not start the web console: {error}");
+                ExitCode::FAILURE
+            }
+        }
+    }
 }
 
 fn daemon_reachable(data_dir: &Path) -> bool {
@@ -340,8 +472,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Arguments, HephCommand, is_yes, senate_hint, sibling_binary, tour_marker_completed,
-        tour_marker_path, wait_until_ready,
+        Arguments, HephCommand, WEB_ASSETS, is_yes, senate_hint, sibling_binary,
+        tour_marker_completed, tour_marker_path, wait_until_ready, web_runtime,
     };
 
     #[test]
@@ -383,6 +515,104 @@ mod tests {
     fn stop_subcommand_parses() {
         let arguments = Arguments::try_parse_from(["heph", "stop"]).expect("stop parses");
         assert!(matches!(arguments.command, Some(HephCommand::Stop)));
+    }
+
+    #[test]
+    fn web_accepts_data_directory_and_no_daemon_flags_after_the_subcommand() {
+        let arguments =
+            Arguments::try_parse_from(["heph", "web", "--data-dir", "/tmp/pilot", "--no-daemon"])
+                .expect("web flags parse");
+        assert!(matches!(arguments.command, Some(HephCommand::Web)));
+        assert_eq!(
+            arguments.data_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/pilot"))
+        );
+        assert!(arguments.no_daemon);
+    }
+
+    fn write_web_bundle(directory: &std::path::Path) {
+        for asset in WEB_ASSETS {
+            let path = directory.join(asset);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"asset").unwrap();
+        }
+    }
+
+    #[test]
+    fn installed_web_uses_its_runtime_and_never_falls_back_to_source_assets() {
+        let directory = tempdir().unwrap();
+        let bin = directory.path().join("bin");
+        let share = directory.path().join("share/hephaestus");
+        let source = directory.path().join("source");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&share).unwrap();
+        std::fs::write(share.join("package.json"), b"{}").unwrap();
+        std::fs::write(sibling_binary(&bin, "node"), b"node").unwrap();
+        write_web_bundle(&share.join("web"));
+        write_web_bundle(&source.join("dist"));
+        let (node, entry) = web_runtime(&bin, &source).unwrap();
+        assert_eq!(node, sibling_binary(&bin, "node"));
+        std::fs::remove_file(share.join("package.json")).unwrap();
+        assert_eq!(web_runtime(&bin, &source).unwrap().0, node);
+        assert_eq!(
+            entry.canonicalize().unwrap(),
+            share.join("web/main.mjs").canonicalize().unwrap()
+        );
+        for asset in WEB_ASSETS {
+            let path = share.join("web").join(asset);
+            std::fs::remove_file(&path).unwrap();
+            let error = web_runtime(&bin, &source).unwrap_err();
+            assert!(error.contains(asset), "{error}");
+            assert!(error.contains("reinstall"), "{error}");
+            std::fs::write(path, b"asset").unwrap();
+        }
+        std::fs::remove_file(sibling_binary(&bin, "node")).unwrap();
+        assert!(
+            web_runtime(&bin, &source)
+                .unwrap_err()
+                .contains("Node runtime is missing")
+        );
+    }
+
+    #[test]
+    fn source_web_requires_a_prebuilt_complete_bundle() {
+        let directory = tempdir().unwrap();
+        let bin = directory.path().join("target/release");
+        let source = directory.path().join("source");
+        assert!(
+            web_runtime(&bin, &source)
+                .unwrap_err()
+                .contains("scripts/install.sh --full")
+        );
+        write_web_bundle(&source.join("dist"));
+        let (node, entry) = web_runtime(&bin, &source).unwrap();
+        assert_eq!(node, std::path::Path::new("node"));
+        assert_eq!(entry, source.join("dist/main.mjs"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn web_node_preflight_rejects_missing_old_and_failed_runtimes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let node = directory.path().join("node");
+        assert!(super::check_web_node(&node).is_err());
+        for (version, exit, accepted) in [
+            ("v20.19.0", 0, false),
+            ("invalid", 0, false),
+            ("v24.21.0", 1, false),
+            ("v22.22.2", 0, true),
+            ("v24.21.0", 0, true),
+        ] {
+            std::fs::write(&node, format!("#!/bin/sh\necho {version}\nexit {exit}\n")).unwrap();
+            std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(
+                super::check_web_node(&node).is_ok(),
+                accepted,
+                "{version}/{exit}"
+            );
+        }
     }
 
     #[test]

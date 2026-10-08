@@ -31,7 +31,7 @@ scripts/install.sh
 
 `scripts/install.sh` builds `hephaestus`, `hephaestusd`, `heph`, and the
 worker/evaluator/guardian helper binaries in release mode, installs the
-operator TUI's npm dependencies, and symlinks the binaries into
+operator TUI's npm dependencies, builds the browser console, and symlinks the binaries into
 `~/.local/bin` (pass `--prefix /some/other/path` to install elsewhere). It
 never uses `sudo`. Build output stays in the checkout (or your chosen
 `CARGO_TARGET_DIR`), dependencies use the usual Cargo/npm caches, and installed
@@ -77,6 +77,14 @@ full launch.
 
 `heph stop` stops the daemon `heph` started. `heph --no-daemon` fails fast
 instead of starting one, if you'd rather manage `hephaestusd` yourself.
+
+Run `heph web` for the read-only browser console and downloadable comparison
+reports. It uses the same data directory and starts a missing daemon frozen,
+without a tour or agent execution. For an existing pilot, use
+`heph web --data-dir /path/to/pilot/data --no-daemon`. Open the printed local
+URL. Ctrl+C closes the browser server and leaves the daemon running;
+`heph stop --data-dir /path/to/pilot/data` stops it. See the
+[browser console guide](../apps/hephaestus-web/README.md).
 
 ## The first-run tour
 

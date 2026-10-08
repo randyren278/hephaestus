@@ -160,6 +160,23 @@ def bundle_fixtures(root: Path, share: Path) -> None:
         copy_tree(root / relative, share / "fixtures" / name)
 
 
+WEB_ASSETS = (
+    "main.mjs", "main.bundle.mjs", "web/index.html", "web/app.js",
+    "web/styles.css", "web/web-header-crest.svg",
+)
+
+
+def bundle_web(root: Path, share: Path) -> None:
+    bundle = root / "apps/hephaestus-web/dist"
+    for asset in WEB_ASSETS:
+        if not (bundle / asset).is_file():
+            raise RuntimeError(f"web console asset was not produced: {asset}")
+    for asset in WEB_ASSETS:
+        destination = share / "web" / asset
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundle / asset, destination)
+
+
 # Fixed epoch used for every tar entry and the gzip header so two builds from
 # identical inputs produce a byte-identical archive regardless of wall-clock
 # build time. This is the reproducible-builds convention (SOURCE_DATE_EPOCH=0).
@@ -210,6 +227,9 @@ def build(args: argparse.Namespace) -> Path:
     app = root / "apps/hephaestus-tui"
     run(["npm", "ci", "--no-audit", "--no-fund"], cwd=app)
     run(["npm", "run", "build:package"], cwd=app)
+    web = root / "apps/hephaestus-web"
+    run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web)
+    run(["npm", "run", "build"], cwd=web)
 
     if not args.skip_cargo_build:
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -256,6 +276,7 @@ def build(args: argparse.Namespace) -> Path:
         if not bundled_code.is_file():
             raise RuntimeError("TUI JavaScript payload was not produced")
         shutil.copy2(bundled_code, share / "tui/main.bundle.mjs")
+        bundle_web(root, share)
         bundle_fixtures(root, share)
         collect_tui_notices(root, share / "licenses/THIRD_PARTY_NOTICES.txt")
         metadata = {

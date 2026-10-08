@@ -1,15 +1,15 @@
 # macOS package
 
-This page covers the macOS package, which includes the terminal console and
+This page covers the macOS package, which includes the terminal and browser consoles and
 its own Node.js runtime. Installed use requires Git; Rust, npm and a source
 checkout are unnecessary. For source installation, see [Getting started](GETTING_STARTED.md).
 
 
-The packaging builder creates a relocatable, architecture-specific compressed tar archive for Apple Silicon (`arm64`) or Intel (`x86_64`). The package keeps `heph`, `hephaestus`, the daemon, reference worker, evaluator, and process guardian together under `bin/`; the daemon and CLI resolve their helper binaries beside themselves. It also contains a bundled Ink TUI and a pinned Node.js 24.21.0 runtime. Running the installed CLI does not require a separate Node or npm installation.
+The packaging builder creates a relocatable, architecture-specific compressed tar archive for Apple Silicon (`arm64`) or Intel (`x86_64`). The package keeps `heph`, `hephaestus`, the daemon, reference worker, evaluator, and process guardian together under `bin/`; the daemon and CLI resolve their helper binaries beside themselves. It also contains a bundled Ink TUI, browser console with evidence report export, and a pinned Node.js 24.21.0 runtime. Running the installed consoles does not require a separate Node or npm installation.
 
 ## Build an archive
 
-Build on macOS with Rust 1.88 or newer, Git, Python 3, Node/npm for TUI compilation, and the selected Rust target installed. The builder downloads the matching Node.js archive from the official Node distribution and verifies its pinned SHA-256 before including it. Those tools are build prerequisites; only Node is bundled for installed use.
+Build on macOS with Rust 1.88 or newer, Git, Python 3, Node.js 22+/npm for console compilation, and the selected Rust target installed. The builder downloads the matching Node.js archive from the official Node distribution and verifies its pinned SHA-256 before including it. Those tools are build prerequisites; only Node is bundled for installed use.
 
 ```sh
 python3 scripts/package_macos.py --arch arm64
@@ -17,7 +17,7 @@ python3 scripts/package_macos.py --arch arm64
 python3 scripts/package_macos.py --arch x86_64
 ```
 
-The Rust build uses a separate package-build target directory by default. The output archive is written under the target packages directory with a workspace version and target architecture in its filename. `scripts/package_macos_acceptance.sh <archive>` installs and exercises an archive in a temporary clean home. It relocates the install tree, completes the six-step tour from an empty data directory, initializes a fixture, runs an offline Arena comparison, replays the ledger, and opens the TUI with no host Node or npm on `PATH`.
+The Rust build uses a separate package-build target directory by default. The output archive is written under the target packages directory with a workspace version and target architecture in its filename. `scripts/package_macos_acceptance.sh <archive>` installs and exercises an archive in a temporary clean home. It relocates the install tree, completes the six-step tour from an empty data directory, initializes a fixture, runs an offline Arena comparison, replays the ledger, and opens both consoles with no host Node or npm on `PATH`. Browser acceptance checks complete static assets, comparison evidence against the CLI, token/Host/Origin guards, the read-only command boundary, fresh frozen bootstrap, and Ctrl+C while preserving the daemon.
 
 ## Install and launch
 
@@ -41,6 +41,18 @@ metrics Selection; invariant verification and promotion remain separate. Quit
 returns to the home menu. Use `heph stop` to stop the daemon, or `heph --tour` to
 repeat the tour. A separate data directory can be selected with
 `heph --data-dir /path/to/data`.
+
+Run `heph web` for the browser console, or inspect an existing pilot:
+
+```sh
+heph web --data-dir /path/to/pilot/data --no-daemon
+```
+
+Open the exact local URL it prints. Under **Evidence & activity**, expand
+**Agent identities and report** and choose **Download evidence report**.
+`heph web` skips the Senate question and terminal tour. It starts a missing
+daemon frozen without running agents. Ctrl+C closes the browser server;
+`heph stop --data-dir /path/to/pilot/data` stops the remaining daemon.
 
 The acceptance script additionally needs Python 3 for its PTY driver. It tests with Git present while excluding host Node and npm from `PATH`; this does not prove operation without Git. The tour verifies replay before stopping its daemon; the separate reference Gauntlet verifies stop/restart recovery.
 

@@ -1,0 +1,85 @@
+
+▲ HEPHAESTUS
+  the forge that duels its own code
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+› Checking toolchain
+  ✓ cargo (cargo 1.98.0 (797e8a9bc 2026-08-05) (Homebrew))
+  ✓ git (git version 2.47.1)
+  ✓ npm (10.9.7)
+
+› Building 7 binaries (release)
+  ◆ heph
+  ◆ hephaestus
+  ◆ hephaestusd
+  ◆ hephaestus-reference-worker
+  ◆ hephaestus-reference-evaluator
+  ◆ hephaestus-process-guardian
+  ◆ senate
+   Compiling libc v0.2.189
+   Compiling serde_json v1.0.151
+   Compiling rustix v0.38.44
+   Compiling errno v0.3.14
+   Compiling cpufeatures v0.2.17
+   Compiling getrandom v0.4.3
+   Compiling fs2 v0.4.3
+   Compiling hephaestus-core v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-core)
+   Compiling hephaestus-ledger v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-ledger)
+   Compiling sha2 v0.10.9
+   Compiling rustix v1.1.4
+   Compiling ed25519-dalek v2.2.0
+   Compiling hephaestus-genome v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-genome)
+   Compiling hephaestus-runtime v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-runtime)
+   Compiling tempfile v3.27.0
+   Compiling hephaestus-senate v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-senate)
+   Compiling hephaestus-experience v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-experience)
+   Compiling hephaestus-arena v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-arena)
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `release` profile [optimized] target(s) in 50.49s
+  ✓ built in 51s
+
+› Installing the operator TUI's dependencies
+
+added 47 packages, and audited 48 packages in 2s
+
+23 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+  ✓ installed in 1s
+
+› Building the browser console
+
+added 7 packages, and audited 8 packages in 518ms
+
+found 0 vulnerabilities
+
+> @hephaestus/web-console@0.1.0 build
+> node scripts/build.mjs
+
+
+  dist/main.bundle.mjs  62.6kb
+
+⚡ Done in 8ms
+
+  dist/web/app.js  34.9kb
+
+⚡ Done in 4ms
+  ✓ browser console built; launch with heph web
+
+› Linking into /tmp/hephaestus-web-source-install/bin
+  ✓ heph
+  ✓ hephaestus
+  ✓ hephaestusd
+  ✓ hephaestus-reference-worker
+  ✓ hephaestus-reference-evaluator
+  ✓ hephaestus-process-guardian
+  ✓ senate
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ◈ Installed Hephaestus
+   from /Users/randyren/Developer/hephaestus
+   into /tmp/hephaestus-web-source-install/bin
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Add /tmp/hephaestus-web-source-install/bin to your PATH, then run: heph
+Run: heph

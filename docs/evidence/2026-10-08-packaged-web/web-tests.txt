@@ -1,0 +1,254 @@
+
+> @hephaestus/web-console@0.1.0 test
+> tsx --test test/*.test.tsx
+
+TAP version 13
+# Subtest: every read-only command builds a strictly typed command with valid identifiers
+ok 1 - every read-only command builds a strictly typed command with valid identifiers
+  ---
+  duration_ms: 1.177834
+  type: 'test'
+  ...
+# Subtest: refuses every mutating or unexposed daemon command
+ok 2 - refuses every mutating or unexposed daemon command
+  ---
+  duration_ms: 0.11375
+  type: 'test'
+  ...
+# Subtest: refuses unknown, malformed, and injected command shapes
+ok 3 - refuses unknown, malformed, and injected command shapes
+  ---
+  duration_ms: 0.079166
+  type: 'test'
+  ...
+# Subtest: refuses an allowed command tag whose required identifier is missing or malformed
+ok 4 - refuses an allowed command tag whose required identifier is missing or malformed
+  ---
+  duration_ms: 0.15625
+  type: 'test'
+  ...
+# Subtest: refuses drift, canary, and meta mutating commands even though their read siblings are allowed
+ok 5 - refuses drift, canary, and meta mutating commands even though their read siblings are allowed
+  ---
+  duration_ms: 0.082583
+  type: 'test'
+  ...
+# Subtest: the allowlist and the refusal ledger partition the protocol command set with no overlap
+ok 6 - the allowlist and the refusal ledger partition the protocol command set with no overlap
+  ---
+  duration_ms: 0.0665
+  type: 'test'
+  ...
+# Subtest: the browser reconnects on a fragment-only navigation after a real 401 response
+ok 7 - the browser reconnects on a fragment-only navigation after a real 401 response
+  ---
+  duration_ms: 19.434958
+  type: 'test'
+  ...
+# Subtest: the actual browser wiring keeps its token on daemon authentication failure
+ok 8 - the actual browser wiring keeps its token on daemon authentication failure
+  ---
+  duration_ms: 1.625959
+  type: 'test'
+  ...
+# Subtest: an older in-flight 401 cannot erase a newly connected browser session
+ok 9 - an older in-flight 401 cannot erase a newly connected browser session
+  ---
+  duration_ms: 3.83475
+  type: 'test'
+  ...
+# Subtest: a measured win alone does not claim a promotion or a passed safety gate
+ok 10 - a measured win alone does not claim a promotion or a passed safety gate
+  ---
+  duration_ms: 1.269208
+  type: 'test'
+  ...
+# Subtest: missing selection is pending even when the visible task count improves
+ok 11 - missing selection is pending even when the visible task count improves
+  ---
+  duration_ms: 0.261875
+  type: 'test'
+  ...
+# Subtest: measured rejection takes precedence over historical Champion transitions
+ok 12 - measured rejection takes precedence over historical Champion transitions
+  ---
+  duration_ms: 0.075
+  type: 'test'
+  ...
+# Subtest: contract failure and a regression budget breach each block a positive verdict
+ok 13 - contract failure and a regression budget breach each block a positive verdict
+  ---
+  duration_ms: 0.160333
+  type: 'test'
+  ...
+# Subtest: invariants require a passing assessment; all gates still do not claim a current Champion
+ok 14 - invariants require a passing assessment; all gates still do not claim a current Champion
+  ---
+  duration_ms: 0.102625
+  type: 'test'
+  ...
+# Subtest: rendered and exported evidence include costs, scores, units and uncertainty
+ok 15 - rendered and exported evidence include costs, scores, units and uncertainty
+  ---
+  duration_ms: 0.191917
+  type: 'test'
+  ...
+# Subtest: a recorded zero is shown with missing-provider-cost context in the screen and export
+ok 16 - a recorded zero is shown with missing-provider-cost context in the screen and export
+  ---
+  duration_ms: 0.100333
+  type: 'test'
+  ...
+# Subtest: small recorded amounts retain all six micro-USD decimals in the screen and export
+ok 17 - small recorded amounts retain all six micro-USD decimals in the screen and export
+  ---
+  duration_ms: 0.079041
+  type: 'test'
+  ...
+# Subtest: agent and evaluation identifiers cannot inject markup or button attributes
+ok 18 - agent and evaluation identifiers cannot inject markup or button attributes
+  ---
+  duration_ms: 0.325125
+  type: 'test'
+  ...
+# Subtest: report identifiers retain their exact bytes without injecting lines into the verdict
+ok 19 - report identifiers retain their exact bytes without injecting lines into the verdict
+  ---
+  duration_ms: 0.54725
+  type: 'test'
+  ...
+# Subtest: generates distinct 256-bit hex session tokens
+ok 20 - generates distinct 256-bit hex session tokens
+  ---
+  duration_ms: 0.64375
+  type: 'test'
+  ...
+# Subtest: tokensMatch requires an exact string match and rejects non-string input
+ok 21 - tokensMatch requires an exact string match and rejects non-string input
+  ---
+  duration_ms: 0.130959
+  type: 'test'
+  ...
+# Subtest: hostIsAllowed accepts only loopback hostnames on the exact bound port
+ok 22 - hostIsAllowed accepts only loopback hostnames on the exact bound port
+  ---
+  duration_ms: 0.094917
+  type: 'test'
+  ...
+# Subtest: originIsAllowed permits no Origin header but rejects a foreign or non-http Origin
+ok 23 - originIsAllowed permits no Origin header but rejects a foreign or non-http Origin
+  ---
+  duration_ms: 0.202375
+  type: 'test'
+  ...
+# Subtest: proxies an allowed command to the real Unix-socket daemon and returns its typed response
+ok 24 - proxies an allowed command to the real Unix-socket daemon and returns its typed response
+  ---
+  duration_ms: 46.547667
+  type: 'test'
+  ...
+# Subtest: refuses a mutating command before it ever reaches the daemon
+ok 25 - refuses a mutating command before it ever reaches the daemon
+  ---
+  duration_ms: 11.976167
+  type: 'test'
+  ...
+# Subtest: refuses requests with a missing or wrong session token
+ok 26 - refuses requests with a missing or wrong session token
+  ---
+  duration_ms: 9.698792
+  type: 'test'
+  ...
+# Subtest: refuses a rebound Host header even when the request otherwise reaches the loopback port
+ok 27 - refuses a rebound Host header even when the request otherwise reaches the loopback port
+  ---
+  duration_ms: 8.645333
+  type: 'test'
+  ...
+# Subtest: refuses a cross-origin API call even with a valid token
+ok 28 - refuses a cross-origin API call even with a valid token
+  ---
+  duration_ms: 10.142708
+  type: 'test'
+  ...
+# Subtest: never sets a CORS header and applies a strict CSP with no inline sources
+ok 29 - never sets a CORS header and applies a strict CSP with no inline sources
+  ---
+  duration_ms: 16.56775
+  type: 'test'
+  ...
+# Subtest: serves the bundled app.js and styles.css as static files
+ok 30 - serves the bundled app.js and styles.css as static files
+  ---
+  duration_ms: 10.2375
+  type: 'test'
+  ...
+# Subtest: rejects a request body over the size limit before it is parsed
+ok 31 - rejects a request body over the size limit before it is parsed
+  ---
+  duration_ms: 6.243125
+  type: 'test'
+  ...
+# Subtest: the fragment establishes a session that survives reloads in the same tab
+ok 32 - the fragment establishes a session that survives reloads in the same tab
+  ---
+  duration_ms: 0.752125
+  type: 'test'
+  ...
+# Subtest: a fresh console URL replaces an old session; malformed fragments clear it
+ok 33 - a fresh console URL replaces an old session; malformed fragments clear it
+  ---
+  duration_ms: 0.2425
+  type: 'test'
+  ...
+# Subtest: disabled browser storage still allows the printed URL to work
+ok 34 - disabled browser storage still allows the printed URL to work
+  ---
+  duration_ms: 0.155958
+  type: 'test'
+  ...
+# Subtest: an unauthenticated tab makes no API request and tells the user how to connect
+ok 35 - an unauthenticated tab makes no API request and tells the user how to connect
+  ---
+  duration_ms: 0.185458
+  type: 'test'
+  ...
+# Subtest: expired sessions get an actionable error even if the HTTP body is not JSON
+ok 36 - expired sessions get an actionable error even if the HTTP body is not JSON
+  ---
+  duration_ms: 14.587125
+  type: 'test'
+  ...
+# Subtest: daemon and Origin authentication failures remain distinct from an expired browser session
+ok 37 - daemon and Origin authentication failures remain distinct from an expired browser session
+  ---
+  duration_ms: 1.318167
+  type: 'test'
+  ...
+# Subtest: connection failures and HTML error pages return visible errors rather than rejected promises
+ok 38 - connection failures and HTML error pages return visible errors rather than rejected promises
+  ---
+  duration_ms: 0.348208
+  type: 'test'
+  ...
+# Subtest: valid daemon data and daemon errors retain their exact meaning
+ok 39 - valid daemon data and daemon errors retain their exact meaning
+  ---
+  duration_ms: 1.499208
+  type: 'test'
+  ...
+# Subtest: an empty or incompatible response fails visibly
+ok 40 - an empty or incompatible response fails visibly
+  ---
+  duration_ms: 1.468041
+  type: 'test'
+  ...
+1..40
+# tests 40
+# suites 0
+# pass 40
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 372.558
