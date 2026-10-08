@@ -328,6 +328,10 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=None,
                         help=f"per-run seconds (default: manifest 'timeout_seconds', "
                              f"else {DEFAULT_TIMEOUT_SECONDS:.0f})")
+    parser.add_argument("--baseline-timeout", type=float, default=None,
+                        help="baseline-only seconds; leaves every mutation's "
+                             "configured timeout unchanged (default: --timeout "
+                             "or manifest 'timeout_seconds')")
     parser.add_argument("--assert-min", type=int, default=0,
                         help="fail unless at least this many mutations ran. This is the "
                              "ratchet: raise it as invariants are added, never lower it")
@@ -370,6 +374,12 @@ def main(argv=None) -> int:
         root = root.parent
     command = shlex.split(args.test_cmd or data.get("test_command") or DEFAULT_TEST_COMMAND)
     timeout = args.timeout or data.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS
+    baseline_timeout = timeout if args.baseline_timeout is None else args.baseline_timeout
+    if (isinstance(baseline_timeout, bool)
+            or not isinstance(baseline_timeout, (int, float))
+            or not math.isfinite(baseline_timeout) or baseline_timeout <= 0):
+        print("MANIFEST ERROR: baseline timeout must be positive and finite", file=sys.stderr)
+        return 1
     try:
         entry_timeouts = {
             entry["id"]: (
@@ -399,13 +409,14 @@ def main(argv=None) -> int:
         f"{value:.0f}s" for value in sorted(set(entry_timeouts.values())))
     print(f"timeout: {timeout:.0f}s default; selected mutation timeout(s): "
           f"{selected_timeouts}")
+    print(f"baseline timeout: {baseline_timeout:g}s")
     if args.shard_count is not None:
         print(f"shard:   {args.shard_index + 1}/{args.shard_count} "
               f"({len(entries)} mutations)")
     print()
 
     if not args.skip_baseline:
-        problem = verify_baseline(root, command, timeout)
+        problem = verify_baseline(root, command, baseline_timeout)
         if problem:
             print(f"FAIL: {problem}", file=sys.stderr)
             return 1

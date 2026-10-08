@@ -5,6 +5,7 @@ import io
 import json
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from mutation_guard import (  # noqa: E402
     ProcessCleanupError,
     _process_group_members,
     _signal_process_group,
+    _run,
 )
 
 
@@ -116,6 +118,103 @@ class MutationManifestTestCmdTests(unittest.TestCase):
 
 
 class MutationTimeoutTests(unittest.TestCase):
+    def test_baseline_extension_preserves_the_mutation_deadline(self) -> None:
+        for hangs in (False, True):
+            with self.subTest(hangs=hangs), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                target = root / "source.txt"
+                target.write_text("guard = true\n")
+                suite = root / "suite.py"
+                suite.write_text(
+                    "import pathlib, sys, time\n"
+                    "if 'true' in pathlib.Path('source.txt').read_text():\n"
+                    "    time.sleep(1.2)\n"
+                    "else:\n"
+                    + ("    time.sleep(60)\n" if hangs else "    sys.exit(1)\n")
+                )
+                manifest = root / "checks.json"
+                manifest.write_text(json.dumps({
+                    "test_command": shlex.join([sys.executable, str(suite)]),
+                    "timeout_seconds": 1,
+                    "mutations": [{
+                        "id": "baseline-extension", "file": "source.txt",
+                        "invariant": "baseline and mutation deadlines are independent",
+                        "find": "true", "replace": "false",
+                    }],
+                }))
+                output = io.StringIO()
+                with (
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(output),
+                    mock.patch("mutation_guard._run", wraps=_run) as run,
+                ):
+                    result = main([
+                        "--manifest", str(manifest), "--root", str(root),
+                        "--baseline-timeout", "5", "--assert-min", "1",
+                    ])
+                self.assertEqual(result, 1 if hangs else 0, output.getvalue())
+                self.assertIn("baseline: unmutated suite is green", output.getvalue())
+                self.assertEqual([call.args[2] for call in run.call_args_list], [5, 1])
+                self.assertIn("TIMEOUT" if hangs else "KILLED", output.getvalue())
+                self.assertEqual(target.read_text(), "guard = true\n")
+
+    def test_invalid_baseline_deadlines_reject_before_running_any_suite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            manifest = root / "checks.json"
+            manifest.write_text(json.dumps({"mutations": [{
+                "id": "invalid-baseline", "file": "source.txt",
+                "invariant": "invalid deadlines cannot run work",
+                "find": "true", "replace": "false",
+            }]}))
+            for value in ("0", "-1", "inf", "nan"):
+                with self.subTest(value=value), mock.patch("mutation_guard._run") as run:
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                        result = main([
+                            "--manifest", str(manifest), "--baseline-timeout", value,
+                        ])
+                    self.assertEqual(result, 1)
+                    self.assertIn("baseline timeout must be positive and finite", output.getvalue())
+                    run.assert_not_called()
+            data = json.loads(manifest.read_text())
+            for value in (True, "120", {"seconds": 120}):
+                manifest.write_text(json.dumps({**data, "timeout_seconds": value}))
+                with self.subTest(manifest_timeout=value), mock.patch("mutation_guard._run") as run:
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                        result = main(["--manifest", str(manifest)])
+                    self.assertEqual(result, 1)
+                    self.assertIn("baseline timeout must be positive and finite", output.getvalue())
+                    run.assert_not_called()
+
+    def test_extended_baseline_still_requires_a_green_suite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            target = root / "source.txt"
+            target.write_text("guard = true\n")
+            manifest = root / "checks.json"
+            manifest.write_text(json.dumps({
+                "test_command": "/usr/bin/false",
+                "mutations": [{
+                    "id": "failed-baseline", "file": "source.txt",
+                    "invariant": "a failing baseline never kills mutations",
+                    "find": "true", "replace": "false",
+                }],
+            }))
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output),
+                mock.patch("mutation_guard.apply_mutation") as mutate,
+            ):
+                result = main([
+                    "--manifest", str(manifest), "--root", str(root),
+                    "--baseline-timeout", "3",
+                ])
+            self.assertEqual(result, 1)
+            self.assertIn("unmutated suite is already failing", output.getvalue())
+            mutate.assert_not_called()
+            self.assertEqual(target.read_text(), "guard = true\n")
+
     def test_longest_matching_prefix_wins(self) -> None:
         entry = {"file": "crates/hephaestus-control/src/server.rs"}
         data = {

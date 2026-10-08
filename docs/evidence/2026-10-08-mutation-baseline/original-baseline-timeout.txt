@@ -1,0 +1,5 @@
+root:    /private/tmp/heph-source.plt2SV/checkout
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 120s, 240s, 480s
+
+FAIL: the unmutated suite did not finish within 120s

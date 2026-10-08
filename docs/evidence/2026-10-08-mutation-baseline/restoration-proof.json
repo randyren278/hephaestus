@@ -1,0 +1,25 @@
+{
+  "scope": "Five affected Python guard mutations in isolated checkout; restoration matches final main-worktree source and Rust crates are unchanged",
+  "checks": [
+    {
+      "path": "checks/mutation_guard.py",
+      "sha256": "2552e5e1aed8794e39d0aa2b4cf8360775cf11a9f2454319751dcc1b63da186a",
+      "isolated_restored_source_matches": true
+    },
+    {
+      "path": "checks/checks.json",
+      "sha256": "ad9c6c8a728a7d9d6b7c261e37073d70327fbe1ca0c08274aac7ba6d934c7ac0",
+      "isolated_restored_source_matches": true
+    },
+    {
+      "path": "python/tests/test_mutation_guard.py",
+      "sha256": "17d098195fd394d47e5fedd5afaafdf38b8f01b2ac86d35a9033cc10f3c1a7da",
+      "isolated_restored_source_matches": true
+    }
+  ],
+  "mutations": 5,
+  "killed": 5,
+  "survived": 0,
+  "stale": 0,
+  "timed_out": 0
+}

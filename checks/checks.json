@@ -1229,6 +1229,20 @@
       "replace": "    if False and result.returncode != 0:\n        raise ProcessCleanupError(\n            f\"process-group inspection failed with exit {result.returncode}\"\n        )"
     },
     {
+      "id": "mutation-baseline-deadline-overrides-mutants",
+      "file": "checks/mutation_guard.py",
+      "invariant": "Extending a full-suite baseline deadline preserves every mutation deadline.",
+      "find": "else mutation_timeout(entry, data, timeout)",
+      "replace": "else mutation_timeout(entry, data, baseline_timeout)"
+    },
+    {
+      "id": "mutation-extended-baseline-skips-green-proof",
+      "file": "checks/mutation_guard.py",
+      "invariant": "An explicitly extended baseline still must pass before any source mutation.",
+      "find": "problem = verify_baseline(root, command, baseline_timeout)",
+      "replace": "problem = None if args.baseline_timeout is not None else verify_baseline(root, command, baseline_timeout)"
+    },
+    {
       "id": "arena-task-claim-unbound",
       "file": "crates/hephaestus-arena/src/lib.rs",
       "invariant": "Every signed result names the exact evaluator task slot it satisfies.",

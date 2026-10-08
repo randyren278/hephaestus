@@ -1,0 +1,28 @@
+root:    /private/tmp/heph-source.plt2SV/checkout
+suite:   env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v (CLI override)
+timeout: 120s default; selected mutation timeout(s): 120s
+baseline timeout: 120s
+
+baseline: unmutated suite is green
+
+RUN       mutation-descendant-sigkill-skipped command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-descendant-sigkill-skipped checks/mutation_guard.py (timeout 120s)
+RUN       mutation-cli-command-override-ignored command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-cli-command-override-ignored checks/mutation_guard.py (timeout 120s)
+RUN       mutation-process-inspection-failure-hidden command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-process-inspection-failure-hidden checks/mutation_guard.py (timeout 120s)
+RUN       mutation-baseline-deadline-overrides-mutants command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-baseline-deadline-overrides-mutants checks/mutation_guard.py (timeout 120s)
+RUN       mutation-extended-baseline-skips-green-proof command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-extended-baseline-skips-green-proof checks/mutation_guard.py (timeout 120s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+mutation-descendant-sigkill-skipped checks/mutation_guard.py     KILLED
+mutation-cli-command-override-ignored checks/mutation_guard.py     KILLED
+mutation-process-inspection-failure-hidden checks/mutation_guard.py     KILLED
+mutation-baseline-deadline-overrides-mutants checks/mutation_guard.py     KILLED
+mutation-extended-baseline-skips-green-proof checks/mutation_guard.py     KILLED
+
+5 mutations run, 5 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed
