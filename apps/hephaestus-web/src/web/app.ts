@@ -1,17 +1,30 @@
-import type {ApiResponse, Champion, Command, Genome, World} from '../../../hephaestus-tui/src/protocol.js';
+import type {ApiResponse, Champion, Command, EvaluationListEntry, Genome, World} from '../../../hephaestus-tui/src/protocol.js';
+import {escapeHtml, renderComparison, comparisonReport} from './comparison.js';
+import {sessionToken, clearSession, requestCommand} from './session.js';
 import {lineDiff, lineageRows, roleOf, type ChampionRole} from '../../../hephaestus-tui/src/lineage.js';
 
-// The session token travels as a URL fragment (never sent to the server by
-// the browser, unlike a query string) and is read once, then stripped from
-// the visible address bar. Every subsequent API call attaches it as a
-// header explicitly.
-const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
-const token = hashParams.get('token') ?? '';
-if (token) history.replaceState(null, '', location.pathname);
+// Session storage is scoped to this tab and origin; it is cleared on rejection.
+let storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+try { storage = window.sessionStorage; } catch { storage = {getItem: () => null, setItem: () => {}, removeItem: () => {}}; }
+let token = sessionToken(location.hash, storage);
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 
 const tokenIndicator = document.getElementById('token-indicator')!;
-tokenIndicator.textContent = token ? 'session token loaded' : 'NO TOKEN — open the printed URL';
-tokenIndicator.className = token ? 'hdr-token ok' : 'hdr-token bad';
+function updateTokenIndicator(): void {
+	tokenIndicator.textContent = token ? 'session token loaded' : 'Open the printed console URL to connect';
+	tokenIndicator.className = token ? 'hdr-token ok' : 'hdr-token bad';
+}
+updateTokenIndicator();
+
+// Pasting a fresh printed URL into this same tab can be a fragment-only
+// navigation. Accept that new session without requiring a full page reload.
+window.addEventListener('hashchange', () => {
+	if (!new URLSearchParams(location.hash.replace(/^#/, '')).has('token')) return;
+	token = sessionToken(location.hash, storage);
+	history.replaceState(null, '', location.pathname + location.search);
+	updateTokenIndicator();
+	void refreshView();
+});
 
 type View = 'status' | 'worlds' | 'genome' | 'genes' | 'drift-canary' | 'experiments' | 'activity';
 const views: Record<View, HTMLElement> = {
@@ -24,36 +37,63 @@ const views: Record<View, HTMLElement> = {
 	activity: document.getElementById('view-activity')!,
 };
 
+let activeView: View = 'status';
+let selectedGenomeId: string | undefined;
+
 function showView(view: View): void {
+	activeView = view;
 	for (const [name, element] of Object.entries(views)) element.hidden = name !== view;
 	for (const tab of document.querySelectorAll<HTMLButtonElement>('.tab')) {
 		tab.classList.toggle('active', tab.dataset['view'] === view);
+		tab.setAttribute('aria-current', tab.dataset['view'] === view ? 'page' : 'false');
 	}
 }
 
 for (const tab of document.querySelectorAll<HTMLButtonElement>('.tab')) {
 	tab.addEventListener('click', () => {
-		const view = tab.dataset['view'] as View;
-		showView(view);
-		if (view === 'genes') void loadGenes();
-		if (view === 'drift-canary') void loadDriftCanary();
-		if (view === 'experiments') void loadExperiments();
-		if (view === 'activity') void loadActivity();
+		showView(tab.dataset['view'] as View);
+		void refreshView();
 	});
-}
-
-function escapeHtml(value: string): string {
-	return value.replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[char]!);
 }
 
 async function api(command: Command): Promise<ApiResponse> {
-	const res = await fetch('/api/command', {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json', 'x-hephaestus-web-token': token},
-		body: JSON.stringify(command),
-	});
-	return (await res.json()) as ApiResponse;
+	let requestToken = token;
+	let response = await requestCommand(command, requestToken);
+	// A read started before reconnection must not replace fresh data with
+	// the old session's error. Retry that read once with the current session.
+	if (requestToken !== token) {
+		requestToken = token;
+		response = await requestCommand(command, requestToken);
+	}
+	if (response.error?.code === 'session_expired' && token === requestToken) {
+		clearSession(storage);
+		token = '';
+		updateTokenIndicator();
+	}
+	return response;
 }
+
+async function refreshView(): Promise<void> {
+	const button = document.getElementById('refresh-btn') as HTMLButtonElement;
+	button.disabled = true;
+	try {
+		switch (activeView) {
+			case 'status': await loadStatus(); break;
+			case 'worlds': await loadWorlds(); break;
+			case 'genome':
+				if (selectedGenomeId) { await loadWorlds(); await loadGenome(selectedGenomeId); }
+				else views.genome.innerHTML = '<div class="card"><h2>Choose an agent</h2><p class="notice">Open Worlds and select an agent to see its prompt and lineage.</p><button class="btn" id="choose-world-btn">Browse Worlds</button></div>';
+				document.getElementById('choose-world-btn')?.addEventListener('click', () => { showView('worlds'); void refreshView(); });
+				break;
+			case 'genes': await loadGenes(); break;
+			case 'drift-canary': await loadDriftCanary(); break;
+			case 'experiments': await loadExperiments(); break;
+			case 'activity': await loadActivity(); break;
+		}
+	} finally { button.disabled = false; }
+}
+
+document.getElementById('refresh-btn')!.addEventListener('click', () => { void refreshView(); });
 
 function noticeHtml(response: ApiResponse): string {
 	if (!response.error) return '';
@@ -100,17 +140,23 @@ async function loadStatus(): Promise<void> {
     </div>
     <div class="card">
       <h3>Job lookup</h3>
+      <label for="job-id-input" class="notice">Job ID</label>
       <input class="field" id="job-id-input" placeholder="job id" />
       <button class="btn" id="job-lookup-btn">Look up</button>
       <div id="job-result"></div>
     </div>`;
-	document.getElementById('job-lookup-btn')!.addEventListener('click', async () => {
+	const lookup = async () => {
 		const input = document.getElementById('job-id-input') as HTMLInputElement;
 		const result = document.getElementById('job-result')!;
 		const jobId = input.value.trim();
-		if (!jobId) return;
+		if (!jobId) { result.innerHTML = '<p class="notice">Enter a job ID to inspect its progress.</p>'; return; }
 		result.innerHTML = '<p class="notice">Loading…</p>';
 		const jobResponse = await api({command: 'job_status', job_id: jobId});
+		if (jobResponse.data?.type === 'arena_job') {
+			const job = jobResponse.data.job;
+			result.textContent = `Arena ${job.evaluation_id}: ${job.state}; phase ${job.phase}; trials ${job.completed_trials}/${job.total_trials}.`;
+			return;
+		}
 		if (jobResponse.data?.type !== 'job') {
 			result.innerHTML = noticeHtml(jobResponse) || '<p class="notice error">job not found</p>';
 			return;
@@ -123,7 +169,9 @@ async function loadStatus(): Promise<void> {
       <tr><td>World</td><td>${escapeHtml(job.world_id)}</td></tr>
       <tr><td>Trace events</td><td>${jobResponse.data.progress.trace_events}</td></tr>
     </table>`;
-	});
+	};
+	document.getElementById('job-lookup-btn')!.addEventListener('click', () => { void lookup(); });
+	document.getElementById('job-id-input')!.addEventListener('keydown', event => { if (event.key === 'Enter') void lookup(); });
 }
 
 function renderTransitions(champion: Champion | undefined): string {
@@ -142,6 +190,7 @@ function renderTransitions(champion: Champion | undefined): string {
 }
 
 function openGenome(genomeId: string): void {
+	selectedGenomeId = genomeId;
 	showView('genome');
 	void loadGenome(genomeId);
 }
@@ -152,14 +201,14 @@ function renderWorldCard(world: World, genomes: Genome[], champion: Champion | u
 	const renderChips = (list: ReturnType<typeof lineageRows>, cls: string) =>
 		list.length === 0
 			? '<span class="notice">none</span>'
-			: list.map(row => `<span class="chip ${cls}" data-genome="${escapeHtml(row.genome_id)}">${escapeHtml(row.name)} <small>${escapeHtml(shortId(row.genome_id))}</small></span>`).join('');
-	return `<div class="world-card" style="--world-accent: ${worldAccent(world.world_id)}">
+			: list.map(row => `<button type="button" class="chip ${cls}" data-genome="${escapeHtml(row.genome_id)}">${escapeHtml(row.name)} <small>${escapeHtml(shortId(row.genome_id))}</small></button>`).join('');
+	return `<div class="world-card" data-world="${escapeHtml(world.world_id)}">
     <h3>${escapeHtml(world.name)} <small class="notice">${escapeHtml(shortId(world.world_id))}</small></h3>
     <div class="role-row"><span class="role-label">Champion</span>${renderChips(byRole('champion'), 'champion')}</div>
     <div class="role-row"><span class="role-label">Standby</span>${renderChips(byRole('standby'), 'standby')}</div>
     <div class="role-row"><span class="role-label">Quarantined</span>${renderChips(byRole('quarantined'), 'quarantined')}</div>
     <details><summary class="notice">Full lineage (${rows.length} Genomes)</summary>
-      <div>${rows.map(row => `<div class="notice">${escapeHtml(row.prefix)}<span class="chip" data-genome="${escapeHtml(row.genome_id)}">${escapeHtml(row.name)}</span>${row.role ? ` <em>${ROLE_LABEL[row.role]}</em>` : ''}${row.extra_parents > 0 ? ` +${row.extra_parents} parents` : ''}</div>`).join('')}</div>
+      <div>${rows.map(row => `<div class="notice">${escapeHtml(row.prefix)}<button type="button" class="chip" data-genome="${escapeHtml(row.genome_id)}">${escapeHtml(row.name)}</button>${row.role ? ` <em>${ROLE_LABEL[row.role]}</em>` : ''}${row.extra_parents > 0 ? ` +${row.extra_parents} parents` : ''}</div>`).join('')}</div>
     </details>
     <h3>Champion transition history</h3>
     ${renderTransitions(champion)}
@@ -174,10 +223,11 @@ async function loadWorlds(): Promise<void> {
 		el.innerHTML = `<div class="card"><h2>Worlds</h2>${noticeHtml(worldsResponse) || noticeHtml(genomesResponse) || '<p class="notice error">unexpected response</p>'}</div>`;
 		return;
 	}
+	championByWorld.clear();
 	currentWorlds = worldsResponse.data.worlds;
 	currentGenomes = genomesResponse.data.genomes;
 	if (currentWorlds.length === 0) {
-		el.innerHTML = '<div class="card"><h2>Worlds</h2><p class="notice">No registered Worlds.</p></div>';
+		el.innerHTML = '<div class="card"><h2>Worlds</h2><p class="notice">No registered Worlds yet. Run <code>heph --tour</code> for a guided comparison, then refresh this view.</p></div>';
 		return;
 	}
 	const cards = await Promise.all(
@@ -189,6 +239,7 @@ async function loadWorlds(): Promise<void> {
 		}),
 	);
 	el.innerHTML = cards.join('');
+	el.querySelectorAll<HTMLElement>('[data-world]').forEach(card => card.style.setProperty('--world-accent', worldAccent(card.dataset['world']!)));
 	el.querySelectorAll<HTMLElement>('[data-genome]').forEach(chip => {
 		chip.addEventListener('click', () => openGenome(chip.dataset['genome']!));
 	});
@@ -302,19 +353,10 @@ async function loadActivity(): Promise<void> {
 					)
 					.join('')}</table>`
 			: noticeHtml(runs) || '<p class="notice error">unexpected response</p>';
-	const evaluationsHtml =
-		evaluations.data?.type === 'evaluation_list'
-			? `<table class="kv"><tr><th>Evaluation</th><th>World</th><th>Parent cost</th><th>Candidate cost</th></tr>${evaluations.data.evaluations
-					.map(
-						entry => `<tr>
-          <td>${escapeHtml(shortId(entry.evaluation.evaluation_id))}</td>
-          <td>${escapeHtml(shortId(entry.evaluation.world_id))}</td>
-          <td>${formatCost(entry.selection?.parent_cost_microusd ?? null)}</td>
-          <td>${formatCost(entry.selection?.candidate_cost_microusd ?? null)}</td>
-        </tr>`,
-					)
-					.join('')}</table>`
-			: noticeHtml(evaluations) || '<p class="notice error">unexpected response</p>';
+	const entries: EvaluationListEntry[] = evaluations.data?.type === 'evaluation_list' ? evaluations.data.evaluations : [];
+	const evaluationsHtml = evaluations.data?.type === 'evaluation_list'
+		? entries.length === 0 ? '<p class="notice">No comparisons recorded yet. Run <code>heph --tour</code> for your first real comparison, then refresh.</p>' : entries.map(renderComparison).join('')
+		: noticeHtml(evaluations) || '<p class="notice error">unexpected response</p>';
 	const denialsHtml =
 		denials.data?.type === 'denial_list'
 			? `<table class="kv"><tr><th>Kind</th><th>Command / Tool</th><th>Client</th><th>Genome</th><th>World</th></tr>${denials.data.denials
@@ -331,8 +373,20 @@ async function loadActivity(): Promise<void> {
 			: noticeHtml(denials) || '<p class="notice error">unexpected response</p>';
 	el.innerHTML = `
     <div class="card"><h2>Runs &amp; costs</h2>${runsHtml}</div>
-    <div class="card"><h2>Arena evaluations &amp; costs</h2>${evaluationsHtml}</div>
+    <div class="card"><h2>Agent comparisons</h2><p class="notice">Scores and receipts from the daemon. Visible task scores exclude sealed tasks. Measured gates and promotion are separate decisions.</p></div>${evaluationsHtml}
     <div class="card"><h2>Authority &amp; denial history</h2>${denialsHtml}</div>`;
+	el.querySelectorAll<HTMLButtonElement>('[data-report]').forEach(button => {
+		button.addEventListener('click', () => {
+			const entry = entries.find(candidate => candidate.evaluation.evaluation_id === button.dataset['report']);
+			if (!entry) return;
+			const url = URL.createObjectURL(new Blob([comparisonReport(entry)], {type: 'text/markdown;charset=utf-8'}));
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `hephaestus-${entry.evaluation.evaluation_id.replace(/[^\w.-]/g, '_')}.md`;
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		});
+	});
 }
 
 function formatX10000(value: number): string {
@@ -436,5 +490,4 @@ async function loadExperiments(): Promise<void> {
 }
 
 showView('status');
-void loadStatus();
-void loadWorlds();
+void refreshView();

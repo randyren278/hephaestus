@@ -1,0 +1,96 @@
+[
+  {
+    "evaluation": {
+      "evaluation_id": "polish-pending",
+      "world_id": "hephaestus:world:965a6336293c9f609d00f1500e403a363cf7327c11f80ca2f4068366ecc6f296",
+      "parent_genome_id": "hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71",
+      "candidate_genome_id": "hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21",
+      "parent_visible_correct": 0,
+      "candidate_visible_correct": 1,
+      "visible_total": 1,
+      "event": {
+        "sequence": 120,
+        "event_id": "arena:evaluation:polish-pending:recorded",
+        "aggregate_id": "arena:evaluation:polish-pending",
+        "event_type": "evaluation.recorded",
+        "actor": "arena-plane",
+        "timestamp_millis": 1791441339986
+      }
+    },
+    "selection": null,
+    "invariants": null,
+    "forge_assessment": null,
+    "champion_transition_ids": []
+  },
+  {
+    "evaluation": {
+      "evaluation_id": "polish-regression",
+      "world_id": "hephaestus:world:965a6336293c9f609d00f1500e403a363cf7327c11f80ca2f4068366ecc6f296",
+      "parent_genome_id": "hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21",
+      "candidate_genome_id": "hephaestus:genome:91acf00dde5f651c7e6de9f9c0533d4d7ffa44068ea792a60d0603e3d52c1566",
+      "parent_visible_correct": 1,
+      "candidate_visible_correct": 0,
+      "visible_total": 1,
+      "event": {
+        "sequence": 87,
+        "event_id": "arena:evaluation:polish-regression:recorded",
+        "aggregate_id": "arena:evaluation:polish-regression",
+        "event_type": "evaluation.recorded",
+        "actor": "arena-plane",
+        "timestamp_millis": 1791441338321
+      }
+    },
+    "selection": {
+      "metrics_eligible": false,
+      "estimate_bps": -10000,
+      "lower_bps": -10000,
+      "upper_bps": -10000,
+      "parent_cost_microusd": 0,
+      "candidate_cost_microusd": 0,
+      "parent_latency_millis": 36,
+      "candidate_latency_millis": 30,
+      "invariant_gate_verified": false,
+      "promotion_eligible": false
+    },
+    "invariants": null,
+    "forge_assessment": {
+      "assessment_id": "polish-rejected",
+      "outcome": "metrics_rejected"
+    },
+    "champion_transition_ids": []
+  },
+  {
+    "evaluation": {
+      "evaluation_id": "polish-evaluation",
+      "world_id": "hephaestus:world:965a6336293c9f609d00f1500e403a363cf7327c11f80ca2f4068366ecc6f296",
+      "parent_genome_id": "hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71",
+      "candidate_genome_id": "hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21",
+      "parent_visible_correct": 0,
+      "candidate_visible_correct": 1,
+      "visible_total": 1,
+      "event": {
+        "sequence": 41,
+        "event_id": "arena:evaluation:polish-evaluation:recorded",
+        "aggregate_id": "arena:evaluation:polish-evaluation",
+        "event_type": "evaluation.recorded",
+        "actor": "arena-plane",
+        "timestamp_millis": 1791440891524
+      }
+    },
+    "selection": {
+      "metrics_eligible": true,
+      "estimate_bps": 10000,
+      "lower_bps": 10000,
+      "upper_bps": 10000,
+      "parent_cost_microusd": 0,
+      "candidate_cost_microusd": 0,
+      "parent_latency_millis": 35,
+      "candidate_latency_millis": 36,
+      "invariant_gate_verified": false,
+      "promotion_eligible": false
+    },
+    "invariants": null,
+    "forge_assessment": null,
+    "champion_transition_ids": []
+  }
+]

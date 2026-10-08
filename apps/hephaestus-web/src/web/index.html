@@ -12,16 +12,17 @@
     <img class="crest-pixel" src="/web-header-crest.svg" width="16" height="16" alt="" aria-hidden="true" />
     HEPHAESTUS <span class="hdr-sub">// WEB CONSOLE</span>
   </div>
-  <nav class="tabs" id="tabs">
+  <nav class="tabs" id="tabs" aria-label="Console views">
     <button class="tab" data-view="status">Status</button>
     <button class="tab" data-view="worlds">Worlds</button>
     <button class="tab" data-view="genome">Genome</button>
     <button class="tab" data-view="genes">Genes</button>
     <button class="tab" data-view="drift-canary">Drift &amp; Canary</button>
     <button class="tab" data-view="experiments">Experiments</button>
-    <button class="tab" data-view="activity">Activity</button>
+    <button class="tab" data-view="activity">Evidence &amp; activity</button>
   </nav>
-  <div class="hdr-token" id="token-indicator">no token</div>
+  <button class="btn" id="refresh-btn">Refresh</button>
+  <div role="status" class="hdr-token" id="token-indicator">no token</div>
 </header>
 
 <main id="app">

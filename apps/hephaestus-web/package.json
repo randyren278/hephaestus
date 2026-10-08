@@ -6,7 +6,8 @@
   "engines": { "node": ">=22" },
   "bin": { "hephaestus-web": "dist/main.mjs" },
   "scripts": {
-    "start": "tsx src/main.ts",
+    "prestart": "npm run build",
+    "start": "node dist/main.mjs",
     "build": "node scripts/build.mjs",
     "test": "tsx --test test/*.test.tsx",
     "typecheck": "tsc --noEmit"

@@ -8,7 +8,7 @@
   --ember-bright: #ff8a3d;
   --gold: #f4c542;
   --gray: #5b6270;
-  --danger: #c0392b;
+  --danger: #f08072;
   --border: #3a3f4d;
   --font-pixel: 'Courier New', ui-monospace, Menlo, Consolas, monospace;
 }
@@ -22,6 +22,9 @@
     --ink-dim: #56503f;
     --border: #b8ac8c;
     --gray: #8a8265;
+    --ember-bright: #963708;
+    --gold: #765600;
+    --danger: #a32b23;
   }
 }
 
@@ -158,6 +161,8 @@ main {
 .role-label { font-size: 10px; text-transform: uppercase; color: var(--ink-dim); width: 90px; flex-shrink: 0; }
 
 .chip {
+  font-family: inherit;
+  color: inherit;
   display: inline-block;
   font-size: 11px;
   padding: 3px 8px;
@@ -168,7 +173,7 @@ main {
 }
 
 .chip:hover { border-color: var(--ember); }
-.chip.champion { border-color: var(--gold); color: var(--gold); background: #2a2410; }
+.chip.champion { border-color: var(--gold); color: var(--gold); background: var(--bg-raised); }
 .chip.standby { border-color: var(--ink-dim); }
 .chip.quarantined { border-color: var(--danger); color: var(--danger); text-decoration: line-through; opacity: 0.75; }
 
@@ -236,3 +241,33 @@ pre.prompt {
 table.kv { border-collapse: collapse; width: 100%; font-size: 12px; }
 table.kv td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.kv td:first-child { color: var(--ink-dim); width: 160px; text-transform: uppercase; font-size: 10px; }
+
+button:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 4px;
+}
+
+.comparison { border-left: 6px solid var(--gold); }
+.comparison.passed { border-left-color: var(--ember-bright); }
+.comparison.rejected { border-left-color: var(--danger); }
+.comparison-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.comparison-heading h3 { overflow-wrap: anywhere; margin-bottom: 8px; }
+.verdict { font-size: 12px; font-weight: bold; }
+.identity { overflow-wrap: anywhere; line-height: 1.6; }
+.notice { line-height: 1.6; }
+.table-scroll { overflow-x: auto; }
+.comparison-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.comparison-table th, .comparison-table td { text-align: left; padding: 12px 8px; border-bottom: 1px solid var(--border); }
+.comparison-table thead th { color: var(--ember-bright); }
+.comparison-table tbody th { color: var(--ink-dim); font-weight: normal; }
+.comparison summary { cursor: pointer; font-size: 12px; padding: 8px 0; }
+.card { overflow-x: auto; }
+
+@media (max-width: 600px) {
+  main { padding: 12px; }
+  .hdr { gap: 12px; }
+  .tab { padding: 8px; }
+  .card { padding: 12px; }
+  .comparison-table th, .comparison-table td { padding: 8px 4px; font-size: 12px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -1,8 +1,6 @@
 # Hephaestus Web Console
 
-A local, read-only web console for the existing daemon protocol. It is part
-of roadmap item 14 ("Web console, MCP gateway, and remote workers"): a
-browser view of daemon state, nothing more. The MCP gateway
+A local, read-only web console for the existing daemon protocol. It shows agent comparisons and the evidence behind their measured results. The MCP gateway
 (`docs/MCP_GATEWAY.md`) and remote worker execution (`docs/REMOTE_WORKERS.md`)
 are separate daemon-adjacent processes, not part of this browser surface;
 this console cannot mutate canonical state — it forwards a fixed allowlist
@@ -25,10 +23,16 @@ Hephaestus web console: http://127.0.0.1:47213/#token=<64 hex characters>
 Bound to 127.0.0.1 only. Read-only. Ctrl+C to stop.
 ```
 
-Open that exact URL. The `#token=...` fragment is a fresh 256-bit value
+Open that exact URL. `npm start` builds the browser assets before starting the
+server, so a source checkout needs no separate build step. The `#token=...` fragment is a fresh 256-bit value
 generated for this one launch; the browser never sends a URL fragment to any
 server, so the page reads it once client-side and attaches it as a header on
-every API call afterward. A non-default data directory can be selected with
+every API call afterward. The token is then removed from the address bar and
+kept in session storage for this tab and origin, so reloading stays connected.
+It is never saved to local storage. An expired token is cleared and the page
+asks you to open the URL from the newly started console. The **Refresh** button
+reloads the current view; connection failures show a retry message. Opening a
+fresh printed URL in the same tab also reconnects without a manual reload. A non-default data directory can be selected with
 `HEPHAESTUS_HOME=/path/to/data npm start`, matching the [TUI](../hephaestus-tui/README.md).
 A fixed port can be requested with `HEPHAESTUS_WEB_PORT=4200 npm start`; by
 default the server picks a random port and retries a few times if it is
@@ -55,9 +59,14 @@ taken.
 - **Experiments**: registered Evolver strategies (`EvolverStrategyConfig`)
   and recorded meta-evaluation receipts, including each receipt's bootstrap
   quality/cost delta intervals.
-- **Activity**: recent direct runs and Arena evaluations with their costs
-  and latency, and recent authority/denial history (refused operator
-  requests, runtime capability denials, and denied MCP gateway tool calls).
+- **Evidence & activity**: paired comparisons with parent/candidate visible
+  correctness, cost and latency, the correctness change and bootstrap interval,
+  and independent measured, invariant and Forge gates. A measured win is never
+  presented as promotion authority. Each comparison offers a downloadable
+  Markdown evidence summary containing identifiers and operator-visible
+  aggregates; it contains no task payloads, sealed answers or credentials and
+  is not itself a signed receipt. Direct runs and authority/denial history are
+  shown alongside the comparisons.
 
 ## Security model
 
@@ -125,7 +134,8 @@ proxied and a disallowed one never reaches the socket.
 
 ## Not in this slice
 
-No mutating action from the browser (seed/promote/rollback a Champion,
-register a Genome or World, submit or kill a job); no drift/canary state
-(not part of this lane's base); no full evidence/experiment views. See [AUDIT.md](../../AUDIT.md) for the
-current slice status.
+The browser cannot seed/promote/rollback a Champion, register a Genome or
+World, submit or kill a job. It does not display sealed task-level evidence or
+certify a current Champion from a historical evaluation. Use the CLI/TUI for
+operator actions and `hephaestus replay` to verify canonical history.
+See [product readiness](../../docs/PRODUCT_READINESS.md) for remaining gaps.
