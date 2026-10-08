@@ -1,0 +1,30 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.68s
+     Running unittests src/bin/hephaestus.rs (target/debug/deps/hephaestus-df0eeaf4d11c4e92)
+
+running 23 tests
+test pilot::tests::model_values_are_quoted_and_frontmatter_injection_is_rejected ... ok
+test tests::evaluation_human_output_is_aggregate_only ... ok
+test tests::arena_evaluate_maps_positional_identifiers_to_paired_command ... ok
+test tests::arena_select_maps_evaluation_identity_to_trusted_selection_command ... ok
+test tests::arena_invariants_maps_evaluation_identity_to_authenticated_command ... ok
+test tests::drift_commands_map_flags_to_authenticated_commands ... ok
+test tests::evidence_list_commands_default_and_accept_a_bounded_limit ... ok
+test tests::arena_evaluate_remote_flag_maps_to_the_remote_opt_in ... ok
+test tests::evolve_coding_is_a_local_convenience_command_with_its_own_fixture ... ok
+test tests::canary_commands_map_flags_to_authenticated_commands ... ok
+test tests::champion_commands_map_flags_to_authenticated_commands ... ok
+test tests::init_cli_accepts_the_quickstart_fixture_and_destination ... ok
+test tests::genome_assess_maps_stable_ids_to_the_authenticated_command ... ok
+test tests::source_checkout_fixture_path_resolves_from_control_crate ... ok
+test tests::support_triage_fixture_has_local_preparation_materials_and_unknown_names_fail ... ok
+test tests::senate_passes_every_argument_through_to_the_senate_cli ... ok
+test tests::meta_evaluate_rejects_a_lineage_count_mismatch ... ok
+test tests::fixture_copy_losing_destination_creation_race_preserves_existing_files ... ok
+test tests::tui_cli_defaults_to_no_forced_tour_and_accepts_the_flag ... ok
+test tests::genome_revise_maps_a_prompt_body_file_and_required_evidence ... ok
+test tests::meta_commands_map_flags_to_authenticated_commands ... ok
+test tests::evolve_commands_map_flags_to_authenticated_commands ... ok
+test tests::packaged_tui_paths_follow_the_relocated_executable ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

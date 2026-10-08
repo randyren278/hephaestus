@@ -1,0 +1,8 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.94s
+     Running tests/control_plane_e2e.rs (target/debug/deps/control_plane_e2e-315966be956dc242)
+
+running 1 test
+test evolve_coding_completes_three_generations_through_the_real_daemon_and_cli ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 17.73s

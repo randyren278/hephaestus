@@ -53,8 +53,23 @@ WORKER="$PREFIX/bin/hephaestus-reference-worker"
 SENATE="$PREFIX/bin/senate"
 HEPH="$PREFIX/bin/heph"
 FIXTURES_DIR="$PREFIX/share/hephaestus/current/share/hephaestus/fixtures"
-DATA="$WORK/home/data"
+DATA_BACKING="$WORK/home/canonical-daemon-directory-with-a-name-that-exceeds-platform-unix-socket-limits-when-resolved"
+mkdir -p "$DATA_BACKING"
+ln -s "$DATA_BACKING" "$WORK/home/short-data-parent"
+DATA="$WORK/home/short-data-parent/data"
 FIXTURE="$WORK/home/quickstart"
+
+"$WORK/tools/python3" - "$DATA" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+socket = Path(sys.argv[1]) / "control.sock"
+original = len(os.fsencode(socket))
+resolved = len(os.fsencode(socket.resolve()))
+assert original < 104 and resolved > 108, (original, resolved)
+print(f"Daemon socket address: {original} bytes; resolved storage address: {resolved} bytes.")
+PY
 
 "$CLI" --version
 PERSONAS=$("$SENATE" personas)

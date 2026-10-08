@@ -1,0 +1,110 @@
+{
+  "status": "passed",
+  "original_socket_bytes": 98,
+  "resolved_socket_bytes": 106,
+  "three_generations_completed": true,
+  "paired_trials_consumed": 6,
+  "restart_and_helper_retry_preserve_complete_outcome": true,
+  "replay_passed": true,
+  "provider_launches": 0,
+  "scope": "actual source-installed native CLI, real daemon, offline reference agents; no auth or live model claims",
+  "finished_run": {
+    "run_id": "gauntlet-coding",
+    "world_id": "hephaestus:world:d37bf1102492c548593af54b9f5b598eee4dd2b539a37c1e0d8889a8f45ce043",
+    "from_genome_id": "hephaestus:genome:9c0b840ef700da60aca3c95426a422da11bab9dcc07b06c03977820678174feb",
+    "baseline_genome_id": "hephaestus:genome:bbdf53f4b7a155bb4e8ed390139bb46f3c07f3ccc71cb5f9772b702c9cc2ef57",
+    "max_generations": 3,
+    "max_paired_trials": 6,
+    "trials_consumed": 6,
+    "state": "finished",
+    "cancel_requested": false,
+    "finish_reason": "generations_exhausted",
+    "generations": [
+      {
+        "payload": {
+          "schema_version": 1,
+          "run_id": "gauntlet-coding",
+          "generation_index": 0,
+          "champion_before": "hephaestus:genome:9c0b840ef700da60aca3c95426a422da11bab9dcc07b06c03977820678174feb",
+          "diagnostic_evaluation_id": "evolve-gauntlet-coding-g0-d",
+          "proposal_id": "evolve-gauntlet-coding-g0-p",
+          "child_genome_id": "hephaestus:genome:ee58e1c12906e8645bc1244c40d431cdddd242697ee28c011f3a94ac89f2cf6a",
+          "child_evaluation_id": "evolve-gauntlet-coding-g0-c",
+          "assessment_id": "evolve-gauntlet-coding-g0-a",
+          "promoted": true,
+          "champion_after": "hephaestus:genome:ee58e1c12906e8645bc1244c40d431cdddd242697ee28c011f3a94ac89f2cf6a"
+        },
+        "event": {
+          "sequence": 153,
+          "event_id": "evolution:gauntlet-coding:generation:0",
+          "aggregate_id": "evolution:gauntlet-coding",
+          "event_type": "evolution.generation",
+          "actor": "local-operator",
+          "event_hash": "e7caf652b2a449535dd4cf8ba0cfe7553c803e17f0eff5f65ae3bea45068b41b"
+        }
+      },
+      {
+        "payload": {
+          "schema_version": 1,
+          "run_id": "gauntlet-coding",
+          "generation_index": 1,
+          "champion_before": "hephaestus:genome:ee58e1c12906e8645bc1244c40d431cdddd242697ee28c011f3a94ac89f2cf6a",
+          "diagnostic_evaluation_id": "evolve-gauntlet-coding-g1-d",
+          "proposal_id": "evolve-gauntlet-coding-g1-p",
+          "child_genome_id": "hephaestus:genome:c4678479ea782bbea8f005a688ef00fb271b5927dedc2a8a7e1bc4995029a2fc",
+          "child_evaluation_id": "evolve-gauntlet-coding-g1-c",
+          "assessment_id": "evolve-gauntlet-coding-g1-a",
+          "promoted": false,
+          "champion_after": "hephaestus:genome:ee58e1c12906e8645bc1244c40d431cdddd242697ee28c011f3a94ac89f2cf6a"
+        },
+        "event": {
+          "sequence": 210,
+          "event_id": "evolution:gauntlet-coding:generation:1",
+          "aggregate_id": "evolution:gauntlet-coding",
+          "event_type": "evolution.generation",
+          "actor": "local-operator",
+          "event_hash": "c51a0d12439a948a9f18ac9e5ccec4491dca0ed80e5c4b4d2a39d17315ccd5ac"
+        }
+      },
+      {
+        "payload": {
+          "schema_version": 1,
+          "run_id": "gauntlet-coding",
+          "generation_index": 2,
+          "champion_before": "hephaestus:genome:ee58e1c12906e8645bc1244c40d431cdddd242697ee28c011f3a94ac89f2cf6a",
+          "diagnostic_evaluation_id": "evolve-gauntlet-coding-g2-d",
+          "proposal_id": "evolve-gauntlet-coding-g2-p",
+          "child_genome_id": "hephaestus:genome:a0e5747ba8a88ddffcd0a14e01dcdce9deaeaad58a85ea44d6eae39bb17cc1de",
+          "child_evaluation_id": "evolve-gauntlet-coding-g2-c",
+          "assessment_id": "evolve-gauntlet-coding-g2-a",
+          "promoted": false,
+          "champion_after": "hephaestus:genome:ee58e1c12906e8645bc1244c40d431cdddd242697ee28c011f3a94ac89f2cf6a"
+        },
+        "event": {
+          "sequence": 268,
+          "event_id": "evolution:gauntlet-coding:generation:2",
+          "aggregate_id": "evolution:gauntlet-coding",
+          "event_type": "evolution.generation",
+          "actor": "local-operator",
+          "event_hash": "99fa34f8a92cd790f1940c9e0d36fc039f2dc421b22872743a67b1d3196cf574"
+        }
+      }
+    ],
+    "started_event": {
+      "sequence": 94,
+      "event_id": "evolution:gauntlet-coding:started",
+      "aggregate_id": "evolution:gauntlet-coding",
+      "event_type": "evolution.started",
+      "actor": "local-operator",
+      "event_hash": "9a2e414e4d9e7c23579681f1c13793c90dfab58a49058c67d5d8ced729346dc3"
+    },
+    "finished_event": {
+      "sequence": 269,
+      "event_id": "evolution:gauntlet-coding:finished",
+      "aggregate_id": "evolution:gauntlet-coding",
+      "event_type": "evolution.finished",
+      "actor": "local-operator",
+      "event_hash": "3cd8882fe7935d43e8752025a9b5a21f80d8fe190d40b7ad4d348d70f633615c"
+    }
+  }
+}

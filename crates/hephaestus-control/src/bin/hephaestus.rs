@@ -1163,7 +1163,7 @@ fn run_evolve_coding(data_dir: &Path, budget: u64, json: bool) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
-    let data_dir = match fs::canonicalize(data_dir) {
+    let setup_data_dir = match fs::canonicalize(data_dir) {
         Ok(path) => path,
         Err(error) => {
             eprintln!(
@@ -1193,7 +1193,7 @@ fn run_evolve_coding(data_dir: &Path, budget: u64, json: bool) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
-    let work_dir = data_dir.join("work");
+    let work_dir = setup_data_dir.join("work");
     if let Err(error) = fs::create_dir_all(&work_dir) {
         eprintln!(
             "hephaestus: could not create {}: {error}",
@@ -1202,7 +1202,9 @@ fn run_evolve_coding(data_dir: &Path, budget: u64, json: bool) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let client = Client::new(data_dir.clone());
+    // Match the daemon's socket address; resolving a short parent alias can
+    // exceed Unix-socket path limits even though the daemon is reachable.
+    let client = Client::new(data_dir.to_path_buf());
     if coding_step(&client, "status", Command::Status).is_none() {
         eprintln!(
             "hephaestus: could not reach a daemon at {} (start `hephaestusd` first)",

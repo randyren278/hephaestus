@@ -1,0 +1,61 @@
+{
+  "base_commit": "5d231c47b34dcf592b8bfa545f159638c10af0f3",
+  "source_hashes": {
+    "crates/hephaestus-control/src/bin/hephaestus.rs": "ea5415faaf528303d66a88e3455763c112884b7696b638a02ad549651ab11527",
+    "crates/hephaestus-control/tests/control_plane_e2e.rs": "7808b96bbbe9f1e5584f99128d2e628c7baab85c63934a2c7772c5123847f71b",
+    "scripts/package_macos_acceptance.sh": "86d45c2dd5851722103348c145cf37ed89f02b0f2283c7a633b2ad19b225102e",
+    "checks/checks.json": "f7b265698252d239701e8c756a1f0f57249d9a176b30f6ad49a83c4a9def6b3c",
+    ".github/workflows/ci.yml": "84113e0b8c537a06cdd0aabd7dcfa3d24709ac1df6633d9b0c25164d89aecb09"
+  },
+  "archives": {
+    "fixed": {
+      "sha256": "9612709469351e3508551994bceae416a1893334e0f653eb4aad6a843f891c85",
+      "bytes": 46629817
+    },
+    "previous": {
+      "sha256": "6c930c38d54d6fc0cb5059687bdb3d874b6f185008e2f3eb0fea3a5caa700cf3",
+      "bytes": 46629487
+    }
+  },
+  "installed_cli_sha256": "eefdefb1588ed07056afa03abd35f4fd1b3b86bf4a98f8b53a08a62a767d3ebc",
+  "installed_cli_matches_fixed_archive": true,
+  "targeted_daemon_before_fix_exit": 101,
+  "targeted_daemon_after_fix_exit": 0,
+  "native_cli_tests_passed": 23,
+  "package_previous_archive_exit": 1,
+  "previous_archive_failure": "evolve coding status: path must be shorter than SUN_LEN",
+  "package_fixed_archive_exit": 0,
+  "package_original_socket_bytes": 57,
+  "package_resolved_socket_bytes": 141,
+  "source_original_socket_bytes": 98,
+  "source_resolved_socket_bytes": 106,
+  "source_restart_retry_complete_outcome_identical": true,
+  "source_provider_launches": 0,
+  "rust_1_88_targeted_daemon_test_exit": 0,
+  "rust_1_88_all_target_all_feature_check_exit": 0,
+  "clippy_both_modes_exit": 0,
+  "mutation_guard": {
+    "run": 1,
+    "killed": 1,
+    "survived": 0,
+    "stale": 0,
+    "timed_out": 0,
+    "source_restored_byte_for_byte": true
+  },
+  "configured_mutations": 430,
+  "mutation_anchors_valid": 430,
+  "control_shards": [
+    28,
+    28,
+    28,
+    27,
+    27
+  ],
+  "control_shard_3_minimum_before": 27,
+  "control_shard_3_minimum_after": 28,
+  "actionlint_exit": 0,
+  "owned_processes_stopped": true,
+  "scope": "local native ARM64 unsigned archives, offline reference evolution, source installation, no live provider/auth/quality/revenue or hosted release/Intel/quarantine evidence",
+  "full_workspace_checkpoint": "724 tests at 5d231c4; scoped CLI and real daemon checks for current change; no fresh full coverage/matrix claim",
+  "rust_1_88_restored_source_daemon_test_exit": 0
+}

@@ -1,0 +1,3 @@
+actionlint 1.7.12 .github/workflows/ci.yml
+exit: 0
+No diagnostics.

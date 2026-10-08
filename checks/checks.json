@@ -3257,6 +3257,14 @@
       "find": "        if parent.provider != profile.provider\n            || parent.family != profile.family\n            || parent.workspace_write != profile.workspace_write\n            || parent.network != profile.network\n            || parent.world != profile.world\n            || parent.visible_tasks != profile.visible_tasks\n            || parent.sealed_tasks != profile.sealed_tasks\n            || parent.paired_trial_wall_millis != profile.paired_trial_wall_millis\n            || parent.paired_trial_output_bytes != profile.paired_trial_output_bytes\n            || parent.paired_total_wall_millis != profile.paired_total_wall_millis\n            || parent.reported_cost_limit_microusd != profile.reported_cost_limit_microusd\n        {",
       "replace": "        if false {",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet"
+    },
+    {
+      "id": "control-evolve-preserves-original-socket-address",
+      "file": "crates/hephaestus-control/src/bin/hephaestus.rs",
+      "invariant": "The coding helper connects through the daemon address supplied by the operator, even when resolving its parent alias exceeds Unix socket path limits.",
+      "find": "    let client = Client::new(data_dir.to_path_buf());",
+      "replace": "    let client = Client::new(setup_data_dir.clone());",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e evolve_coding_completes_three_generations_through_the_real_daemon_and_cli -- --exact"
     }
   ]
 }

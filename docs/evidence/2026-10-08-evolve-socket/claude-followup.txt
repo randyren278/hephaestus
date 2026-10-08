@@ -1,0 +1,21 @@
+I found no material defect. The script change keeps isolation and cleanup intact, and it hits the delivered bug at the step that was fixed. I only read the files; I didn't run anything.
+
+**What the bug was and why this covers it**
+- `run_evolve_coding` still resolves the data directory, but now only to find the `work/` folder (`hephaestus.rs:1166`, `:1196`). The client is now built from the path as given, not the resolved one (`hephaestus.rs:1205-1207`). So a short link to a long real folder is exactly the case that broke.
+- **Path lengths:** I'm working these out by hand, not from a run.
+  - The short path is `/tmp/hpkg.XXXXXX/home/short-data-parent/data/control.sock`, about 57 bytes.
+  - The resolved path goes through `/private/tmp` (on macOS `/tmp` is itself a link) plus the 93-character folder name, so about 141 bytes. The Unix socket limit is 104, so `>108` is a safe margin.
+- **Earlier steps don't resolve the path:** before `evolve coding` (line 145), every step that touches `$DATA` passes it through unchanged: the daemon, status polling, Arena, `replay`, `tui_acceptance.py` and `web_acceptance.py`. Neither the Rust CLI paths nor the Python harnesses resolve the data directory; the only `.resolve()` calls I found are on executable and bundle paths. So the old archive should get through Arena, replay, TUI and browser and then fail at `evolve coding` with "could not reach a daemon at …/short-data-parent/data". When the red run finishes, check that it fails there with that message. A failure at an earlier step would mean something else is broken, and it wouldn't prove this bug.
+
+**Isolation and cleanup**
+- Both the real folder and the link live under `$WORK/home`, which is a private, `chmod 700` folder from `mktemp`. `rm -rf "$WORK"` removes the link without following it and removes the real folder as a normal directory, so nothing escapes the workspace. `KEEP_PACKAGE_ACCEPTANCE=1` still keeps both for inspection.
+- If the Python check fails, `set -e` stops the script before the daemon starts. If a later step fails, the cleanup trap kills and waits on `DAEMON_PID` before deleting files. The normal path stops the daemon, waits, then clears `DAEMON_PID`. That ordering is unchanged and still correct.
+
+**Minor points (not defects)**
+- The Python check only confirms the path lengths before the daemon starts. It doesn't connect to anything. The real proof is `evolve coding` passing on the fixed archive and failing on the old one, which is fine but worth saying plainly.
+- "The rest of archive-wide acceptance exercises that address" overstates it a little. `pty_tour.py` uses `$WORK/home/tour-data`, `pilot_acceptance.py` gets no data directory, and `gauntlet_reference.py` sets up its own. That's acceptable, but the summary should name only CLI, Arena, replay, TUI, browser and evolve.
+- The `evolve coding` failure branch prints only the CLI output, not `$WORK/daemon.log`. If the red failure needs explaining, rerun with `KEEP_PACKAGE_ACCEPTANCE=1` to keep the log.
+
+**Correction to my earlier review:** `impl Drop for Daemon` at `control_plane_e2e.rs:5360-5365` calls `self.child.kill()` and then `self.child.wait()`. When a test panics, the daemon is killed and waited on, not left running. I withdraw that statement.
+
+I haven't checked the runtime results (3 generations, identical outcome after daemon restart, helper retry) myself; those are Codex's reports. Nothing I read contradicts them.

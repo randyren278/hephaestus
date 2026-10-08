@@ -1,0 +1,23 @@
+I found no material defects. The fix is correct, the scope is surgical, and the test is aimed at the right failure. I only read the code and ran nothing, so the pending green run is still the only proof that it passes.
+
+**Implementation (`crates/hephaestus-control/src/bin/hephaestus.rs:1156`)**
+- **Paths are split correctly.**
+  - The resolved directory (`setup_data_dir`, `:1166`) is only used for the files the helper writes and sends to the daemon by path: `work/`, `gauntlet-coding-world.json` and `gauntlet-coding-candidate.md`.
+  - The daemon connection uses the original path you passed in (`Client::new(data_dir.to_path_buf())`, `:1207`). Every other CLI command does the same (`:745`).
+- **It matches where the daemon puts its socket.** `hephaestusd` hands `--data-dir` to `ControlPlane` unchanged, and `serve` binds `self.data_dir.join("control.sock")` (`server.rs:1181`), with no resolving in between. So the CLI and daemon now always use the same socket address. Resolving the path in only one of them was the original bug.
+- **Resolving the setup files still makes sense.** Files sent by path stay consistent with `absolute_path()` (`:1415`), which resolves every path the normal CLI sends. That keeps the World/Genome paths the daemon receives the same as before.
+- **The new comment at `:1205` is accurate and short**, in keeping with the surrounding code.
+- **Minor, and it predates this change:** `work/` is created inside the data directory before the `status` check proves a daemon is reachable. That only happens if the directory exists, so it's harmless. Not worth changing here.
+
+**Test (`crates/hephaestus-control/tests/control_plane_e2e.rs:6881`)**
+- **The length checks hold on both platforms.**
+  - The short alias path has to be under 104 bytes, which fits macOS (103 usable). The long one has to be over 108, which exceeds the limit on both macOS and Linux.
+  - On macOS, the real resolved path also gains a `/private` prefix, so the actual address is even longer than the one the test checks. Linux is fine too, because its long path also comes out at roughly 150 bytes.
+- **It uses the same pattern as `pilot_preparation.rs:184-185`.** That's a good sign for consistency. The test needs Unix symlinks and a `/tmp` directory, but the whole file already depends on Unix sockets.
+- **Cleanup is safe.** `alias_root` is dropped before `directory`, and deleting the temp folder doesn't follow the symlink. If a test panics, the daemon process is left running, but every other test in the file has the same issue.
+- **Coverage is strong.** The full run goes through the short path. The restart-and-retry step then requires the entire durable outcome to come back identical (`retried == run`) and replay to succeed. That retry also exercises the repeat-registration steps for real.
+- **Small gap:** the test never checks that the setup files go through the resolved path. If someone later reverted the setup step back to the short path, this test would probably still pass. The SUN_LEN regression it targets is fully covered, so I wouldn't add anything here.
+
+**Scope:** only these two files changed. There are no protocol or daemon changes and no provider or model paths involved. `hephaestus-remote-worker` connects to `worker.sock` through the data directory it is given, so it isn't affected by this change.
+
+The change looks ready to land once the current test run passes.

@@ -1,0 +1,16 @@
+root:    /private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout
+suite:   /Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo test -p hephaestus-control --all-features --test control_plane_e2e evolve_coding_completes_three_generations_through_the_real_daemon_and_cli -- --exact (CLI override)
+timeout: 120s default; selected mutation timeout(s): 480s
+baseline timeout: 120s
+
+baseline: unmutated suite is green
+
+RUN       control-evolve-preserves-original-socket-address command=/Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo test -p hephaestus-control --all-features --test control_plane_e2e evolve_coding_completes_three_generations_through_the_real_daemon_and_cli -- --exact timeout=480s
+KILLED    control-evolve-preserves-original-socket-address crates/hephaestus-control/src/bin/hephaestus.rs (timeout 480s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+control-evolve-preserves-original-socket-address crates/hephaestus-control/src/bin/hephaestus.rs KILLED
+
+1 mutations run, 1 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

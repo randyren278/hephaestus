@@ -1,0 +1,27 @@
+Installed Hephaestus in /tmp/hpkg.QuM11Q/home/.local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64
+Add /tmp/hpkg.QuM11Q/home/.local/bin to PATH, then run: heph
+Browser console and evidence reports: heph web
+Acceptance prerequisite: host Git at /opt/homebrew/bin/git; host Node/npm are excluded from PATH.
+Daemon socket address: 57 bytes; resolved storage address: 141 bytes.
+hephaestus 0.1.0
+{"packaged_terminal": "80x24", "empty_data_bootstrap": true, "first_launch_prompt": true, "packaged_evaluator_lookup": true, "registered_fixture": true, "arena_measured": true, "metrics_selection_verified": true, "replay_verified": true, "completed_six_steps": true, "terminal_restored": true}
+fixture=quickstart path=/tmp/hpkg.QuM11Q/home/quickstart
+source_repository=/tmp/hpkg.QuM11Q/home/quickstart/repository
+65254833cff5c3acc33908c0cc1702f3bb3b347ef73368970d9aca879e4767da bytes=189
+4ddce318ebdfe302900170ed83918ff18034cd2cfc8ee1e34a1a54814a877b36 bytes=188
+5e20ee479fbbf00887daa681594305f12f58cb209b141544a233a6edce1c3d6f bytes=776032
+bab3ff85025e4d637f2d1d2e1666dace4de2b5cbc4426a579b98a01b5b76addf public_key=776c7465d387e5af3ac21a0924f4ed93f94e8f44dc24afb2aeaad9435a445230
+hephaestus:world:b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b quickstart-world artifact=b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b
+hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 quickstart-parent world=hephaestus:world:b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b artifact=a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 parents=
+hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 quickstart-candidate world=hephaestus:world:b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b artifact=68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 parents=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71
+acknowledged frozen=false killed_runs=0
+run=reference-13 genome=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 world=hephaestus:world:b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b revision=c78b83f88c5aeddca139cd12423774acd0edc5cf reason=Success latency_ms=41 cost_microusd=0 stdout=d5fe1965298e90020690ca4989ddc303374b5907977e2a89edcd45d38fc12abb stderr=af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262 trace_artifacts=2
+evaluation=package-d76cc06abc22fd637b04e497af5ea59fb384458c parent=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 candidate=hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 world=hephaestus:world:b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b candidate_visible=1/1 parent_visible=0/1 event=arena:evaluation:package-d76cc06abc22fd637b04e497af5ea59fb384458c:recorded sequence=37 aggregate=arena:evaluation:package-d76cc06abc22fd637b04e497af5ea59fb384458c
+selection=package-d76cc06abc22fd637b04e497af5ea59fb384458c world=hephaestus:world:b96ab424b53eeedca7a4654ba6ca7b7f9fc26119eea342cb4f9d9433302d425b correctness_regressions=0 correctness_improvements=2 lower_bps=10000 metrics_eligible=true pareto_dominates=true invariant_gate_verified=false promotion_eligible=false event=arena:selection:package-d76cc06abc22fd637b04e497af5ea59fb384458c:selected sequence=41 aggregate=arena:selection:package-d76cc06abc22fd637b04e497af5ea59fb384458c receipt=d43c96e360e23da6e2baef30dbd8d7b6ba979d91fe4ea84bbd59a31f4c889205
+replayed events=42 frozen=false active_runs=0 projection=4347090deb02eed5d01031239adb06a2b2fbf90277ed1a979d14198c4e5de5eb
+packaged TUI rendered under the isolated PATH and exited cleanly on q
+{"broken_bundle_has_no_side_effects": true, "bundled_assets_sha256": {"app.js": "2d549fef21c5cf4cabb2f6b2717af6681414c9ec0e284c8d4a5e3fb335af5b3d", "index.html": "fb60fd0f696414e5ac0cad17e6634ac4fbbabae1422c53e2d421c772546308da", "styles.css": "cf1028cb82234035ffec2f142b8d66032c25596f382e210e5b5878adee7bffd3", "web-header-crest.svg": "8248f79fded60babfc884cdc87f3ddca742078843ccc72e06f6758ef29a10163"}, "comparisons_match_cli": true, "ctrl_c_preserves_daemon": true, "fresh_bootstrap_frozen": true, "host_node_options_ignored": true, "no_daemon_has_no_side_effects": true, "read_only_state_unchanged": true, "status": "passed"}
+{"evaluator_binding_matches_install": true, "fixture": "support-triage", "frozen_preparation": true, "git_hooks_templates_and_location_env_ignored": true, "global_git_signing_override_verified": true, "invalid_cost_rejected_before_registration": true, "provider_launches": 0, "restart_replay_verified": true, "retry_profiles_identical": true, "scope": "offline placeholder model and marker stubs; no auth or model availability established", "setup_mode": "0700", "source_contains_no_cases": true, "source_templates_preserved": true, "status": "passed", "unfrozen_preparation_rejected": true}
+hephaestus: status failed: Io(Error { kind: InvalidInput, message: "path must be shorter than SUN_LEN" })
+hephaestus: could not reach a daemon at /private/tmp/hpkg.QuM11Q/home/canonical-daemon-directory-with-a-name-that-exceeds-platform-unix-socket-limits-when-resolved/data (start `hephaestusd` first)
+preserved acceptance workspace: /tmp/hpkg.QuM11Q

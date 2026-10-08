@@ -1,0 +1,8 @@
+   Compiling hephaestus-control v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.43s
+     Running tests/control_plane_e2e.rs (/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/target188/debug/deps/control_plane_e2e-0c3b58462333de96)
+
+running 1 test
+test evolve_coding_completes_three_generations_through_the_real_daemon_and_cli ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 16.51s

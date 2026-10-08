@@ -38,7 +38,7 @@ live-model improvement and full installation acceptance remain required.
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 724 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. A subsequent strict ledger repair passes all 15 ledger mutations; the configured matrix is now 429, without implying a fresh full 429-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The full checkpoint at 5d231c4 passes 724 Rust tests including doc tests, 191 TUI and 40 web tests on Node 22, 47 Python tests and both Clippy modes. The subsequent coding-path fix passes its real daemon/restart test, 23 CLI tests, both Clippy modes and exact Rust 1.88 checks. All 428 mutations pass at immutable checkpoint 709d965; 45 affected minimum-compiler guards and 15 ledger guards have later scoped results. The new socket guard is killed; the configured matrix is now 430, without implying a fresh full 430-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -412,7 +412,7 @@ source passes. See the [installed pilot evidence](evidence/2026-10-08-installed-
 Claude reviewed the implementation and subsequent socket correction; its
 findings and the runtime checks are recorded with their separate scopes. Its
 final review identified the same canonical-socket issue in the existing
-`evolve coding` helper; that remains the next reliability correction.
+`evolve coding` helper; the subsequent correction below resolves it.
 
 The refreshed workspace passes 724 Rust tests including doc tests. Both Clippy
 modes and the exact Rust 1.88 all-target/all-feature check pass; Node 22 checks
@@ -425,3 +425,37 @@ Provider authentication, model availability and representative live quality are
 still unproved. Quota/auth-handoff authorization, hosted release delivery,
 native Intel and downloaded/quarantined first launch remain open. This delivery
 checkpoint does not establish product completion or a revenue result.
+
+## Coding evolution socket-path correction, 2026-10-08
+
+`evolve coding` now retains the supplied daemon socket address and resolves only
+its setup-file storage. A short parent alias can therefore reach a daemon whose
+canonical storage path exceeds the platform socket limit. The data directory
+itself remains a real directory; the daemon's final-component symlink rejection
+is unchanged. Connection-error guidance now names the original supplied path.
+
+The real CLI/daemon test fails with `SUN_LEN` before the fix, then completes
+three reference generations with six paired trials. After restart, retrying the
+complete helper returns the exact prior durable outcome and replay passes.
+The strengthened native ARM64 package check uses a short parent alias for CLI,
+Arena, replay, TUI, browser and coding evolution. It rejects the previous archive
+specifically at coding evolution and passes the fixed archive, including the
+separate tour, pilot preparation and reference Gauntlet. Actual source-installed
+execution also passes at the previously failing 98/106-byte socket paths, with
+restart/retry identity preservation and no provider launch.
+
+The exact Rust 1.88 Cargo/compiler pass the targeted daemon test and workspace
+all-target/all-feature check. Current checks pass 23 CLI tests and both Clippy
+modes. The new permanent mutation guard is killed, with no survivors, stale
+anchors or timeouts; all 430 source anchors are valid. Control shard 3's CI floor
+rises from 27 to 28, matching the extra entry, and Actionlint passes. No other
+quality gate is weakened. Claude independently reviewed the implementation and
+installed acceptance change and found no material defect. See the
+[coding socket evidence](evidence/2026-10-08-evolve-socket/README.md).
+
+The full 724-test workspace checkpoint belongs to 5d231c4; this surgical CLI
+correction has the scoped checks above. A fresh full matrix/coverage audit,
+representative live-provider quality and authorized quota/auth handoff, hosted
+release/Intel and downloaded/quarantined first launch remain open. Useful
+recovery guidance for evaluator-installation mismatches is the next product
+reliability improvement. These checks do not prove full readiness or revenue.

@@ -1,0 +1,24 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.77s
+     Running tests/control_plane_e2e.rs (target/debug/deps/control_plane_e2e-315966be956dc242)
+
+running 1 test
+test evolve_coding_completes_three_generations_through_the_real_daemon_and_cli ... FAILED
+
+failures:
+
+---- evolve_coding_completes_three_generations_through_the_real_daemon_and_cli stdout ----
+
+thread 'evolve_coding_completes_three_generations_through_the_real_daemon_and_cli' (19076163) panicked at crates/hephaestus-control/tests/control_plane_e2e.rs:6135:5:
+CLI failed: hephaestus: status failed: Io(Error { kind: InvalidInput, message: "path must be shorter than SUN_LEN" })
+hephaestus: could not reach a daemon at /private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/.tmpLE5ew9/canonical-evolve-directory-with-a-name-that-exceeds-the-platform-unix-socket-path-limit-when-resolved/data (start `hephaestusd` first)
+; stdout=
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    evolve_coding_completes_three_generations_through_the_real_daemon_and_cli
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 34 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p hephaestus-control --test control_plane_e2e`

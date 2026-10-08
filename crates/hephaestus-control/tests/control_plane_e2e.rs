@@ -6880,7 +6880,17 @@ fn tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty() {
 #[test]
 fn evolve_coding_completes_three_generations_through_the_real_daemon_and_cli() {
     let directory = tempdir().expect("temporary directory");
-    let data_dir = directory.path().join("data");
+    let backing = directory.path().join("canonical-evolve-directory-with-a-name-that-exceeds-the-platform-unix-socket-path-limit-when-resolved");
+    fs::create_dir(&backing).expect("create long backing directory");
+    let alias_root = tempfile::Builder::new()
+        .prefix("hcoding-")
+        .tempdir_in("/tmp")
+        .expect("short alias root");
+    let alias = alias_root.path().join("workspace");
+    std::os::unix::fs::symlink(&backing, &alias).expect("alias long parent directory");
+    let data_dir = alias.join("data");
+    assert!(data_dir.join("control.sock").as_os_str().len() < 104);
+    assert!(backing.join("data/control.sock").as_os_str().len() > 108);
     let daemon = Daemon::start(&data_dir);
 
     let output = cli(&data_dir, &["evolve", "coding", "--budget", "6"]);
@@ -6917,6 +6927,19 @@ fn evolve_coding_completes_three_generations_through_the_real_daemon_and_cli() {
 
     assert!(response(&cli(&data_dir, &["replay"])).error.is_none());
     daemon.stop();
+
+    let restarted = Daemon::start(&data_dir);
+    let retry = response(&cli(&data_dir, &["evolve", "coding", "--budget", "6"]));
+    assert!(retry.error.is_none());
+    let Some(ResponseData::Evolution { run: retried }) = retry.data else {
+        panic!("evolve coding retry should return the finished run");
+    };
+    assert_eq!(
+        retried, run,
+        "retry must preserve the complete durable outcome"
+    );
+    assert!(response(&cli(&data_dir, &["replay"])).error.is_none());
+    restarted.stop();
 }
 
 /// TD-15: a mixed reference/provider Arena pair (a reference-role parent

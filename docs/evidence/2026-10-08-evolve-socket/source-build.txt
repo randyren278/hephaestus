@@ -1,0 +1,2 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `release` profile [optimized] target(s) in 7.30s
