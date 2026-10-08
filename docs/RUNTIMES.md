@@ -54,7 +54,18 @@ The process supervisor (`crates/hephaestus-runtime/src/supervisor.rs`) proves th
 
 ## Live runs against your own subscription
 
-Every test in this repository's suite points a Codex/Claude adapter at a small local fake script; none of it invokes the real `codex` or `claude` binary, spends quota, or touches the network. Running a real Genome against your own login is a deliberate operator step, verified end to end on macOS on 2026-09-27:
+Repository provider-adapter tests use small local fake scripts; they do not
+invoke the real Codex or Claude CLI or spend model quota. Real hosted execution
+is a separate, explicitly authorized operator step. A direct run was verified
+on macOS on 2026-09-27. On 2026-10-08, two real Codex Arena comparisons completed
+96 calls, including an evidence-bound prose revision and its rejected Forge
+assessment. Both tied at 24/24 on the public fictional support-triage pack;
+neither establishes improvement, attributable USD cost or independent customer
+acceptance. See the [first comparison](evidence/2026-10-08-live-codex/README.md)
+and [Forge follow-up](evidence/2026-10-08-live-forge/README.md) for signed receipts,
+reports and restart/replay checks.
+
+To configure a deliberate run with your own account:
 
 1. Log in to the CLI you want as you normally would (`codex login`, or `claude` and `/login`). This repository never manages that login.
 2. Register a World whose Law allows network access and a cost ceiling above zero (`authority_ceiling.network: true`, `laws.candidate_network: true`, `laws.maximum_cost_microusd: 1000000`), and a Genome with `model.provider` set to `codex` or `claude` and `authority.network: true` (`hephaestus world register ...`, `hephaestus genome register ... --world <id>`, then `hephaestus unfreeze`).

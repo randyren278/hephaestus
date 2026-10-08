@@ -21,6 +21,12 @@ customer’s live model agent.
 - Verify independent invariants, record Forge assessments, and make
   policy-gated Champion promotions and rollbacks. A selection receipt by
   itself does not authorize promotion.
+- Record an operator-authored Codex or Claude prompt revision through
+  `genome revise` or the guided terminal Forge flow. The proposal binds its
+  hypothesis, source Selection and exact before/after prompts, while preserving
+  the model, World, authority and other artifacts. Compare the child separately
+  and record its assessment; a revision does not authorize promotion. See
+  [hosted prompt revisions](GENOMES.md#hosted-prompt-revisions).
 - Evolve within a budget using a versioned catalog of 16 reference operations
   and failure-cluster analysis. Strategies can control mutation priority,
   candidate count and Gene selection. See [Evolution](EVOLUTION.md).
@@ -49,15 +55,20 @@ customer’s live model agent.
   exact, ASCII-trimmed and strict JSON output comparison, pinned to the World.
   It does not grade equivalent free-form prose. See [Worlds](WORLDS.md#output-scoring).
   A rebuilt evaluator digest requires a newly registered World.
-- **Forge changes reference instructions, not arbitrary prose.** The
-  operation catalog covers the seven Gauntlet failure families plus casing.
-  Operators can register a manually revised Markdown child; direct, submitted
-  and paired hosted runs now deliver its exact instructions and requested model.
-  The Forge proposal/assessment workflow cannot yet record a free-form prompt revision. See [Genomes](GENOMES.md).
-- **Live execution is not live improvement evidence.** The runtime guide
-  records a live Codex run on 2026-09-27. Repository tests use fake provider
-  CLIs and deterministic agents. No live hosted-model Arena improvement or
-  autonomous hosted-model evolution is established by those tests.
+- **Automatic evolution uses reference operations.** The operation catalog
+  covers the seven Gauntlet failure families plus casing. Hosted prose revisions
+  are written by the operator; unattended hosted prompt generation and
+  autonomous hosted-model improvement are not established. See
+  [Evolution](EVOLUTION.md) and [Genomes](GENOMES.md).
+- **Real comparisons do not establish improvement or customer value.** Two
+  authorized Codex comparisons on the public fictional support-triage pack
+  completed 96 calls on 2026-10-08. Both tied at 24/24, and the evidence-bound
+  revision's Forge assessment was `metrics_rejected`. Reports, signed receipts
+  and restart/replay were checked. Attributable USD cost and independent
+  private/customer acceptance remain unavailable. Repository tests use local
+  fake provider CLIs and deterministic agents. See the
+  [first comparison](evidence/2026-10-08-live-codex/README.md) and
+  [Forge follow-up](evidence/2026-10-08-live-forge/README.md).
 - **The web console is read-only.** Comparison reports summarize evidence;
   they are not signed receipts and historical transitions do not establish
   the current Champion. Use the operator CLI/TUI for actions and replay for

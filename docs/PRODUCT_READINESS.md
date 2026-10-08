@@ -25,8 +25,10 @@ customer-value gaps; Codex confirmed them against the checkout:
 The first implementation slice addressed item 3 and console reliability.
 The second adds World-pinned scoring for item 1. Subsequent slices fix hosted
 instruction/model delivery and historical replay, then implement and verify
-evidence-bound prose revisions and guided authoring for item 2. Representative
-live-model evidence and full installation acceptance remain required.
+evidence-bound prose revisions and guided authoring for item 2. Real-provider
+comparisons on the public fictional pack are recorded below. Independent
+private or customer evidence, attributable USD cost and full installation
+acceptance remain required.
 
 ## Acceptance for the full product
 
@@ -149,10 +151,12 @@ fresh-user first-launch acceptance remain open.
 Verified hosted Genome instructions now reach direct, submitted and paired execution. Contract v2 preserves exact instruction bytes separately from task commitments, pins the requested model, and retains v1 history replay. The offline fixture verifies different role instructions and models through the actual stdin pipe and reopens the saved control plane. Real old/new daemon upgrade evidence is recorded below. This proves configuration delivery, not live-model quality.
 
 The operator-authored prose proposal path and guided revision flow now pass
-coverage, mutation and real daemon upgrade checks. Continue with fresh
-installation and onboarding acceptance, representative live-provider evidence
-within authorized usage, and commercial positioning before claiming product
-readiness.
+coverage, mutation and real daemon upgrade checks. Two authorized real Codex
+comparisons are complete, and both allowances are exhausted. Any further
+provider experiment needs new explicit authorization. Remaining work includes
+attributable USD cost, independent private or customer evidence, fresh-user
+provider acceptance, native Intel and downloaded-archive first launch, and an
+available commercial offer before claiming full product readiness.
 
 ## Verification of the comparison slice
 
@@ -630,7 +634,12 @@ updates equivalent test assertions, navigates the real run list and waits for
 the exact completed phase. Production behavior and quality gates are unchanged.
 The [current follow-up evidence](evidence/2026-10-08-main-ci/README.md) records
 fresh local checks and the precise relationship to the immutable 442-entry audit.
-A pending GitHub follow-up run is not counted as passing.
+The subsequent [GitHub CI run](https://github.com/randyren278/hephaestus/actions/runs/37858198621)
+at `739cb9cb71acd0a83f980bdc21652ea6006399c7` completed successfully with all
+29 jobs passing, including all mutation scopes and native ARM64 package
+acceptance. This verifies that checkpoint's configured CI gates; native Intel,
+published-download first launch and independent customer acceptance remain
+separate requirements.
 
 The next Linux coverage run passed the corrected lint and PTY jobs and all 259
 control unit tests, then exposed a pilot fixture that passed a raw linked Cargo

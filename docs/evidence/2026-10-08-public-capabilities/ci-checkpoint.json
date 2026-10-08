@@ -1,0 +1,269 @@
+{
+  "conclusion": "success",
+  "headSha": "739cb9cb71acd0a83f980bdc21652ea6006399c7",
+  "jobs": [
+    {
+      "databaseId": 113587381666,
+      "name": "Minimum Rust version (1.88)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:25Z",
+      "completedAt": "2026-10-08T23:14:04Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381666"
+    },
+    {
+      "databaseId": 113587381770,
+      "name": "Native macOS package acceptance (arm64)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:30Z",
+      "completedAt": "2026-10-08T23:16:51Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381770"
+    },
+    {
+      "databaseId": 113587381779,
+      "name": "Ink TUI checks",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:24Z",
+      "completedAt": "2026-10-08T23:13:42Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381779"
+    },
+    {
+      "databaseId": 113587381843,
+      "name": "Tests, coverage, docs",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:24Z",
+      "completedAt": "2026-10-08T23:21:35Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381843"
+    },
+    {
+      "databaseId": 113587381851,
+      "name": "Web console checks",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:24Z",
+      "completedAt": "2026-10-08T23:13:36Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381851"
+    },
+    {
+      "databaseId": 113587381862,
+      "name": "Supply chain (cargo deny)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:24Z",
+      "completedAt": "2026-10-08T23:14:20Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381862"
+    },
+    {
+      "databaseId": 113587381877,
+      "name": "TUI live-daemon PTY",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:13:24Z",
+      "completedAt": "2026-10-08T23:14:48Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113587381877"
+    },
+    {
+      "databaseId": 113589930937,
+      "name": "Mutation guard (hephaestus-control-1)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:25:14Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930937"
+    },
+    {
+      "databaseId": 113589930957,
+      "name": "Mutation guard (hephaestus-control-2)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:25:27Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930957"
+    },
+    {
+      "databaseId": 113589930962,
+      "name": "Mutation guard (hephaestus-arena)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:32:50Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930962"
+    },
+    {
+      "databaseId": 113589930972,
+      "name": "Mutation guard (hephaestus-core)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:36Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930972"
+    },
+    {
+      "databaseId": 113589930982,
+      "name": "Mutation guard (hephaestus-control-3)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:25:22Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930982"
+    },
+    {
+      "databaseId": 113589930986,
+      "name": "Mutation guard (runtime-supervisor)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:52Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930986"
+    },
+    {
+      "databaseId": 113589930996,
+      "name": "Mutation guard (runtime-deterministic)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:33Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589930996"
+    },
+    {
+      "databaseId": 113589931005,
+      "name": "Mutation guard (runtime-sandbox)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:36Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931005"
+    },
+    {
+      "databaseId": 113589931011,
+      "name": "Mutation guard (runtime-process-guardian)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:39Z",
+      "completedAt": "2026-10-08T23:22:25Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931011"
+    },
+    {
+      "databaseId": 113589931014,
+      "name": "Mutation guard (hephaestus-genome)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:42Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931014"
+    },
+    {
+      "databaseId": 113589931039,
+      "name": "Mutation guard (runtime-worker)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:36Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931039"
+    },
+    {
+      "databaseId": 113589931042,
+      "name": "Mutation guard (hephaestus-control-4)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:25:02Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931042"
+    },
+    {
+      "databaseId": 113589931048,
+      "name": "Mutation guard (hephaestus-control-5)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:22:13Z",
+      "completedAt": "2026-10-08T23:25:57Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931048"
+    },
+    {
+      "databaseId": 113589931051,
+      "name": "Mutation guard (hephaestus-experience)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:24:09Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931051"
+    },
+    {
+      "databaseId": 113589931069,
+      "name": "Mutation guard (runtime-spec)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:34Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931069"
+    },
+    {
+      "databaseId": 113589931101,
+      "name": "Mutation guard (mutation-checks)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:43Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931101"
+    },
+    {
+      "databaseId": 113589931118,
+      "name": "Mutation guard (runtime-isolation)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:22Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931118"
+    },
+    {
+      "databaseId": 113589931119,
+      "name": "Mutation guard (hephaestus-ledger)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:18Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931119"
+    },
+    {
+      "databaseId": 113589931133,
+      "name": "Mutation guard (runtime-provider-events)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:23Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931133"
+    },
+    {
+      "databaseId": 113589931147,
+      "name": "Mutation guard (runtime-reference-instructions)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:39Z",
+      "completedAt": "2026-10-08T23:22:49Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931147"
+    },
+    {
+      "databaseId": 113589931150,
+      "name": "Mutation guard (runtime-provider)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:22:52Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931150"
+    },
+    {
+      "databaseId": 113589931206,
+      "name": "Mutation guard (python-statistics)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-08T23:21:37Z",
+      "completedAt": "2026-10-08T23:23:29Z",
+      "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621/job/113589931206"
+    }
+  ],
+  "status": "completed",
+  "url": "https://github.com/randyren278/hephaestus/actions/runs/37858198621"
+}

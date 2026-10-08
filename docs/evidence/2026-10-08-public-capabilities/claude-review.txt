@@ -1,0 +1,43 @@
+I found four doc statements that are now wrong or too broad, plus three smaller updates. The source confirms that operators can write and record their own prompt revisions for Codex/Claude agents. It also confirms that automatic evolution still only edits the 16 built-in deterministic reference operations. I only read files; I ran nothing and touched no credentials, pilot data or providers.
+
+## Source facts the wording below relies on
+- **Operator-written prompt revisions exist.** `crates/hephaestus-control/src/forge_revision.rs:272-421` (`revise_genome`) does the following:
+  - refuses while evolution is frozen (`:280`);
+  - requires a World that allows prompt mutations (`:331-339`);
+  - accepts only a Codex or Claude parent (`:345-349`);
+  - rejects a blank or unchanged prompt (`:362-371`);
+  - reserves the `evolve-`/`adapt-` proposal prefixes for automatic runs (`:314`);
+  - records a schema-2 `forge.proposed` event binding the parent, child, hypothesis, source Selection and exact before/after prompts (`:390-418`).
+- The CLI command is at `crates/hephaestus-control/src/bin/hephaestus.rs:279-286,1763`. The terminal menu item `'Forge: revise a prompt'` is at `apps/hephaestus-tui/src/ui.tsx:19`. Remote workers cannot issue it (`worker_remote.rs:427,473`).
+- Startup and replay check both proposal types (`verification.rs:373-374`), and assessment accepts both (`verification.rs:831-832`).
+- **Automatic evolution uses only the reference operations.** `propose_genome_from_source` goes through `forge_prompt_mutation` (`genome_ops.rs:202-217`). Strategy ranking only reads `SuggestedMutation::ReferenceOperation` and `ReferenceInstruction` (`handlers_evolve_meta.rs:1120-1129`).
+- **Saved live results:** in `docs/evidence/2026-10-08-live-forge/README.md`, both prompts scored 24/24 with zero regressions and zero improvements. Measured eligibility was false, and the assessment was `metrics_rejected` (`assessment.json:22-24`). Promotion eligibility was false in both `proposal-after-restart.json:35` and `assessment.json:24`. USD was unavailable, and there were 96 experimental Codex calls in total.
+
+## Findings
+
+**1. `docs/STATUS.md:52-56` is stale and contradicts the source.** It says "The Forge proposal/assessment workflow cannot yet record a free-form prompt revision." Replace the bullet with:
+> - **Automatic Forge changes reference instructions only.** `evolve`, adaptation and Gene extraction choose among 16 deterministic reference operations covering the seven Gauntlet failure families plus casing. Separately, an operator can write a revised prompt for a registered Codex or Claude agent with `genome revise` or the terminal's **Forge: revise a prompt** flow. The proposal records the exact before/after prompt, the hypothesis and the source Selection while keeping the model, authority and World fixed. It is then compared and assessed like any other candidate. Hephaestus does not write prose revisions itself. See [Genomes](GENOMES.md#hosted-prompt-revisions).
+
+**2. `docs/STATUS.md:57-60` is stale.** It still cites only the 2026-09-27 single run and says nothing about the two real hosted comparisons. Replace with:
+> - **Real hosted comparisons exist; improvement does not.** On 2026-10-08, two owner-authorized Codex comparisons ran on the public fictional support-triage pack, using 96 experimental calls. One compared the baseline with a checklist prompt. The other compared that checklist with an operator-written Forge revision. Every prompt scored 24/24 and none passed the measured selection gates. The revision's assessment is `metrics_rejected`, and no Champion changed. Codex reported no USD amount. See the [Forge comparison evidence](evidence/2026-10-08-live-forge/README.md). Repository tests still use fake provider CLIs. No hosted-model improvement, measured USD cost, customer acceptance or autonomous hosted-model evolution is established.
+
+**3. Add a "What works" bullet to `docs/STATUS.md` (after line 23).** The list does not mention operator revisions at all:
+> - Record an operator-written prompt revision for a hosted agent, bound to its source Selection and hypothesis. Then compare the revised child with its parent and record an evidence-only assessment. A revision never sets itself up for promotion.
+
+**4. `docs/EVOLUTION.md:3` overclaims.** "lets Hephaestus improve an agent on its own" is not bounded. Replace with:
+> `hephaestus evolve` runs unattended, budget-bounded generations for agents written in the deterministic reference instruction language. … It does not revise hosted-model prose prompts; those revisions are operator-written (see [Genomes](GENOMES.md#hosted-prompt-revisions)).
+
+**5. `docs/EVOLUTION.md:54-56` is now inaccurate.** "Forge's supported one-step agent.prompt mutations are now a deterministic, versioned catalog…" is no longer the whole story, because operator-written schema-2 prompt revisions also exist. Replace the opening with:
+> Automatic Forge mutations (`evolve`, analysis-bound `genome propose`) are a deterministic, versioned catalog … Operator-written hosted prompt revisions (`genome revise`) are a separate schema-2 proposal kind that automatic runs never create.
+
+**6. `docs/PRODUCT_READINESS.md`: three places to update.**
+- **`:147-155` ("Next implementation work").** It says to "Continue with … representative live-provider evidence within authorized usage", but both allowances are used up (`:54`). Replace the second paragraph with:
+  > Two authorized real Codex comparisons are complete, and both allowances are exhausted. Any further provider run needs new explicit authorization. Remaining work: attributable USD cost, independent private or customer evidence, fresh-user provider acceptance, native Intel and downloaded-archive first launch, and an available commercial offer.
+- **`:26-29`.** "Representative live-model evidence … remain required" reads as if no live evidence exists. Change it to:
+  > Real-provider comparisons on the public fictional pack are recorded below. Independent private or customer evidence, attributable USD cost and full installation acceptance remain required.
+- **`:631-633`.** "A pending GitHub follow-up run is not counted as passing" can be updated, but only with clear attribution, because I did not verify the CI result:
+  > The owner reports that GitHub main at `739cb9c` passed all 29 CI jobs in run 37858198621. This record does not independently verify that run.
+
+**7. `docs/GENOMES.md:53` could mislead (minor).** "Forge proposes a bounded operation change…" is unqualified, while hosted revisions are documented at `:72`. Prefix it with "Catalog proposals (`genome propose`) make a bounded operation change…" and at the end of `:55` add "Hosted prose revisions are operator-written; see below."
+
+`docs/PILOT_GUIDE.md` needs no change. Its claims at `:93-106` match the saved evidence and keep the improvement, USD and customer-value limits.

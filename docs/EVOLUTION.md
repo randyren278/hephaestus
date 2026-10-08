@@ -1,6 +1,12 @@
 # Evolution runs
 
-**In short.** `hephaestus evolve` lets Hephaestus improve an agent on its own, one generation at a time. Each generation it checks the current Champion, proposes one change, tests the changed version against the Champion, and promotes it only if the evidence clears the World's bar. It never gains powers you couldn't use by hand, it stops at its budget, and freezing stops it immediately.
+`hephaestus evolve` runs unattended, budget-bounded generations for agents
+written in the deterministic reference instruction language. Each generation
+it checks the current Champion, proposes a change, tests the changed version
+against the Champion, and promotes it only if the evidence clears the World's
+bar. It adds no authority and freezing pauses advancement. Hosted-model prose
+revisions are written by the operator through the
+[hosted revision workflow](GENOMES.md#hosted-prompt-revisions).
 
 <p align="center">
   <img src="assets/evolution-loop.svg" width="100%" alt="One generation of hephaestus evolve. 1, measure first: the Champion runs against a fixed baseline. 2, propose: the Forge makes exactly one Mutation and writes down why. 3, test: child versus Champion in the Arena, plus basic checks. 4, decide: the child takes the title only if the evidence clears the World's bar, and stays on record either way. Each generation spends exactly two paired Arena evaluations.">
@@ -51,7 +57,7 @@ optimizer can solve a real coding task — see
 
 ## The mutation catalog and strategy-steered generations
 
-Forge's supported one-step agent.prompt mutations are now a deterministic,
+Automatic Forge mutations are a deterministic,
 versioned catalog of all 16 reference-runtime operations
 (`crates/hephaestus-runtime/src/mutation_catalog.rs`): `identity`/`ascii_uppercase`
 plus the seven Gauntlet bad/fix pairs. Every ordered pair of distinct
