@@ -1,0 +1,19 @@
+root:    /private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout
+suite:   /Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo test -p hephaestus-control --all-features --lib evaluator_ (CLI override)
+timeout: 120s default; selected mutation timeout(s): 480s
+baseline timeout: 120s
+
+baseline: unmutated suite is green
+
+RUN       control-evaluator-mismatch-recovery-classification command=/Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo test -p hephaestus-control --all-features --lib evaluator_ timeout=480s
+KILLED    control-evaluator-mismatch-recovery-classification crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       control-evaluator-open-unknown-error-privacy command=/Users/randyren/.rustup/toolchains/1.88.0-aarch64-apple-darwin/bin/cargo test -p hephaestus-control --all-features --lib evaluator_ timeout=480s
+KILLED    control-evaluator-open-unknown-error-privacy crates/hephaestus-control/src/verification.rs (timeout 480s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+control-evaluator-mismatch-recovery-classification crates/hephaestus-control/src/verification.rs KILLED
+control-evaluator-open-unknown-error-privacy crates/hephaestus-control/src/verification.rs KILLED
+
+2 mutations run, 2 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

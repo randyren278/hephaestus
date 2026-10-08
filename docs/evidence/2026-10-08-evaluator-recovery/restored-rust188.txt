@@ -1,0 +1,20 @@
+   Compiling hephaestus-control v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.53s
+     Running unittests src/lib.rs (/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/target188/debug/deps/hephaestus_control-7c1bd7b47088ef1b)
+
+running 3 tests
+test server::verification::verification_unit_tests::evaluator_open_errors_explain_recovery_and_keep_unknown_details_private ... ok
+test server::tests::paired_admission_rejects_world_missing_evaluator_after_valid_manifests ... ok
+test server::tests::paired_admission_explains_evaluator_installation_errors_without_binding_jobs ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 256 filtered out; finished in 0.82s
+
+   Compiling hephaestus-control v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.23s
+     Running tests/pilot_preparation.rs (/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/target188/debug/deps/pilot_preparation-48e465b726984c9b)
+
+running 2 tests
+test installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provider ... ok
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.53s

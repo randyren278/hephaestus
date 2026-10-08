@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on build directory
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.21s
+     Running tests/pilot_preparation.rs (target/debug/deps/pilot_preparation-9bc3b6e5822d12ae)
+
+running 1 test
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 11.87s

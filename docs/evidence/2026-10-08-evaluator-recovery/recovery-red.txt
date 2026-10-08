@@ -1,0 +1,24 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.16s
+     Running tests/pilot_preparation.rs (target/debug/deps/pilot_preparation-e671668c6ad2882c)
+
+running 1 test
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... FAILED
+
+failures:
+
+---- evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers stdout ----
+
+thread 'evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers' (19100931) panicked at crates/hephaestus-control/tests/pilot_preparation.rs:385:5:
+assertion `left == right` failed
+  left: Internal
+ right: InvalidRequest
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.68s
+
+error: test failed, to rerun pass `-p hephaestus-control --test pilot_preparation`

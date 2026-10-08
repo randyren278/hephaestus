@@ -49,6 +49,25 @@ pub(super) enum ExecuteError {
     Busy,
 }
 
+pub(super) fn map_evaluator_open_error(error: &ArenaError) -> ExecuteError {
+    let message = match error {
+        ArenaError::WorldArtifactMismatch("arena.evaluator") => {
+            "configured evaluator does not match the World's pinned evaluator; stop this daemon and restart it with the matching installation used to prepare this World, then retry"
+        }
+        ArenaError::EvaluatorExecution(message) if message == "evaluator executable is unsafe" => {
+            "configured evaluator executable is unsafe; it requires a regular executable file with one hard link and no symlink; restore it from the matching installation, then retry"
+        }
+        ArenaError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            "configured evaluator executable is missing; restore it at the configured path from the matching installation, then retry"
+        }
+        ArenaError::Io(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            "configured evaluator executable cannot be read; check its access permissions or restore it from the matching installation, then retry"
+        }
+        _ => return ExecuteError::Internal,
+    };
+    ExecuteError::Rejected(message.to_owned())
+}
+
 pub(super) fn map_selection_error(error: &ArenaError) -> ExecuteError {
     match error {
         ArenaError::UnknownEvaluation(_) => ExecuteError::NotFound,
@@ -2068,10 +2087,44 @@ mod verification_unit_tests {
     use super::{
         ArenaError, Command, ExecuteError, GENE_EVENT_TYPE, GeneTransferOutcome,
         TRANSFER_RECORDED_EVENT_TYPE, best_gene_target_operation, map_cluster_error,
-        require_command_fields,
+        map_evaluator_open_error, require_command_fields,
     };
     use crate::{DriftKind, GeneExtractedPayload, GeneTransferRecordedPayload, MetaLineageSpec};
     use hephaestus_ledger::StoredEvent;
+
+    #[test]
+    fn evaluator_open_errors_explain_recovery_and_keep_unknown_details_private() {
+        let sensitive = "sealed-task-and-credential-sentinel";
+        let cases = [
+            ArenaError::WorldArtifactMismatch("arena.evaluator"),
+            ArenaError::EvaluatorExecution("evaluator executable is unsafe".to_owned()),
+            ArenaError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, sensitive)),
+            ArenaError::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                sensitive,
+            )),
+        ];
+        for error in cases {
+            let ExecuteError::Rejected(message) = map_evaluator_open_error(&error) else {
+                panic!("known installation error must explain recovery");
+            };
+            assert!(message.contains("configured evaluator"));
+            assert!(message.contains("matching installation") && message.contains("retry"));
+            assert!(!message.contains(sensitive));
+            assert!(message.len() <= 256);
+        }
+        for error in [
+            ArenaError::WorldArtifactMismatch(sensitive),
+            ArenaError::EvaluatorExecution(sensitive.to_owned()),
+            ArenaError::Io(std::io::Error::other(sensitive)),
+            ArenaError::EvaluatorProtocol(sensitive),
+        ] {
+            assert!(matches!(
+                map_evaluator_open_error(&error),
+                ExecuteError::Internal
+            ));
+        }
+    }
 
     fn event(sequence: u64, event_type: &str, payload_bytes: Vec<u8>) -> StoredEvent {
         StoredEvent {

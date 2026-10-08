@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use hephaestus_control::{Client, Command, ResponseData};
+use hephaestus_control::{ApiErrorCode, Client, Command, JobState, ResponseData};
 use serde_json::Value;
 use tempfile::tempdir;
 
@@ -48,6 +48,16 @@ impl Drop for Daemon {
 }
 
 fn start(home: &Path, data: &Path, repository: &Path, provider: &Path) -> Daemon {
+    start_with_evaluator(home, data, repository, provider, Path::new(EVALUATOR))
+}
+
+fn start_with_evaluator(
+    home: &Path,
+    data: &Path,
+    repository: &Path,
+    provider: &Path,
+    evaluator: &Path,
+) -> Daemon {
     let mut child = Daemon(
         ProcessCommand::new(DAEMON)
             .args([
@@ -56,7 +66,7 @@ fn start(home: &Path, data: &Path, repository: &Path, provider: &Path) -> Daemon
                 "--source-repository",
                 repository.to_str().unwrap(),
                 "--evaluator-executable",
-                EVALUATOR,
+                evaluator.to_str().unwrap(),
             ])
             .env_clear()
             .env("HOME", home)
@@ -303,4 +313,182 @@ fn installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provide
     assert_eq!(third["parent_genome_id"], first["parent_genome_id"]);
     assert_eq!(third["candidate_profile"], first["candidate_profile"]);
     assert!(!marker.exists());
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers() {
+    let root = tempdir().unwrap();
+    let home = root.path();
+    let pack = home.join("pilot");
+    json(&cli(
+        home,
+        &[
+            "--json",
+            "init",
+            "--fixture",
+            "support-triage",
+            pack.to_str().unwrap(),
+        ],
+    ));
+    let repository = pack.join("repository");
+    let provider = home.join("claude-fixture");
+    fs::write(&provider, "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"{\\\"queue\\\":\\\"account_access\\\",\\\"priority\\\":\\\"p3\\\"}\",\"total_cost_usd\":0.001}'\n").unwrap();
+    fs::set_permissions(&provider, fs::Permissions::from_mode(0o700)).unwrap();
+    let data = pack.join("data");
+    let daemon = start(home, &data, &repository, &provider);
+    let prepared = json(&cli(
+        home,
+        &[
+            "--data-dir",
+            data.to_str().unwrap(),
+            "--json",
+            "pilot",
+            "prepare",
+            pack.to_str().unwrap(),
+            "--provider",
+            "claude",
+            "--model",
+            "offline-profile-model",
+            "--cost-microusd",
+            "250000",
+        ],
+    ));
+    let parent = prepared["parent_genome_id"].as_str().unwrap().to_owned();
+    let candidate = prepared["candidate_genome_id"].as_str().unwrap().to_owned();
+    drop(daemon);
+
+    let wrong = home.join("wrong-evaluator");
+    let mut bytes = fs::read(EVALUATOR).unwrap();
+    bytes.extend_from_slice(b"different installation fixture");
+    fs::write(&wrong, bytes).unwrap();
+    fs::set_permissions(&wrong, fs::Permissions::from_mode(0o700)).unwrap();
+    let mismatched = start_with_evaluator(home, &data, &repository, &provider, &wrong);
+    let client = Client::new(&data);
+    assert!(client.request(Command::Unfreeze).unwrap().error.is_none());
+    let Some(ResponseData::GenomeProfile { profile }) = client
+        .request(Command::GenomeProfile {
+            genome_id: candidate.clone(),
+        })
+        .unwrap()
+        .data
+    else {
+        panic!("candidate profile");
+    };
+    let command = Command::EvaluatePairConfirmed {
+        evaluation_id: "evaluator-recovery".to_owned(),
+        parent_genome_id: parent.clone(),
+        candidate_genome_id: candidate.clone(),
+        expected_profile: profile,
+    };
+    let error = client.request(command.clone()).unwrap().error.unwrap();
+    assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+    assert_eq!(error.rejected, Some(true));
+    assert!(
+        error
+            .message
+            .contains("does not match the World's pinned evaluator")
+    );
+    assert!(
+        error.message.contains("restart") && error.message.contains("used to prepare this World")
+    );
+    assert!(!error.message.contains(wrong.to_str().unwrap()));
+    assert!(
+        !error
+            .message
+            .contains(prepared["world_id"].as_str().unwrap())
+    );
+    let plain = client
+        .request(Command::EvaluatePair {
+            evaluation_id: "plain-evaluator-rejection".to_owned(),
+            parent_genome_id: parent,
+            candidate_genome_id: candidate,
+            remote: false,
+        })
+        .unwrap()
+        .error
+        .unwrap();
+    assert_eq!(plain.code, ApiErrorCode::InvalidRequest);
+    assert_eq!(plain.rejected, None);
+    assert_eq!(plain.message, error.message);
+    for id in ["evaluator-recovery", "plain-evaluator-rejection"] {
+        assert_eq!(
+            client
+                .request(Command::JobStatus {
+                    job_id: id.to_owned()
+                })
+                .unwrap()
+                .error
+                .unwrap()
+                .code,
+            ApiErrorCode::NotFound
+        );
+    }
+    assert!(
+        matches!(client.request(Command::RunList { limit: 100 }).unwrap().data, Some(ResponseData::RunList { runs }) if runs.is_empty())
+    );
+    assert!(
+        matches!(client.request(Command::EvaluationList { limit: 100 }).unwrap().data, Some(ResponseData::EvaluationList { evaluations }) if evaluations.is_empty())
+    );
+    assert!(client.request(Command::Replay).unwrap().error.is_none());
+    drop(mismatched);
+
+    let matching = start(home, &data, &repository, &provider);
+    let response = client.request(command.clone()).unwrap();
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let Some(ResponseData::ArenaJob { job }) = response.data else {
+        panic!("same ID should be admitted after matching restart");
+    };
+    assert_eq!(job.evaluation_id, "evaluator-recovery");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let finished = loop {
+        let response = client
+            .request(Command::JobStatus {
+                job_id: job.evaluation_id.clone(),
+            })
+            .unwrap();
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let Some(ResponseData::ArenaJob { job }) = response.data else {
+            panic!("Arena progress");
+        };
+        assert!(
+            !matches!(job.state, JobState::Failed | JobState::Interrupted),
+            "{job:?}"
+        );
+        if job.state == JobState::Succeeded {
+            let evaluation = job
+                .evaluation
+                .as_ref()
+                .expect("successful comparison evidence");
+            assert_eq!(evaluation.world_id, prepared["world_id"].as_str().unwrap());
+            assert_eq!(
+                evaluation.parent_genome_id,
+                prepared["parent_genome_id"].as_str().unwrap()
+            );
+            assert_eq!(
+                evaluation.candidate_genome_id,
+                prepared["candidate_genome_id"].as_str().unwrap()
+            );
+            assert_eq!(job.completed_trials, 48);
+            break job;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "offline fixture comparison deadline"
+        );
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert!(
+        matches!(client.request(Command::RunList { limit: 100 }).unwrap().data, Some(ResponseData::RunList { runs }) if runs.len() == 48)
+    );
+    assert!(client.request(Command::Replay).unwrap().error.is_none());
+    drop(matching);
+    let _restarted = start(home, &data, &repository, &provider);
+    let response = client.request(command).unwrap();
+    assert!(response.error.is_none());
+    assert!(matches!(response.data, Some(ResponseData::ArenaJob { job }) if job == finished));
+    assert!(
+        matches!(client.request(Command::RunList { limit: 100 }).unwrap().data, Some(ResponseData::RunList { runs }) if runs.len() == 48)
+    );
+    assert!(client.request(Command::Replay).unwrap().error.is_none());
 }

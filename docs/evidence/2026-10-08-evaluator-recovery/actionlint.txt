@@ -1,0 +1,1 @@
+Actionlint 1.7.12 exit 0 for current .github/workflows/ci.yml

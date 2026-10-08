@@ -1639,7 +1639,14 @@ fn daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events() 
         );
         assert!(!rejected_output.status.success());
         let rejected = serde_json::from_slice::<ApiResponse>(&rejected_output.stdout).unwrap();
-        assert_eq!(rejected.error.unwrap().code, ApiErrorCode::Internal);
+        let error = rejected.error.unwrap();
+        assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+        assert!(
+            error
+                .message
+                .contains("does not match the World's pinned evaluator")
+        );
+        assert!(error.message.contains("used to prepare this World"));
         let after_rejection = EventStore::open(data_dir.join("events.sqlite3"))
             .unwrap()
             .replay_verified()

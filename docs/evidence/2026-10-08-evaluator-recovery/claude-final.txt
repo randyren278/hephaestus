@@ -1,0 +1,26 @@
+I found no material issues. The installed probe and both new mutation guards do what they claim. I only read files, didn't run anything, and I'm relying on your report of the old-vs-new archive results.
+
+**Installed probe (`scripts/package/pilot_acceptance.py:111-141`)**
+- **Rejection before admission:** The test pins a different evaluator in a separate World, unfreezes the daemon and asks for an evaluation. It then checks four things:
+  - The error is `invalid_request` with the recovery wording (`:131-133`).
+  - `job status` returns `not_found` for that evaluation ID (`:135-136`).
+  - `runs` is empty (`:137`).
+  - `evaluations` is empty and no stub marker file exists (`:139-141`).
+
+  No runs happen earlier in that daemon session, so the empty `runs` result is a valid control. Together these show nothing was admitted, scheduled or launched. An old archive returning an internal error fails at `:131`, which matches what you saw.
+- **Privacy:** The error must not contain the wrong evaluator's path or artifact ID (`:134`). All the new fixture files are written under `home`, not the pack. The source hashes are still checked at `:162-163`, and the marker check at `:164` still covers the whole run.
+- **Fixture caveat:** The pass result at `:181` already says it uses placeholder models and stubs, so it makes no claim about live-model quality.
+
+**Mutation guards (`checks/checks.json:3270-3284`)**
+- `control-evaluator-mismatch-recovery-classification`: the find string matches only `verification.rs:54`; the test at `:2099` ends in `,`, not `=> {`. The mutant turns the error into an internal error, which fails `server_tests.rs:4530-4531`. Killed.
+- `control-evaluator-open-unknown-error-privacy`: the find string matches only `verification.rs:66`; the selection mapper at `:80` has no `return`. The mutant makes the unknown errors in the test at `verification.rs:2116-2126` come back as a rejection instead of an internal error. Killed. The replacement should compile, assuming `ArenaError` implements `Display`.
+- Each guard changes exactly one line in `verification.rs`.
+
+**CI floors (`.github/workflows/ci.yml:298-327`)**
+- `checks.json` has 140 entries under `crates/hephaestus-control/`. The guard filters by file prefix and then deals entries out in turn (`mutation_guard.py:362-367`), so each of the 5 shards gets exactly 28. A floor of 28 is exact and leaves no slack.
+
+**Minor points (none blocking)**
+1. **The e2e test is weaker on admission.** The tampered-evaluator case (`control_plane_e2e.rs:1650-1664`) only checks that no new run result was recorded. It would still pass if a job-admission event were recorded and the job then failed before scheduling. The server unit test (`server_tests.rs:4534-4535`) and the installed probe cover this. If you want it airtight, add a `job status tampered-evaluator-pair` → `not_found` check, or compare the full event count.
+2. **The e2e test has no privacy check.** It never asserts that the message leaves out the `reference-evaluator` path. The message is a fixed string and the server test checks this at `:4533`, so this only matters for consistency.
+3. **The probe's privacy check is one-sided.** `:134` excludes the wrong evaluator but not the correctly installed one (`str(evaluator)` and `artifact` from `:106-107`). Adding both would cover the other side too.
+4. **One guard's description promises more than its mutant tests.** The first guard's text says "rejects before admission", but its mutant only tests how the error is classified. The ordering is protected by `control-world-bound-evaluator-bypassed` (`checks.json:1380`), so the wording could be narrowed.

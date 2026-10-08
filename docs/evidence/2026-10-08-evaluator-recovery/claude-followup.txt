@@ -1,0 +1,46 @@
+I found no remaining material issues. The recovery fix is correct in the code, and every branch you asked about is mapped to the right message and covered by tests. I only used Read and Grep, so I didn't run any tests. The pass results you quoted are your Codex runtime results, and the all-features and normal production-feature runs you mentioned are still running.
+
+## Current fixes
+
+**Mapping helper** (`verification.rs:52-69`)
+- **Digest mismatch** (`WorldArtifactMismatch("arena.evaluator")`): the message now says to stop this daemon, restart with the matching installation used to prepare this World, then retry. The new-World advice is gone.
+- **Unsafe file** (exact text `"evaluator executable is unsafe"`): the message names all the requirements, which are a regular executable file, one hard link and no symlink.
+- **Missing file** (`Io` NotFound): the message says to restore the file at the configured path, then retry. It doesn't ask for a restart.
+- **Can't read file** (`Io` PermissionDenied): the message says to check permissions or restore the file, then retry. It doesn't ask for a restart.
+- **Anything else** falls through to `Internal`.
+
+**Where the errors come from** (`isolated_evaluator.rs:207-228`, `81-92`)
+- The "unsafe" check runs before the file is read. It covers symlinks, anything that isn't a regular file, missing execute bits and more than one hard link. All four match the new wording.
+- Errors from setting up the worker folder come back as `ArenaError::Runtime` and fall through to `Internal`. So a worker-folder problem can't be mislabeled as a missing or unreadable evaluator. This was the main mislabeling risk I checked.
+
+**No job is created on refusal** (`run_exec.rs:432`)
+- `open_evaluator` runs before the reference worker is pinned and before any binding, revision or trial setup. A refusal therefore happens before anything is bound, which supports the "nothing created" checks in the tests.
+
+**Privacy unit test** (`verification.rs:2096`)
+- All four known branches produce a recovery message of at most 256 bytes with no sensitive text in it.
+- Unknown World-mismatch, execution, other I/O and protocol errors all map to `Internal`.
+
+**Physical admission test** (`server_tests.rs:4480`)
+- It covers five real cases: a mismatched file, a missing file, a file with mode 0600, a symlink, and a file with two hard links.
+- Each case checks the error code is `InvalidRequest`, the right explanation, "matching installation" and "retry", that the path isn't leaked, and that no job or admission exists.
+- The symlink points to the mismatched file, so the test also proves the "unsafe" check runs before the digest check.
+
+**Pilot recovery test** (`pilot_preparation.rs:320`)
+- The confirmed and plain commands give the same message. Neither leaks the path or World ID.
+- Both job IDs return `JobStatus` NotFound, and there are no runs or evaluations. Replay passes.
+- After restarting with the matching installation, the same ID is admitted and finishes with 48 trials bound to the right World, parent and candidate, and exactly 48 runs.
+- After another restart, the confirmed retry returns the identical finished job and there are still exactly 48 runs.
+
+## What "rejected" means
+
+- `server.rs:1287-1292`: a `Rejected` error becomes `InvalidRequest`. The `rejected: Some(true)` flag is set only for explicit-admission commands, such as `EvaluatePairConfirmed`.
+- Plain `EvaluatePair` leaves the flag out (`None`), and the test checks both cases.
+- In practice, `rejected: true` means "refused at admission, nothing bound". It doesn't use up the evaluation ID: the same ID is admitted after a matching restart. That fits the protocol doc (`protocol.rs:2230`). You could add one sentence there saying a rejected ID stays reusable after you fix the cause.
+
+## Remaining low-severity notes (not blocking)
+
+1. **String match across crates:** the helper depends on the exact text `"evaluator executable is unsafe"` from the arena crate. The physical test would catch it if that text changed, but a typed variant would be sturdier.
+2. **Read-permission case only unit-tested:** no physical test covers a file that is executable but unreadable (for example mode 0o100). The unit test covers the mapping, and a physical version wouldn't work if tests run as root.
+3. **Unusual I/O errors get the generic message:** a parent folder in the path that isn't a folder (`NotADirectory`) falls to `Internal`, so you get no recovery hint. A parent folder you can't access reports "cannot be read", which is still accurate advice.
+4. **Hosted-work claim is shown indirectly:** the test name says the refusal happens "before hosted work", but the fake Claude script records nothing when called. The proof comes from the ordering in the code plus empty run, evaluation and job lists. A marker file in the script would prove it directly.
+5. **Out of scope:** a mid-run re-check that fails ("identity changed", mismatch) goes through the job-failure path, not this helper. This review doesn't cover that.

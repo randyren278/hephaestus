@@ -64,7 +64,9 @@ Codex reports no USD amount, so recorded cost gates cannot prove actual spending
 Preparation requires a frozen daemon with no active runs. Use the CLI and
 `heph` from the same installation, so the CLI-adjacent reference evaluator
 matches the daemon. A custom daemon evaluator is not supported by this helper;
-evaluator identity is checked again before any comparison trials start. It publishes both
+evaluator identity is checked again before any comparison trials start. If it
+does not match, use the [matching-installation recovery steps](provider-setup.md#recover-an-evaluator-installation-mismatch);
+repeating preparation through a mismatched CLI does not fix the binding. It publishes both
 manifests, the installed evaluator and daemon verifier, replaces the World and
 prompt placeholders, registers the World and directed pair, and reads back both
 profiles. It never unfreezes or submits provider work. Its output includes the

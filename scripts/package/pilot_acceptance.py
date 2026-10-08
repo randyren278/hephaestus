@@ -108,6 +108,35 @@ def main() -> int:
             assert json.loads((setup / "world.json").read_text())["evaluator_artifacts"]["arena.evaluator"] == artifact
             claude = prepared("claude")
             assert claude["candidate_profile"]["provider"] == "claude"
+            # Pin a different artifact in a separate immutable World. The
+            # installed production daemon must refuse before launching a stub.
+            wrong_evaluator = home / "wrong-evaluator"
+            wrong_evaluator.write_bytes(b"different evaluator installation fixture")
+            wrong_artifact = cli_data(cli, data, "artifact", "put", str(wrong_evaluator))["artifact_id"]
+            wrong_world = json.loads((setup / "world.json").read_text())
+            wrong_world["evaluator_artifacts"]["arena.evaluator"] = wrong_artifact
+            wrong_path = home / "wrong-world.json"
+            wrong_path.write_text(json.dumps(wrong_world))
+            wrong_world_id = cli_data(cli, data, "world", "register", str(wrong_path))["world"]["world_id"]
+            wrong_parent_path = home / "wrong-baseline.md"
+            wrong_parent_path.write_text((setup / "baseline.md").read_text().replace("name: support-triage-baseline", "name: installed-mismatch-baseline"))
+            wrong_parent = cli_data(cli, data, "genome", "register", str(wrong_parent_path), "--world", wrong_world_id)["genome"]["genome_id"]
+            wrong_candidate_path = home / "wrong-candidate.md"
+            wrong_candidate_path.write_text((setup / "candidate.md").read_text().replace(first["parent_genome_id"], wrong_parent).replace("name: support-triage-candidate", "name: installed-mismatch-candidate"))
+            wrong_candidate = cli_data(cli, data, "genome", "register", str(wrong_candidate_path), "--world", wrong_world_id)["genome"]["genome_id"]
+            subprocess.run([cli, "--data-dir", str(data), "unfreeze"], capture_output=True, check=True)
+            refused = subprocess.run([cli, "--data-dir", str(data), "--json", "arena", "evaluate", "installed-evaluator-mismatch", wrong_parent, wrong_candidate], capture_output=True, text=True, timeout=30)
+            assert refused.returncode != 0
+            error = json.loads(refused.stdout)["error"]
+            assert error["code"] == "invalid_request"
+            assert "does not match the World's pinned evaluator" in error["message"]
+            assert "used to prepare this World" in error["message"]
+            assert str(wrong_evaluator) not in error["message"] and wrong_artifact not in error["message"]
+            assert str(evaluator) not in error["message"] and artifact not in error["message"]
+            absent = subprocess.run([cli, "--data-dir", str(data), "--json", "job", "status", "installed-evaluator-mismatch"], capture_output=True, text=True, timeout=30)
+            assert absent.returncode != 0 and json.loads(absent.stdout)["error"]["code"] == "not_found"
+            assert cli_data(cli, data, "runs")["runs"] == []
+            subprocess.run([cli, "--data-dir", str(data), "freeze"], capture_output=True, check=True)
             assert not marker.exists(), "preparation launched a provider"
             assert cli_data(cli, data, "status")["frozen"] is True
             assert cli_data(cli, data, "evaluations")["evaluations"] == []
@@ -149,6 +178,7 @@ def main() -> int:
         "retry_profiles_identical": True, "unfrozen_preparation_rejected": True,
         "source_templates_preserved": True, "setup_mode": "0700", "global_git_signing_override_verified": True, "git_hooks_templates_and_location_env_ignored": True, "invalid_cost_rejected_before_registration": True,
         "evaluator_binding_matches_install": True,
+        "evaluator_mismatch_refused_before_admission": True,
         "scope": "offline placeholder model and marker stubs; no auth or model availability established",
     }, sort_keys=True))
     return 0

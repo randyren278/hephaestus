@@ -1,0 +1,58 @@
+I found no fail-closed or privacy problems in the source. I did find one inaccuracy in the recovery advice that matters, plus some smaller gaps. Everything below comes from reading the code; I ran nothing, so the green test run is still unconfirmed.
+
+## Source analysis
+
+**Fail-closed: OK.**
+- `open_evaluator` is the only control-plane caller of `IsolatedEvaluator::open*` (`run_exec.rs:1213`, `:1230`).
+- In `submit_arena_job` it runs at `run_exec.rs:432`. That is after the read-only checks (genomes, World, manifests, budgets) and before reference-worker pinning, the environment digests, the revision and any job state change. Any `Err` still aborts admission. The mapping only changes how the error is labelled, not the control flow.
+- The confirmed path (`run_exec.rs:80-126`) adds profile checks and then calls into the same function. Retrying an existing ID is short-circuited before `open_evaluator`, so a mismatch can't strand a half-bound ID.
+- The only side effect of a rejected request is the audit append in `execute()` (`server.rs:1322`), and that was already true before the change.
+
+**Error classification: accurate.** `verify_executable` (`isolated_evaluator.rs:207-228`) is the only source of the four mapped cases:
+- `WorldArtifactMismatch("arena.evaluator")` comes only from the digest comparison at `:221`.
+- The "unsafe" error comes from the symlink, non-regular-file, missing exec bit or `nlink != 1` check at `:215`.
+- `Io` errors come from `symlink_metadata`, `read` and `canonicalize`.
+- `IsolatedWorker::open` failures arrive as `ArenaError::Runtime` (`error.rs:137`), not `Io`. So a missing `data_dir/evaluator-runs` root cannot be misreported as a missing evaluator; it stays `Internal`. A bad World `evaluator_id` (`InvalidId`) also stays `Internal`, which is correct.
+
+**Privacy: OK.** All four messages are static `&str`s. They contain no path, digest, artifact ID or OS error text. The fallback arm returns bare `Internal`, which `server.rs:1300` renders as the fixed "canonical operation failed".
+
+**`rejected` flag: works as intended.** It is set only for `GenomeRevise` and `EvaluatePairConfirmed` (`server.rs:1278-1292`). The TUI then moves to `compare_rejected` (`revision.ts:237`), and Y mints a new evaluation ID (`revision-workspace.ts:326`). Two side effects:
+- If the user retries before restarting the daemon, each retry is rejected again and uses up one of the 100 attempt slots per revision.
+- The TUI's own test calls `rejected` "Permanent admission refusal". This rejection isn't permanent: your test shows the same ID being admitted after a restart. That's harmless today but blurs what the flag means.
+
+## Findings
+
+1. **Medium: the "prepare a new World" advice can send pilot users in a loop.** `pilot prepare` pins the evaluator found next to the CLI binary (`bin/hephaestus/pilot.rs:191-231`), not the daemon's `--evaluator-executable`.
+   - If the daemon and CLI come from different installations, re-running prepare pins the same CLI-side evaluator again. The World template is byte-identical, so prepare is idempotent and just returns the existing World, and the mismatch repeats.
+   - Only the first branch ("restart with the matching installation") reliably recovers.
+   - Suggested fix: lead with the restart, and make clear that a new World must pin the evaluator this daemon is configured with. Or drop the second branch for now.
+
+2. **Low: the "unsafe" advice doesn't say what makes it unsafe.** Symlinks and hard links (`nlink != 1`) are rejected too, and `default_evaluator_executable` doesn't canonicalize its path. An operator pointing `--evaluator-executable` at a package manager's symlink would be told to "restore a regular executable" without learning that the symlink is the cause. Consider: "must be a regular, executable, non-symlinked, single-link file".
+
+3. **Low: the missing-file and permission advice says to restart when it doesn't need to.** `open_evaluator` re-checks the file on every admission, so restoring it at the configured path and retrying is enough. The advice isn't wrong, just more than necessary.
+
+4. **Low: the "unsafe" arm depends on exact message text from another crate** (`verification.rs:57` matches `isolated_evaluator.rs:216`). If that text is ever reworded, the case silently drops to `Internal`. That still fails closed, but the advice is lost. A dedicated `ArenaError` variant or a shared constant would prevent this.
+
+5. **Out of scope, just noting:** if the evaluator is swapped after admission, the re-check in `evaluate_inner` (`isolated_evaluator.rs:143-147`) fails the job. That path doesn't go through this mapping, so mid-run swaps still get no tailored message.
+
+## Test coverage (source reading of `pilot_preparation.rs:320-447`)
+
+**What it covers well:**
+- A real daemon binary on the default (non-`test-support`) build, so the production `open` path with detected isolation. The digest mismatch fires before isolation matters, so both `open_evaluator` configurations behave the same here.
+- Both confirmed (`rejected == Some(true)`) and plain (`None`) admission, with identical message text.
+- No runs or evaluations recorded, and replay still clean.
+- After a restart with the matching evaluator, the same ID is reused and the job reaches `Succeeded`.
+- 48 runs (24 tasks × 2 roles), then replay again.
+
+The test passes `HEPHAESTUS_CLAUDE_EXECUTABLE` pointing at a local shell script that prints Claude-shaped JSON. So no real Claude API, subscription, credentials or model calls are involved, as you said.
+
+**Gaps:**
+- **No unit tests** for the "unsafe", missing-file, permission-denied or unknown-error arms. Nothing pins that, for example, `WorldArtifactMismatch("arena.visible_manifest")` or `EvaluatorExecution("evaluator executable identity changed")` stays `Internal`. These would be cheap to add next to `map_evaluator_open_error`.
+- **"No hosted work" is only shown by an empty `RunList`.** The fixture script never writes a marker file. Having it touch one, and asserting the marker is absent before the matching restart, would prove no provider was launched directly.
+- **No check that the rejected ID stayed unbound.** It's implied (an existing failed job would never reach `Succeeded`), but it would only show up as a 60 s timeout rather than a clear failure. An explicit `JobStatus` → NotFound assertion would be clearer.
+- **No guard against the message leaking.** It's static today; an assertion that it doesn't contain the `wrong-evaluator` path or an artifact ID would catch a future regression.
+- **The 60 s deadline** for 48 sandboxed fixture trials may be tight on a slow CI runner. That's a guess I haven't checked.
+
+## Runtime claims (not verified by me)
+- "Failed before the fix with Internal vs InvalidRequest": consistent with the old code, since the mismatch error would have hit a catch-all `Internal`, but I didn't observe that run.
+- The green run is still pending. Before calling this done, the full test needs to pass, especially the matching-restart run completing all 48 trials and the final replay.

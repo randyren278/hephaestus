@@ -1,0 +1,32 @@
+Installed Hephaestus in /tmp/hpkg.BbR8RX/home/.local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64
+Add /tmp/hpkg.BbR8RX/home/.local/bin to PATH, then run: heph
+Browser console and evidence reports: heph web
+Acceptance prerequisite: host Git at /opt/homebrew/bin/git; host Node/npm are excluded from PATH.
+Daemon socket address: 57 bytes; resolved storage address: 141 bytes.
+hephaestus 0.1.0
+{"packaged_terminal": "80x24", "empty_data_bootstrap": true, "first_launch_prompt": true, "packaged_evaluator_lookup": true, "registered_fixture": true, "arena_measured": true, "metrics_selection_verified": true, "replay_verified": true, "completed_six_steps": true, "terminal_restored": true}
+fixture=quickstart path=/tmp/hpkg.BbR8RX/home/quickstart
+source_repository=/tmp/hpkg.BbR8RX/home/quickstart/repository
+65254833cff5c3acc33908c0cc1702f3bb3b347ef73368970d9aca879e4767da bytes=189
+4ddce318ebdfe302900170ed83918ff18034cd2cfc8ee1e34a1a54814a877b36 bytes=188
+5e20ee479fbbf00887daa681594305f12f58cb209b141544a233a6edce1c3d6f bytes=776032
+35e4068cc66235e540d18cac52dba24b1a2523e200c42eb34d3cb0ed102e99d2 public_key=b7e85fe7ac31026014e581ac0926c25c8ed5f96dcdd340c271d033f8fa7529df
+hephaestus:world:60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b quickstart-world artifact=60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b
+hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 quickstart-parent world=hephaestus:world:60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b artifact=a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 parents=
+hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 quickstart-candidate world=hephaestus:world:60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b artifact=68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 parents=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71
+acknowledged frozen=false killed_runs=0
+run=reference-13 genome=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 world=hephaestus:world:60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b revision=11016ef17b9ee10f41443ac92711cb52141ade85 reason=Success latency_ms=43 cost_microusd=0 stdout=d5fe1965298e90020690ca4989ddc303374b5907977e2a89edcd45d38fc12abb stderr=af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262 trace_artifacts=2
+evaluation=package-01bde2866471bae0008835024cd87bbf38bb17ed parent=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 candidate=hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 world=hephaestus:world:60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b candidate_visible=1/1 parent_visible=0/1 event=arena:evaluation:package-01bde2866471bae0008835024cd87bbf38bb17ed:recorded sequence=40 aggregate=arena:evaluation:package-01bde2866471bae0008835024cd87bbf38bb17ed
+selection=package-01bde2866471bae0008835024cd87bbf38bb17ed world=hephaestus:world:60cefb91d5c9f4fbed43ffef83fe55ba6699ca731ef5ae9dec5a81415293c27b correctness_regressions=0 correctness_improvements=2 lower_bps=10000 metrics_eligible=true pareto_dominates=true invariant_gate_verified=false promotion_eligible=false event=arena:selection:package-01bde2866471bae0008835024cd87bbf38bb17ed:selected sequence=44 aggregate=arena:selection:package-01bde2866471bae0008835024cd87bbf38bb17ed receipt=39d8ef994120b161d82daa578c276b12a1fbf30fcc5baa088a9b7a4b8f246069
+replayed events=45 frozen=false active_runs=0 projection=719148d9f30383ddb3700a92fbf696aab0947f633a3c41e01f0619e7301cc47b
+packaged TUI rendered under the isolated PATH and exited cleanly on q
+{"broken_bundle_has_no_side_effects": true, "bundled_assets_sha256": {"app.js": "2d549fef21c5cf4cabb2f6b2717af6681414c9ec0e284c8d4a5e3fb335af5b3d", "index.html": "fb60fd0f696414e5ac0cad17e6634ac4fbbabae1422c53e2d421c772546308da", "styles.css": "cf1028cb82234035ffec2f142b8d66032c25596f382e210e5b5878adee7bffd3", "web-header-crest.svg": "8248f79fded60babfc884cdc87f3ddca742078843ccc72e06f6758ef29a10163"}, "comparisons_match_cli": true, "ctrl_c_preserves_daemon": true, "fresh_bootstrap_frozen": true, "host_node_options_ignored": true, "no_daemon_has_no_side_effects": true, "read_only_state_unchanged": true, "status": "passed"}
+Traceback (most recent call last):
+  File "/Users/randyren/Developer/hephaestus/scripts/package/pilot_acceptance.py", line 187, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/randyren/Developer/hephaestus/scripts/package/pilot_acceptance.py", line 131, in main
+    assert error["code"] == "invalid_request"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+preserved acceptance workspace: /tmp/hpkg.BbR8RX

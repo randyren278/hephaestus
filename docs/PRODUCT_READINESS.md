@@ -32,13 +32,13 @@ live-model improvement and full installation acceptance remain required.
 
 | Requirement | Evidence needed | Current status |
 |---|---|---|
-| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
+| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Evaluator-installation recovery has actionable fixed errors, physical safety/privacy tests, matching-daemon restart and exact retry evidence. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The installed 24-case support-triage pack has native initialization and frozen preparation, with retries, profile readback and crash/graceful restart. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The full checkpoint at 5d231c4 passes 724 Rust tests including doc tests, 191 TUI and 40 web tests on Node 22, 47 Python tests and both Clippy modes. The subsequent coding-path fix passes its real daemon/restart test, 23 CLI tests, both Clippy modes and exact Rust 1.88 checks. All 428 mutations pass at immutable checkpoint 709d965; 45 affected minimum-compiler guards and 15 ledger guards have later scoped results. The new socket guard is killed; the configured matrix is now 430, without implying a fresh full 430-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current evaluator-recovery checkpoint passes 727 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance and two new recovery/privacy mutation guards pass. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. All 428 mutations passed at immutable checkpoint 709d965; later affected scopes have separate results. The configured matrix is now 432, without implying a fresh full 432-entry result. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -459,3 +459,32 @@ representative live-provider quality and authorized quota/auth handoff, hosted
 release/Intel and downloaded/quarantined first launch remain open. Useful
 recovery guidance for evaluator-installation mismatches is the next product
 reliability improvement. These checks do not prove full readiness or revenue.
+
+## Verification of evaluator installation recovery, 2026-10-08
+
+A comparison with a mismatched evaluator now explains how to restore the
+matching installation before retrying. Missing, unreadable or unsafe evaluator
+files have bounded recovery messages; unknown errors retain private details.
+The digest and executable-safety gates remain mandatory. The copied support
+pack includes the recovery guide.
+
+The [dated evidence](evidence/2026-10-08-evaluator-recovery/README.md) includes
+a real-daemon red/green regression and production-feature recovery on macOS:
+refused IDs remain unbound, matching restart completes 48 local adapter fixture
+trials, another restart returns exact finished progress and replay passes.
+A delivered previous archive fails the strengthened mismatch probe, while the
+new ARM64 archive passes the full isolated-home package run. Installed CLI and
+all nine copied pack files match their archive/repository bytes.
+
+Fresh workspace verification passes **727 Rust tests including doc tests** and
+**all 51 critical-module coverage floors**. Both Clippy modes, exact Rust 1.88
+checks, documentation, Actionlint and all 432 mutation anchors pass. Two new
+mutation guards are killed, with no survivor/stale/timeout; this is a scoped
+result, not a fresh complete 432-entry audit. Actual Claude Code performed three
+read-only reviews; its recovery-loop finding was corrected and the final review
+found no material issue. Codex produced all runtime evidence.
+
+The full mutation audit, representative real-provider quality and cost evidence,
+fresh-user authentication, native Intel and release/quarantine acceptance remain
+open. Local shell fixtures and provider-launch markers establish neither model
+quality nor revenue. The full product goal remains active.

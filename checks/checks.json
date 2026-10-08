@@ -3265,6 +3265,22 @@
       "find": "    let client = Client::new(data_dir.to_path_buf());",
       "replace": "    let client = Client::new(setup_data_dir.clone());",
       "test_cmd": "cargo test -p hephaestus-control --all-features --test control_plane_e2e evolve_coding_completes_three_generations_through_the_real_daemon_and_cli -- --exact"
+    },
+    {
+      "id": "control-evaluator-mismatch-recovery-classification",
+      "file": "crates/hephaestus-control/src/verification.rs",
+      "invariant": "A World evaluator digest mismatch returns an actionable matching-installation rejection rather than an ambiguous internal error.",
+      "find": "ArenaError::WorldArtifactMismatch(\"arena.evaluator\") => {",
+      "replace": "ArenaError::WorldArtifactMismatch(\"unmapped.evaluator\") => {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib server::tests::paired_admission_explains_evaluator_installation_errors_without_binding_jobs -- --exact"
+    },
+    {
+      "id": "control-evaluator-open-unknown-error-privacy",
+      "file": "crates/hephaestus-control/src/verification.rs",
+      "invariant": "Unknown evaluator-opening failures do not expose OS, protocol or execution details through operator API errors.",
+      "find": "        _ => return ExecuteError::Internal,\n    };\n    ExecuteError::Rejected(message.to_owned())",
+      "replace": "        _ => return ExecuteError::Rejected(error.to_string()),\n    };\n    ExecuteError::Rejected(message.to_owned())",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evaluator_open_errors_explain_recovery_and_keep_unknown_details_private"
     }
   ]
 }

@@ -1,0 +1,58 @@
+{
+  "base_commit": "318a5a7",
+  "archive": {
+    "name": "hephaestus-v0.1.0-macos-arm64.tar.gz",
+    "sha256": "9eebd61290f1002593d7348efa36704ee0872a69b44623a3841a64b41614dc12",
+    "bytes": 46630050
+  },
+  "installed_cli_sha256": "5834d6487863149fb7bc734eddff78d7c76329c878462bb1b0f17b2837545dbe",
+  "copied_pack_files": {
+    "candidate.template.md": "dec6de259407c5ae29164ad40d90b9b22b4761edc5ae3dd85668a0b2e8eb6b1d",
+    "checklist.prompt.md": "c5835a28565e39e034deede18474b6e02305ac263b6e9b83bdc14fcf6efb0dd4",
+    "baseline.template.md": "ced409e6a2317dbb60151d88ff8405d131bbb465263b5b04996898ad111c5833",
+    "world.template.json": "63d02d4e67b5252003a7945501fa77819c964ccb291c8043fecddae390a8ecd9",
+    "README.md": "8e2c1bcb5da25067de7b10de9d3eac3ec0fae10a293f1cdb0827cb9867d79fa0",
+    "provider-setup.md": "5eb9d471054901359f69d20e5ef8425981928e0c7e77b5021f53f678de1be8ef",
+    "policy.md": "3c8d631da985a0201b3cc1876288de395989a8dd66b6a116ed6d92efcc33f4fd",
+    "tasks/visible.json": "35bade0f978e66a1c178f4e6bde5277ae8af7c0999e1b9e5e19fff88bf2516c3",
+    "tasks/sealed.json": "d300952bebb1c1c595c7b1c5221929e83ba4bb9336549007690644ea35c23357"
+  },
+  "configured_mutations": 432,
+  "current_mutation_run": {
+    "run": 2,
+    "killed": 2,
+    "survived": 0,
+    "stale": 0,
+    "timed_out": 0
+  },
+  "provider_quality_scope": "Local marker stubs and shell adapter fixtures only; no live model experiment.",
+  "previous_archive": {
+    "sha256": "9612709469351e3508551994bceae416a1893334e0f653eb4aad6a843f891c85",
+    "bytes": 46629817
+  },
+  "package_process_cleanup_verified": true,
+  "source_sha256": {
+    "crates/hephaestus-control/src/verification.rs": "8ecc60717c325e2b8fb515bbfc2d7417e5b3af228976596da2fd0d81acded525",
+    "crates/hephaestus-control/src/run_exec.rs": "9522c81b42d7b45819d6f4ec622e0d931648dcb635f7c282911c20ad164c7070",
+    "crates/hephaestus-control/src/server_tests.rs": "7639651d743060911a99e25b49e934b3a57a2af334d32da54b20583de32de2a6",
+    "crates/hephaestus-control/tests/pilot_preparation.rs": "af52601adcaa473f01f00ad0f4a6a797ca5dcdf13f474fbc943869cce6a7e741",
+    "crates/hephaestus-control/tests/control_plane_e2e.rs": "5c594b7ef9808c8b0827a76e39bb8195a5d4c3cc0c04bda16957273c8a79b46f",
+    "scripts/package/pilot_acceptance.py": "41297c72d54e7d5d6d9932d2e52df890979e8a5b2ceaf1995aed60d6e39ddb24",
+    "checks/checks.json": "39637e57086bf8f9fdf25b6051d3625d6682c405b5fa375ca806ab9a0217bacb"
+  },
+  "workspace_tests": {
+    "unit_integration_binary_passed": 723,
+    "doc_tests_passed": 4,
+    "failed": 0,
+    "ignored": 0,
+    "optional_tui_pty_enabled_in_rust_run": false
+  },
+  "coverage": {
+    "modules": 51,
+    "floor_percent": 92,
+    "passed": true,
+    "lcov_sha256": "c7eada7717a27081cec65c7d54c5088f442bc0d842218926a80529e056d76b46",
+    "command": "cargo llvm-cov --workspace --all-features --lcov --output-path <owned-root>/lcov.info",
+    "compiler": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  }
+}

@@ -18,11 +18,11 @@ use super::{
     executable_digest, execute_async_arena_trials, execute_candidate_runtime,
     execute_provider_runtime, execute_reference_runtime, fs, genome_reference_instruction,
     invariant_record, load_failure_clusters, load_operator_evaluation,
-    load_reference_output_invariants, map_cluster_error, map_invariant_error, map_selection_error,
-    mpsc, paired_run_id, paired_run_prefix, persist_reference_output,
-    provider_execution_environment, reference_environment_id, resolve_provider_extra_env,
-    resolve_source_revision, select_and_record, selection_record, timestamp_millis,
-    validate_job_id, validated_evaluation_budget, with_provider_login,
+    load_reference_output_invariants, map_cluster_error, map_evaluator_open_error,
+    map_invariant_error, map_selection_error, mpsc, paired_run_id, paired_run_prefix,
+    persist_reference_output, provider_execution_environment, reference_environment_id,
+    resolve_provider_extra_env, resolve_source_revision, select_and_record, selection_record,
+    timestamp_millis, validate_job_id, validated_evaluation_budget, with_provider_login,
 };
 
 #[cfg(not(test))]
@@ -1217,7 +1217,7 @@ impl ControlPlane {
             IsolationPolicy::unconfined_for_testing(),
             limits,
         )
-        .map_err(|_| ExecuteError::Internal)
+        .map_err(|error| map_evaluator_open_error(&error))
     }
 
     #[cfg(not(feature = "test-support"))]
@@ -1234,7 +1234,7 @@ impl ControlPlane {
             self.protected_evaluator_paths(),
             limits,
         )
-        .map_err(|_| ExecuteError::Internal)
+        .map_err(|error| map_evaluator_open_error(&error))
     }
 
     pub(super) fn protected_runtime_paths(&self) -> Vec<PathBuf> {

@@ -66,3 +66,23 @@ describes that step, its limits and the required evidence.
 Subscription usage and API billing are external to Hephaestus. Codex reports no
 USD amount; hosted zero can mean absent reporting. A successful preparation
 does not prove authentication, requested-model availability or hosted quality.
+
+## Recover an evaluator installation mismatch
+
+If a comparison says the configured evaluator does not match the World's pinned
+evaluator, no new comparison was admitted. Stop the browser with Ctrl+C and
+stop its daemon with `heph stop --data-dir "$PILOT_DIR/data"`. Restart that same
+data directory using the installation whose evaluator was used to prepare the
+World, with the same source and provider configuration. Then read both profiles
+and retry. A version label alone does not prove the executable bytes match.
+
+Re-running preparation through the same mismatched CLI can return the same World
+and repeat the refusal. Keep CLI, `heph` and daemon from the matching installation.
+The helper does not support a custom daemon evaluator. An existing World is
+immutable; changing the daemon executable does not change its pinned evaluator.
+
+A missing or unreadable evaluator can instead be restored at its configured path
+from the matching installation, then retried without restarting. The evaluator
+must be a regular executable file with a single hard link and no symlink. These
+checks remain mandatory; restoring another binary with the same filename does
+not satisfy the digest binding. Retain prior data and evidence during recovery.

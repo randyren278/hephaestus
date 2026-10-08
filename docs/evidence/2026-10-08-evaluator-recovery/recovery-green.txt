@@ -1,0 +1,9 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.10s
+     Running tests/pilot_preparation.rs (target/debug/deps/pilot_preparation-e671668c6ad2882c)
+
+running 2 tests
+test installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provider ... ok
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.14s

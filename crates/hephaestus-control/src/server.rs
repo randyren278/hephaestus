@@ -1582,14 +1582,14 @@ use verification::{
     existing_forge_assessment_response, existing_forge_response, forge_aggregate_id,
     forge_assessment_event_id, forge_assessment_payload, forge_assessment_record,
     forge_assessment_summary, forge_event_id, forge_prompt_mutation, forge_proposal_record,
-    genome_reference_instruction, invariant_record, map_cluster_error, map_invariant_error,
-    map_selection_error, mutate_reference_instruction_document, reference_instruction_operation,
-    require_command_fields, resolve_forge_hypothesis, selection_record, verified_forge_source,
-    verify_arena_evaluation_records, verify_arena_evaluation_records_with, verify_cluster_history,
-    verify_cluster_history_with, verify_forge_assessment_history,
-    verify_forge_assessment_history_with, verify_forge_history, verify_forge_history_with,
-    verify_invariant_history, verify_invariant_history_with, verify_selection_history,
-    verify_selection_history_with,
+    genome_reference_instruction, invariant_record, map_cluster_error, map_evaluator_open_error,
+    map_invariant_error, map_selection_error, mutate_reference_instruction_document,
+    reference_instruction_operation, require_command_fields, resolve_forge_hypothesis,
+    selection_record, verified_forge_source, verify_arena_evaluation_records,
+    verify_arena_evaluation_records_with, verify_cluster_history, verify_cluster_history_with,
+    verify_forge_assessment_history, verify_forge_assessment_history_with, verify_forge_history,
+    verify_forge_history_with, verify_invariant_history, verify_invariant_history_with,
+    verify_selection_history, verify_selection_history_with,
 };
 
 #[path = "handlers_genome.rs"]

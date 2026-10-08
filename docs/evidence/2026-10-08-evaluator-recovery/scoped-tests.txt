@@ -1,0 +1,10 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.05s
+     Running unittests src/lib.rs (target/debug/deps/hephaestus_control-8e95ae6d661888f8)
+
+running 3 tests
+test server::verification::verification_unit_tests::evaluator_open_errors_explain_recovery_and_keep_unknown_details_private ... ok
+test server::tests::paired_admission_rejects_world_missing_evaluator_after_valid_manifests ... ok
+test server::tests::paired_admission_explains_evaluator_installation_errors_without_binding_jobs ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 256 filtered out; finished in 0.88s

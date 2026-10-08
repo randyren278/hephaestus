@@ -4477,6 +4477,66 @@ fn paired_admission_rejects_world_missing_sealed_manifest() {
 }
 
 #[test]
+fn paired_admission_explains_evaluator_installation_errors_without_binding_jobs() {
+    let directory = tempdir().expect("daemon directory");
+    let mut plane = open_projection_test_plane(&directory);
+    let token = plane.token_hex.clone();
+    let (_, parent, candidate) = register_dispatch_arena_objects(&mut plane, &token, &directory);
+    assert!(
+        dispatch_call(&mut plane, &token, "unfreeze", Command::Unfreeze)
+            .error
+            .is_none()
+    );
+    let wrong = directory.path().join("different-evaluator");
+    fs::write(&wrong, b"different installation").expect("write mismatched fixture");
+    fs::set_permissions(&wrong, fs::Permissions::from_mode(0o700)).unwrap();
+    let not_executable = directory.path().join("not-executable");
+    fs::write(&not_executable, b"fixture").unwrap();
+    fs::set_permissions(&not_executable, fs::Permissions::from_mode(0o600)).unwrap();
+    let link = directory.path().join("evaluator-link");
+    symlink(&wrong, &link).unwrap();
+    let linked = directory.path().join("hard-linked-evaluator");
+    fs::write(&linked, b"fixture").unwrap();
+    fs::set_permissions(&linked, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::hard_link(&linked, directory.path().join("second-hard-link")).unwrap();
+    for (index, (path, explanation)) in [
+        (wrong, "does not match the World's pinned evaluator"),
+        (
+            directory.path().join("missing-evaluator"),
+            "executable is missing",
+        ),
+        (not_executable, "one hard link and no symlink"),
+        (link, "one hard link and no symlink"),
+        (linked, "one hard link and no symlink"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        plane.evaluator_executable = path.clone();
+        let id = format!("installation-refusal-{index}");
+        let error = dispatch_call(
+            &mut plane,
+            &token,
+            &id,
+            Command::EvaluatePair {
+                evaluation_id: id.clone(),
+                parent_genome_id: parent.genome_id.clone(),
+                candidate_genome_id: candidate.genome_id.clone(),
+                remote: false,
+            },
+        )
+        .error
+        .expect("installation refusal");
+        assert_eq!(error.code, ApiErrorCode::InvalidRequest);
+        assert!(error.message.contains(explanation), "{}", error.message);
+        assert!(error.message.contains("matching installation") && error.message.contains("retry"));
+        assert!(!error.message.contains(path.to_str().unwrap()));
+        assert!(!plane.state.arena_jobs.contains_key(&id));
+        assert_no_arena_admission(&plane, &id);
+    }
+}
+
+#[test]
 fn paired_admission_rejects_world_missing_evaluator_after_valid_manifests() {
     let directory = tempdir().expect("daemon directory");
     let mut plane = open_projection_test_plane(&directory);
