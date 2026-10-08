@@ -3538,13 +3538,12 @@ fn arena_overall_deadline_stops_slow_trial_without_committing_evaluation() {
             .flatten()
             .map(|entry| entry.path().join("execution/arena-child.pid"))
             .find(|path| path.is_file());
-        if let Some(path) = pid_file {
-            if let Some(pid) = fs::read_to_string(path)
+        if let Some(path) = pid_file
+            && let Some(pid) = fs::read_to_string(path)
                 .ok()
                 .and_then(|contents| contents.parse::<u32>().ok())
-            {
-                break pid;
-            }
+        {
+            break pid;
         }
         assert!(
             Instant::now() < child_file_deadline,
@@ -4220,13 +4219,12 @@ fn async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
             .flatten()
             .map(|entry| entry.path().join("execution/slow-child.pid"))
             .find(|path| path.is_file());
-        if let Some(path) = pid_file {
-            if let Some(pid) = fs::read_to_string(path)
+        if let Some(path) = pid_file
+            && let Some(pid) = fs::read_to_string(path)
                 .ok()
                 .and_then(|contents| contents.parse::<u32>().ok())
-            {
-                break pid;
-            }
+        {
+            break pid;
         }
         assert!(
             Instant::now() < child_file_deadline,

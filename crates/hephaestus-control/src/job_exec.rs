@@ -660,10 +660,10 @@ impl ControlPlane {
                     }
                     Ok(self.state.event_count)
                 });
-                if result.is_err() {
-                    if let Some(active) = self.active_arena_job.as_ref() {
-                        active.cancel.store(true, Ordering::Release);
-                    }
+                if result.is_err()
+                    && let Some(active) = self.active_arena_job.as_ref()
+                {
+                    active.cancel.store(true, Ordering::Release);
                 }
                 let _ignored = reply.send(result);
             }

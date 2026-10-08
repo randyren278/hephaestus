@@ -1142,13 +1142,13 @@ impl ControlPlane {
         if strategy.config.gene_selection == GeneSelectionPolicy::HighestTransferEffect {
             let preferred = champion_operation
                 .and_then(|operation| best_gene_target_operation(&history, operation));
-            if let Some(preferred_op) = preferred {
-                if let Some((index, _)) = clusters.iter().find(|(_, cluster)| {
+            if let Some(preferred_op) = preferred
+                && let Some((index, _)) = clusters.iter().find(|(_, cluster)| {
                     suggestion_of(cluster.suggested_mutation.as_ref()).as_deref()
                         == Some(preferred_op.as_str())
-                }) {
-                    push(*index, false, preferred_op);
-                }
+                })
+            {
+                push(*index, false, preferred_op);
             }
         }
         for (index, cluster) in &clusters {
@@ -1313,10 +1313,10 @@ impl ControlPlane {
     ) -> Option<String> {
         let mut finished: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for event in history {
-            if event.event_type == adaptation::DRIFT_ADAPTATION_FINISHED_TYPE {
-                if let Ok(payload) = adaptation::decode_finished(event) {
-                    finished.insert(payload.drift_id);
-                }
+            if event.event_type == adaptation::DRIFT_ADAPTATION_FINISHED_TYPE
+                && let Ok(payload) = adaptation::decode_finished(event)
+            {
+                finished.insert(payload.drift_id);
             }
         }
         for event in history {

@@ -55,10 +55,10 @@ impl FileEventLedger {
     /// canonical chain fails verification (see [`FileEventLedger::replay_verified`]).
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
         }
 
         let raw = read_or_empty(&path)?;
@@ -220,14 +220,14 @@ fn encode_hex(bytes: &[u8]) -> String {
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, LedgerError> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(LedgerError::MalformedRecord(format!(
             "odd-length hex field: {value}"
         )));
     }
     let digits: Vec<char> = value.chars().collect();
     let mut bytes = Vec::with_capacity(digits.len() / 2);
-    for pair in digits.chunks_exact(2) {
+    for pair in digits.as_chunks::<2>().0 {
         let high = pair[0]
             .to_digit(16)
             .ok_or_else(|| LedgerError::MalformedRecord(format!("invalid hex digit in {value}")))?;

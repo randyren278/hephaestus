@@ -1,0 +1,11 @@
+{
+  "source_commit": "709d965d1d4ef0a96da6f76df0b9e779af291893",
+  "command": "python3 -u checks/mutation_guard.py --manifest checks/checks.json --baseline-timeout 900 --assert-min 428",
+  "killed": 428,
+  "survived": 0,
+  "stale": 0,
+  "timed_out": 0,
+  "guard_and_restored_build_exit": 0,
+  "post_guard_git_diff_exit": 0,
+  "scope": "Immutable 709d965; excludes later Rust minimum declaration, Clippy syntax and cost-disclosure changes. All 45 affected guards subsequently pass against updated Rust source; see ../2026-10-08-msrv/affected-mutations-proof.json."
+}

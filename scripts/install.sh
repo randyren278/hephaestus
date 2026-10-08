@@ -130,7 +130,7 @@ fi
 printf '%s%s%s\n\n' "$C_BORDER" "$(rule 42)" "$C_RESET" >&2
 
 step "Checking toolchain"
-command -v cargo >/dev/null 2>&1 || fail "cargo (a stable Rust toolchain, 1.85+) is required; see https://rustup.rs"
+command -v cargo >/dev/null 2>&1 || fail "cargo (a stable Rust toolchain, 1.88+) is required; see https://rustup.rs"
 CARGO_V="$(cargo --version 2>/dev/null | head -n1)"
 ok "cargo${CARGO_V:+ ($CARGO_V)}"
 command -v git >/dev/null 2>&1 || fail "git is required"

@@ -1,0 +1,23 @@
+{
+  "source_commit": "709d965d1d4ef0a96da6f76df0b9e779af291893",
+  "source_changes": "Cargo.toml rust-version raised to 1.88 only; original Rust and UI source at this installation checkpoint",
+  "cargo_and_rustc_both_pinned": true,
+  "checks": {
+    "rust_1_85_all_targets_all_features": 101,
+    "rust_1_88_all_targets_all_features": 0,
+    "rust_1_88_full_source_install": 0,
+    "rust_1_88_first_launch_six_step_tour": 0
+  },
+  "tour": {
+    "packaged_terminal": "80x24",
+    "empty_data_bootstrap": true,
+    "first_launch_prompt": true,
+    "packaged_evaluator_lookup": false,
+    "registered_fixture": true,
+    "arena_measured": true,
+    "metrics_selection_verified": true,
+    "replay_verified": true,
+    "completed_six_steps": true,
+    "terminal_restored": true
+  }
+}

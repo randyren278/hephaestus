@@ -1,0 +1,9 @@
+cargo 1.88.0 (873a06493 2025-05-10)
+rustc 1.88.0 (6b00bc388 2025-06-23)
+    Checking hephaestus-ledger v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-ledger)
+    Checking hephaestus-runtime v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-runtime)
+    Checking hephaestus-genome v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-genome)
+    Checking hephaestus-experience v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-experience)
+    Checking hephaestus-arena v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-arena)
+    Checking hephaestus-control v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-control)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.92s

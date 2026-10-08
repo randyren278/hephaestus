@@ -12,6 +12,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  msrv:
+    name: Minimum Rust version (1.88)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.88.0"
+
+      - name: Check all targets and features with the minimum compiler
+        run: |
+          RUSTC="$(rustup which --toolchain 1.88.0 rustc)" \
+            "$(rustup which --toolchain 1.88.0 cargo)" check --locked --workspace --all-targets --all-features
+
   deterministic:
     name: Tests, coverage, docs
     runs-on: ubuntu-24.04

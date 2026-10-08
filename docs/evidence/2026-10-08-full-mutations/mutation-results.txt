@@ -1,0 +1,1297 @@
+root:    /private/tmp/heph-source.plt2SV/checkout
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 120s, 240s, 480s
+baseline timeout: 900s
+
+baseline: unmutated suite is green
+
+RUN       child-capability-escalation      command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    child-capability-escalation      crates/hephaestus-core/src/authority.rs (timeout 120s)
+RUN       candidate-clears-freeze          command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    candidate-clears-freeze          crates/hephaestus-core/src/authority.rs (timeout 120s)
+RUN       unknown-schema-version-accepted  command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    unknown-schema-version-accepted  crates/hephaestus-core/src/domain.rs (timeout 120s)
+RUN       empty-domain-id-accepted         command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    empty-domain-id-accepted         crates/hephaestus-core/src/domain.rs (timeout 120s)
+RUN       terminal-genome-transition-accepted command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    terminal-genome-transition-accepted crates/hephaestus-core/src/domain.rs (timeout 120s)
+RUN       law-mutation-authorized          command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    law-mutation-authorized          crates/hephaestus-core/src/domain.rs (timeout 120s)
+RUN       evaluator-mutation-authorized    command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    evaluator-mutation-authorized    crates/hephaestus-core/src/domain.rs (timeout 120s)
+RUN       duplicate-event-id-accepted      command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    duplicate-event-id-accepted      crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       empty-event-field-accepted       command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    empty-event-field-accepted       crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       changed-ledger-head-accepted     command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    changed-ledger-head-accepted     crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       event-sequence-gap-accepted      command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    event-sequence-gap-accepted      crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       event-chain-link-ignored         command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    event-chain-link-ignored         crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       modified-event-content-accepted  command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    modified-event-content-accepted  crates/hephaestus-ledger/src/event_store.rs (timeout 120s)
+RUN       malformed-artifact-id-accepted   command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    malformed-artifact-id-accepted   crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       artifact-content-address-collapsed command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    artifact-content-address-collapsed crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       artifact-substitution-accepted   command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    artifact-substitution-accepted   crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       oversized-compiler-input-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    oversized-compiler-input-accepted crates/hephaestus-genome/src/compiler.rs (timeout 120s)
+RUN       unknown-compiler-schema-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    unknown-compiler-schema-accepted crates/hephaestus-genome/src/compiler.rs (timeout 120s)
+RUN       empty-compiler-field-accepted    command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    empty-compiler-field-accepted    crates/hephaestus-genome/src/compiler.rs (timeout 120s)
+RUN       compiler-content-address-collapsed command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    compiler-content-address-collapsed crates/hephaestus-genome/src/compiler.rs (timeout 120s)
+RUN       world-authority-ceiling-ignored  command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    world-authority-ceiling-ignored  crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       parent-identity-spoof-accepted   command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    parent-identity-spoof-accepted   crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       parent-authority-ceiling-ignored command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    parent-authority-ceiling-ignored crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       artifact-integrity-error-ignored command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    artifact-integrity-error-ignored crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       candidate-evaluator-access-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    candidate-evaluator-access-accepted crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       protected-world-scope-accepted   command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    protected-world-scope-accepted   crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       authorized-world-scope-discarded command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    authorized-world-scope-discarded crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       invalid-promotion-confidence-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    invalid-promotion-confidence-accepted crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       empty-world-objectives-accepted  command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    empty-world-objectives-accepted  crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       incompatible-worlds-compared     command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    incompatible-worlds-compared     crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       oversized-control-request-accepted command=cargo test -p hephaestus-control --all-features --test control_plane_e2e local_api_fails_closed_for_bad_auth_versions_and_requests timeout=480s
+KILLED    oversized-control-request-accepted crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       unknown-control-api-version-accepted command=cargo test -p hephaestus-control --all-features --test control_plane_e2e local_api_fails_closed_for_bad_auth_versions_and_requests timeout=480s
+KILLED    unknown-control-api-version-accepted crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       operator-api-authentication-bypassed command=cargo test -p hephaestus-control --all-features --test control_plane_e2e local_api_fails_closed_for_bad_auth_versions_and_requests timeout=480s
+KILLED    operator-api-authentication-bypassed crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       forged-control-actor-accepted    command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_rejects_forged_operator_history_and_unverifiable_genomes timeout=480s
+KILLED    forged-control-actor-accepted    crates/hephaestus-control/src/control_state.rs (timeout 480s)
+RUN       control-command-event-mismatch-accepted command=cargo test -p hephaestus-control --all-features --lib projection_rejects_mismatched_commands_and_mutable_genome_metadata timeout=480s
+KILLED    control-command-event-mismatch-accepted crates/hephaestus-control/src/control_state.rs (timeout 480s)
+RUN       persistent-freeze-event-ignored  command=cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze timeout=480s
+KILLED    persistent-freeze-event-ignored  crates/hephaestus-control/src/control_state.rs (timeout 480s)
+RUN       operator-unfreeze-event-ignored  command=cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_cli_controls_and_replays_real_daemon_state_across_restarts timeout=480s
+KILLED    operator-unfreeze-event-ignored  crates/hephaestus-control/src/control_state.rs (timeout 480s)
+RUN       kill-all-event-ignored           command=cargo test -p hephaestus-control --all-features --lib kill_all_signals_active_runtime_and_replays_confirmed_cancellation timeout=480s
+KILLED    kill-all-event-ignored           crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       released-genome-metadata-overwritten command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    released-genome-metadata-overwritten crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       inspected-genome-artifact-unverified command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    inspected-genome-artifact-unverified crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       replay-divergence-accepted       command=cargo test -p hephaestus-control --all-features --lib authenticated_failures_are_safe_and_replay_divergence_is_detected timeout=480s
+KILLED    replay-divergence-accepted       crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       frozen-reference-run-started     command=cargo test -p hephaestus-control --all-features --test control_plane_e2e reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence timeout=480s
+KILLED    frozen-reference-run-started     crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       unregistered-world-executed      command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_rejects_a_genome_without_a_registered_world_during_replay timeout=480s
+KILLED    unregistered-world-executed      crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       reference-runtime-workspace-authority-widened command=cargo test -p hephaestus-control --all-features --lib async_reference_spec_uses_read_only_offline_authority timeout=480s
+KILLED    reference-runtime-workspace-authority-widened crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       trace-completion-projection-ignored command=cargo test -p hephaestus-control --all-features --lib projection_rejects_mismatched_commands_and_mutable_genome_metadata timeout=480s
+KILLED    trace-completion-projection-ignored crates/hephaestus-control/src/control_state.rs (timeout 480s)
+RUN       registered-world-artifact-unverified command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registered-world-artifact-unverified crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       reference-runtime-cost-falsified command=cargo test -p hephaestus-control --all-features --test control_plane_e2e reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence timeout=480s
+KILLED    reference-runtime-cost-falsified crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       workspace-capability-report-inverted command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    workspace-capability-report-inverted crates/hephaestus-core/src/authority.rs (timeout 120s)
+RUN       network-capability-report-inverted command=cargo test -p hephaestus-core --quiet timeout=120s
+KILLED    network-capability-report-inverted crates/hephaestus-core/src/authority.rs (timeout 120s)
+RUN       zero-wall-budget-accepted        command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    zero-wall-budget-accepted        crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       unsafe-run-id-accepted           command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    unsafe-run-id-accepted           crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       sandbox-capability-proof-bypassed command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-capability-proof-bypassed crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       zero-capability-ttl-accepted     command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    zero-capability-ttl-accepted     crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       reference-runtime-network-authority-widened command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-runtime-network-authority-widened crates/hephaestus-runtime/src/deterministic.rs (timeout 240s)
+RUN       runtime-output-budget-bypassed   command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    runtime-output-budget-bypassed   crates/hephaestus-runtime/src/deterministic.rs (timeout 240s)
+RUN       reference-runtime-wall-deadline-ignored command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-runtime-wall-deadline-ignored crates/hephaestus-runtime/src/deterministic.rs (timeout 240s)
+RUN       reference-runtime-running-resume-accepted command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-runtime-running-resume-accepted crates/hephaestus-runtime/src/deterministic.rs (timeout 240s)
+RUN       reference-runtime-failed-resume-destroys-run command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-runtime-failed-resume-destroys-run crates/hephaestus-runtime/src/deterministic.rs (timeout 240s)
+RUN       provider-sandbox-authority-mismatch-accepted command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    provider-sandbox-authority-mismatch-accepted crates/hephaestus-runtime/src/provider.rs (timeout 240s)
+RUN       empty-provider-executable-accepted command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    empty-provider-executable-accepted crates/hephaestus-runtime/src/provider.rs (timeout 240s)
+RUN       external-sandbox-default-allows-access command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    external-sandbox-default-allows-access crates/hephaestus-runtime/src/isolation.rs (timeout 240s)
+RUN       offline-external-sandbox-allows-network command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    offline-external-sandbox-allows-network crates/hephaestus-runtime/src/isolation.rs (timeout 240s)
+RUN       missing-external-sandbox-fails-open command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    missing-external-sandbox-fails-open crates/hephaestus-runtime/src/isolation.rs (timeout 240s)
+RUN       supervisor-network-authority-widened command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::offline_supervisor_rejects_network_authority_before_launch --exact timeout=240s
+KILLED    supervisor-network-authority-widened crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-inherits-ambient-environment command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::test_only_launch_path_exercises_stdin_environment_and_exit_status --exact timeout=240s
+KILLED    supervisor-inherits-ambient-environment crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-prompt-omitted-from-stdin command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::test_only_launch_path_exercises_stdin_environment_and_exit_status --exact timeout=240s
+KILLED    supervisor-prompt-omitted-from-stdin crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-stdin-delivery-failure-ignored command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::incomplete_stdin_delivery_is_an_io_failure --exact timeout=240s
+KILLED    supervisor-stdin-delivery-failure-ignored crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-process-group-disabled command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::test_only_launch_path_kills_descendant_process_group --exact timeout=240s
+KILLED    supervisor-process-group-disabled crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-interrupt-ignored     command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::test_only_launch_path_kills_descendant_process_group --exact timeout=240s
+KILLED    supervisor-interrupt-ignored     crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-output-limit-ignored  command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::test_only_launch_path_exercises_output_and_wall_budgets --exact timeout=240s
+KILLED    supervisor-output-limit-ignored  crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-wall-deadline-ignored command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::test_only_launch_path_exercises_output_and_wall_budgets --exact timeout=240s
+KILLED    supervisor-wall-deadline-ignored crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-wall-deadline-overflows command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::launch_rejects_a_wall_deadline_that_overflows_the_clock --exact timeout=240s
+KILLED    supervisor-wall-deadline-overflows crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-isolation-policy-bypassed command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::production_launch_path_cannot_bypass_isolation_policy --exact timeout=240s
+KILLED    supervisor-isolation-policy-bypassed crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       supervisor-group-signal-misparsed command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::output_capture_surfaces_reader_and_writer_failures --exact timeout=240s
+KILLED    supervisor-group-signal-misparsed crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       empty-experience-provenance-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    empty-experience-provenance-accepted crates/hephaestus-experience/src/record.rs (timeout 120s)
+RUN       single-source-contradiction-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    single-source-contradiction-accepted crates/hephaestus-experience/src/record.rs (timeout 120s)
+RUN       zero-experience-retention-limit-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    zero-experience-retention-limit-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       experience-retention-ceiling-ignored command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-retention-ceiling-ignored crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       terminal-evidence-slot-not-reserved command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    terminal-evidence-slot-not-reserved crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       oversized-experience-artifact-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    oversized-experience-artifact-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       sensitive-experience-field-persisted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    sensitive-experience-field-persisted crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       known-secret-literal-persisted   command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    known-secret-literal-persisted   crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       prefixed-provider-token-persisted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    prefixed-provider-token-persisted crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       unknown-experience-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    unknown-experience-source-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       cross-provenance-experience-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    cross-provenance-experience-source-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       missing-experience-evidence-artifact-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    missing-experience-evidence-artifact-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       raw-experience-presented-as-gene command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    raw-experience-presented-as-gene crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       recorded-runtime-denial-misclassified command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-denial-misclassified crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-sequence-wraps  command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-sequence-wraps  crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-start-evidence-optional command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-start-evidence-optional crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-start-failure-unobserved command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-start-failure-unobserved crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-raw-checkpoint-persisted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-raw-checkpoint-persisted crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-resume-observations-optional command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-resume-observations-optional crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-active-resume-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-active-resume-accepted crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-resume-provenance-spliced command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-resume-provenance-spliced crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-interrupt-completion-omitted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-interrupt-completion-omitted crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-running-poll-completed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-running-poll-completed crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-terminal-duplicated command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-terminal-duplicated crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-zero-cost-unattributed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-zero-cost-unattributed crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-observations-discarded command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-observations-discarded crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-wrapper-drain-bypassed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-wrapper-drain-bypassed crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-completion-reason-forged command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-completion-reason-forged crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-latency-zeroed  command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-latency-zeroed  crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-terminal-state-premature command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-terminal-state-premature crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-containment-failure-forgotten command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-containment-failure-forgotten crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-pending-observation-forgotten command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-pending-observation-forgotten crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-snapshot-evidence-failure-uncontained command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-snapshot-evidence-failure-uncontained crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       recorded-runtime-interrupt-evidence-failure-uncontained command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    recorded-runtime-interrupt-evidence-failure-uncontained crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       statistics-pairing-discarded     command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    statistics-pairing-discarded     python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       statistics-seed-ignored          command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    statistics-seed-ignored          python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       statistics-cost-regression-accepted command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    statistics-cost-regression-accepted python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       statistics-regression-gate-bypassed command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    statistics-regression-gate-bypassed python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       statistics-effect-gate-inverted  command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    statistics-effect-gate-inverted  python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       run-spec-revision-not-resolved   command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    run-spec-revision-not-resolved   crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       sandbox-checks-out-moving-head   command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-checks-out-moving-head   crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       sandbox-revision-binding-bypassed command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-revision-binding-bypassed crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       runtime-start-revision-evidence-forgotten command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    runtime-start-revision-evidence-forgotten crates/hephaestus-experience/src/integration.rs (timeout 120s)
+RUN       run-result-revision-forgotten    command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-revision-forgotten    crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-schema-version-ignored command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-schema-version-ignored crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-actor-forged          command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-actor-forged          crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-cost-unbounded        command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-cost-unbounded        crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-output-artifact-unvalidated command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-output-artifact-unvalidated crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-provider-failure-rejected command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-provider-failure-rejected crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-operator-interrupt-rejected command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-operator-interrupt-rejected crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       control-operator-interrupt-marked-cancelled command=cargo test -p hephaestus-control --all-features --lib non_cancellation_operator_interrupt_completes_as_interrupted timeout=480s
+KILLED    control-operator-interrupt-marked-cancelled crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       run-result-supervisor-timeout-and-io-failure-rejected command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-supervisor-timeout-and-io-failure-rejected crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       artifact-preflight-address-forged command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    artifact-preflight-address-forged crates/hephaestus-ledger/src/artifact_store.rs (timeout 120s)
+RUN       arena-caller-controls-event-identity command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-caller-controls-event-identity crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-visible-manifest-unbound   command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-visible-manifest-unbound   crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-evaluator-executable-unbound command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-evaluator-executable-unbound crates/hephaestus-arena/src/isolated_evaluator.rs (timeout 240s)
+RUN       arena-evaluator-response-replay-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-evaluator-response-replay-accepted crates/hephaestus-arena/src/isolated_evaluator.rs (timeout 240s)
+RUN       arena-isolated-evaluator-bypassed command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-isolated-evaluator-bypassed crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-failed-run-scored          command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-failed-run-scored          crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-cross-world-run-scored     command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-cross-world-run-scored     crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-mixed-genome-submission-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-mixed-genome-submission-accepted crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-paired-revision-mismatch-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-paired-revision-mismatch-accepted crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-run-result-reused-across-tasks command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-run-result-reused-across-tasks crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-task-set-mismatch-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-task-set-mismatch-accepted crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-runtime-output-evidence-discarded command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-runtime-output-evidence-discarded crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-public-summary-uses-sealed-score command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-public-summary-uses-sealed-score crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-evaluation-conflict-ignored command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-evaluation-conflict-ignored crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-event-actor-forged         command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-event-actor-forged         crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       runtime-experiment-input-unbound command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    runtime-experiment-input-unbound crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       runtime-run-id-exceeds-receipt-contract command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    runtime-run-id-exceeds-receipt-contract crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       sandbox-worktree-registration-leaked command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-worktree-registration-leaked crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       run-result-signature-unverified  command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-signature-unverified  crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-task-context-forgotten command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-task-context-forgotten crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       run-result-budget-context-forgotten command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-budget-context-forgotten crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       control-missing-producer-key-regenerated command=cargo test -p hephaestus-control --all-features --lib -- missing_producer_key_is_not_silently_regenerated_under_an_anchored_world_verifier timeout=480s
+KILLED    control-missing-producer-key-regenerated crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       control-evaluation-task-context-hardcoded command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events timeout=480s
+KILLED    control-evaluation-task-context-hardcoded crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-evaluation-environment-arch-forgotten command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events timeout=480s
+KILLED    control-evaluation-environment-arch-forgotten crates/hephaestus-control/src/run_records.rs (timeout 480s)
+RUN       control-legacy-unsigned-history-accepted command=cargo test -p hephaestus-control --all-features --lib legacy_unsigned_run_results_fail_with_actionable_incompatibility timeout=480s
+KILLED    control-legacy-unsigned-history-accepted crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       control-world-verifier-mismatch-accepted command=cargo test -p hephaestus-control --all-features --lib -- producer_key_mismatched_with_an_anchored_world_verifier_is_rejected_before_first_result timeout=480s
+KILLED    control-world-verifier-mismatch-accepted crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       control-evaluation-cost-ceiling-unbounded command=cargo test -p hephaestus-control --all-features --lib evaluation_budget_boundaries_are_validated_before_execution timeout=480s
+KILLED    control-evaluation-cost-ceiling-unbounded crates/hephaestus-control/src/run_records.rs (timeout 480s)
+RUN       control-successful-sandbox-cleanup-skipped command=cargo test -p hephaestus-control --all-features --lib -- sandbox_cleanup_guard_removes_the_materialized_worktree_on_success timeout=480s
+KILLED    control-successful-sandbox-cleanup-skipped crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       control-world-cost-law-bypassed  command=cargo test -p hephaestus-control --all-features --lib -- run_evaluation_cost_ceiling_enforces_the_registered_world_law timeout=480s
+KILLED    control-world-cost-law-bypassed  crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       run-result-latency-shared-limit-bypassed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    run-result-latency-shared-limit-bypassed crates/hephaestus-experience/src/run_result.rs (timeout 120s)
+RUN       mutation-descendant-sigkill-skipped command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-descendant-sigkill-skipped checks/mutation_guard.py (timeout 120s)
+RUN       mutation-cli-command-override-ignored command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-cli-command-override-ignored checks/mutation_guard.py (timeout 120s)
+RUN       mutation-process-inspection-failure-hidden command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-process-inspection-failure-hidden checks/mutation_guard.py (timeout 120s)
+RUN       mutation-baseline-deadline-overrides-mutants command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-baseline-deadline-overrides-mutants checks/mutation_guard.py (timeout 120s)
+RUN       mutation-extended-baseline-skips-green-proof command=env PYTHONPATH=python python3 -m unittest python.tests.test_mutation_guard -v timeout=120s
+KILLED    mutation-extended-baseline-skips-green-proof checks/mutation_guard.py (timeout 120s)
+RUN       arena-task-claim-unbound         command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-task-claim-unbound         crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-input-commitment-unbound   command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-input-commitment-unbound   crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-seed-unbound               command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-seed-unbound               crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-environment-unbound        command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-environment-unbound        crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-budget-unbound             command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-budget-unbound             crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       failed-sandbox-materialization-leaked command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    failed-sandbox-materialization-leaked crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       sandbox-token-expiry-overflow-panics command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-token-expiry-overflow-panics crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       sandbox-root-replacement-accepted command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-root-replacement-accepted crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       sandbox-rollback-failure-hidden  command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-rollback-failure-hidden  crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       sandbox-git-cleanup-failure-hidden command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    sandbox-git-cleanup-failure-hidden crates/hephaestus-runtime/src/sandbox.rs (timeout 240s)
+RUN       worker-input-limit-bypassed      command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    worker-input-limit-bypassed      crates/hephaestus-runtime/src/worker.rs (timeout 240s)
+RUN       worker-root-replacement-accepted command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    worker-root-replacement-accepted crates/hephaestus-runtime/src/worker.rs (timeout 240s)
+RUN       worker-drop-cleanup-disabled     command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    worker-drop-cleanup-disabled     crates/hephaestus-runtime/src/worker.rs (timeout 240s)
+RUN       worker-domains-share-root        command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    worker-domains-share-root        crates/hephaestus-runtime/src/worker.rs (timeout 240s)
+RUN       worker-isolation-policy-bypassed command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    worker-isolation-policy-bypassed crates/hephaestus-runtime/src/worker.rs (timeout 240s)
+RUN       arena-manifest-schema-check-bypassed command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-manifest-schema-check-bypassed crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-noncanonical-manifest-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-noncanonical-manifest-accepted crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-operator-task-leaks-expectation command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-operator-task-leaks-expectation crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       control-self-pair-accepted       command=cargo test -p hephaestus-control --all-features --lib -- evaluate_pair_rejects_a_genome_paired_against_itself timeout=480s
+KILLED    control-self-pair-accepted       crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-world-bound-evaluator-bypassed command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events timeout=480s
+KILLED    control-world-bound-evaluator-bypassed crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-sealed-tasks-not-scheduled command=cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides_sealed_data timeout=480s
+KILLED    control-sealed-tasks-not-scheduled crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-paired-retry-reruns-candidates command=cargo test -p hephaestus-control --all-features --lib -- retried_paired_evaluation_reuses_the_completed_arena_job_without_rerunning_it timeout=480s
+KILLED    control-paired-retry-reruns-candidates crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-paired-seed-diverges     command=cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_reference_instructions_use_one_pinned_worker_for_paired_trials timeout=480s
+KILLED    control-paired-seed-diverges     crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-candidate-process-not-supervised command=cargo test -p hephaestus-control --lib --all-features -- direct_reference_execution_requires_the_supervised_guarded_runtime timeout=480s
+KILLED    control-candidate-process-not-supervised crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       arena-evaluator-reliability-ignored command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-evaluator-reliability-ignored crates/hephaestus-arena/src/evaluator_protocol.rs (timeout 240s)
+RUN       arena-authenticated-latency-discarded command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-authenticated-latency-discarded crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-selection-event-hash-unbound command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-selection-event-hash-unbound crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-stored-aggregate-validation-bypassed command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-stored-aggregate-validation-bypassed crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-selection-unchanged-miscomputed command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-selection-unchanged-miscomputed crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-evaluator-aggregate-algebra-unchecked command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-evaluator-aggregate-algebra-unchecked crates/hephaestus-arena/src/isolated_evaluator.rs (timeout 240s)
+RUN       arena-evaluator-unreliable-correctness-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-evaluator-unreliable-correctness-accepted crates/hephaestus-arena/src/isolated_evaluator.rs (timeout 240s)
+RUN       arena-rehydration-evaluator-artifact-unchecked command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-rehydration-evaluator-artifact-unchecked crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       arena-rehydration-transitive-artifact-unchecked command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    arena-rehydration-transitive-artifact-unchecked crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       experience-rehydration-noncanonical-receipt-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-noncanonical-receipt-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-metadata-bypassed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-metadata-bypassed crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       duplicate-experience-input-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    duplicate-experience-input-source-accepted crates/hephaestus-experience/src/record.rs (timeout 120s)
+RUN       duplicate-rehydrated-experience-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    duplicate-rehydrated-experience-source-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-noncanonical-artifact-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-noncanonical-artifact-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-artifact-binding-bypassed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-artifact-binding-bypassed crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-unknown-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-unknown-source-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-forward-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-forward-source-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-noncanonical-receipt-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-noncanonical-receipt-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-invalid-provenance-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-invalid-provenance-accepted crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-schema-unchecked command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-schema-unchecked crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-identity-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-identity-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-aggregate-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-aggregate-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-actor-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-actor-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-artifact-schema-unchecked command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-artifact-schema-unchecked crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-artifact-identity-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-artifact-identity-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-artifact-provenance-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-artifact-provenance-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-artifact-kind-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-artifact-kind-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-artifact-timestamp-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-artifact-timestamp-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-trace-source-redaction-count-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-trace-source-redaction-count-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-source-provenance-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-source-provenance-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-evidence-unverified command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-evidence-unverified crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       experience-rehydration-event-hash-unbound command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-rehydration-event-hash-unbound crates/hephaestus-experience/src/rehydrate.rs (timeout 120s)
+RUN       registry-cross-world-parent-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-cross-world-parent-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       registry-noncanonical-payload-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-noncanonical-payload-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       registry-aggregate-mismatch-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-aggregate-mismatch-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       registry-noncanonical-world-artifact-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-noncanonical-world-artifact-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       registry-noncanonical-genome-artifact-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-noncanonical-genome-artifact-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       registry-conflicting-genome-registration-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-conflicting-genome-registration-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       registry-missing-world-misattributed command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-missing-world-misattributed crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       world-register-foreign-verifier-accepted command=cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them timeout=480s
+KILLED    world-register-foreign-verifier-accepted crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       source-format-unknown-extension-accepted command=cargo test -p hephaestus-control --all-features --lib command_audit_types_and_source_extensions_are_stable timeout=480s
+KILLED    source-format-unknown-extension-accepted crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       manifest-put-stores-source-bytes command=cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them timeout=480s
+KILLED    manifest-put-stores-source-bytes crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       relative-registration-path-accepted command=cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them timeout=480s
+KILLED    relative-registration-path-accepted crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       genome-content-reused-across-worlds command=cargo test -p hephaestus-control --all-features --test control_plane_e2e operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them timeout=480s
+KILLED    genome-content-reused-across-worlds crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       selection-bootstrap-seed-ignored command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-bootstrap-seed-ignored crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-negative-estimate-truncated command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-negative-estimate-truncated crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-negative-resample-truncated command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-negative-resample-truncated crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-regression-sign-inverted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-regression-sign-inverted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-effect-threshold-not-strict command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-effect-threshold-not-strict crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-world-cost-ceiling-ignored command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-world-cost-ceiling-ignored crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-world-confidence-unsupported-endpoint-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-world-confidence-unsupported-endpoint-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-bootstrap-work-unbounded command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-bootstrap-work-unbounded crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-wrong-world-evidence-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-wrong-world-evidence-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-in-wrong-world-evidence-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-in-wrong-world-evidence-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-promotion-without-invariant-evidence command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-promotion-without-invariant-evidence crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-supplied-event-snapshot-unchecked command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-supplied-event-snapshot-unchecked crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       python-histogram-regression-sign-inverted command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    python-histogram-regression-sign-inverted python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       python-histogram-work-cap-bypassed command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    python-histogram-work-cap-bypassed python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       selection-bootstrap-histogram-order-permuted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-bootstrap-histogram-order-permuted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       python-histogram-order-permuted  command=env PYTHONPATH=python python3 -m unittest discover -s python/tests -v timeout=120s
+KILLED    python-histogram-order-permuted  python/hephaestus_lab/statistics.py (timeout 120s)
+RUN       selection-forged-canonical-receipt-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-forged-canonical-receipt-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-in-forged-canonical-receipt-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-in-forged-canonical-receipt-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-pareto-correctness-regression-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-pareto-correctness-regression-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-pareto-reliability-regression-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-pareto-reliability-regression-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-pareto-cost-regression-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-pareto-cost-regression-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-pareto-latency-regression-accepted command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-pareto-latency-regression-accepted crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       control-selection-history-unverified-at-startup command=cargo test -p hephaestus-control --all-features --lib -- startup_revalidates_recorded_selections_against_canonical_evidence timeout=480s
+KILLED    control-selection-history-unverified-at-startup crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       control-selection-history-unverified-on-replay command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events timeout=480s
+KILLED    control-selection-history-unverified-on-replay crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       markdown-frontmatter-duplicates-overwritten command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    markdown-frontmatter-duplicates-overwritten crates/hephaestus-genome/src/markdown.rs (timeout 120s)
+RUN       markdown-prompt-bytes-trimmed    command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    markdown-prompt-bytes-trimmed    crates/hephaestus-genome/src/markdown.rs (timeout 120s)
+RUN       markdown-whole-source-limit-bypassed command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    markdown-whole-source-limit-bypassed crates/hephaestus-genome/src/markdown.rs (timeout 120s)
+RUN       markdown-prompt-override-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    markdown-prompt-override-accepted crates/hephaestus-genome/src/markdown.rs (timeout 120s)
+RUN       genome-prompt-bytes-not-validated-on-replay command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    genome-prompt-bytes-not-validated-on-replay crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       markdown-registration-route-bypassed command=cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon timeout=480s
+KILLED    markdown-registration-route-bypassed crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       genome-prompt-not-scoped-to-registered-record command=cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon timeout=480s
+KILLED    genome-prompt-not-scoped-to-registered-record crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       maximum-markdown-prompt-response-rejected command=cargo test -p hephaestus-control --all-features --test control_plane_e2e maximum_markdown_prompt_round_trips_through_the_bounded_client timeout=480s
+KILLED    maximum-markdown-prompt-response-rejected crates/hephaestus-control/src/client.rs (timeout 480s)
+RUN       markdown-frontmatter-merges-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    markdown-frontmatter-merges-accepted crates/hephaestus-genome/src/markdown.rs (timeout 120s)
+RUN       reference-instruction-unknown-fields-accepted command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-instruction-unknown-fields-accepted crates/hephaestus-runtime/src/reference_instruction.rs (timeout 240s)
+RUN       reference-instruction-version-unchecked command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-instruction-version-unchecked crates/hephaestus-runtime/src/reference_instruction.rs (timeout 240s)
+RUN       reference-uppercase-operation-is-identity command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-uppercase-operation-is-identity crates/hephaestus-runtime/src/reference_instruction.rs (timeout 240s)
+RUN       reference-task-input-omitted-from-frame command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-task-input-omitted-from-frame crates/hephaestus-runtime/src/reference_instruction.rs (timeout 240s)
+RUN       reference-worker-input-limit-bypassed command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-worker-input-limit-bypassed crates/hephaestus-runtime/src/reference_instruction.rs (timeout 240s)
+RUN       reference-crlf-fence-normalization-skipped command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-crlf-fence-normalization-skipped crates/hephaestus-runtime/src/reference_instruction.rs (timeout 240s)
+RUN       reference-worker-changed-after-startup-accepted command=cargo test -p hephaestus-control --all-features --lib pin_reference_worker_rejects_a_public_executable_replaced_before_first_pin timeout=480s
+KILLED    reference-worker-changed-after-startup-accepted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       pinned-reference-worker-reuse-skips-per-use-digest-reverification command=cargo test -p hephaestus-control --all-features --lib pinned_reference_worker_cache_fails_closed_on_corruption_and_recovers_on_next_use timeout=480s
+KILLED    pinned-reference-worker-reuse-skips-per-use-digest-reverification crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       reference-instruction-cas-not-interpreted command=cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_reference_instructions_use_one_pinned_worker_for_paired_trials timeout=480s
+KILLED    reference-instruction-cas-not-interpreted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       reference-worker-bypassed-for-arena-candidates command=cargo test -p hephaestus-control --all-features --lib server::tests::gauntlet_failure_modes_reject_the_bad_operation_and_pass_the_fix -- --exact timeout=480s
+KILLED    reference-worker-bypassed-for-arena-candidates crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       reference-task-input-bound-checked-before-run command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    reference-task-input-bound-checked-before-run crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       reference-evaluation-uses-private-pinned-worker command=cargo test -p hephaestus-control --all-features --test control_plane_e2e synchronous_reference_run_uses_private_worker_snapshot_after_public_replacement timeout=480s
+KILLED    reference-evaluation-uses-private-pinned-worker crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       async-job-kill-request-skips-runtime-cancellation command=cargo test -p hephaestus-control --all-features --lib server::tests::kill_all_signals_active_runtime_and_replays_confirmed_cancellation -- --exact timeout=480s
+KILLED    async-job-kill-request-skips-runtime-cancellation crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       guardian-leader-exit-leaves-descendants-running command=cargo test -p hephaestus-runtime --all-features --lib guardian::tests::guardian_kills_descendants_when_worker_leader_exits -- --exact timeout=240s
+KILLED    guardian-leader-exit-leaves-descendants-running crates/hephaestus-runtime/src/guardian.rs (timeout 240s)
+RUN       async-job-terminal-success-unbound-to-signed-result command=cargo test -p hephaestus-control --all-features --lib -- signed_success_result_without_completed_run_rejects_job_terminal timeout=480s
+KILLED    async-job-terminal-success-unbound-to-signed-result crates/hephaestus-control/src/control_state.rs (timeout 480s)
+RUN       async-wall-timeout-not-classified-as-failure command=cargo test -p hephaestus-control --all-features --test control_plane_e2e async_wall_timeout_is_durable_replayable_and_keeps_daemon_available timeout=480s
+KILLED    async-wall-timeout-not-classified-as-failure crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       experience-capacity-failure-acknowledged-as-success command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-capacity-failure-acknowledged-as-success crates/hephaestus-experience/src/sink.rs (timeout 120s)
+RUN       arena-scorer-launch-terminal-not-persisted command=cargo test -p hephaestus-control --all-features --lib injected_arena_scoring_failure_persists_failed_terminal_and_replays timeout=480s
+KILLED    arena-scorer-launch-terminal-not-persisted crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       arena-deadline-append-failure-not-retried command=cargo test -p hephaestus-control --all-features --lib injected_arena_scoring_failure_persists_failed_terminal_and_replays timeout=480s
+KILLED    arena-deadline-append-failure-not-retried crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       registry-forge-noncanonical-envelope-accepted command=cargo test -p hephaestus-genome --quiet timeout=120s
+KILLED    registry-forge-noncanonical-envelope-accepted crates/hephaestus-genome/src/registry.rs (timeout 120s)
+RUN       forge-proposal-parent-not-bound-to-selected-candidate command=cargo test -p hephaestus-control --all-features --lib forge_proposal_replays_and_rejects_tampered_selection_and_metadata timeout=480s
+KILLED    forge-proposal-parent-not-bound-to-selected-candidate crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-parent-prompt-mutation-preserves-only-operation-token command=cargo test -p hephaestus-control --all-features --lib forge_mutation_changes_only_the_supported_compact_instruction_token timeout=480s
+KILLED    forge-parent-prompt-mutation-preserves-only-operation-token crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-proposal-forbidden-while-frozen command=cargo test -p hephaestus-control --all-features --lib -- forge_proposal_is_rejected_while_evolution_is_frozen timeout=480s
+KILLED    forge-proposal-forbidden-while-frozen crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       forge-replay-selection-event-hash-not-verified command=cargo test -p hephaestus-control --all-features --lib forge_proposal_replays_and_rejects_tampered_selection_and_metadata timeout=480s
+KILLED    forge-replay-selection-event-hash-not-verified crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-assessment-replay-payload-comparison-weakened command=cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays timeout=480s
+KILLED    forge-assessment-replay-payload-comparison-weakened crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-assessment-directed-child-check-skipped command=cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays timeout=480s
+KILLED    forge-assessment-directed-child-check-skipped crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-assessment-conflicting-retry-condition-weakened command=cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays timeout=480s
+KILLED    forge-assessment-conflicting-retry-condition-weakened crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-assessment-outcome-eligibility-inverted command=cargo test -p hephaestus-control --all-features --lib -- server::tests::forge_assessment_records_verified_child_selection_and_replays --exact timeout=480s
+KILLED    forge-assessment-outcome-eligibility-inverted crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-assessment-promotion-authorized command=cargo test -p hephaestus-control --all-features --lib server::tests::forge_assessment_records_verified_child_selection_and_replays -- --exact timeout=480s
+KILLED    forge-assessment-promotion-authorized crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-assessment-evidence-order-bypassed command=cargo test -p hephaestus-control --all-features --lib server::tests::forge_assessment_records_verified_child_selection_and_replays -- --exact timeout=480s
+KILLED    forge-assessment-evidence-order-bypassed crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       arena-invariant-successful-terminal-required command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-successful-terminal-required crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-output-cap-is-inclusive command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-output-cap-is-inclusive crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-forbidden-byte-detected command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-forbidden-byte-detected crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-paired-regressions-require-parent-pass command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-paired-regressions-require-parent-pass crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-total-checks-count-both-genomes command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-total-checks-count-both-genomes crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-candidate-contract-requires-zero-violations command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-candidate-contract-requires-zero-violations crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-event-rejects-altered-snapshot command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-event-rejects-altered-snapshot crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-event-actor-is-fixed command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-event-actor-is-fixed crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       arena-invariant-manifest-output-bound-is-limited command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts reference_output_invariant -- --nocapture timeout=240s
+KILLED    arena-invariant-manifest-output-bound-is-limited crates/hephaestus-arena/src/invariants.rs (timeout 240s)
+RUN       control-invariant-history-unverified-at-startup command=cargo test -p hephaestus-control --all-features --lib server::tests::control_plane_restart_rejects_a_fabricated_invariant_event -- --exact timeout=480s
+KILLED    control-invariant-history-unverified-at-startup crates/hephaestus-control/src/server.rs (timeout 480s)
+RUN       control-arena-invariants-allowed-during-active-job command=cargo test -p hephaestus-control --all-features --lib -- arena_invariants_check_is_blocked_while_a_direct_job_is_active timeout=480s
+KILLED    control-arena-invariants-allowed-during-active-job crates/hephaestus-control/src/worker_remote.rs (timeout 480s)
+RUN       control-champion-promotion-requires-metrics-pass command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-promotion-requires-metrics-pass crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-promotion-rejects-stale-parent command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-promotion-rejects-stale-parent crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-promotion-requires-invariant-contract command=cargo test -p hephaestus-control --all-features --lib champion_promotion_requires_satisfied_invariant_contract timeout=480s
+KILLED    control-champion-promotion-requires-invariant-contract crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-promotion-refused-while-frozen command=cargo test -p hephaestus-control --all-features --lib server::tests::champion_seed_promote_and_rollback_join_verified_evidence_and_replay -- --exact timeout=480s
+KILLED    control-champion-promotion-refused-while-frozen crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-seed-requires-empty-history command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-seed-requires-empty-history crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-rollback-quarantines-replaced command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-rollback-quarantines-replaced crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-replay-recomputes-transition command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-replay-recomputes-transition crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-replay-detects-retyped-events command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-replay-detects-retyped-events crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-transition-binds-previous-hash command=cargo test -p hephaestus-control --all-features --lib champion_seed_promote_and_rollback_join_verified_evidence_and_replay timeout=480s
+KILLED    control-champion-transition-binds-previous-hash crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-champion-child-cannot-regain-role command=cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays timeout=480s
+KILLED    control-champion-child-cannot-regain-role crates/hephaestus-control/src/champion.rs (timeout 480s)
+RUN       control-evidence-list-limit-validated command=cargo test -p hephaestus-control --all-features --lib evidence_denial_list_limit_is_bounded timeout=480s
+KILLED    control-evidence-list-limit-validated crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       control-evidence-runs-newest-first command=cargo test -p hephaestus-control --all-features --lib evidence_run_list_is_newest_first_and_merges_jobs_with_verified_results timeout=480s
+KILLED    control-evidence-runs-newest-first crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       control-evidence-denials-newest-first command=cargo test -p hephaestus-control --all-features --lib evidence_denial_list_records_request_rejected_and_runtime_capability_denials_newest_first timeout=480s
+KILLED    control-evidence-denials-newest-first crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       control-evidence-evaluations-newest-first command=cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_references_forge_assessment_and_orders_newest_first timeout=480s
+KILLED    control-evidence-evaluations-newest-first crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       control-evolve-freeze-halts-runs command=cargo test -p hephaestus-control --all-features --lib evolve_respects_freeze_and_resumes_only_after_explicit_unfreeze timeout=480s
+KILLED    control-evolve-freeze-halts-runs crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       control-evolve-budget-enforced   command=cargo test -p hephaestus-control --all-features --lib evolve_budget_exhaustion_stops_a_run_before_its_generation_limit timeout=480s
+KILLED    control-evolve-budget-enforced   crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       control-evolve-generation-ceiling command=cargo test -p hephaestus-control --all-features --lib evolve_coding_bundled_world_completes_three_generations_from_the_example_fixture timeout=480s
+KILLED    control-evolve-generation-ceiling crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       control-evolve-replay-requires-promotion-evidence command=cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations_with_one_promotion_and_replays timeout=480s
+KILLED    control-evolve-replay-requires-promotion-evidence crates/hephaestus-control/src/evolve.rs (timeout 480s)
+RUN       selection-latency-tolerance-uses-min-not-max command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-latency-tolerance-uses-min-not-max crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-v2-dominance-ignores-latency-tolerance command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-v2-dominance-ignores-latency-tolerance crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-v2-dominance-boundary-excludes-exact-tolerance command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-v2-dominance-boundary-excludes-exact-tolerance crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-new-selections-use-retired-v1-algorithm command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-new-selections-use-retired-v1-algorithm crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       selection-recompute-ignores-stored-receipt-algorithm command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    selection-recompute-ignores-stored-receipt-algorithm crates/hephaestus-arena/src/selection.rs (timeout 240s)
+RUN       cluster-sealed-data-excluded     command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    cluster-sealed-data-excluded     crates/hephaestus-arena/src/clusters.rs (timeout 240s)
+RUN       cluster-deterministic-signature-assignment command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    cluster-deterministic-signature-assignment crates/hephaestus-arena/src/clusters.rs (timeout 240s)
+RUN       cluster-suggested-mutation-matches-cluster command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    cluster-suggested-mutation-matches-cluster crates/hephaestus-arena/src/clusters.rs (timeout 240s)
+RUN       cluster-replay-recompute-conflict command=cargo test -p hephaestus-arena --all-features --quiet timeout=240s
+KILLED    cluster-replay-recompute-conflict crates/hephaestus-arena/src/clusters.rs (timeout 240s)
+RUN       drift-threshold-not-crossed-rejected command=cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_replay_rejects_a_forged_promotion_claim timeout=480s
+KILLED    drift-threshold-not-crossed-rejected crates/hephaestus-control/src/drift.rs (timeout 480s)
+RUN       canary-correctness-regression-detected command=cargo test -p hephaestus-control --all-features --test control_plane_e2e canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary timeout=480s
+KILLED    canary-correctness-regression-detected crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       canary-advance-refused-while-frozen command=cargo test -p hephaestus-control --all-features --lib canary_staged_rollout_promotes_through_champion_path_and_replays timeout=480s
+KILLED    canary-advance-refused-while-frozen crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       canary-completion-joins-champion-promotion command=cargo test -p hephaestus-control --all-features --lib canary_staged_rollout_promotes_through_champion_path_and_replays timeout=480s
+KILLED    canary-completion-joins-champion-promotion crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       canary-verify-excludes-companion-champion-event command=cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays timeout=480s
+KILLED    canary-verify-excludes-companion-champion-event crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       provider-extra-env-not-applied   command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::extra_env_reaches_the_child_process --exact timeout=240s
+KILLED    provider-extra-env-not-applied   crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       provider-redaction-skipped       command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    provider-redaction-skipped       crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       provider-claude-permission-denied-not-recorded command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    provider-claude-permission-denied-not-recorded crates/hephaestus-runtime/src/provider_events.rs (timeout 240s)
+RUN       provider-codex-turn-failed-not-recorded command=cargo test -p hephaestus-runtime --all-features --quiet timeout=240s
+KILLED    provider-codex-turn-failed-not-recorded crates/hephaestus-runtime/src/provider_events.rs (timeout 240s)
+RUN       control-gene-extraction-requires-promoted-transition command=cargo test -p hephaestus-control --all-features --lib gene_extraction_refuses_below_the_evidence_threshold_and_bad_input timeout=480s
+KILLED    control-gene-extraction-requires-promoted-transition crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-extraction-requires-minimum-evidence command=cargo test -p hephaestus-control --all-features --lib gene_extraction_refuses_below_the_evidence_threshold_and_bad_input timeout=480s
+KILLED    control-gene-extraction-requires-minimum-evidence crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-extraction-idempotency-rejects-mismatched-promotion command=cargo test -p hephaestus-control --all-features --lib -- gene_transfer_trials_record_contradiction_and_speciation timeout=480s
+KILLED    control-gene-extraction-idempotency-rejects-mismatched-promotion crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-transfer-requires-origin-operation command=cargo test -p hephaestus-control --all-features --lib gene_transfer_trials_record_contradiction_and_speciation timeout=480s
+KILLED    control-gene-transfer-requires-origin-operation crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-transfer-positive-requires-lower-bound command=cargo test -p hephaestus-control --all-features --test control_plane_e2e gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon timeout=480s
+KILLED    control-gene-transfer-positive-requires-lower-bound crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-transfer-negative-requires-upper-bound command=cargo test -p hephaestus-control --all-features --lib gene_transfer_trials_record_contradiction_and_speciation timeout=480s
+KILLED    control-gene-transfer-negative-requires-upper-bound crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-speciation-requires-no-negative-in-domain command=cargo test -p hephaestus-control --all-features --lib gene_transfer_trials_record_contradiction_and_speciation timeout=480s
+KILLED    control-gene-speciation-requires-no-negative-in-domain crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       control-gene-speciation-requires-minimum-lineages command=cargo test -p hephaestus-control --all-features --test control_plane_e2e gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon timeout=480s
+KILLED    control-gene-speciation-requires-minimum-lineages crates/hephaestus-control/src/gene_bank.rs (timeout 480s)
+RUN       jsonl-chain-link-ignored         command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-chain-link-ignored         crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       jsonl-duplicate-event-id-accepted command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-duplicate-event-id-accepted crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       jsonl-torn-tail-not-repaired     command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    jsonl-torn-tail-not-repaired     crates/hephaestus-ledger/src/file_event_store.rs (timeout 120s)
+RUN       memory-artifact-substitution-accepted command=cargo test -p hephaestus-ledger --quiet timeout=120s
+KILLED    memory-artifact-substitution-accepted crates/hephaestus-ledger/src/memory_artifact_store.rs (timeout 120s)
+RUN       forge-harness-mutation-scope-skipped command=cargo test -p hephaestus-control --all-features --lib forge_refuses_harness_mutations_when_the_world_scope_excludes_them timeout=480s
+KILLED    forge-harness-mutation-scope-skipped crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-catalog-edge-check-skipped-on-replay command=cargo test -p hephaestus-control --all-features --lib verify_forge_prompt_rejects_a_before_after_edge_that_is_not_a_representable_catalog_edge timeout=480s
+KILLED    forge-catalog-edge-check-skipped-on-replay crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       evolve-strategy-cost-weighted-ordering-skipped command=cargo test -p hephaestus-control --all-features --lib evolve_cost_weighted_strategy_orders_clusters_by_descending_total_count timeout=480s
+KILLED    evolve-strategy-cost-weighted-ordering-skipped crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       expired-worker-credential-accepted-for-arena-trial-lease command=cargo test -p hephaestus-control --all-features --lib remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_local_path_unaffected timeout=480s
+KILLED    expired-worker-credential-accepted-for-arena-trial-lease crates/hephaestus-control/src/worker_remote.rs (timeout 480s)
+RUN       remote-arena-trial-result-recorded-without-credential-verification command=cargo test -p hephaestus-control --all-features --lib remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_local_path_unaffected timeout=480s
+KILLED    remote-arena-trial-result-recorded-without-credential-verification crates/hephaestus-control/src/worker_remote.rs (timeout 480s)
+RUN       drift-adaptation-starts-without-law-opt-in command=cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched timeout=480s
+KILLED    drift-adaptation-starts-without-law-opt-in crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       drift-adaptation-canary-abort-not-recorded-as-abort command=cargo test -p hephaestus-control --all-features --lib auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched timeout=480s
+KILLED    drift-adaptation-canary-abort-not-recorded-as-abort crates/hephaestus-control/src/handlers_evolve_meta.rs (timeout 480s)
+RUN       canary-latency-crossed-drops-absolute-floor command=cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact timeout=480s
+KILLED    canary-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       drift-latency-crossed-drops-absolute-floor command=cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_refuses_a_small_regression_within_the_absolute_floor -- --exact timeout=480s
+KILLED    drift-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/drift.rs (timeout 480s)
+RUN       canary-replay-forces-current-latency-rule-on-old-events command=cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact timeout=480s
+KILLED    canary-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       drift-replay-forces-current-latency-rule-on-old-events command=cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies -- --exact timeout=480s
+KILLED    drift-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/drift.rs (timeout 480s)
+RUN       guardian-launch-drops-provider-env command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files --exact timeout=240s
+KILLED    guardian-launch-drops-provider-env crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       claude-scratch-dir-left-outside-run-root command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files --exact timeout=240s
+KILLED    claude-scratch-dir-left-outside-run-root crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       home-file-escape-accepted        command=cargo test -p hephaestus-runtime --all-features --lib -- supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files --exact timeout=240s
+KILLED    home-file-escape-accepted        crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       guardian-ignores-launch-frame-env command=cargo test -p hephaestus-runtime --all-features --lib -- guardian::tests::guardian_passes_launch_frame_variables_to_the_worker --exact timeout=240s
+KILLED    guardian-ignores-launch-frame-env crates/hephaestus-runtime/src/guardian.rs (timeout 240s)
+RUN       online-external-sandbox-denies-network command=cargo test -p hephaestus-runtime --all-features --lib -- isolation::tests::seatbelt_profile_is_deny_by_default_and_capability_exact --exact timeout=240s
+KILLED    online-external-sandbox-denies-network crates/hephaestus-runtime/src/isolation.rs (timeout 240s)
+RUN       read-only-worktree-writable      command=cargo test -p hephaestus-runtime --all-features --lib -- isolation::tests::seatbelt_profile_is_deny_by_default_and_capability_exact --exact timeout=240s
+KILLED    read-only-worktree-writable      crates/hephaestus-runtime/src/isolation.rs (timeout 240s)
+RUN       oversized-provider-observation-unbounded command=cargo test -p hephaestus-runtime --all-features --lib -- provider_events::tests::oversized_tool_results_are_bounded_with_a_truncation_marker --exact timeout=240s
+KILLED    oversized-provider-observation-unbounded crates/hephaestus-runtime/src/provider_events.rs (timeout 240s)
+RUN       arena-trimmed-scoring-ignored    command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-trimmed-scoring-ignored    crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-json-scoring-ignored       command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-json-scoring-ignored       crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-json-duplicate-keys-accepted command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-json-duplicate-keys-accepted crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-json-number-values-discarded command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-json-number-values-discarded crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-schema1-nonexact-scoring-accepted command=cargo test -p hephaestus-arena --all-features --lib evaluator_protocol::tests:: --quiet timeout=240s
+KILLED    arena-schema1-nonexact-scoring-accepted crates/hephaestus-arena/src/evaluator_protocol.rs (timeout 240s)
+RUN       world-output-scoring-law-ignored command=cargo test -p hephaestus-genome --test compiler_contracts output_scoring_preserves --quiet timeout=120s
+KILLED    world-output-scoring-law-ignored crates/hephaestus-genome/src/world.rs (timeout 120s)
+RUN       cluster-sealed-normalization-ignored command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts world_scoring_matches --quiet timeout=240s
+KILLED    cluster-sealed-normalization-ignored crates/hephaestus-arena/src/clusters.rs (timeout 240s)
+RUN       cluster-visible-normalization-ignored command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts world_scoring_matches --quiet timeout=240s
+KILLED    cluster-visible-normalization-ignored crates/hephaestus-arena/src/clusters.rs (timeout 240s)
+RUN       arena-invalid-json-expectations-admitted command=cargo test -p hephaestus-control --all-features --lib provider_pair_world_scoring --quiet timeout=480s
+KILLED    arena-invalid-json-expectations-admitted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       arena-trimmed-unicode-whitespace-accepted command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-trimmed-unicode-whitespace-accepted crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-json-depth-budget-ignored  command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-json-depth-budget-ignored  crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-json-exponent-budget-ignored command=cargo test -p hephaestus-arena --all-features --lib scoring::tests:: --quiet timeout=240s
+KILLED    arena-json-exponent-budget-ignored crates/hephaestus-arena/src/scoring.rs (timeout 240s)
+RUN       arena-library-json-preflight-skipped command=cargo test -p hephaestus-arena --all-features --test evaluation_contracts prepare_evaluation_rejects_invalid_json --quiet timeout=240s
+KILLED    arena-library-json-preflight-skipped crates/hephaestus-arena/src/lib.rs (timeout 240s)
+RUN       provider-instruction-dropped-from-stdin command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-instruction-dropped-from-stdin crates/hephaestus-runtime/src/provider.rs (timeout 240s)
+RUN       provider-instruction-byte-length-normalized command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-instruction-byte-length-normalized crates/hephaestus-runtime/src/provider.rs (timeout 240s)
+RUN       provider-input-version-downgraded command=cargo test -p hephaestus-control --all-features --lib provider_environment_versions --quiet timeout=240s
+KILLED    provider-input-version-downgraded crates/hephaestus-runtime/src/provider.rs (timeout 240s)
+RUN       provider-instruction-empty-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-instruction-empty-accepted crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       provider-instruction-oversized-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-instruction-oversized-accepted crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       provider-model-malformed-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-model-malformed-accepted crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       provider-model-oversized-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-model-oversized-accepted crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       provider-reference-config-conflict-accepted command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-reference-config-conflict-accepted crates/hephaestus-runtime/src/spec.rs (timeout 240s)
+RUN       provider-config-ignored-by-deterministic command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-config-ignored-by-deterministic crates/hephaestus-runtime/src/deterministic.rs (timeout 240s)
+RUN       provider-config-ignored-by-supervisor command=cargo test -p hephaestus-runtime --all-features --test runtime_contracts --quiet timeout=240s
+KILLED    provider-config-ignored-by-supervisor crates/hephaestus-runtime/src/supervisor.rs (timeout 240s)
+RUN       provider-paired-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-paired-instruction-omitted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-direct-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-direct-instruction-omitted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-submitted-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-submitted-instruction-omitted crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       provider-paired-model-omitted    command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-paired-model-omitted    crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-direct-model-omitted    command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-direct-model-omitted    crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-submitted-model-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-submitted-model-omitted crates/hephaestus-control/src/job_exec.rs (timeout 480s)
+RUN       provider-prose-parsed-as-reference command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-prose-parsed-as-reference crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-registration-model-validation-skipped command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-registration-model-validation-skipped crates/hephaestus-control/src/genome_ops.rs (timeout 480s)
+RUN       provider-legacy-environment-rejected command=cargo test -p hephaestus-control --all-features --lib provider_environment_versions --quiet timeout=480s
+KILLED    provider-legacy-environment-rejected crates/hephaestus-control/src/run_records.rs (timeout 480s)
+RUN       genome-model-family-lost         command=cargo test -p hephaestus-genome --test compiler_contracts --quiet timeout=120s
+KILLED    genome-model-family-lost         crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       provider-historical-family-canonical-bytes-normalized command=cargo test -p hephaestus-genome --test compiler_contracts hosted_free_form_model_family --quiet timeout=120s
+KILLED    provider-historical-family-canonical-bytes-normalized crates/hephaestus-genome/src/genome.rs (timeout 120s)
+RUN       forge-revision-freeze-bypassed   command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-freeze-bypassed   crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-reserved-prefix-bypassed command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-reserved-prefix-bypassed crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-selection-hash-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-selection-hash-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-source-order-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-source-order-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-before-prompt-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-before-prompt-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-artifact-name-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-artifact-name-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-hypothesis-retry-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-hypothesis-retry-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-content-retry-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-content-retry-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-empty-prompt-accepted command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-empty-prompt-accepted crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-unchanged-prompt-accepted command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-unchanged-prompt-accepted crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-canonical-bytes-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-canonical-bytes-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-cross-kind-retry-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-cross-kind-retry-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       forge-revision-child-recompile-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=480s
+KILLED    forge-revision-child-recompile-skipped crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       source-reader-fifo-blocking-open command=cargo test -p hephaestus-control --all-features --lib bounded_file_reader_rejects_a_fifo timeout=480s
+KILLED    source-reader-fifo-blocking-open crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       source-reader-stream-limit-unbounded command=cargo test -p hephaestus-control --all-features --lib bounded_reader_limits_reads timeout=480s
+KILLED    source-reader-stream-limit-unbounded crates/hephaestus-control/src/runtime_exec.rs (timeout 480s)
+RUN       forge-catalog-schema-check-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_keeps_historical timeout=480s
+KILLED    forge-catalog-schema-check-skipped crates/hephaestus-control/src/verification.rs (timeout 480s)
+RUN       forge-revision-direct-job-busy-gate-skipped command=cargo test -p hephaestus-control --all-features --lib genome_and_gene_bank_commands_are_blocked timeout=480s
+KILLED    forge-revision-direct-job-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs (timeout 480s)
+RUN       forge-revision-evolution-busy-gate-skipped command=cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations timeout=480s
+KILLED    forge-revision-evolution-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs (timeout 480s)
+RUN       paired-hosted-wall-budget-regressed command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_budget_plan --quiet timeout=480s
+KILLED    paired-hosted-wall-budget-regressed crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       paired-one-day-total-bound-bypassed command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_budget_plan --quiet timeout=480s
+KILLED    paired-one-day-total-bound-bypassed crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       confirmed-pair-profile-check-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet timeout=480s
+KILLED    confirmed-pair-profile-check-skipped crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       confirmed-pair-existing-id-lookup-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet timeout=480s
+KILLED    confirmed-pair-existing-id-lookup-skipped crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       forge-proposal-read-cas-verification-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_history --quiet timeout=480s
+KILLED    forge-proposal-read-cas-verification-skipped crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       confirmed-pair-parent-profile-check-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet timeout=480s
+KILLED    confirmed-pair-parent-profile-check-skipped crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+child-capability-escalation      crates/hephaestus-core/src/authority.rs KILLED
+candidate-clears-freeze          crates/hephaestus-core/src/authority.rs KILLED
+unknown-schema-version-accepted  crates/hephaestus-core/src/domain.rs KILLED
+empty-domain-id-accepted         crates/hephaestus-core/src/domain.rs KILLED
+terminal-genome-transition-accepted crates/hephaestus-core/src/domain.rs KILLED
+law-mutation-authorized          crates/hephaestus-core/src/domain.rs KILLED
+evaluator-mutation-authorized    crates/hephaestus-core/src/domain.rs KILLED
+duplicate-event-id-accepted      crates/hephaestus-ledger/src/event_store.rs KILLED
+empty-event-field-accepted       crates/hephaestus-ledger/src/event_store.rs KILLED
+changed-ledger-head-accepted     crates/hephaestus-ledger/src/event_store.rs KILLED
+event-sequence-gap-accepted      crates/hephaestus-ledger/src/event_store.rs KILLED
+event-chain-link-ignored         crates/hephaestus-ledger/src/event_store.rs KILLED
+modified-event-content-accepted  crates/hephaestus-ledger/src/event_store.rs KILLED
+malformed-artifact-id-accepted   crates/hephaestus-ledger/src/artifact_store.rs KILLED
+artifact-content-address-collapsed crates/hephaestus-ledger/src/artifact_store.rs KILLED
+artifact-substitution-accepted   crates/hephaestus-ledger/src/artifact_store.rs KILLED
+oversized-compiler-input-accepted crates/hephaestus-genome/src/compiler.rs KILLED
+unknown-compiler-schema-accepted crates/hephaestus-genome/src/compiler.rs KILLED
+empty-compiler-field-accepted    crates/hephaestus-genome/src/compiler.rs KILLED
+compiler-content-address-collapsed crates/hephaestus-genome/src/compiler.rs KILLED
+world-authority-ceiling-ignored  crates/hephaestus-genome/src/genome.rs KILLED
+parent-identity-spoof-accepted   crates/hephaestus-genome/src/genome.rs KILLED
+parent-authority-ceiling-ignored crates/hephaestus-genome/src/genome.rs KILLED
+artifact-integrity-error-ignored crates/hephaestus-genome/src/genome.rs KILLED
+candidate-evaluator-access-accepted crates/hephaestus-genome/src/world.rs KILLED
+protected-world-scope-accepted   crates/hephaestus-genome/src/world.rs KILLED
+authorized-world-scope-discarded crates/hephaestus-genome/src/world.rs KILLED
+invalid-promotion-confidence-accepted crates/hephaestus-genome/src/world.rs KILLED
+empty-world-objectives-accepted  crates/hephaestus-genome/src/world.rs KILLED
+incompatible-worlds-compared     crates/hephaestus-genome/src/world.rs KILLED
+oversized-control-request-accepted crates/hephaestus-control/src/server.rs KILLED
+unknown-control-api-version-accepted crates/hephaestus-control/src/server.rs KILLED
+operator-api-authentication-bypassed crates/hephaestus-control/src/server.rs KILLED
+forged-control-actor-accepted    crates/hephaestus-control/src/control_state.rs KILLED
+control-command-event-mismatch-accepted crates/hephaestus-control/src/control_state.rs KILLED
+persistent-freeze-event-ignored  crates/hephaestus-control/src/control_state.rs KILLED
+operator-unfreeze-event-ignored  crates/hephaestus-control/src/control_state.rs KILLED
+kill-all-event-ignored           crates/hephaestus-control/src/server.rs KILLED
+released-genome-metadata-overwritten crates/hephaestus-genome/src/registry.rs KILLED
+inspected-genome-artifact-unverified crates/hephaestus-genome/src/registry.rs KILLED
+replay-divergence-accepted       crates/hephaestus-control/src/job_exec.rs KILLED
+frozen-reference-run-started     crates/hephaestus-control/src/run_exec.rs KILLED
+unregistered-world-executed      crates/hephaestus-control/src/server.rs KILLED
+reference-runtime-workspace-authority-widened crates/hephaestus-control/src/job_exec.rs KILLED
+trace-completion-projection-ignored crates/hephaestus-control/src/control_state.rs KILLED
+registered-world-artifact-unverified crates/hephaestus-genome/src/registry.rs KILLED
+reference-runtime-cost-falsified crates/hephaestus-control/src/runtime_exec.rs KILLED
+workspace-capability-report-inverted crates/hephaestus-core/src/authority.rs KILLED
+network-capability-report-inverted crates/hephaestus-core/src/authority.rs KILLED
+zero-wall-budget-accepted        crates/hephaestus-runtime/src/spec.rs KILLED
+unsafe-run-id-accepted           crates/hephaestus-runtime/src/spec.rs KILLED
+sandbox-capability-proof-bypassed crates/hephaestus-runtime/src/sandbox.rs KILLED
+zero-capability-ttl-accepted     crates/hephaestus-runtime/src/sandbox.rs KILLED
+reference-runtime-network-authority-widened crates/hephaestus-runtime/src/deterministic.rs KILLED
+runtime-output-budget-bypassed   crates/hephaestus-runtime/src/deterministic.rs KILLED
+reference-runtime-wall-deadline-ignored crates/hephaestus-runtime/src/deterministic.rs KILLED
+reference-runtime-running-resume-accepted crates/hephaestus-runtime/src/deterministic.rs KILLED
+reference-runtime-failed-resume-destroys-run crates/hephaestus-runtime/src/deterministic.rs KILLED
+provider-sandbox-authority-mismatch-accepted crates/hephaestus-runtime/src/provider.rs KILLED
+empty-provider-executable-accepted crates/hephaestus-runtime/src/provider.rs KILLED
+external-sandbox-default-allows-access crates/hephaestus-runtime/src/isolation.rs KILLED
+offline-external-sandbox-allows-network crates/hephaestus-runtime/src/isolation.rs KILLED
+missing-external-sandbox-fails-open crates/hephaestus-runtime/src/isolation.rs KILLED
+supervisor-network-authority-widened crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-inherits-ambient-environment crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-prompt-omitted-from-stdin crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-stdin-delivery-failure-ignored crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-process-group-disabled crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-interrupt-ignored     crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-output-limit-ignored  crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-wall-deadline-ignored crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-wall-deadline-overflows crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-isolation-policy-bypassed crates/hephaestus-runtime/src/supervisor.rs KILLED
+supervisor-group-signal-misparsed crates/hephaestus-runtime/src/supervisor.rs KILLED
+empty-experience-provenance-accepted crates/hephaestus-experience/src/record.rs KILLED
+single-source-contradiction-accepted crates/hephaestus-experience/src/record.rs KILLED
+zero-experience-retention-limit-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+experience-retention-ceiling-ignored crates/hephaestus-experience/src/recorder.rs KILLED
+terminal-evidence-slot-not-reserved crates/hephaestus-experience/src/recorder.rs KILLED
+oversized-experience-artifact-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+sensitive-experience-field-persisted crates/hephaestus-experience/src/redaction.rs KILLED
+known-secret-literal-persisted   crates/hephaestus-experience/src/redaction.rs KILLED
+prefixed-provider-token-persisted crates/hephaestus-experience/src/redaction.rs KILLED
+unknown-experience-source-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+cross-provenance-experience-source-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+missing-experience-evidence-artifact-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+raw-experience-presented-as-gene crates/hephaestus-experience/src/recorder.rs KILLED
+recorded-runtime-denial-misclassified crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-sequence-wraps  crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-start-evidence-optional crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-start-failure-unobserved crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-raw-checkpoint-persisted crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-resume-observations-optional crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-active-resume-accepted crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-resume-provenance-spliced crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-interrupt-completion-omitted crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-running-poll-completed crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-terminal-duplicated crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-zero-cost-unattributed crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-observations-discarded crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-wrapper-drain-bypassed crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-completion-reason-forged crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-latency-zeroed  crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-terminal-state-premature crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-containment-failure-forgotten crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-pending-observation-forgotten crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-snapshot-evidence-failure-uncontained crates/hephaestus-experience/src/integration.rs KILLED
+recorded-runtime-interrupt-evidence-failure-uncontained crates/hephaestus-experience/src/integration.rs KILLED
+statistics-pairing-discarded     python/hephaestus_lab/statistics.py KILLED
+statistics-seed-ignored          python/hephaestus_lab/statistics.py KILLED
+statistics-cost-regression-accepted python/hephaestus_lab/statistics.py KILLED
+statistics-regression-gate-bypassed python/hephaestus_lab/statistics.py KILLED
+statistics-effect-gate-inverted  python/hephaestus_lab/statistics.py KILLED
+run-spec-revision-not-resolved   crates/hephaestus-runtime/src/spec.rs KILLED
+sandbox-checks-out-moving-head   crates/hephaestus-runtime/src/sandbox.rs KILLED
+sandbox-revision-binding-bypassed crates/hephaestus-runtime/src/sandbox.rs KILLED
+runtime-start-revision-evidence-forgotten crates/hephaestus-experience/src/integration.rs KILLED
+run-result-revision-forgotten    crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-schema-version-ignored crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-actor-forged          crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-cost-unbounded        crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-output-artifact-unvalidated crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-provider-failure-rejected crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-operator-interrupt-rejected crates/hephaestus-experience/src/run_result.rs KILLED
+control-operator-interrupt-marked-cancelled crates/hephaestus-control/src/job_exec.rs KILLED
+run-result-supervisor-timeout-and-io-failure-rejected crates/hephaestus-experience/src/run_result.rs KILLED
+artifact-preflight-address-forged crates/hephaestus-ledger/src/artifact_store.rs KILLED
+arena-caller-controls-event-identity crates/hephaestus-arena/src/lib.rs KILLED
+arena-visible-manifest-unbound   crates/hephaestus-arena/src/lib.rs KILLED
+arena-evaluator-executable-unbound crates/hephaestus-arena/src/isolated_evaluator.rs KILLED
+arena-evaluator-response-replay-accepted crates/hephaestus-arena/src/isolated_evaluator.rs KILLED
+arena-isolated-evaluator-bypassed crates/hephaestus-arena/src/lib.rs KILLED
+arena-failed-run-scored          crates/hephaestus-arena/src/lib.rs KILLED
+arena-cross-world-run-scored     crates/hephaestus-arena/src/lib.rs KILLED
+arena-mixed-genome-submission-accepted crates/hephaestus-arena/src/lib.rs KILLED
+arena-paired-revision-mismatch-accepted crates/hephaestus-arena/src/lib.rs KILLED
+arena-run-result-reused-across-tasks crates/hephaestus-arena/src/lib.rs KILLED
+arena-task-set-mismatch-accepted crates/hephaestus-arena/src/lib.rs KILLED
+arena-runtime-output-evidence-discarded crates/hephaestus-arena/src/lib.rs KILLED
+arena-public-summary-uses-sealed-score crates/hephaestus-arena/src/lib.rs KILLED
+arena-evaluation-conflict-ignored crates/hephaestus-arena/src/lib.rs KILLED
+arena-event-actor-forged         crates/hephaestus-arena/src/lib.rs KILLED
+runtime-experiment-input-unbound crates/hephaestus-runtime/src/spec.rs KILLED
+runtime-run-id-exceeds-receipt-contract crates/hephaestus-runtime/src/spec.rs KILLED
+sandbox-worktree-registration-leaked crates/hephaestus-runtime/src/sandbox.rs KILLED
+run-result-signature-unverified  crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-task-context-forgotten crates/hephaestus-experience/src/run_result.rs KILLED
+run-result-budget-context-forgotten crates/hephaestus-experience/src/run_result.rs KILLED
+control-missing-producer-key-regenerated crates/hephaestus-control/src/server.rs KILLED
+control-evaluation-task-context-hardcoded crates/hephaestus-control/src/run_exec.rs KILLED
+control-evaluation-environment-arch-forgotten crates/hephaestus-control/src/run_records.rs KILLED
+control-legacy-unsigned-history-accepted crates/hephaestus-control/src/server.rs KILLED
+control-world-verifier-mismatch-accepted crates/hephaestus-control/src/server.rs KILLED
+control-evaluation-cost-ceiling-unbounded crates/hephaestus-control/src/run_records.rs KILLED
+control-successful-sandbox-cleanup-skipped crates/hephaestus-control/src/server.rs KILLED
+control-world-cost-law-bypassed  crates/hephaestus-control/src/run_exec.rs KILLED
+run-result-latency-shared-limit-bypassed crates/hephaestus-experience/src/run_result.rs KILLED
+mutation-descendant-sigkill-skipped checks/mutation_guard.py     KILLED
+mutation-cli-command-override-ignored checks/mutation_guard.py     KILLED
+mutation-process-inspection-failure-hidden checks/mutation_guard.py     KILLED
+mutation-baseline-deadline-overrides-mutants checks/mutation_guard.py     KILLED
+mutation-extended-baseline-skips-green-proof checks/mutation_guard.py     KILLED
+arena-task-claim-unbound         crates/hephaestus-arena/src/lib.rs KILLED
+arena-input-commitment-unbound   crates/hephaestus-arena/src/lib.rs KILLED
+arena-seed-unbound               crates/hephaestus-arena/src/lib.rs KILLED
+arena-environment-unbound        crates/hephaestus-arena/src/lib.rs KILLED
+arena-budget-unbound             crates/hephaestus-arena/src/lib.rs KILLED
+failed-sandbox-materialization-leaked crates/hephaestus-runtime/src/sandbox.rs KILLED
+sandbox-token-expiry-overflow-panics crates/hephaestus-runtime/src/sandbox.rs KILLED
+sandbox-root-replacement-accepted crates/hephaestus-runtime/src/sandbox.rs KILLED
+sandbox-rollback-failure-hidden  crates/hephaestus-runtime/src/sandbox.rs KILLED
+sandbox-git-cleanup-failure-hidden crates/hephaestus-runtime/src/sandbox.rs KILLED
+worker-input-limit-bypassed      crates/hephaestus-runtime/src/worker.rs KILLED
+worker-root-replacement-accepted crates/hephaestus-runtime/src/worker.rs KILLED
+worker-drop-cleanup-disabled     crates/hephaestus-runtime/src/worker.rs KILLED
+worker-domains-share-root        crates/hephaestus-runtime/src/worker.rs KILLED
+worker-isolation-policy-bypassed crates/hephaestus-runtime/src/worker.rs KILLED
+arena-manifest-schema-check-bypassed crates/hephaestus-arena/src/lib.rs KILLED
+arena-noncanonical-manifest-accepted crates/hephaestus-arena/src/lib.rs KILLED
+arena-operator-task-leaks-expectation crates/hephaestus-arena/src/lib.rs KILLED
+control-self-pair-accepted       crates/hephaestus-control/src/run_exec.rs KILLED
+control-world-bound-evaluator-bypassed crates/hephaestus-control/src/run_exec.rs KILLED
+control-sealed-tasks-not-scheduled crates/hephaestus-control/src/run_exec.rs KILLED
+control-paired-retry-reruns-candidates crates/hephaestus-control/src/run_exec.rs KILLED
+control-paired-seed-diverges     crates/hephaestus-control/src/run_exec.rs KILLED
+control-candidate-process-not-supervised crates/hephaestus-control/src/runtime_exec.rs KILLED
+arena-evaluator-reliability-ignored crates/hephaestus-arena/src/evaluator_protocol.rs KILLED
+arena-authenticated-latency-discarded crates/hephaestus-arena/src/lib.rs KILLED
+arena-selection-event-hash-unbound crates/hephaestus-arena/src/lib.rs KILLED
+arena-stored-aggregate-validation-bypassed crates/hephaestus-arena/src/lib.rs KILLED
+arena-selection-unchanged-miscomputed crates/hephaestus-arena/src/lib.rs KILLED
+arena-evaluator-aggregate-algebra-unchecked crates/hephaestus-arena/src/isolated_evaluator.rs KILLED
+arena-evaluator-unreliable-correctness-accepted crates/hephaestus-arena/src/isolated_evaluator.rs KILLED
+arena-rehydration-evaluator-artifact-unchecked crates/hephaestus-arena/src/lib.rs KILLED
+arena-rehydration-transitive-artifact-unchecked crates/hephaestus-arena/src/lib.rs KILLED
+experience-rehydration-noncanonical-receipt-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-metadata-bypassed crates/hephaestus-experience/src/rehydrate.rs KILLED
+duplicate-experience-input-source-accepted crates/hephaestus-experience/src/record.rs KILLED
+duplicate-rehydrated-experience-source-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-noncanonical-artifact-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-artifact-binding-bypassed crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-unknown-source-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-forward-source-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-noncanonical-receipt-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-invalid-provenance-accepted crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-schema-unchecked crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-identity-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-aggregate-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-actor-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-artifact-schema-unchecked crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-artifact-identity-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-artifact-provenance-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-artifact-kind-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-artifact-timestamp-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-trace-source-redaction-count-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-source-provenance-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-evidence-unverified crates/hephaestus-experience/src/rehydrate.rs KILLED
+experience-rehydration-event-hash-unbound crates/hephaestus-experience/src/rehydrate.rs KILLED
+registry-cross-world-parent-accepted crates/hephaestus-genome/src/registry.rs KILLED
+registry-noncanonical-payload-accepted crates/hephaestus-genome/src/registry.rs KILLED
+registry-aggregate-mismatch-accepted crates/hephaestus-genome/src/registry.rs KILLED
+registry-noncanonical-world-artifact-accepted crates/hephaestus-genome/src/registry.rs KILLED
+registry-noncanonical-genome-artifact-accepted crates/hephaestus-genome/src/registry.rs KILLED
+registry-conflicting-genome-registration-accepted crates/hephaestus-genome/src/registry.rs KILLED
+registry-missing-world-misattributed crates/hephaestus-genome/src/registry.rs KILLED
+world-register-foreign-verifier-accepted crates/hephaestus-control/src/genome_ops.rs KILLED
+source-format-unknown-extension-accepted crates/hephaestus-control/src/runtime_exec.rs KILLED
+manifest-put-stores-source-bytes crates/hephaestus-control/src/genome_ops.rs KILLED
+relative-registration-path-accepted crates/hephaestus-control/src/runtime_exec.rs KILLED
+genome-content-reused-across-worlds crates/hephaestus-control/src/genome_ops.rs KILLED
+selection-bootstrap-seed-ignored crates/hephaestus-arena/src/selection.rs KILLED
+selection-negative-estimate-truncated crates/hephaestus-arena/src/selection.rs KILLED
+selection-negative-resample-truncated crates/hephaestus-arena/src/selection.rs KILLED
+selection-regression-sign-inverted crates/hephaestus-arena/src/selection.rs KILLED
+selection-effect-threshold-not-strict crates/hephaestus-arena/src/selection.rs KILLED
+selection-world-cost-ceiling-ignored crates/hephaestus-arena/src/selection.rs KILLED
+selection-world-confidence-unsupported-endpoint-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-bootstrap-work-unbounded crates/hephaestus-arena/src/selection.rs KILLED
+selection-wrong-world-evidence-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-in-wrong-world-evidence-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-promotion-without-invariant-evidence crates/hephaestus-arena/src/selection.rs KILLED
+selection-supplied-event-snapshot-unchecked crates/hephaestus-arena/src/selection.rs KILLED
+python-histogram-regression-sign-inverted python/hephaestus_lab/statistics.py KILLED
+python-histogram-work-cap-bypassed python/hephaestus_lab/statistics.py KILLED
+selection-bootstrap-histogram-order-permuted crates/hephaestus-arena/src/selection.rs KILLED
+python-histogram-order-permuted  python/hephaestus_lab/statistics.py KILLED
+selection-forged-canonical-receipt-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-in-forged-canonical-receipt-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-pareto-correctness-regression-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-pareto-reliability-regression-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-pareto-cost-regression-accepted crates/hephaestus-arena/src/selection.rs KILLED
+selection-pareto-latency-regression-accepted crates/hephaestus-arena/src/selection.rs KILLED
+control-selection-history-unverified-at-startup crates/hephaestus-control/src/server.rs KILLED
+control-selection-history-unverified-on-replay crates/hephaestus-control/src/job_exec.rs KILLED
+markdown-frontmatter-duplicates-overwritten crates/hephaestus-genome/src/markdown.rs KILLED
+markdown-prompt-bytes-trimmed    crates/hephaestus-genome/src/markdown.rs KILLED
+markdown-whole-source-limit-bypassed crates/hephaestus-genome/src/markdown.rs KILLED
+markdown-prompt-override-accepted crates/hephaestus-genome/src/markdown.rs KILLED
+genome-prompt-bytes-not-validated-on-replay crates/hephaestus-genome/src/genome.rs KILLED
+markdown-registration-route-bypassed crates/hephaestus-control/src/genome_ops.rs KILLED
+genome-prompt-not-scoped-to-registered-record crates/hephaestus-control/src/genome_ops.rs KILLED
+maximum-markdown-prompt-response-rejected crates/hephaestus-control/src/client.rs KILLED
+markdown-frontmatter-merges-accepted crates/hephaestus-genome/src/markdown.rs KILLED
+reference-instruction-unknown-fields-accepted crates/hephaestus-runtime/src/reference_instruction.rs KILLED
+reference-instruction-version-unchecked crates/hephaestus-runtime/src/reference_instruction.rs KILLED
+reference-uppercase-operation-is-identity crates/hephaestus-runtime/src/reference_instruction.rs KILLED
+reference-task-input-omitted-from-frame crates/hephaestus-runtime/src/reference_instruction.rs KILLED
+reference-worker-input-limit-bypassed crates/hephaestus-runtime/src/reference_instruction.rs KILLED
+reference-crlf-fence-normalization-skipped crates/hephaestus-runtime/src/reference_instruction.rs KILLED
+reference-worker-changed-after-startup-accepted crates/hephaestus-control/src/run_exec.rs KILLED
+pinned-reference-worker-reuse-skips-per-use-digest-reverification crates/hephaestus-control/src/run_exec.rs KILLED
+reference-instruction-cas-not-interpreted crates/hephaestus-control/src/run_exec.rs KILLED
+reference-worker-bypassed-for-arena-candidates crates/hephaestus-control/src/runtime_exec.rs KILLED
+reference-task-input-bound-checked-before-run crates/hephaestus-runtime/src/spec.rs KILLED
+reference-evaluation-uses-private-pinned-worker crates/hephaestus-control/src/run_exec.rs KILLED
+async-job-kill-request-skips-runtime-cancellation crates/hephaestus-control/src/server.rs KILLED
+guardian-leader-exit-leaves-descendants-running crates/hephaestus-runtime/src/guardian.rs KILLED
+async-job-terminal-success-unbound-to-signed-result crates/hephaestus-control/src/control_state.rs KILLED
+async-wall-timeout-not-classified-as-failure crates/hephaestus-control/src/job_exec.rs KILLED
+experience-capacity-failure-acknowledged-as-success crates/hephaestus-experience/src/sink.rs KILLED
+arena-scorer-launch-terminal-not-persisted crates/hephaestus-control/src/job_exec.rs KILLED
+arena-deadline-append-failure-not-retried crates/hephaestus-control/src/job_exec.rs KILLED
+registry-forge-noncanonical-envelope-accepted crates/hephaestus-genome/src/registry.rs KILLED
+forge-proposal-parent-not-bound-to-selected-candidate crates/hephaestus-control/src/verification.rs KILLED
+forge-parent-prompt-mutation-preserves-only-operation-token crates/hephaestus-control/src/verification.rs KILLED
+forge-proposal-forbidden-while-frozen crates/hephaestus-control/src/genome_ops.rs KILLED
+forge-replay-selection-event-hash-not-verified crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-replay-payload-comparison-weakened crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-directed-child-check-skipped crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-conflicting-retry-condition-weakened crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-outcome-eligibility-inverted crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-promotion-authorized crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-evidence-order-bypassed crates/hephaestus-control/src/verification.rs KILLED
+arena-invariant-successful-terminal-required crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-output-cap-is-inclusive crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-forbidden-byte-detected crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-paired-regressions-require-parent-pass crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-total-checks-count-both-genomes crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-candidate-contract-requires-zero-violations crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-event-rejects-altered-snapshot crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-event-actor-is-fixed crates/hephaestus-arena/src/invariants.rs KILLED
+arena-invariant-manifest-output-bound-is-limited crates/hephaestus-arena/src/invariants.rs KILLED
+control-invariant-history-unverified-at-startup crates/hephaestus-control/src/server.rs KILLED
+control-arena-invariants-allowed-during-active-job crates/hephaestus-control/src/worker_remote.rs KILLED
+control-champion-promotion-requires-metrics-pass crates/hephaestus-control/src/champion.rs KILLED
+control-champion-promotion-rejects-stale-parent crates/hephaestus-control/src/champion.rs KILLED
+control-champion-promotion-requires-invariant-contract crates/hephaestus-control/src/champion.rs KILLED
+control-champion-promotion-refused-while-frozen crates/hephaestus-control/src/champion.rs KILLED
+control-champion-seed-requires-empty-history crates/hephaestus-control/src/champion.rs KILLED
+control-champion-rollback-quarantines-replaced crates/hephaestus-control/src/champion.rs KILLED
+control-champion-replay-recomputes-transition crates/hephaestus-control/src/champion.rs KILLED
+control-champion-replay-detects-retyped-events crates/hephaestus-control/src/champion.rs KILLED
+control-champion-transition-binds-previous-hash crates/hephaestus-control/src/champion.rs KILLED
+control-champion-child-cannot-regain-role crates/hephaestus-control/src/champion.rs KILLED
+control-evidence-list-limit-validated crates/hephaestus-control/src/verification.rs KILLED
+control-evidence-runs-newest-first crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+control-evidence-denials-newest-first crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+control-evidence-evaluations-newest-first crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+control-evolve-freeze-halts-runs crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+control-evolve-budget-enforced   crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+control-evolve-generation-ceiling crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+control-evolve-replay-requires-promotion-evidence crates/hephaestus-control/src/evolve.rs KILLED
+selection-latency-tolerance-uses-min-not-max crates/hephaestus-arena/src/selection.rs KILLED
+selection-v2-dominance-ignores-latency-tolerance crates/hephaestus-arena/src/selection.rs KILLED
+selection-v2-dominance-boundary-excludes-exact-tolerance crates/hephaestus-arena/src/selection.rs KILLED
+selection-new-selections-use-retired-v1-algorithm crates/hephaestus-arena/src/selection.rs KILLED
+selection-recompute-ignores-stored-receipt-algorithm crates/hephaestus-arena/src/selection.rs KILLED
+cluster-sealed-data-excluded     crates/hephaestus-arena/src/clusters.rs KILLED
+cluster-deterministic-signature-assignment crates/hephaestus-arena/src/clusters.rs KILLED
+cluster-suggested-mutation-matches-cluster crates/hephaestus-arena/src/clusters.rs KILLED
+cluster-replay-recompute-conflict crates/hephaestus-arena/src/clusters.rs KILLED
+drift-threshold-not-crossed-rejected crates/hephaestus-control/src/drift.rs KILLED
+canary-correctness-regression-detected crates/hephaestus-control/src/canary.rs KILLED
+canary-advance-refused-while-frozen crates/hephaestus-control/src/canary.rs KILLED
+canary-completion-joins-champion-promotion crates/hephaestus-control/src/canary.rs KILLED
+canary-verify-excludes-companion-champion-event crates/hephaestus-control/src/canary.rs KILLED
+provider-extra-env-not-applied   crates/hephaestus-runtime/src/supervisor.rs KILLED
+provider-redaction-skipped       crates/hephaestus-experience/src/redaction.rs KILLED
+provider-claude-permission-denied-not-recorded crates/hephaestus-runtime/src/provider_events.rs KILLED
+provider-codex-turn-failed-not-recorded crates/hephaestus-runtime/src/provider_events.rs KILLED
+control-gene-extraction-requires-promoted-transition crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-extraction-requires-minimum-evidence crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-extraction-idempotency-rejects-mismatched-promotion crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-transfer-requires-origin-operation crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-transfer-positive-requires-lower-bound crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-transfer-negative-requires-upper-bound crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-speciation-requires-no-negative-in-domain crates/hephaestus-control/src/gene_bank.rs KILLED
+control-gene-speciation-requires-minimum-lineages crates/hephaestus-control/src/gene_bank.rs KILLED
+jsonl-chain-link-ignored         crates/hephaestus-ledger/src/file_event_store.rs KILLED
+jsonl-duplicate-event-id-accepted crates/hephaestus-ledger/src/file_event_store.rs KILLED
+jsonl-torn-tail-not-repaired     crates/hephaestus-ledger/src/file_event_store.rs KILLED
+memory-artifact-substitution-accepted crates/hephaestus-ledger/src/memory_artifact_store.rs KILLED
+forge-harness-mutation-scope-skipped crates/hephaestus-control/src/verification.rs KILLED
+forge-catalog-edge-check-skipped-on-replay crates/hephaestus-control/src/verification.rs KILLED
+evolve-strategy-cost-weighted-ordering-skipped crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+expired-worker-credential-accepted-for-arena-trial-lease crates/hephaestus-control/src/worker_remote.rs KILLED
+remote-arena-trial-result-recorded-without-credential-verification crates/hephaestus-control/src/worker_remote.rs KILLED
+drift-adaptation-starts-without-law-opt-in crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+drift-adaptation-canary-abort-not-recorded-as-abort crates/hephaestus-control/src/handlers_evolve_meta.rs KILLED
+canary-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/canary.rs KILLED
+drift-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/drift.rs KILLED
+canary-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/canary.rs KILLED
+drift-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/drift.rs KILLED
+guardian-launch-drops-provider-env crates/hephaestus-runtime/src/supervisor.rs KILLED
+claude-scratch-dir-left-outside-run-root crates/hephaestus-runtime/src/supervisor.rs KILLED
+home-file-escape-accepted        crates/hephaestus-runtime/src/supervisor.rs KILLED
+guardian-ignores-launch-frame-env crates/hephaestus-runtime/src/guardian.rs KILLED
+online-external-sandbox-denies-network crates/hephaestus-runtime/src/isolation.rs KILLED
+read-only-worktree-writable      crates/hephaestus-runtime/src/isolation.rs KILLED
+oversized-provider-observation-unbounded crates/hephaestus-runtime/src/provider_events.rs KILLED
+arena-trimmed-scoring-ignored    crates/hephaestus-arena/src/scoring.rs KILLED
+arena-json-scoring-ignored       crates/hephaestus-arena/src/scoring.rs KILLED
+arena-json-duplicate-keys-accepted crates/hephaestus-arena/src/scoring.rs KILLED
+arena-json-number-values-discarded crates/hephaestus-arena/src/scoring.rs KILLED
+arena-schema1-nonexact-scoring-accepted crates/hephaestus-arena/src/evaluator_protocol.rs KILLED
+world-output-scoring-law-ignored crates/hephaestus-genome/src/world.rs KILLED
+cluster-sealed-normalization-ignored crates/hephaestus-arena/src/clusters.rs KILLED
+cluster-visible-normalization-ignored crates/hephaestus-arena/src/clusters.rs KILLED
+arena-invalid-json-expectations-admitted crates/hephaestus-control/src/run_exec.rs KILLED
+arena-trimmed-unicode-whitespace-accepted crates/hephaestus-arena/src/scoring.rs KILLED
+arena-json-depth-budget-ignored  crates/hephaestus-arena/src/scoring.rs KILLED
+arena-json-exponent-budget-ignored crates/hephaestus-arena/src/scoring.rs KILLED
+arena-library-json-preflight-skipped crates/hephaestus-arena/src/lib.rs KILLED
+provider-instruction-dropped-from-stdin crates/hephaestus-runtime/src/provider.rs KILLED
+provider-instruction-byte-length-normalized crates/hephaestus-runtime/src/provider.rs KILLED
+provider-input-version-downgraded crates/hephaestus-runtime/src/provider.rs KILLED
+provider-instruction-empty-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-instruction-oversized-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-model-malformed-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-model-oversized-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-reference-config-conflict-accepted crates/hephaestus-runtime/src/spec.rs KILLED
+provider-config-ignored-by-deterministic crates/hephaestus-runtime/src/deterministic.rs KILLED
+provider-config-ignored-by-supervisor crates/hephaestus-runtime/src/supervisor.rs KILLED
+provider-paired-instruction-omitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-direct-instruction-omitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-submitted-instruction-omitted crates/hephaestus-control/src/job_exec.rs KILLED
+provider-paired-model-omitted    crates/hephaestus-control/src/run_exec.rs KILLED
+provider-direct-model-omitted    crates/hephaestus-control/src/run_exec.rs KILLED
+provider-submitted-model-omitted crates/hephaestus-control/src/job_exec.rs KILLED
+provider-prose-parsed-as-reference crates/hephaestus-control/src/run_exec.rs KILLED
+provider-registration-model-validation-skipped crates/hephaestus-control/src/genome_ops.rs KILLED
+provider-legacy-environment-rejected crates/hephaestus-control/src/run_records.rs KILLED
+genome-model-family-lost         crates/hephaestus-genome/src/genome.rs KILLED
+provider-historical-family-canonical-bytes-normalized crates/hephaestus-genome/src/genome.rs KILLED
+forge-revision-freeze-bypassed   crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-reserved-prefix-bypassed crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-selection-hash-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-source-order-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-before-prompt-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-artifact-name-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-hypothesis-retry-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-content-retry-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-empty-prompt-accepted crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-unchanged-prompt-accepted crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-canonical-bytes-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-cross-kind-retry-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-child-recompile-skipped crates/hephaestus-control/src/forge_revision.rs KILLED
+source-reader-fifo-blocking-open crates/hephaestus-control/src/runtime_exec.rs KILLED
+source-reader-stream-limit-unbounded crates/hephaestus-control/src/runtime_exec.rs KILLED
+forge-catalog-schema-check-skipped crates/hephaestus-control/src/verification.rs KILLED
+forge-revision-direct-job-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs KILLED
+forge-revision-evolution-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs KILLED
+paired-hosted-wall-budget-regressed crates/hephaestus-control/src/run_exec.rs KILLED
+paired-one-day-total-bound-bypassed crates/hephaestus-control/src/run_exec.rs KILLED
+confirmed-pair-profile-check-skipped crates/hephaestus-control/src/run_exec.rs KILLED
+confirmed-pair-existing-id-lookup-skipped crates/hephaestus-control/src/run_exec.rs KILLED
+forge-proposal-read-cas-verification-skipped crates/hephaestus-control/src/forge_revision.rs KILLED
+confirmed-pair-parent-profile-check-skipped crates/hephaestus-control/src/run_exec.rs KILLED
+
+428 mutations run, 428 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

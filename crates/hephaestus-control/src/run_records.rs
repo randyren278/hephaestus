@@ -649,7 +649,7 @@ pub(super) fn hex_decode(value: &str) -> Result<[u8; 32], ControlError> {
         return Err(ControlError::Protocol("operator token is malformed"));
     }
     let mut decoded = [0_u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = hex_nibble(pair[0])?;
         let low = hex_nibble(pair[1])?;
         decoded[index] = (high << 4) | low;

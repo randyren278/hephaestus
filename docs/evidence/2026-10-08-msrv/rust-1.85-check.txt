@@ -1,0 +1,345 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+    Checking cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling serde v1.0.229
+    Checking itoa v1.0.18
+    Checking memchr v2.8.3
+    Checking bitflags v2.13.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling shlex v2.0.1
+   Compiling rustix v1.1.4
+   Compiling cc v1.4.4
+   Compiling getrandom v0.4.3
+    Checking constant_time_eq v0.4.2
+    Checking arrayvec v0.7.8
+    Checking once_cell v1.21.4
+    Checking fastrand v2.5.0
+   Compiling pkg-config v0.3.34
+   Compiling vcpkg v0.2.15
+    Checking smallvec v1.15.2
+   Compiling syn v3.0.3
+    Checking foldhash v0.1.5
+    Checking fallible-streaming-iterator v0.1.9
+    Checking hashbrown v0.15.5
+    Checking anstyle v1.0.14
+   Compiling version_check v0.9.5
+    Checking fallible-iterator v0.3.0
+   Compiling rustix v0.38.44
+   Compiling generic-array v0.14.7
+    Checking errno v0.3.14
+    Checking typenum v1.20.1
+   Compiling semver v1.0.28
+    Checking hashlink v0.10.0
+   Compiling rustc_version v0.4.1
+   Compiling autocfg v1.5.1
+    Checking cpufeatures v0.2.17
+   Compiling blake3 v1.8.7
+   Compiling libsqlite3-sys v0.35.0
+   Compiling curve25519-dalek v4.1.3
+    Checking zeroize v1.9.0
+    Checking subtle v2.6.1
+   Compiling num-traits v0.2.19
+    Checking signature v2.2.0
+    Checking ed25519 v2.2.3
+    Checking encoding_rs v0.8.35
+    Checking unicode-width v0.2.2
+    Checking arraydeque v0.5.1
+    Checking tempfile v3.27.0
+    Checking granit-parser v1.1.0
+    Checking annotate-snippets v0.12.16
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking base64 v0.23.1
+    Checking ed25519-dalek v2.2.0
+    Checking encoding_rs_io v0.1.8
+    Checking nohash-hasher v0.2.0
+    Checking utf8parse v0.2.2
+    Checking colorchoice v1.0.5
+    Checking anstyle-query v1.1.5
+    Checking anstyle-parse v1.0.0
+    Checking is_terminal_polyfill v1.70.2
+   Compiling heck v0.5.0
+    Checking strsim v0.11.1
+    Checking anstream v1.0.0
+    Checking clap_lex v1.1.0
+    Checking fs2 v0.4.3
+    Checking serde-saphyr v1.1.0
+    Checking clap_builder v4.6.6
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/anchors.rs:720:20
+    |
+720 |                 if let Some((id, None)) = existing
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/anchors.rs:779:20
+    |
+779 |                 if let Some((id, None)) = existing
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/anchors.rs:839:20
+    |
+839 |                 if let Some((id, None)) = existing
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/anchors.rs:906:20
+    |
+906 |                 if let Some((id, None)) = existing
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/budget.rs:550:16
+    |
+550 |             && let Err(breach) = result
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/buffered_input.rs:211:12
+    |
+211 |         if let Some(limit) = self.max_bytes
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/error.rs:1841:20
+     |
+1841 |                 && let Error::AliasError { locations, .. } = error.as_ref()
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/error.rs:2181:8
+     |
+2181 |     if let Some(loc) = loc
+     |        ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/live_events.rs:827:24
+    |
+827 |                     if let Some(ref mut budget) = self.budget
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/live_events.rs:828:28
+    |
+828 |                         && let Err(breach) = budget.observe_alias_reference()
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/live_events.rs:1287:16
+     |
+1287 |             if let Some(ref mut budget) = self.budget
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/api.rs:347:8
+    |
+347 |     if let Some(loc) = err.location()
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/api.rs:348:12
+    |
+348 |         && let Some(chain) = recorded_source_snippet_chain(events, &loc)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+  --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/cfg.rs:51:12
+   |
+51 |         if let Some(max_depth) = self.max_depth
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:701:16
+    |
+701 |             && let Some(events) = capture_simple_tagged_node_as_map_events(self.ev)?
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:774:24
+    |
+774 |                       && let Ok(v) =
+    |  ________________________^
+775 | |                         parse_int_signed::<i64>(t, "i64", location, self.cfg.legacy_octal_numbers)
+    | |__________________________________________________________________________________________________^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:973:12
+    |
+973 |         if let Some(view) = self.peek_scalar_view()?
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:1237:12
+     |
+1237 |         if let Some((value, tag, style, _location)) = self.peek_effective_scalar()?
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:1261:12
+     |
+1261 |         if let Some((value, _tag, style, _location)) = self.peek_effective_scalar()?
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:1595:12
+     |
+1595 |         if let Some((s, tag, style, location)) = self.peek_effective_scalar()?
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:1941:32
+     |
+1941 | ...                   && let Some((_ks, _ke, vs, ve)) = one_entry_map_spans(&events)
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:2481:20
+     |
+2481 |                 if let Some(tag_name) = tag_name
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:2529:20
+     |
+2529 |                 if let Some(tag_name) = simple_tagged_enum_name(&raw_tag, &tag)
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+    --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/deserializer.rs:2599:12
+     |
+2599 |         if let Some((tag_name, location)) = tagged_enum
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+  --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/key_nodes.rs:91:12
+   |
+91 |         && let Some(raw_tag) = raw_tag
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/ser/quoting.rs:187:12
+    |
+187 |         if let Some(&c) = bytes.first()
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/ser/quoting.rs:192:12
+    |
+192 |         if let Some(&c) = bytes.get(i)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/ser/serializer.rs:316:16
+    |
+316 |             && let Some(c) = self.state.pending_inline_comment.take()
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: `let` expressions in this position are unstable
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/ser/serializer.rs:981:16
+    |
+981 |             && let Some(ch) = v.chars().next()
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: see issue #53667 <https://github.com/rust-lang/rust/issues/53667> for more information
+
+error[E0658]: use of unstable library feature `unsigned_is_multiple_of`
+  --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/base64.rs:25:23
+   |
+25 |     if !cleaned.len().is_multiple_of(4) {
+   |                       ^^^^^^^^^^^^^^
+   |
+   = note: see issue #128101 <https://github.com/rust-lang/rust/issues/128101> for more information
+
+error[E0658]: use of unstable library feature `unsigned_is_multiple_of`
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/indentation.rs:132:46
+    |
+132 |             RequireIndent::Divisible(d) => n.is_multiple_of(*d),
+    |                                              ^^^^^^^^^^^^^^
+    |
+    = note: see issue #128101 <https://github.com/rust-lang/rust/issues/128101> for more information
+
+error[E0658]: use of unstable library feature `unsigned_is_multiple_of`
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/indentation.rs:133:38
+    |
+133 |             RequireIndent::Even => n.is_multiple_of(2),
+    |                                      ^^^^^^^^^^^^^^
+    |
+    = note: see issue #128101 <https://github.com/rust-lang/rust/issues/128101> for more information
+
+error[E0658]: use of unstable library feature `unsigned_is_multiple_of`
+   --> /Users/randyren/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-saphyr-1.1.0/src/de/indentation.rs:143:41
+    |
+143 |                     Some(expected) => n.is_multiple_of(expected),
+    |                                         ^^^^^^^^^^^^^^
+    |
+    = note: see issue #128101 <https://github.com/rust-lang/rust/issues/128101> for more information
+
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.4
+For more information about this error, try `rustc --explain E0658`.
+error: could not compile `serde-saphyr` (lib) due to 33 previous errors
+warning: build failed, waiting for other jobs to finish...

@@ -349,10 +349,8 @@ fn monitor_worker(
         observe_anchor_state(&mut child, &mut anchor, anchor_state, cancellation_sent)?;
         match child.try_wait() {
             Ok(Some(status)) => {
-                if !cancellation_sent {
-                    if let Err(error) = kill_process_group(anchor.id()) {
-                        return fail_after_group_signal(&mut child, &mut anchor, error);
-                    }
+                if !cancellation_sent && let Err(error) = kill_process_group(anchor.id()) {
+                    return fail_after_group_signal(&mut child, &mut anchor, error);
                 }
                 drop(anchor_stdin);
                 wait_for_anchor(&mut child, &mut anchor)?;

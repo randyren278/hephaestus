@@ -668,7 +668,7 @@ pub(super) fn hex_encode_bytes(bytes: &[u8]) -> String {
 }
 
 pub(super) fn hex_decode_bytes(value: &str) -> Result<Vec<u8>, ExecuteError> {
-    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !value.len().is_multiple_of(2) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(ExecuteError::Invalid("value is not valid hex"));
     }
     (0..value.len())

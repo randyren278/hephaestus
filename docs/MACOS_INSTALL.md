@@ -9,7 +9,7 @@ The packaging builder creates a relocatable, architecture-specific compressed ta
 
 ## Build an archive
 
-Build on macOS with Rust 1.85 or newer, Git, Python 3, Node/npm for TUI compilation, and the selected Rust target installed. The builder downloads the matching Node.js archive from the official Node distribution and verifies its pinned SHA-256 before including it. Those tools are build prerequisites; only Node is bundled for installed use.
+Build on macOS with Rust 1.88 or newer, Git, Python 3, Node/npm for TUI compilation, and the selected Rust target installed. The builder downloads the matching Node.js archive from the official Node distribution and verifies its pinned SHA-256 before including it. Those tools are build prerequisites; only Node is bundled for installed use.
 
 ```sh
 python3 scripts/package_macos.py --arch arm64

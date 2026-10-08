@@ -17,7 +17,7 @@ assumes you're building from source.
 - macOS (candidate/reference execution needs a verified OS sandbox; only
   Seatbelt is supported today — see [How it works](../README.md#under-the-hood)).
 - `git`.
-- A stable Rust toolchain, 1.85 or newer (`cargo --version`).
+- A stable Rust toolchain, 1.88 or newer (`cargo --version`).
 - Node.js 22 or newer with `npm`, to install and run the operator TUI from
   source. Clean source installation and the tour were verified with Node 22.
 
