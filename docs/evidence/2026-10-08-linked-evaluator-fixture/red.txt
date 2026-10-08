@@ -1,0 +1,14 @@
+
+running 1 test
+
+thread 'evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers' panicked at crates/hephaestus-control/tests/pilot_preparation.rs:567:5:
+Some(ApiError { code: InvalidRequest, message: "configured evaluator executable is unsafe; it requires a regular executable file with one hard link and no symlink; restore it from the matching installation, then retry", rejected: Some(true) })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... FAILED
+
+failures:
+
+failures:
+    evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.95s

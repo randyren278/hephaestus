@@ -1,0 +1,22 @@
+{
+  "binary": "/tmp/hephaestus-readiness-package-target/debug/hephaestus-reference-evaluator",
+  "owned_link": "/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/hephaestus-ci-linked-evaluator-j7_48fwa/cargo-artifact-alias",
+  "before_nlink": 2,
+  "green_source_nlink": 2,
+  "green_source_inode": 404544873,
+  "evaluator_sha256": "06e4d1db70b58b68cb096bcb16637586ea9534eb84c659a437e49bd538886328",
+  "after_green_source_nlink": 2,
+  "after_cleanup_source_nlink": 1,
+  "exports": {
+    "red.txt": "1a2069d820aa20301767823fd666e6771578bd1871c5cb2b462fc4f422241821",
+    "green.txt": "8dea14ab30b2be2e0508bf86143ce1fa8f647a2ff16bddcdf99d28915328f393",
+    "clippy.txt": "145a847e73b7c1b4fb148a961aac890d9e9863ef30c56c33aad2356ca85e065d",
+    "claude-review.txt": "0619abacfb543b3a7cdeec98e3aa90807c427bf23a9b3dc88b1f88374578c040"
+  },
+  "source_sha256": "10f8a1938e89fe1e69c442ab6738364605f7444aacee17fc2b14e9d673068598",
+  "red_exit_code": 101,
+  "green_exit_code": 0,
+  "clippy_exit_code": 0,
+  "new_experimental_provider_invocations": 0,
+  "failed_github_run": 37857015339
+}

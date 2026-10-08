@@ -37,3 +37,10 @@ Claude also noticed an older redundant sibling-worktree assertion in the provide
 fixture. It remains outside this compatibility change; the review is not evidence
 that that assertion verifies isolation. No experimental provider calls were added.
 Native Intel, downloaded first-launch acceptance and commercial readiness remain open.
+
+## Later Linux fixture follow-up
+
+The next CI run passed the repaired lint/PTY checks and exposed the linked Cargo
+evaluator fixture. Its [dated red/green follow-up](../2026-10-08-linked-evaluator-fixture/README.md)
+records the later test-helper edit and three passing scoped tests. The full
+732-test result above remains tied to the test inputs recorded in this proof.

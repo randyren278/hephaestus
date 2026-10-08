@@ -1,0 +1,7 @@
+
+running 3 tests
+test helper_refuses_ignored_launch_settings_and_allows_explicit_attachment ... ok
+test installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provider ... ok
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.42s

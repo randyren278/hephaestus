@@ -1,0 +1,20 @@
+The review is done; here's my assessment.
+
+**Verdict:** Your fix is sound and honest. It doesn't weaken any production check.
+
+**Why it doesn't affect World pinning or restart identity**
+- The World pins the evaluator by **content**. `verify_executable` at `crates/hephaestus-arena/src/isolated_evaluator.rs:207-222` compares `ArtifactId::for_bytes(fs::read(path))` against the pinned `evaluator_id`. A byte-identical copy gives the same ID, so preparation and every matching restart resolve to the same World artifact.
+- The `device`/`inode` in `ExecutableIdentity` is only kept in memory. It's captured at open time and rechecked before each exec (`isolated_evaluator.rs:144`) to catch the file being swapped mid-run. It isn't stored in the World, so a different inode across restarts is expected and harmless.
+- The wrong fixture is still built from `fs::read(EVALUATOR)` plus extra bytes and written to its own file (one hard link). It keeps failing for the right reason: the content hash doesn't match, not the unsafe-file check. The assertions at lines 516-524 stay meaningful.
+
+**Is it an honest repair?**
+Yes. It's the same pattern already used in `crates/hephaestus-control/tests/control_plane_e2e.rs:453-456`, which copies `REFERENCE_EVALUATOR` into the data dir and sets 0o700. The test was the odd one out: it pointed straight at a Cargo output, which on Linux is usually hard-linked to its copy under `target/.../deps/`. The production rule (`nlink() != 1` → unsafe) stays as it is, and the test now exercises it the way a real install would.
+
+**Risks to handle in the edit**
+1. **`start()` is shared** with other tests (e.g. line 440). Copying inside `start()` changes all of them. That's fine as long as the copy is idempotent. Either copy only if `home/matching-evaluator` doesn't exist yet, or copy to a temp file and rename it into place. Don't rewrite a file that a running daemon has already verified. Within this test the daemon is dropped before each restart, but a stray overwrite while it's running would trip the inode/TOCTOU check.
+2. **Permissions:** set 0o700 explicitly, as the e2e test does, rather than relying on `fs::copy` keeping the mode.
+3. **Don't hard-link or symlink** the copy. It has to be a real copy, or the same failure comes back.
+4. **The initial `prepare` (line 468) must use the same installed copy**, which your plan already covers. Otherwise preparation pins the Cargo file's bytes and the restart uses the copy's. Today those are identical, but it's cleaner to have one source.
+5. **Minor gap:** this doesn't explain why preparation at line 468 succeeded with the multi-link file. It suggests the hard-link check only runs when the evaluator is opened for evaluation, not when the World is prepared. That may be intended, but it's worth checking separately that preparation shouldn't refuse an evaluator that evaluation will later reject.
+
+I couldn't confirm the hard-link count on the CI runner itself. The cause I'm assuming (Cargo hard-linking build outputs on Linux) fits the error text and the code path.

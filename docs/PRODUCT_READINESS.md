@@ -631,3 +631,11 @@ the exact completed phase. Production behavior and quality gates are unchanged.
 The [current follow-up evidence](evidence/2026-10-08-main-ci/README.md) records
 fresh local checks and the precise relationship to the immutable 442-entry audit.
 A pending GitHub follow-up run is not counted as passing.
+
+The next Linux coverage run passed the corrected lint and PTY jobs and all 259
+control unit tests, then exposed a pilot fixture that passed a raw linked Cargo
+evaluator to production's single-link executable guard. Its helper now installs
+a private byte-identical copy once and reuses it on matching restart. The
+[linked-evaluator evidence](evidence/2026-10-08-linked-evaluator-fixture/README.md)
+records the exact local red rejection and three passing fixture tests against a
+still-two-linked source binary. Production guards and World pinning are unchanged.

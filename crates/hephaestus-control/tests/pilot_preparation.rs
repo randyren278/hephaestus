@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command as ProcessCommand, Output, Stdio},
     thread,
@@ -49,7 +49,16 @@ impl Drop for Daemon {
 }
 
 fn start(home: &Path, data: &Path, repository: &Path, provider: &Path) -> Daemon {
-    start_with_evaluator(home, data, repository, provider, Path::new(EVALUATOR))
+    // Cargo's Linux output can be hard-linked to its deps artifact. Use the
+    // same single-link installation shape required by production validation.
+    let evaluator = home.join("matching-evaluator");
+    if !evaluator.try_exists().unwrap() {
+        fs::copy(EVALUATOR, &evaluator).expect("install private fixture evaluator");
+        fs::set_permissions(&evaluator, fs::Permissions::from_mode(0o700))
+            .expect("make private fixture evaluator executable");
+    }
+    assert_eq!(fs::symlink_metadata(&evaluator).unwrap().nlink(), 1);
+    start_with_evaluator(home, data, repository, provider, &evaluator)
 }
 
 fn start_with_evaluator(
