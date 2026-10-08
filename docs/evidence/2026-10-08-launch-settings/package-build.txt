@@ -1,0 +1,31 @@
++ npm ci --no-audit --no-fund
+
+added 47 packages in 3s
++ npm run build:package
+
+> @hephaestus/operator-tui@0.1.0 build:package
+> node scripts/build-package.mjs
+
+
+  dist/main.bundle.mjs  1.9mb ⚠️
+
+⚡ Done in 94ms
++ npm ci --no-audit --no-fund
+
+added 7 packages in 984ms
++ npm run build
+
+> @hephaestus/web-console@0.1.0 build
+> node scripts/build.mjs
+
+
+  dist/main.bundle.mjs  62.6kb
+
+⚡ Done in 8ms
+
+  dist/web/app.js  34.9kb
+
+⚡ Done in 5ms
++ cargo build --locked --release --workspace --target aarch64-apple-darwin
+    Finished `release` profile [optimized] target(s) in 0.13s
+Created /private/tmp/hephaestus-readiness-launch-settings-packages/hephaestus-v0.1.0-macos-arm64.tar.gz (46,631,398 bytes)

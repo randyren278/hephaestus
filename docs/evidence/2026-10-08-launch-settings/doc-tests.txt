@@ -1,0 +1,52 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+   Doc-tests hephaestus_arena
+
+running 3 tests
+test crates/hephaestus-arena/src/lib.rs - RecordedEvaluation (line 975) - compile fail ... ok
+test crates/hephaestus-arena/src/lib.rs - RecordedEvaluation (line 985) - compile fail ... ok
+test crates/hephaestus-arena/src/lib.rs - RecordedEvaluation (line 995) - compile fail ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.33s
+
+   Doc-tests hephaestus_control
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests hephaestus_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests hephaestus_experience
+
+running 1 test
+test crates/hephaestus-experience/src/record.rs - record::TrustedExperience (line 249) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.50s
+
+   Doc-tests hephaestus_genome
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests hephaestus_ledger
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests hephaestus_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests hephaestus_senate
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

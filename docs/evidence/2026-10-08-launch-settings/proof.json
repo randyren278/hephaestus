@@ -1,0 +1,70 @@
+{
+  "base_commit": "98ce84d",
+  "archive": {
+    "name": "hephaestus-v0.1.0-macos-arm64.tar.gz",
+    "sha256": "66d4c06b47e6f6bf3e791b48b40268b8c8dbbc369d6acef2c6a577d6b2365dd5",
+    "bytes": 46631398
+  },
+  "previous_archive": {
+    "sha256": "9eebd61290f1002593d7348efa36704ee0872a69b44623a3841a64b41614dc12",
+    "bytes": 46630050
+  },
+  "installed_binary_sha256": {
+    "heph": "a7dfad4dc311c639df4263c4a62149e1e81b3553936188a7b6bea76a6f44b9af",
+    "hephaestus": "5834d6487863149fb7bc734eddff78d7c76329c878462bb1b0f17b2837545dbe",
+    "hephaestusd": "73974faa7c49b5ce899b79c137a44a040f23bddbe9807d1326b911802297bf45"
+  },
+  "copied_pack_sha256": {
+    "candidate.template.md": "dec6de259407c5ae29164ad40d90b9b22b4761edc5ae3dd85668a0b2e8eb6b1d",
+    "checklist.prompt.md": "c5835a28565e39e034deede18474b6e02305ac263b6e9b83bdc14fcf6efb0dd4",
+    "baseline.template.md": "ced409e6a2317dbb60151d88ff8405d131bbb465263b5b04996898ad111c5833",
+    "world.template.json": "63d02d4e67b5252003a7945501fa77819c964ccb291c8043fecddae390a8ecd9",
+    "README.md": "afffc59b3089269a1cd4c9452ce520ae52796acdde6bf92821e412d79bce77ae",
+    "provider-setup.md": "0c6b25dc60b9e957d859e8801467b373e6c734e358c975fc92ef9a494697bc23",
+    "policy.md": "3c8d631da985a0201b3cc1876288de395989a8dd66b6a116ed6d92efcc33f4fd",
+    "tasks/visible.json": "35bade0f978e66a1c178f4e6bde5277ae8af7c0999e1b9e5e19fff88bf2516c3",
+    "tasks/sealed.json": "d300952bebb1c1c595c7b1c5221929e83ba4bb9336549007690644ea35c23357"
+  },
+  "source_sha256": {
+    ".github/workflows/ci.yml": "75200de6fe3f95a3784e729beb818b335b1d2480baf7360220af802d3cb9b0bb",
+    "checks/checks.json": "1add9acb6287fe21b27de7d1a9bace50c99613b190da3fded423102c47ad6709",
+    "crates/hephaestus-control/src/bin/heph.rs": "74c952d74ffae83e6e9ec66c1353b1fb69be99da0222df6ed0f148c67120d70b",
+    "crates/hephaestus-control/tests/pilot_preparation.rs": "411bddf0467e3b84c01f2de276b4583ac80c5dbd7e9974dea67fc49d8d05b38d",
+    "docs/MACOS_INSTALL.md": "50dd195577460f6be3ce813c44cda1cf5553ebab43d512f25dbef95570373895",
+    "examples/support-triage/README.md": "afffc59b3089269a1cd4c9452ce520ae52796acdde6bf92821e412d79bce77ae",
+    "examples/support-triage/provider-setup.md": "0c6b25dc60b9e957d859e8801467b373e6c734e358c975fc92ef9a494697bc23",
+    "scripts/package/pilot_acceptance.py": "00cbcd1a34b1b7743e039df98f3aa3c3a4cfc211ddfae07c3c96b80095a44482",
+    "docs/PRODUCT_READINESS.md": "36cb3c400651332c0d702d5b16b8aa0211ee0d62e12c04af7bba676b871f8458"
+  },
+  "configured_mutations": 434,
+  "current_guard_run": {
+    "run": 2,
+    "killed": 2,
+    "survived": 0,
+    "stale": 0,
+    "timed_out": 0
+  },
+  "control_shards": [
+    29,
+    29,
+    28,
+    28,
+    28
+  ],
+  "provider_launch_marker_absent": true,
+  "owned_package_process_cleanup_verified": true,
+  "live_provider_evidence": false,
+  "workspace_tests": {
+    "unit_integration_binary_passed": 724,
+    "doc_tests_passed": 4,
+    "failed": 0,
+    "ignored": 0,
+    "optional_tui_pty_enabled_in_rust_run": false
+  },
+  "coverage": {
+    "modules": 51,
+    "floor_percent": 92,
+    "passed": true,
+    "lcov_sha256": "090381ad01bbf809f1f63c5b068d06f0643fe9fb1f145411c4714bdb891f859a"
+  }
+}

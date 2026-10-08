@@ -16,6 +16,7 @@ use tempfile::tempdir;
 const CLI: &str = env!("CARGO_BIN_EXE_hephaestus");
 const DAEMON: &str = env!("CARGO_BIN_EXE_hephaestusd");
 const EVALUATOR: &str = env!("CARGO_BIN_EXE_hephaestus-reference-evaluator");
+const HEPH: &str = env!("CARGO_BIN_EXE_heph");
 
 fn cli(home: &Path, arguments: &[&str]) -> Output {
     ProcessCommand::new(CLI)
@@ -95,6 +96,134 @@ fn start_with_evaluator(
         assert!(Instant::now() < deadline, "daemon readiness timeout");
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn helper_refuses_ignored_launch_settings_and_allows_explicit_attachment() {
+    let root = tempdir().unwrap();
+    let home = root.path();
+    let pack = home.join("pilot");
+    json(&cli(
+        home,
+        &[
+            "--json",
+            "init",
+            "--fixture",
+            "support-triage",
+            pack.to_str().unwrap(),
+        ],
+    ));
+    let data = pack.join("data");
+    let provider = home.join("provider");
+    fs::write(&provider, "#!/bin/sh\nexit 91\n").unwrap();
+    fs::set_permissions(&provider, fs::Permissions::from_mode(0o700)).unwrap();
+    let _daemon = start(home, &data, &pack.join("repository"), &provider);
+    // The real helper reaches a controlled console process, so this test does
+    // not require host Node or compiled web assets and cannot call a provider.
+    let bin = home.join("installation/bin");
+    fs::create_dir_all(&bin).unwrap();
+    let helper = bin.join("heph");
+    fs::copy(HEPH, &helper).unwrap();
+    let web = home.join("installation/share/hephaestus/web");
+    for asset in [
+        "main.mjs",
+        "main.bundle.mjs",
+        "web/index.html",
+        "web/app.js",
+        "web/styles.css",
+        "web/web-header-crest.svg",
+    ] {
+        let path = web.join(asset);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "fixture").unwrap();
+    }
+    let console_marker = home.join("console-was-launched");
+    for (name, version) in [
+        (
+            "node",
+            "if [ \"$1\" = --version ]; then echo v24.21.0; exit 0; fi\n",
+        ),
+        ("hephaestus", ""),
+    ] {
+        let path = bin.join(name);
+        fs::write(
+            &path,
+            format!("#!/bin/sh\n{version}touch '{}'\n", console_marker.display()),
+        )
+        .unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let sensitive = "private-launch-setting-sentinel";
+    let invoke = |web: bool, no_daemon: bool, setting: Option<(&str, &str)>| {
+        let mut command = ProcessCommand::new(&helper);
+        command.args(["--data-dir", data.to_str().unwrap()]);
+        if web {
+            command.arg("web");
+        }
+        if no_daemon {
+            command.arg("--no-daemon");
+        }
+        command
+            .env_clear()
+            .env("HOME", home)
+            .env("PATH", std::env::var_os("PATH").unwrap());
+        if let Some((setting, value)) = setting {
+            command.env(setting, value);
+        }
+        command.stdin(Stdio::null()).output().unwrap()
+    };
+    for (setting, value) in [
+        ("HEPHAESTUS_SOURCE_REPOSITORY", sensitive),
+        ("HEPHAESTUS_CODEX_EXECUTABLE", sensitive),
+        ("HEPHAESTUS_CLAUDE_EXECUTABLE", sensitive),
+        ("HEPHAESTUS_CODEX_AUTH_FILE", sensitive),
+        ("HEPHAESTUS_PROVIDER_ENV_ALLOWLIST", sensitive),
+        ("HEPHAESTUS_PROVIDER_ENV_ALLOWLIST", ""),
+    ] {
+        for web in [false, true] {
+            let refused = invoke(web, false, Some((setting, value)));
+            assert!(!refused.status.success(), "ignored {setting} must refuse");
+            let message = String::from_utf8(refused.stderr).unwrap();
+            assert!(message.contains("launch settings were not applied"));
+            assert!(message.contains("heph stop") && message.contains("--no-daemon"));
+            assert!(!message.contains(sensitive));
+            assert!(
+                !console_marker.exists(),
+                "refusal must precede console launch"
+            );
+            assert!(invoke(web, true, Some((setting, value))).status.success());
+            assert!(
+                console_marker.exists(),
+                "explicit attachment reaches console"
+            );
+            fs::remove_file(&console_marker).unwrap();
+        }
+    }
+    for web in [false, true] {
+        assert!(invoke(web, false, None).status.success());
+        assert!(
+            console_marker.exists(),
+            "ordinary reopening still reaches console"
+        );
+        fs::remove_file(&console_marker).unwrap();
+    }
+    let client = Client::new(&data);
+    let status = client.request(Command::Status).unwrap();
+    assert!(matches!(
+        status.data,
+        Some(ResponseData::Status {
+            frozen: true,
+            active_runs: 0,
+            ..
+        })
+    ));
+    assert!(
+        !data.join("heph.pid").exists(),
+        "reopening must not start another daemon"
+    );
+    assert!(!data.join("quickstart").exists());
+    assert!(client.request(Command::Replay).unwrap().error.is_none());
 }
 
 #[test]

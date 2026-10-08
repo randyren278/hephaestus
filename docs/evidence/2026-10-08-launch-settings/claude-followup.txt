@@ -1,0 +1,40 @@
+I found nothing that blocks this change. One launch setting can still be silently ignored, and I'd fix the docs for it before shipping. I only read the code; I didn't run any tests and can't confirm the before/after native results. I'm making no assumption about the installed acceptance run.
+
+## The fix itself
+- **Check** (`crates/hephaestus-control/src/bin/heph.rs:154-187`): it only runs when a daemon is already reachable, and it only checks whether each variable is set (`env::var_os(name).is_some()`). So empty values also trigger the refusal, which matches your intended tradeoff, and no value is ever read, compared or printed. Running `--no-daemon` with no daemon running still fails as before (`:169-173`).
+- **Variable list is complete for the `HEPHAESTUS_*` names**: it matches every startup variable the daemon reads (`resolve_source_repository` at `heph.rs:420`, the provider executables at `server.rs:1057-1059`, the auth file at `runtime_exec.rs:780`, the allowlist at `runtime_exec.rs:793`). The other `HEPHAESTUS_*` reads are data-directory selection or test/debug hooks.
+- **Fresh starts are unaffected**: the `else` branch is the same and the spawned `hephaestusd` still inherits the environment (`heph.rs:381-401`, no `env_clear`).
+- **Normal reopening is unaffected** when none of the five variables are set. `heph stop` returns before this check (`:85-87`).
+- **Ordering:** in `heph web`, the refusal comes after the bundled Node check (`:266-273`), so a broken Node install shows the Node error first. That seems acceptable.
+
+## Gaps
+1. **Secret values and `PATH` are also captured at daemon start, but aren't detected.** The daemon reads the values of allowlisted variables (such as `CLAUDE_CODE_OAUTH_TOKEN` or API keys) from its own environment on each run (`runtime_exec.rs:809-813`, called from `job_exec.rs:125` and `run_exec.rs:646,1413`). If someone sets only the token and reopens against a running daemon, the launch attaches silently and the token never reaches the provider. `provider-setup.md:22-24` ("refuses a launch that supplies source/provider startup settings") could be read as covering this case. I don't think detection should expand, because the variable names are chosen by the operator. Instead, add one sentence saying allowlisted variable values (and `PATH`, which is used when no executable path is given) are also fixed at daemon start and aren't checked.
+2. **Persistent exports cause a refusal on every reopen.** Anyone who puts these variables in a shell profile will hit the refusal every time. The docs only show inline prefixes and no repo `.md` uses `export HEPHAESTUS_…`. This is part of the intended tradeoff, so at most it's worth a note: "unset them or use `--no-daemon`".
+3. **Cosmetic:** the error message says `--data-dir <same-directory>` instead of the actual path, which is already printed in the other error branch and isn't sensitive.
+
+## Tests
+**Rust** (`tests/pilot_preparation.rs:103-226`):
+- **What it covers:** each of the five variables, for both the terminal and web paths. It checks the refusal wording, that the sentinel value isn't in stderr, that the refusal happens before the console starts, that `--no-daemon` reaches the console, and that plain reopening works.
+- **What it confirms afterwards:** no `heph.pid` file (so no second daemon was started), no `quickstart` directory, the daemon is still frozen, and replay is OK.
+- **Isolation is good:** it clears the environment, uses stub `node`/`hephaestus` binaries plus a provider that exits 91, and needs no credentials or host Node.
+- **Missing:**
+  - It uses a non-empty sentinel, so the empty-value case isn't tested on its own.
+  - Fresh start with settings isn't covered here.
+  - It can't show that the daemon's configuration was unchanged after `--no-daemon`. That isn't observable, so the claim rests on reading the code.
+
+**Python** (`scripts/package/pilot_acceptance.py:77-99`):
+- **What it covers:** fresh start with settings (`:77`, and again after stop at `:180`), refusal of `heph web` with the paths kept out of stderr (`:81-90`), attaching with `--no-daemon` (`:91`), and reopening with settings removed and then restored in `finally` (`:93-99`).
+- **Limits:**
+  - It only covers `heph web`, not the terminal path, in the installed build.
+  - The refusal runs with all five variables set (the allowlist is `""` from `:40`), so it doesn't prove that an empty-only setting is refused.
+
+## Cleanup
+- **Rust:** the `Daemon` drop kills and waits on the daemon, and everything else lives in the temp directory. Since the refusal happens before the console starts, no stub process is left running.
+- **Python:**
+  - If the refusal check fails, `subprocess.run(timeout=5)` kills the helper.
+  - `console()` sends SIGINT to its own process group, and escalates to SIGKILL if needed.
+  - The `finally` block stops the daemon only when `heph.pid` exists, and the first `console` at `:77` creates that file.
+  - The reattaches at `:91` and `:96` don't start a daemon, so they leave nothing extra to clean up.
+
+## Limits
+I didn't confirm the claim that the test failed before the fix, or run any of the three tests. I also didn't check other entry points, such as the `hephaestus` CLI or the TUI's own launch path, for the same silent-ignore pattern.

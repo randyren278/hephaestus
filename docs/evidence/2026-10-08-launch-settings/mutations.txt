@@ -1,0 +1,19 @@
+root:    /private/tmp/heph-launch-guard-os2fxey_/checkout
+suite:   cargo test -p hephaestus-control --all-features --test pilot_preparation helper_refuses_ignored_launch_settings_and_allows_explicit_attachment -- --exact (CLI override)
+timeout: 120s default; selected mutation timeout(s): 480s
+baseline timeout: 600s
+
+baseline: unmutated suite is green
+
+RUN       control-helper-ignored-launch-settings-bypassed command=cargo test -p hephaestus-control --all-features --test pilot_preparation helper_refuses_ignored_launch_settings_and_allows_explicit_attachment -- --exact timeout=480s
+KILLED    control-helper-ignored-launch-settings-bypassed crates/hephaestus-control/src/bin/heph.rs (timeout 480s)
+RUN       control-helper-explicit-attachment-refused command=cargo test -p hephaestus-control --all-features --test pilot_preparation helper_refuses_ignored_launch_settings_and_allows_explicit_attachment -- --exact timeout=480s
+KILLED    control-helper-explicit-attachment-refused crates/hephaestus-control/src/bin/heph.rs (timeout 480s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+control-helper-ignored-launch-settings-bypassed crates/hephaestus-control/src/bin/heph.rs KILLED
+control-helper-explicit-attachment-refused crates/hephaestus-control/src/bin/heph.rs KILLED
+
+2 mutations run, 2 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

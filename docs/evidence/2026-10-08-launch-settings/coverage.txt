@@ -1,0 +1,963 @@
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling hephaestus-core v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-core)
+   Compiling hephaestus-ledger v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-ledger)
+   Compiling hephaestus-senate v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-senate)
+   Compiling hephaestus-runtime v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-runtime)
+   Compiling hephaestus-genome v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-genome)
+   Compiling hephaestus-experience v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-experience)
+   Compiling hephaestus-arena v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-arena)
+   Compiling hephaestus-control v0.1.0 (/tmp/heph-evaluator-trust-bvqzfomm/checkout/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 45.54s
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_arena-e6f61335ce3495f9)
+
+running 50 tests
+test clusters::tests::case_mismatch_cluster_suggests_reference_operation_flip ... ok
+test clusters::tests::clustering_is_deterministic_across_input_order ... ok
+test clusters::tests::completion_failures_are_bucketed_by_reason_and_never_shape_analyzed ... ok
+test clusters::tests::budget_exhaustion_is_distinct_from_completion_failure ... ok
+test clusters::tests::empty_input_produces_no_clusters ... ok
+test clusters::tests::empty_output_is_its_own_cluster ... ok
+test clusters::tests::other_shape_mismatch_falls_back_to_other ... ok
+test clusters::tests::sealed_trials_contribute_only_aggregate_counts ... ok
+test clusters::tests::truncated_output_is_classified_and_unsupported ... ok
+test clusters::tests::v1_receipt_bytes_are_unchanged_by_the_new_optional_candidate_operation_field ... ok
+test clusters::tests::v2_analysis_records_candidate_operation ... ok
+test clusters::tests::v2_casing_operation_behaves_like_v1_on_shape_case_mismatch_only ... ok
+test clusters::tests::v2_gauntlet_bad_operation_sealed_cluster_also_names_a_secondary_candidate ... ok
+test clusters::tests::v2_gauntlet_bad_operation_suggests_its_family_fix_regardless_of_shape ... ok
+test clusters::tests::v2_gauntlet_bad_operation_visible_cluster_has_no_secondary_candidate ... ok
+test clusters::tests::v2_gauntlet_fix_operation_never_suggests_a_regression ... ok
+test clusters::tests::v2_unknown_current_operation_never_suggests_a_mutation ... ok
+test clusters::tests::whitespace_difference_has_no_supported_mutation ... ok
+test evaluator_protocol::tests::json_scoring_rejects_invalid_expectations_and_counts_only_reliable_semantic_matches ... ok
+test evaluator_protocol::tests::protocol_rejects_noncanonical_unknown_duplicate_and_unsupported_requests ... ok
+test evaluator_protocol::tests::response_is_bound_and_contains_only_aggregate_scores ... ok
+test evaluator_protocol::tests::unreliable_matching_output_is_never_correct ... ok
+test evaluator_protocol::tests::versioned_scoring_keeps_historical_wire_bytes_and_binds_the_policy ... ok
+test clusters::tests::rehydrate_event_conflicts_when_stored_analysis_differs_from_recomputed ... ok
+test isolated_evaluator::tests::evaluator_identity_and_response_shapes_fail_closed ... ok
+test invariants::tests::invariant_run_verification_rejects_forged_signature_on_valid_ledger_chain ... ok
+test isolated_evaluator::tests::oversized_worker_response_is_rejected_after_bounded_capture ... ok
+test isolated_evaluator::tests::executable_safety_replacement_and_process_failures_are_rejected ... ok
+test scoring::tests::json_comparison_ignores_object_order_and_formatting_but_preserves_structure ... ok
+test scoring::tests::json_numbers_never_round_through_floating_point ... ok
+test scoring::tests::malformed_duplicate_and_out_of_budget_json_never_scores_correct ... ok
+test scoring::tests::scoring_preserves_exact_and_only_trims_outer_whitespace_when_requested ... ok
+test scoring::tests::json_depth_and_number_budgets_apply_consistently_to_equivalent_values ... ok
+test selection::fixtures::fixture_regression_candidate_fails_confidence_and_pareto_gates ... ok
+test selection::fixtures::fixture_eligible_candidate_dominates_and_clears_every_gate ... ok
+test selection::fixtures::fixture_sealed_holdout_improvement_shows_zero_regressions_across_visible_and_sealed_tasks ... ok
+test selection::fixtures::fixture_v1_and_v2_disagree_on_a_tolerable_latency_increase ... ok
+test selection::tests::bootstrap_uses_canonical_histogram_order_for_fixed_seed ... ok
+test selection::tests::confidence_endpoint_and_bootstrap_work_fail_closed ... ok
+test selection::tests::event_verification_compares_the_complete_canonical_snapshot ... ok
+test selection::tests::bootstrap_matches_seed_sensitive_histogram_reference ... ok
+test selection::tests::latency_tolerance_uses_the_larger_of_the_proportional_or_fixed_floor ... ok
+test selection::tests::histogram_bootstrap_matches_python_floor_rounding_for_negative_deltas ... ok
+test selection::tests::metrics_gate_requires_strict_effect_and_enforces_world_cost_ceiling ... ok
+test selection::tests::pareto_v1_gate_rejects_regression_in_each_independent_metric ... ok
+test selection::tests::negative_resampled_mean_uses_floor_division_in_the_confidence_tail ... ok
+test selection::tests::pareto_v2_gate_tolerates_latency_noise_but_still_rejects_a_real_regression ... ok
+test selection::tests::selection_event_references_reject_noncanonical_envelopes ... ok
+test selection::tests::selection_validation_edges_fail_closed ... ok
+test selection::tests::splitmix64_matches_python_reference ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running unittests src/bin/hephaestus-evaluator.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_evaluator-52f5222779b73ebc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/evaluation_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/evaluation_contracts-979b8addabe9f10c)
+
+running 40 tests
+test constructors_reject_malformed_duplicate_empty_and_oversized_inputs ... ok
+test evaluation_stores_from_backends_wires_any_ledger_and_artifact_pair ... ok
+test corrupt_or_missing_output_is_rejected_without_evaluation_writes ... ok
+test failed_run_is_retained_and_cross_world_is_rejected ... ok
+test failure_clusters_record_operator_aggregates_and_replay ... ok
+test history_invariant_verification_accepts_the_genuine_event_and_rejects_forgeries ... ok
+test history_invariant_verification_rejects_a_candidate_run_event_binding_forgery ... ok
+test history_selection_verification_rejects_wrong_world_evidence_and_forged_receipts ... ok
+test identical_retry_returns_existing_event_after_reopen ... ok
+test isolated_evaluator_response_must_bind_the_exact_request ... ok
+test marginally_slower_but_better_child_is_eligible_under_the_tolerant_dominance_rule ... ok
+test operator_selection_evidence_rehydrates_identically_after_restart ... ok
+test mixed_genome_revision_and_task_set_mismatches_are_rejected ... ok
+test operator_selection_evidence_retains_only_authenticated_aggregates ... ok
+test prepare_evaluation_rejects_invalid_json_expectations_without_writing_artifacts ... ok
+test prepared_scoring_requires_the_registered_evaluator_process ... ok
+test records_world_bound_runtime_derived_safe_evaluation ... ok
+test prepared_evaluator_scores_commit_only_for_the_same_canonical_pair ... ok
+test reference_output_invariants_record_operator_aggregates_and_replay ... ok
+test reference_output_invariants_reject_cross_world_and_hash_valid_forgeries ... ok
+test reference_output_invariants_reject_out_of_manifest_tasks_and_relabeled_signed_outputs ... ok
+test reference_output_invariants_reject_overlapping_visible_and_sealed_task_ids ... ok
+test restart_rehydration_rejects_hash_valid_impossible_aggregates ... ok
+test reference_output_invariant_manifest_is_required_canonical_bounded_and_ordered ... ok
+test restart_rehydration_requires_transitive_run_artifacts ... ok
+test restart_rehydration_requires_world_bound_evaluator_evidence ... ok
+test selection_expands_authenticated_mixed_histogram_in_canonical_order ... ok
+test selection_load_requires_a_preexisting_receipt ... ok
+test selection_receipt_recomputes_and_retries_identically_after_restart ... ok
+test selection_rehydration_rejects_hash_valid_forged_receipt_and_event ... ok
+test selection_rehydration_requires_the_receipt_cas_blob ... ok
+test selection_requires_the_evaluation_exact_compiled_world ... ok
+test stored_v1_selection_receipt_still_verifies_under_the_strict_dominance_rule ... ok
+test terminal_failure_is_paired_as_unreliable_incorrect_with_cost_and_latency ... ok
+test trial_plan_cannot_supply_a_fake_genome_identity ... ok
+test signed_results_cannot_be_relabelled_or_cross_experiment_boundaries ... ok
+test world_manifest_and_evaluator_semantics_fail_before_publication ... ok
+test unknown_and_forged_events_fail_without_writes ... ok
+test wrong_event_identity_and_conflicting_retry_fail_before_writes ... ok
+test world_scoring_matches_isolated_evaluation_failure_clusters_and_receipt_replay ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.16s
+
+     Running tests/manifest_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/manifest_contracts-558cb3677fd817cf)
+
+running 6 tests
+test canonical_manifest_bytes_rehydrate_through_constructor_validation ... ok
+test from_source_json_normalizes_whitespace_key_order_and_task_order ... ok
+test from_source_json_rejects_an_unsupported_schema_version ... ok
+test manifest_constructor_rejects_more_tasks_than_the_bound_allows ... ok
+test manifest_parser_rejects_unknown_noncanonical_and_invalid_content ... ok
+test operator_task_view_never_contains_expected_outputs_for_either_visibility ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_control-99310c8b1d48b114)
+
+running 259 tests
+test client::tests::read_token_rejects_wrong_length_and_non_hex_content ... ok
+test protocol::tests::evaluation_response_contains_only_visible_aggregates_and_event_metadata ... ok
+test protocol::tests::evaluation_response_rejects_unknown_evidence_fields ... ok
+test client::tests::request_rejects_a_response_larger_than_the_bound ... ok
+test protocol::tests::paired_evaluation_command_has_a_stable_wire_shape ... ok
+test server::canary::unit_tests::canary_projection_rejects_an_advance_or_live_check_that_precedes_any_start ... ok
+test server::canary::unit_tests::canary_list_bounds_the_number_of_distinct_canaries_returned ... ok
+test server::canary::unit_tests::decode_canary_transition_rejects_a_non_canonically_encoded_payload ... ok
+test server::canary::unit_tests::next_stage_has_no_successor_past_a_terminal_stage ... ok
+test server::canary::unit_tests::stage_json_tags_are_lowercase_with_no_digit_separator ... ok
+test server::drift::tests::decode_drift_record_rejects_a_non_canonically_encoded_payload ... ok
+test server::drift::tests::threshold_bps_matches_the_documented_regression_constant_for_every_kind ... ok
+test server::drift::tests::drift_projection_and_list_find_the_matching_record_and_respect_the_limit ... ok
+test server::evolve::unit_tests::decode_cancel_rejects_a_non_canonically_encoded_payload ... ok
+test server::evolve::unit_tests::decode_finished_rejects_a_non_canonically_encoded_payload ... ok
+test server::evolve::unit_tests::decode_generation_rejects_bytes_that_do_not_parse_as_the_payload_shape ... ok
+test server::evolve::unit_tests::decode_generation_rejects_a_non_canonically_encoded_payload ... ok
+test server::evolve::unit_tests::decode_started_rejects_a_non_canonically_encoded_payload ... ok
+test server::evolve::unit_tests::evolution_projection_reflects_a_healthy_start_and_state ... ok
+test server::evolve::unit_tests::evolution_projection_rejects_a_generation_or_finish_that_precedes_its_start ... ok
+test server::evolve::unit_tests::evolution_projection_skips_events_for_other_runs_and_rejects_ones_that_precede_their_start ... ok
+test server::gene_bank::unit_tests::decode_gene_extracted_rejects_bytes_that_do_not_parse_as_the_payload_shape ... ok
+test server::gene_bank::unit_tests::decode_gene_extracted_rejects_a_non_canonically_encoded_payload ... ok
+test server::gene_bank::unit_tests::existing_gene_rejects_a_gene_id_already_bound_to_a_different_promotion ... ok
+test server::gene_bank::unit_tests::existing_transfer_recorded_rejects_a_trial_bound_to_a_different_evaluation ... ok
+test server::gene_bank::unit_tests::parse_operation_rejects_an_unsupported_reference_operation ... ok
+test server::gene_bank::unit_tests::existing_transfer_applied_rejects_a_trial_bound_to_a_different_gene_or_recipient ... ok
+test server::meta_evolve::tests::bootstrap_of_identical_strategies_centers_on_zero ... ok
+test server::meta_evolve::tests::bootstrap_rejects_empty_deltas ... ok
+test server::meta_evolve::tests::bootstrap_is_deterministic_for_a_fixed_seed ... ok
+test server::meta_evolve::tests::splitmix64_matches_reference_stream ... ok
+test server::run_records::provider_version_tests::provider_environment_versions_accept_legacy_and_current_reject_unknown ... ok
+test server::meta_evolve::tests::fixture_meta_evaluation_receipt_matches_the_checked_in_python_fixture ... ok
+test server::runtime_exec::runtime_exec_unit_tests::bounded_reader_limits_reads_even_when_metadata_underestimates_size ... ok
+test server::runtime_exec::runtime_exec_unit_tests::default_executables_resolve_the_cargo_target_debug_sibling ... ok
+test server::runtime_exec::runtime_exec_unit_tests::bounded_file_reader_rejects_a_fifo_without_waiting_for_a_writer ... ok
+test server::runtime_exec::runtime_exec_unit_tests::hex_decode_bytes_rejects_odd_length_and_non_hex_input ... ok
+test server::runtime_exec::runtime_exec_unit_tests::redact_bytes_passes_through_non_utf8_bytes_unchanged ... ok
+test server::tests::admitted_job_projection_binds_the_runtime_actor_and_immutable_spec ... ok
+test server::runtime_exec::runtime_exec_unit_tests::fifo_deadline_fixture_releases_an_intentionally_blocked_reader ... ok
+test server::tests::arena_invariants_check_is_blocked_while_a_direct_job_is_active ... ok
+test server::tests::arena_job_record_validation_rejects_plan_and_event_tampering ... ok
+test server::tests::arena_evidence_failures_cancel_through_production_writer_and_replay_once ... ok
+test server::tests::arena_paired_evaluation_admits_a_mixed_reference_parent_and_provider_candidate_selects_and_replays ... ok
+test server::tests::arena_paired_evaluation_of_two_provider_genomes_never_pins_the_reference_worker ... ok
+test server::tests::arena_replay_rejects_admitted_plan_without_its_registered_bindings ... ok
+test server::tests::arena_replay_rejects_signed_trials_before_running_and_out_of_admitted_order ... ok
+test server::tests::arena_selection_and_invariant_commands_validate_and_map_real_errors ... ok
+test server::tests::arena_thread_launch_failure_persists_interruption_and_releases_slot ... ok
+test server::tests::arena_trial_acknowledgement_disconnect_fails_and_replays_without_next_trial ... ok
+test server::tests::arena_trial_append_rejection_is_acknowledged_and_worker_failure_is_drained ... ok
+test server::tests::arena_trial_source_rejection_preserves_admitted_progress ... ok
+test server::tests::async_reference_spec_uses_read_only_offline_authority ... ok
+test server::tests::authenticated_command_dispatch_covers_safe_read_and_control_paths ... ok
+test server::tests::authenticated_failures_are_safe_and_replay_divergence_is_detected ... ok
+test server::tests::authenticated_run_submit_rejects_slash_job_id_without_admission ... ok
+test server::tests::arena_restart_rejects_malformed_evaluation_and_job_history ... ok
+test server::tests::auto_canary_on_drift_adaptation_is_interrupted_when_a_staged_advance_evaluation_fails ... ok
+test server::tests::auto_canary_on_drift_aborts_the_canary_on_a_genuine_regression_leaving_the_champion_untouched ... ok
+test server::tests::auto_canary_on_drift_adaptation_is_interrupted_when_its_diagnostic_evaluation_fails ... ok
+test server::tests::auto_canary_on_drift_adaptation_is_interrupted_when_its_shadow_evaluation_fails ... ok
+test server::tests::auto_canary_on_drift_finishes_with_no_candidate_mutation_when_the_champion_already_passes ... ok
+test server::tests::auto_canary_on_drift_derives_a_gauntlet_fix_from_failure_clusters_and_replays ... ok
+test server::tests::auto_canary_on_drift_never_fires_when_the_law_is_off ... ok
+test server::tests::auto_canary_on_drift_pauses_under_freeze_and_resumes_after_unfreeze ... ok
+test server::tests::auto_canary_on_drift_promotes_a_genuine_champion_correction_and_replays ... ok
+test server::tests::auto_canary_on_drift_replay_rejects_a_forged_promotion_claim ... ok
+test server::tests::bounded_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_clients ... ok
+test server::tests::bounded_source_reader_rejects_invalid_utf8_and_oversized_files ... ok
+test server::tests::bounded_worker_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_clients ... ok
+test server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor ... ok
+test server::tests::auto_canary_on_drift_resumes_idempotently_after_a_restart_mid_pipeline ... ok
+test server::tests::canary_forged_v2_claim_with_a_mismatched_decision_is_rejected ... ok
+test server::tests::canary_injected_regression_during_staged_advance_automatically_aborts_and_replays ... ok
+test server::tests::canary_live_check_detects_a_genuine_latency_regression_and_rolls_back_the_champion ... ok
+test server::tests::canary_live_regression_recorded_under_the_old_rule_still_verifies ... ok
+test server::tests::canary_new_live_regression_records_the_current_latency_rule ... ok
+test server::tests::candidate_runtime_returns_recorder_when_recovery_detects_tampered_history ... ok
+test server::tests::canonical_path_token_and_identity_helpers_fail_closed ... ok
+test server::tests::canonical_writer_cancels_active_job_on_cross_run_evidence ... ok
+test server::tests::canonical_writer_cas_failure_rejects_trace_and_cancels_admitted_job ... ok
+test server::tests::canonical_writer_rejects_evidence_without_an_admitted_job ... ok
+test server::tests::canonical_writer_unavailable_cancels_and_fails_an_admitted_direct_job ... ok
+test server::tests::canary_staged_rollout_promotes_through_champion_path_and_replays ... ok
+test server::tests::champion_promotion_requires_satisfied_invariant_contract ... ok
+test server::tests::champion_seed_promote_and_rollback_join_verified_evidence_and_replay ... ok
+test server::tests::cluster_analyze_rejects_empty_identifiers ... ok
+test server::tests::cluster_analyze_records_deterministic_clusters_and_idempotent_replay ... ok
+test server::tests::cluster_and_invariant_histories_reject_tampered_events ... ok
+test server::tests::command_audit_types_and_source_extensions_are_stable ... ok
+test server::tests::command_field_validation_rejects_empty_ids_and_paths ... ok
+test server::tests::cluster_propose_from_analysis_binds_hash_and_derives_hypothesis ... ok
+test server::tests::control_plane_restart_rejects_a_fabricated_invariant_event ... ok
+test server::tests::daemon_stop_cancels_active_job_before_acknowledging_shutdown ... ok
+test server::tests::control_projection_rejects_arena_admission_without_mutating_state ... ok
+test server::tests::direct_reference_execution_requires_the_supervised_guarded_runtime ... ok
+test server::tests::drift_forged_v2_claim_with_a_mismatched_decision_is_rejected ... ok
+test server::tests::direct_thread_launch_failure_persists_interruption_and_releases_slot ... ok
+test server::tests::drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies ... ok
+test server::tests::drift_latency_record_recorded_under_the_old_rule_still_verifies ... ok
+test server::tests::drift_latency_record_refuses_a_small_regression_within_the_absolute_floor ... ok
+test server::tests::drift_new_latency_record_names_the_current_latency_rule ... ok
+test server::tests::evaluate_pair_rejects_a_genome_paired_against_itself ... ok
+test server::tests::evaluation_budget_boundaries_are_validated_before_execution ... ok
+test server::tests::evaluation_worker_snapshot_survives_deployment_path_replacement ... ok
+test server::tests::evidence_denial_list_limit_is_bounded ... ok
+test server::tests::evidence_denial_list_records_request_rejected_and_runtime_capability_denials_newest_first ... ok
+test server::tests::drift_record_derives_from_verified_evidence_and_replays ... ok
+test server::tests::evidence_evaluation_list_limit_is_bounded ... ok
+test server::tests::evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides_sealed_data ... ok
+test server::tests::evidence_run_list_is_available_while_a_job_is_active ... ok
+test server::tests::evidence_evaluation_list_references_forge_assessment_and_orders_newest_first ... ok
+test server::tests::evidence_run_list_limit_is_bounded ... ok
+test server::tests::evidence_run_list_marks_a_budget_exceeded_direct_run_failed ... ok
+test server::tests::evidence_run_list_is_newest_first_and_merges_jobs_with_verified_results ... ok
+test server::tests::evolve_cancel_stops_the_run_before_any_generation_is_admitted ... ok
+test server::tests::evolve_budget_exhaustion_stops_a_run_before_its_generation_limit ... ok
+test server::tests::evolve_candidate_count_two_evaluates_both_ranked_candidates_and_promotes_the_better_one ... ok
+test server::tests::evolve_coding_bundled_world_completes_three_generations_from_the_example_fixture ... ok
+test server::tests::evolve_cost_weighted_strategy_orders_clusters_by_descending_total_count ... ok
+test server::tests::evolve_generation_is_interrupted_when_its_diagnostic_evaluation_fails ... ok
+test server::tests::evolve_history_rejects_a_generation_forged_without_matching_evidence ... ok
+test server::tests::evolve_generation_is_interrupted_when_its_child_evaluation_fails ... ok
+test server::tests::evolve_history_replay_rejects_a_forged_candidates_list ... ok
+test server::tests::evolve_respects_freeze_and_resumes_only_after_explicit_unfreeze ... ok
+test server::tests::evolve_start_completes_three_generations_with_one_promotion_and_replays ... ok
+test server::tests::evolve_start_rejects_a_cross_world_genome_and_a_world_with_no_baseline_candidate ... ok
+test server::tests::evolve_start_rejects_invalid_conflicting_and_concurrent_requests ... ok
+test server::tests::evolve_promotes_the_fix_for_every_gauntlet_mode_from_the_bundled_fixtures ... ok
+test server::tests::evolve_strategy_run_with_no_candidate_mutation_finishes_without_a_generation ... ok
+test server::tests::explicit_reference_worker_open_uses_the_supplied_executable_identity ... ok
+test server::tests::evolve_strategy_prefers_the_gene_banks_highest_transfer_effect_operation ... ok
+test server::tests::forge_mutation_changes_only_the_supported_compact_instruction_token ... ok
+test server::tests::forge_prompt_mutation_rejects_a_non_catalog_target_and_an_untargeted_gauntlet_operation ... ok
+test server::tests::forge_prompt_mutation_rejects_missing_unsupported_and_reformatted_prompts ... ok
+test server::tests::forge_proposal_is_rejected_while_evolution_is_frozen ... ok
+test server::tests::forge_proposal_replays_and_rejects_tampered_selection_and_metadata ... ok
+test server::tests::forge_refuses_harness_mutations_when_the_world_scope_excludes_them ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_budget_plan_preserves_reference_limits_and_bounds_hosted_totals ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_command_validates_fields_before_auditing_or_reading ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_history_rejects_tampered_bindings_and_canonical_payloads ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_keeps_historical_catalog_payload_bytes_and_schema ... ok
+test server::tests::forge_assessment_records_verified_child_selection_and_replays ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_preserves_configuration_assesses_promotes_and_restarts ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_profile_and_proposal_reads_work_during_a_job_and_freeze ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_requires_world_harness_authority ... ok
+test server::tests::forge_revision_tests::hosted_forge_revision_rejects_invalid_sources_files_freeze_and_cross_kind_retry ... ok
+test server::tests::gateway_mcp_call_allowed_routes_through_ordinary_command ... ok
+test server::tests::gateway_mcp_call_denied_is_ledgered_without_dispatch ... ok
+test server::tests::gateway_mcp_call_rejects_nested_mcp_call ... ok
+test server::tests::gauntlet_failure_modes_reject_the_bad_operation_and_pass_the_fix ... ok
+test server::tests::forge_revision_tests::hosted_paired_confirmation_checks_limits_and_allows_a_slow_provider ... ok
+test server::tests::gene_extraction_refuses_below_the_evidence_threshold_and_bad_input ... ok
+test server::tests::gene_bank_history_rejects_tampering_retyping_and_reordering ... ok
+test server::tests::gene_transfer_apply_is_refused_while_frozen ... ok
+test server::tests::gene_extraction_refuses_when_a_cited_event_hash_has_been_tampered ... ok
+test server::tests::gene_transfer_record_requires_a_non_blank_evaluation_id ... ok
+test server::tests::gene_transfer_record_refuses_when_the_applied_trial_was_rebound_to_another_recipient ... ok
+test server::tests::genome_and_gene_bank_commands_are_blocked_while_a_direct_job_is_active ... ok
+test server::tests::genome_propose_command_rejects_an_unvalidated_hypothesis_combination ... ok
+test server::tests::gene_transfer_trials_record_contradiction_and_speciation ... ok
+test server::tests::invariant_history_rejects_unregistered_world_and_unknown_evaluation ... ok
+test server::tests::job_transition_rules_cover_admission_running_cancellation_and_terminal_edges ... ok
+test server::tests::json_genome_non_utf8_prompt_is_rejected_before_run_admission ... ok
+test server::tests::json_genome_prompt_reads_valid_cas_and_registration_rejects_invalid_contents ... ok
+test server::tests::kill_all_signals_active_runtime_and_replays_confirmed_cancellation ... ok
+test server::tests::late_arena_worker_messages_are_ignored_or_rejected_after_job_closes ... ok
+test server::tests::legacy_unsigned_run_results_fail_with_actionable_incompatibility ... ok
+test server::tests::injected_arena_scoring_failure_persists_failed_terminal_and_replays ... ok
+test server::tests::meta_evaluate_pauses_under_freeze_and_resumes_only_after_explicit_unfreeze ... ok
+test server::tests::meta_evaluate_rejects_unregistered_strategies_and_duplicate_lineage_worlds ... ok
+test server::tests::meta_evaluate_isolates_candidate_count_as_the_only_differing_knob ... ok
+test server::tests::meta_evaluate_runs_two_lineages_and_records_a_replay_verified_receipt ... ok
+test server::tests::meta_read_commands_dispatch_through_the_client_socket_and_report_not_found ... ok
+test server::tests::meta_strategy_lineage_is_recorded_and_replay_verified ... ok
+test server::tests::meta_strategy_register_is_idempotent_and_content_addressed ... ok
+test server::tests::meta_strategy_register_rejects_malformed_source_and_out_of_range_fields ... ok
+test server::tests::mismatched_signed_interrupted_result_fails_recovery_without_terminal_append ... ok
+test server::tests::missing_direct_result_after_real_execution_records_interruption_and_releases_slot ... ok
+test server::tests::missing_producer_key_is_not_silently_regenerated_under_an_anchored_world_verifier ... ok
+test server::tests::non_cancellation_operator_interrupt_completes_as_interrupted ... ok
+test server::tests::open_with_backends_on_jsonl_ledger_and_memory_artifacts_matches_sqlite_cas_decision ... ok
+test server::tests::paired_admission_explains_evaluator_installation_errors_without_binding_jobs ... ok
+test server::tests::paired_admission_rejects_combined_manifest_tasks_above_bound ... ok
+test server::tests::paired_admission_rejects_world_missing_evaluator_after_valid_manifests ... ok
+test server::tests::paired_admission_rejects_world_missing_sealed_manifest ... ok
+test server::tests::pin_reference_worker_is_cached_and_reused_across_calls ... ok
+test server::tests::pin_reference_worker_rejects_a_public_executable_replaced_before_first_pin ... ok
+test server::tests::pinned_reference_worker_cache_fails_closed_on_corruption_and_recovers_on_next_use ... ok
+test server::tests::pinned_reference_worker_rejects_mutated_snapshot_bytes ... ok
+test server::tests::private_path_helpers_reject_children_beneath_regular_files_without_mutation ... ok
+test server::tests::producer_key_mismatched_with_an_anchored_world_verifier_is_rejected_before_first_result ... ok
+test server::tests::progress_phase_names_cover_each_persisted_trace_kind ... ok
+test server::tests::projection_identifiers_text_and_trace_artifact_selection_fail_closed ... ok
+test server::tests::projection_refresh_rejects_a_ledger_row_tampered_after_a_prior_successful_refresh ... ok
+test server::tests::projection_rejects_invalid_worker_credential_and_remote_job_events ... ok
+test server::tests::projection_rejects_mismatched_commands_and_mutable_genome_metadata ... ok
+test server::tests::provider_claude_genome_runs_end_to_end_through_run_with_signed_result_and_traces ... ok
+test server::tests::provider_historical_free_form_family_replays_and_rejects_new_launches ... ok
+test server::tests::provider_pair_world_scoring_replays_and_rejects_invalid_json_before_admission ... ok
+test server::tests::provider_prose_instructions_reach_direct_submitted_and_paired_runs_and_replay ... ok
+test server::tests::provider_run_redacts_secret_looking_text_before_it_reaches_the_artifact_store ... ok
+test server::tests::real_listener_services_status_and_shutdown_through_the_socket_writer ... ok
+test server::tests::reference_runtime_returns_recorder_when_recovery_detects_tampered_history ... ok
+test server::tests::reference_worker_identity_requires_an_executable_regular_file ... ok
+test server::tests::rejected_request_audit_failure_returns_safe_internal_and_recovers ... ok
+test server::tests::remote_arena_lease_queue_submit_result_rejects_an_unknown_job_id ... ok
+test server::tests::remote_arena_trial_credential_expiry_fails_closed_mid_evaluation_and_leaves_local_path_unaffected ... ok
+test server::tests::remote_job_result_reports_provider_failure_and_rejects_unknown_job_and_oversized_output ... ok
+test server::tests::remote_leased_arena_trial_matches_local_execution_and_is_idempotent_under_duplicate_delivery ... ok
+test server::tests::remote_run_submit_rejects_a_reused_job_id_and_a_promptless_genome ... ok
+test server::tests::retried_paired_evaluation_reuses_the_completed_arena_job_without_rerunning_it ... ok
+test server::tests::run_evaluation_cost_ceiling_enforces_the_registered_world_law ... ok
+test server::tests::sandbox_cleanup_guard_drop_removes_the_materialized_worktree_without_an_explicit_cleanup_call ... ok
+test server::tests::sandbox_cleanup_guard_removes_the_materialized_worktree_on_success ... ok
+test server::tests::meta_evaluate_shows_a_descendant_strategy_reaching_equal_champions_at_lower_cost ... ok
+test server::tests::selection_history_rejects_unregistered_world_reference ... ok
+test server::tests::sealed_holdout_improvement_is_statistically_supported_and_promoted_within_budget ... ok
+test server::tests::signed_provider_failure_recovers_as_failed_once ... ok
+test server::tests::signed_interrupted_result_recovers_once_and_preserves_cancellation ... ok
+test server::tests::source_revision_rejects_initialized_uncommitted_repository_without_mutation ... ok
+test server::tests::signed_success_result_without_completed_run_rejects_job_terminal ... ok
+test server::tests::submit_admits_and_cancels_a_provider_job_through_daemon_stop ... ok
+test server::tests::startup_revalidates_recorded_selections_against_canonical_evidence ... ok
+test server::tests::submitted_job_and_paired_arena_evaluation_reuse_the_same_pinned_reference_worker ... ok
+test server::tests::synchronous_markdown_run_evaluation_persists_signed_provenance_and_replays ... ok
+test server::tests::terminal_job_kill_is_idempotent_and_selection_errors_map_to_safe_api_states ... ok
+test server::tests::test_arena_wall_override_only_lowers_the_admitted_bound ... ok
+test server::tests::synchronous_json_run_reference_inventories_committed_repository_and_replays ... ok
+test server::tests::verify_forge_prompt_rejects_a_before_after_edge_that_is_not_a_representable_catalog_edge ... ok
+test server::tests::worker_credential_revoke_is_idempotent_on_an_already_revoked_credential ... ok
+test server::tests::worker_credential_wrong_worker_id_fails_closed ... ok
+test server::tests::verify_forge_history_rejects_a_duplicate_proposal_id ... ok
+test server::tests::worker_lease_and_result_round_trip_signs_and_records_the_output ... ok
+test server::tests::worker_revoked_credential_fails_closed ... ok
+test server::tests::worker_unknown_credential_fails_closed ... ok
+test server::tests::world_verifier_and_producer_key_failures_are_covered ... ok
+test server::verification::verification_unit_tests::best_gene_target_operation_breaks_ties_by_smallest_gene_id ... ok
+test server::verification::verification_unit_tests::best_gene_target_operation_ignores_unrelated_genes_and_undecodable_events ... ok
+test server::verification::verification_unit_tests::best_gene_target_operation_picks_the_highest_mean_positive_effect ... ok
+test server::verification::verification_unit_tests::best_gene_target_operation_requires_at_least_one_positive_trial ... ok
+test server::verification::verification_unit_tests::evaluator_open_errors_explain_recovery_and_keep_unknown_details_private ... ok
+test server::verification::verification_unit_tests::map_cluster_error_reports_invalid_analysis_id ... ok
+test server::verification::verification_unit_tests::require_command_fields_accepts_a_valid_meta_evaluate ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_an_oversized_meta_run_id ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_empty_meta_strategy_paths_and_ids ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_empty_worker_credential_revoke ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_incomplete_drift_record ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_incomplete_gene_commands ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_incomplete_mcp_call ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_incomplete_or_duplicate_meta_strategies ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_incomplete_remote_run_submit_and_status ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_invalid_worker_credential_mint ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_out_of_range_list_limits ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_out_of_range_meta_confidence ... ok
+test server::verification::verification_unit_tests::require_command_fields_rejects_too_few_or_invalid_meta_lineages ... ok
+test server::verification::verification_unit_tests::verify_forge_child_compiles_rejects_an_unregistered_parent ... ok
+test server::verification::verification_unit_tests::verify_forge_child_rejects_an_unregistered_parent ... ok
+test server::tests::worker_expired_credential_fails_closed ... ok
+
+test result: ok. 259 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 450.23s
+
+     Running unittests src/bin/heph.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/heph-5ed68cad16bb110d)
+
+running 15 tests
+test tests::default_invocation_starts_the_daemon_and_shows_no_forced_tour ... ok
+test tests::data_dir_flag_parses_as_a_path ... ok
+test tests::only_an_explicit_yes_chooses_the_senate ... ok
+test tests::senate_hint_points_at_the_installed_binary_or_the_installer ... ok
+test tests::source_web_requires_a_prebuilt_complete_bundle ... ok
+test tests::stop_subcommand_parses ... ok
+test tests::tour_and_no_daemon_flags_parse ... ok
+test tests::tour_marker_is_complete_once_the_tui_writes_it ... ok
+test tests::tour_marker_is_incomplete_when_the_file_is_absent ... ok
+test tests::tour_marker_is_incomplete_when_the_file_is_malformed ... ok
+test tests::installed_web_uses_its_runtime_and_never_falls_back_to_source_assets ... ok
+test tests::wait_until_ready_succeeds_once_the_probe_reports_ready ... ok
+test tests::web_accepts_data_directory_and_no_daemon_flags_after_the_subcommand ... ok
+test tests::web_node_preflight_rejects_missing_old_and_failed_runtimes ... ok
+test tests::wait_until_ready_times_out_when_the_probe_never_succeeds ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running unittests src/bin/hephaestus.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus-1a0159173171780e)
+
+running 23 tests
+test pilot::tests::model_values_are_quoted_and_frontmatter_injection_is_rejected ... ok
+test tests::arena_evaluate_maps_positional_identifiers_to_paired_command ... ok
+test tests::arena_evaluate_remote_flag_maps_to_the_remote_opt_in ... ok
+test tests::arena_invariants_maps_evaluation_identity_to_authenticated_command ... ok
+test tests::arena_select_maps_evaluation_identity_to_trusted_selection_command ... ok
+test tests::canary_commands_map_flags_to_authenticated_commands ... ok
+test tests::champion_commands_map_flags_to_authenticated_commands ... ok
+test tests::evaluation_human_output_is_aggregate_only ... ok
+test tests::drift_commands_map_flags_to_authenticated_commands ... ok
+test tests::evidence_list_commands_default_and_accept_a_bounded_limit ... ok
+test tests::evolve_coding_is_a_local_convenience_command_with_its_own_fixture ... ok
+test tests::evolve_commands_map_flags_to_authenticated_commands ... ok
+test tests::fixture_copy_losing_destination_creation_race_preserves_existing_files ... ok
+test tests::genome_assess_maps_stable_ids_to_the_authenticated_command ... ok
+test tests::init_cli_accepts_the_quickstart_fixture_and_destination ... ok
+test tests::genome_revise_maps_a_prompt_body_file_and_required_evidence ... ok
+test tests::meta_commands_map_flags_to_authenticated_commands ... ok
+test tests::meta_evaluate_rejects_a_lineage_count_mismatch ... ok
+test tests::senate_passes_every_argument_through_to_the_senate_cli ... ok
+test tests::source_checkout_fixture_path_resolves_from_control_crate ... ok
+test tests::support_triage_fixture_has_local_preparation_materials_and_unknown_names_fail ... ok
+test tests::tui_cli_defaults_to_no_forced_tour_and_accepts_the_flag ... ok
+test tests::packaged_tui_paths_follow_the_relocated_executable ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/bin/hephaestus-mcp-gateway.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_mcp_gateway-4aeeb300eb300e73)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hephaestus-process-guardian.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_process_guardian-804710364bf1378e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hephaestus-reference-evaluator.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_reference_evaluator-78f354c755523d3e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hephaestus-reference-worker.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_reference_worker-267d28a35de5c06b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/hephaestus-remote-worker.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_remote_worker-ac47f1a1c949f2d4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/bin/hephaestusd.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestusd-af6f4e57c46e62e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/control_plane_e2e.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/control_plane_e2e-dc2bec592ed7473d)
+
+running 35 tests
+test arena_mixed_reference_and_provider_pair_completes_through_the_real_daemon_and_cli ... ok
+hephaestusd: job store-failure failed: guarded worker did not start
+test async_artifact_store_failure_does_not_sign_success_and_recovers ... ok
+test arena_overall_deadline_stops_slow_trial_without_committing_evaluation ... ok
+test async_job_status_and_cancellation_remain_responsive_and_confirm_process_death ... ok
+test async_direct_reference_job_persists_signed_output_and_replays_success ... ok
+test async_worker_failure_is_durable_as_provider_failure ... ok
+test authenticated_reference_and_arena_validation_rejects_invalid_inputs ... ok
+test async_wall_timeout_is_durable_replayable_and_keeps_daemon_available ... ok
+test canary_e2e_seeds_promotes_through_stages_then_auto_aborts_a_regressed_canary ... ok
+test daemon_rejects_a_genome_without_a_registered_world_during_replay ... ok
+test daemon_rejects_forged_operator_history_and_unverifiable_genomes ... ok
+hephaestusd: Projection("asynchronous job completion failed")
+test direct_job_terminal_sqlite_rejection_recovers_signed_success_after_restart ... ok
+test evidence_cli_lists_runs_and_denials_newest_first_and_bounded ... ok
+test daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events ... ok
+test gene_bank_cli_extracts_transfers_and_speciates_through_the_real_daemon ... ok
+test guardian_contains_worker_after_daemon_crash_and_replay_marks_job_interrupted ... ok
+test guardian_monitors_eof_during_large_stdin_and_reaps_leader_descendants ... ok
+test heph_no_daemon_fails_fast_with_no_daemon_running ... ok
+test heph_stop_reports_a_clean_error_when_nothing_is_running ... ok
+test local_api_fails_closed_for_bad_auth_versions_and_requests ... ok
+test markdown_genome_prompt_registers_inspects_and_replays_through_the_daemon ... ok
+test markdown_reference_instructions_use_one_pinned_worker_for_paired_trials ... ok
+test maximum_markdown_prompt_round_trips_through_the_bounded_client ... ok
+test mcp_gateway_speaks_json_rpc_framing_over_stdio_against_a_real_daemon ... ok
+test operator_cli_controls_and_replays_real_daemon_state_across_restarts ... ok
+test operator_registers_worlds_and_genomes_through_the_cli_and_evaluates_them ... ok
+test reference_run_without_a_resolvable_head_creates_no_runtime_evidence ... ok
+test reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence ... ok
+test remote_worker_binary_round_trips_duplicates_and_fails_closed_on_bad_credentials ... ok
+test synchronous_reference_run_uses_private_worker_snapshot_after_public_replacement ... ok
+test tui_evidence_screens_and_markdown_authoring_flow_through_a_pty ... ok
+test tui_gene_bank_lists_and_inspects_an_extracted_gene_through_a_pty ... ok
+test tui_hosted_prompt_revision_recovers_and_assesses_through_a_pty ... ok
+test tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty ... ok
+test evolve_coding_completes_three_generations_through_the_real_daemon_and_cli ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 72.64s
+
+     Running tests/guardian_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/guardian_contracts-03d1c8197f9afa61)
+
+running 6 tests
+test production_anchor_signals_its_isolated_group_after_handshake ... ok
+test production_guardian_cancels_worker_when_control_pipe_closes ... ok
+test guarded_worker_captures_success_and_rejects_invalid_requests_before_launch ... ok
+test production_guardian_reports_unsuccessful_worker_exit ... ok
+test production_guardian_reports_worker_spawn_failure ... ok
+test production_guardian_runs_worker_and_reaps_its_anchor ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/pilot_preparation.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/pilot_preparation-d7cd3bccf045e31e)
+
+running 3 tests
+test helper_refuses_ignored_launch_settings_and_allows_explicit_attachment ... ok
+test installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provider ... ok
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.37s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_core-56ec9acde39f14cd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/authority.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/authority-801d58dc99ebf978)
+
+running 2 tests
+test child_capabilities_may_narrow_but_never_widen ... ok
+test only_the_operator_can_clear_a_freeze ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/domain_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/domain_contracts-6c23a9fa557b6254)
+
+running 3 tests
+test genome_lifecycle_allows_only_declared_transitions ... ok
+test mutation_targets_keep_laws_and_evaluators_outside_evolution ... ok
+test versioned_domain_fixture_accepts_v1_and_rejects_unknown_versions ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_experience-88e8ba77ab27c3b8)
+
+running 2 tests
+test redaction::tests::redact_text_matches_known_secrets_and_prefixed_tokens ... ok
+test integration::tests::clock_status_and_sequence_edges_fail_or_map_explicitly ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/evidence_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/evidence_contracts-83adda8eeb2a25ce)
+
+running 22 tests
+test experience_cannot_cite_unrelated_ledger_events ... ok
+test channel_sink_waits_for_canonical_writer_acknowledgement ... ok
+test experience_cannot_claim_provenance_different_from_its_source ... ok
+test invalid_provenance_experience_shapes_and_limits_fail_closed ... ok
+test rejected_evidence_requests_release_both_waiting_executor_paths ... ok
+test experiences_require_verified_sources_and_keep_contradictions_explicit ... ok
+test retention_and_record_size_limits_survive_restart ... ok
+test trusted_experience_rehydrates_exact_redacted_evidence_after_restart ... ok
+test trusted_experience_rehydrates_experience_source_chains ... ok
+test traces_cover_observable_runtime_events_and_redact_before_persistence ... ok
+test trusted_experience_rejects_forged_envelope_and_receipt_artifact_mismatch ... ok
+test trusted_experience_rehydrates_shared_ancestry_without_recursive_expansion ... ok
+test trusted_experience_rejects_forward_source_reference ... ok
+test trusted_experience_rejects_forged_trace_envelopes_and_artifacts ... ok
+test trusted_experience_rejects_invalid_deserialized_receipt_semantics ... ok
+test trusted_experience_rejects_missing_and_tampered_primary_artifact ... ok
+test trusted_experience_rejects_noncanonical_primary_artifact ... ok
+test trusted_experience_rejects_missing_source_and_evidence_artifacts ... ok
+test trusted_experience_rejects_noncanonical_receipt_and_unknown_exact_source ... ok
+test trusted_experience_rejects_unrelated_source_event_types ... ok
+test trusted_experience_rejects_source_provenance_mismatch ... ok
+test writer_does_not_acknowledge_failed_capacity_reservation ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.28s
+
+     Running tests/run_result_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/run_result_contracts-1b335c6ff9130797)
+
+running 12 tests
+test canonical_receipt_round_trips_from_derived_event_envelope ... ok
+test a_verifier_that_already_authenticated_an_event_still_rejects_edited_copies ... ok
+test confirmed_provider_failure_can_be_signed_and_replayed ... ok
+test correct_actor_forgery_and_wrong_key_are_rejected ... ok
+test latency_contract_accepts_long_evaluations_and_rejects_above_shared_limit ... ok
+test operator_interrupt_receipt_is_signed_and_cannot_be_upgraded_to_success ... ok
+test parser_rejects_forged_event_envelopes ... ok
+test parser_rejects_unknown_schema_fields_and_invalid_runtime_claims ... ok
+test signature_binds_timestamp_envelope_and_every_claim ... ok
+test signature_cannot_be_copied_to_different_valid_claims ... ok
+test signer_is_deterministic_and_verifier_round_trips_from_public_bytes ... ok
+test supervisor_wall_and_io_failures_can_be_signed_and_replayed ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+
+     Running tests/runtime_evidence_e2e.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/runtime_evidence_e2e-d65dc715d9a90166)
+
+running 10 tests
+test adapter_failures_are_recorded_and_denials_never_become_active ... ok
+test failed_containment_remains_addressable_until_termination_is_confirmed ... ok
+test interrupt_records_natural_completion_race_and_terminal_state_is_closed ... ok
+test evidence_and_adapter_protocol_failures_fail_closed ... ok
+test output_budget_reason_comes_from_runtime_snapshot ... ok
+test running_polls_preserve_the_reserved_terminal_slot ... ok
+test real_offline_run_emits_provider_observations_and_truthful_terminal_evidence ... ok
+test terminal_state_is_not_closed_when_canonical_append_fails ... ok
+test runtime_operation_failures_remain_evidence_backed ... ok
+test unpersisted_observations_cannot_be_lost_before_terminal_evidence ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_genome-377ecc72a208a4d5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compiler_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/compiler_contracts-06ecb4e4336999ad)
+
+running 13 tests
+test auto_canary_on_drift_law_is_absent_by_default_and_round_trips_when_set ... ok
+test compilers_reject_unknown_versions_fields_and_oversized_input ... ok
+test compilers_reject_invalid_policy_and_corrupt_artifacts ... ok
+test equivalent_json_and_yaml_genomes_have_one_canonical_identity ... ok
+test genome_compilation_resolves_ancestry_artifacts_and_authority ... ok
+test hosted_free_form_model_family_preserves_historical_canonical_identity ... ok
+test markdown_frontmatter_rejects_duplicates_merges_and_reserved_prompt_override ... ok
+test markdown_frontmatter_and_body_bounds_fail_closed ... ok
+test output_scoring_preserves_historical_world_bytes_and_pins_nondefault_modes ... ok
+test markdown_genome_keeps_exact_body_bytes_in_the_reserved_prompt_artifact ... ok
+test reserved_agent_prompt_artifacts_are_validated_by_the_ordinary_compiler ... ok
+test world_authority_ceiling_is_independently_enforced ... ok
+test world_compilation_protects_laws_evaluators_and_comparability ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/registry_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/registry_contracts-85b3ef1f20339c2a)
+
+running 40 tests
+test conflicting_duplicate_genome_registration_is_rejected ... ok
+test child_before_parent_is_rejected ... ok
+test conflicting_duplicate_registration_is_rejected ... ok
+test cross_world_parent_is_rejected ... ok
+test forge_child_requires_its_parent_to_precede_the_proposal_event ... ok
+test forge_proposal_event_registers_child_at_its_single_event_sequence ... ok
+test forge_proposal_registry_rejects_noncanonical_envelope_before_child_registration ... ok
+test forge_registry_rejects_aggregate_and_event_identity_mismatches ... ok
+test gene_transfer_event_registers_child_at_its_single_event_sequence ... ok
+test gene_transfer_registry_rejects_aggregate_and_event_identity_mismatches ... ok
+test forge_registry_rejects_malformed_payload_shapes_with_typed_errors ... ok
+test genome_artifact_wider_than_its_world_is_rejected_with_the_compiler_reason ... ok
+test genome_before_world_is_rejected ... ok
+test gene_transfer_registry_rejects_malformed_payload_shapes_with_typed_errors ... ok
+test genome_name_metadata_must_match_compiled_artifact ... ok
+test genome_parent_metadata_must_match_compiled_artifact ... ok
+test genome_record_identity_must_match_compiled_artifact ... ok
+test genome_registration_aggregate_must_match_identity ... ok
+test identical_duplicate_genome_registration_is_idempotent ... ok
+test identical_duplicate_registration_is_idempotent_and_keeps_first_sequence ... ok
+test incremental_replay_falls_back_to_a_full_replay_when_the_cursor_event_is_rewritten ... ok
+test incremental_replay_from_a_valid_cursor_matches_a_full_replay ... ok
+test incremental_replay_with_no_cursor_matches_a_full_replay ... ok
+test missing_registered_artifact_is_rejected ... ok
+test malformed_world_artifact_is_rejected ... ok
+test non_json_registration_payload_is_rejected ... ok
+test non_utf8_genome_artifact_is_rejected ... ok
+test non_utf8_world_artifact_is_rejected ... ok
+test noncanonical_world_source_is_rejected ... ok
+test noncanonical_genome_source_is_rejected ... ok
+test pretty_printed_registration_payload_is_rejected ... ok
+test registered_world_exposes_its_compiled_form ... ok
+test registration_errors_expose_their_causes ... ok
+test replay_ignores_unrelated_event_types ... ok
+test replay_rehydrates_two_worlds_and_parent_child_in_registration_order ... ok
+test replay_requires_the_markdown_genomes_prompt_blob_and_exact_bytes ... ok
+test world_name_metadata_must_match_compiled_artifact ... ok
+test replaying_the_same_history_produces_identical_record_maps ... ok
+test world_record_identity_must_match_compiled_artifact ... ok
+test world_registration_aggregate_must_match_identity ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_ledger-0686d1089dbd5e41)
+
+running 9 tests
+test storage::storage_contract::arc_wrapped_memory_backend_shares_state_across_clones_and_satisfies_the_contract ... ok
+test storage::storage_contract::filesystem_artifact_store_satisfies_the_artifact_backend_contract ... ok
+test storage::storage_contract::filesystem_cas_satisfies_the_shared_contract_suite ... ok
+test storage::storage_contract::jsonl_event_ledger_satisfies_the_event_ledger_contract ... ok
+test storage::storage_contract::memory_artifact_backend_satisfies_the_artifact_backend_contract ... ok
+test storage::storage_contract::memory_artifact_backend_satisfies_the_shared_contract_suite ... ok
+test storage::storage_contract::jsonl_event_ledger_satisfies_the_shared_contract_suite ... ok
+test storage::storage_contract::sqlite_event_store_satisfies_the_event_ledger_contract ... ok
+test storage::storage_contract::sqlite_event_ledger_satisfies_the_shared_contract_suite ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/durable_spine.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/durable_spine-a9254b3d7046d47f)
+
+running 4 tests
+test duplicate_event_ids_are_rejected_without_advancing_history ... ok
+test artifact_store_deduplicates_and_detects_substitution ... ok
+test sqlite_event_history_survives_restart_and_replays_deterministically ... ok
+test event_replay_detects_payload_and_chain_tampering ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/file_ledger_durability.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/file_ledger_durability-29157a409c5c1fce)
+
+running 7 tests
+test file_duplicate_event_ids_are_rejected_without_advancing_history ... ok
+test file_event_history_survives_restart_and_replays_deterministically ... ok
+test file_ledger_reports_a_complete_but_malformed_line_as_an_error_not_a_torn_write ... ok
+test file_ledger_drops_a_torn_trailing_write_and_keeps_appending ... ok
+test file_replay_preserves_unicode_payload_and_uppercase_hex ... ok
+test file_replay_rejects_non_ascii_hex_without_altering_the_file ... ok
+test file_replay_detects_payload_chain_sequence_and_reorder_tampering ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_runtime-074d9c6f3bc32d10)
+
+running 99 tests
+test deterministic::tests::deadline_reached_reports_past_and_future_instants ... ok
+test deterministic::tests::safe_tracked_path_joins_ordinary_relative_paths ... ok
+test deterministic::tests::safe_tracked_path_rejects_absolute_paths ... ok
+test deterministic::tests::safe_tracked_path_rejects_parent_directory_escapes ... ok
+test guardian::tests::anchor_handshake_propagates_group_signal_failure ... ok
+test guardian::tests::anchor_handshake_signals_only_after_readiness_and_control_eof ... ok
+test guardian::tests::anchor_state_failures_clean_up_anchor_and_worker ... ok
+test guardian::tests::anchor_exit_observation_keeps_the_pid_pinned_until_wait ... ok
+test guardian::tests::guardian_passes_launch_frame_variables_to_the_worker ... ok
+test guardian::tests::guardian_reaps_anchor_that_fails_the_readiness_handshake ... ok
+test guardian::tests::guardian_reaps_anchor_when_worker_spawn_fails ... ok
+test guardian::tests::guardian_rejects_worker_that_closes_stdin_before_receiving_the_frame ... ok
+test guardian::tests::guardian_terminates_worker_when_anchor_exits_after_startup ... ok
+test guardian::tests::launch_parser_rejects_unterminated_invalid_oversized_and_misframed_inputs ... ok
+test guardian::tests::missing_anchor_pipes_terminate_and_reap_the_anchor ... ok
+test guardian::tests::missing_worker_pipes_terminate_and_reap_both_processes ... ok
+test guardian::tests::monitor_anchor_observation_error_cleans_up_worker_group ... ok
+test guardian::tests::process_group_anchor_keeps_finished_workers_signalable ... ok
+test guardian::tests::process_group_signal_failure_is_reported_after_containment_cleanup ... ok
+test guardian::tests::terminate_and_reap_kills_worker_group_and_reaps_both_children ... ok
+test guardian::tests::termination_helper_kills_and_reaps_an_isolated_group ... ok
+test guardian::tests::wait_failures_reap_worker_and_anchor_and_report_containment_errors ... ok
+test isolation::tests::seatbelt_command_construction_is_testable_on_every_host ... ok
+test isolation::tests::seatbelt_profile_is_deny_by_default_and_capability_exact ... ok
+test isolation::tests::seatbelt_profile_rejects_control_characters_in_paths ... ok
+test isolation::tests::unavailable_backend_fails_closed_before_process_construction ... ok
+test mutation_catalog::tests::casing_pair_is_a_flip_in_both_directions ... ok
+test mutation_catalog::tests::catalog_has_exactly_sixteen_distinct_operations_in_eight_two_member_families ... ok
+test mutation_catalog::tests::cross_family_pairs_are_classified_cross_family ... ok
+test mutation_catalog::tests::edge_kind_as_str_is_stable ... ok
+test mutation_catalog::tests::every_ordered_pair_of_distinct_known_operations_is_representable ... ok
+test mutation_catalog::tests::gauntlet_pairs_are_fix_forward_and_regress_backward ... ok
+test mutation_catalog::tests::unknown_operations_are_never_representable ... ok
+test provider_events::tests::blank_lines_between_events_are_skipped ... ok
+test provider_events::tests::claude_content_block_without_a_type_is_skipped ... ok
+test provider_events::tests::claude_conversation_event_with_no_content_array_yields_no_observations ... ok
+test provider_events::tests::claude_event_without_a_type_field_is_malformed ... ok
+test provider_events::tests::claude_final_answer_and_cost_come_from_the_result_event ... ok
+test provider_events::tests::claude_init_event_reports_session_id ... ok
+test provider_events::tests::claude_permission_denied_system_event_maps_to_error ... ok
+test provider_events::tests::claude_subagent_message_is_reported ... ok
+test provider_events::tests::claude_subagent_text_block_is_not_reported_as_model_response ... ok
+test provider_events::tests::claude_tool_result_block_reports_content_and_error_flag ... ok
+test provider_events::tests::claude_tool_use_and_result_map_to_expected_kinds ... ok
+test provider_events::tests::claude_top_level_text_block_maps_to_model_response ... ok
+test provider_events::tests::claude_unknown_content_block_type_is_ignored ... ok
+test provider_events::tests::claude_unrecognized_message_type_yields_no_observations ... ok
+test provider_events::tests::claude_unrecognized_system_subtype_yields_no_observations ... ok
+test provider_events::tests::codex_event_without_a_type_field_is_malformed ... ok
+test provider_events::tests::codex_final_answer_comes_from_the_last_agent_message_and_cost_is_zero ... ok
+test provider_events::tests::codex_item_completed_command_execution_maps_to_tool_result ... ok
+test provider_events::tests::codex_item_event_without_an_item_field_yields_no_observations ... ok
+test provider_events::tests::codex_permission_and_command_failure_events_map_to_tool_and_error_kinds ... ok
+test provider_events::tests::codex_turn_completed_with_full_usage_reports_every_token_field ... ok
+test provider_events::tests::codex_turn_completed_without_usage_still_reports_cost_observed ... ok
+test provider_events::tests::codex_unrecognized_event_type_yields_no_observations ... ok
+test provider_events::tests::cursor_buffers_partial_lines_and_flags_malformed_ones ... ok
+test provider_events::tests::deterministic_provider_events_are_ignored ... ok
+test provider_events::tests::deterministic_provider_never_reports_a_final_answer_or_cost ... ok
+test provider_events::tests::empty_stream_yields_empty_answer_and_zero_cost ... ok
+test provider_events::tests::oversized_complete_line_is_reported_without_panicking ... ok
+test provider_events::tests::oversized_tool_results_are_bounded_with_a_truncation_marker ... ok
+test provider_events::tests::usd_to_microusd_saturates_at_u64_max_for_huge_values ... ok
+test reference_instruction::gauntlet_tests::bad_routing ... ok
+test reference_instruction::gauntlet_tests::context_loss ... ok
+test reference_instruction::gauntlet_tests::duplicate_subagents ... ok
+test reference_instruction::gauntlet_tests::every_gauntlet_operation_round_trips_through_its_document_and_frame ... ok
+test reference_instruction::gauntlet_tests::hallucinated_verification ... ok
+test reference_instruction::gauntlet_tests::poisoned_memory ... ok
+test reference_instruction::gauntlet_tests::premature_completion ... ok
+test reference_instruction::gauntlet_tests::schema_drift ... ok
+test reference_instruction::tests::strict_documents_reject_unknown_and_duplicate_fields ... ok
+test reference_instruction::tests::test_delay_trailer_sleeps_before_executing_the_underlying_frame ... ok
+test reference_instruction::tests::worker_applies_operation_without_changing_task_input ... ok
+test reference_instruction::tests::worker_rejects_bad_lengths_and_instruction_size_is_bounded ... ok
+test sandbox::tests::creation_rejects_a_replaced_sandbox_root ... ok
+test sandbox::tests::creation_reports_incomplete_compensating_cleanup ... ok
+test guardian::tests::guardian_kills_descendants_when_worker_leader_exits ... ok
+test sandbox::tests::creation_rolls_back_filesystem_state_when_git_cannot_spawn ... ok
+test sandbox::tests::creation_rolls_back_worktree_metadata_when_entropy_fails ... ok
+test sandbox::tests::excessive_token_ttl_fails_without_leaving_a_worktree ... ok
+test supervisor::tests::deterministic_adapter_drain_observations_is_always_empty ... ok
+test supervisor::tests::a_child_that_exits_nonzero_without_reading_its_prompt_is_a_provider_failure ... ok
+test supervisor::tests::dropping_active_supervisor_stops_its_process_group ... ok
+test supervisor::tests::fixture_writers_flush_cleanly_even_though_write_fails ... ok
+test supervisor::tests::extra_env_reaches_the_child_process ... ok
+test supervisor::tests::guarded_provider_launch_frame_carries_env_and_copies_home_files ... ok
+test supervisor::tests::incomplete_stdin_delivery_is_an_io_failure ... ok
+test supervisor::tests::launch_rejects_a_wall_deadline_that_overflows_the_clock ... ok
+test supervisor::tests::output_capture_surfaces_reader_and_writer_failures ... ok
+test supervisor::tests::offline_supervisor_rejects_network_authority_before_launch ... ok
+test supervisor::tests::provider_constructor_rejects_deterministic_and_empty_executables ... ok
+test supervisor::tests::stdin_writer_records_a_broken_pipe_separately_from_other_failures ... ok
+test supervisor::tests::production_launch_path_cannot_bypass_isolation_policy ... ok
+test supervisor::tests::test_only_launch_path_exercises_output_and_wall_budgets ... ok
+test supervisor::tests::test_only_launch_path_exercises_stdin_environment_and_exit_status ... ok
+test supervisor::tests::test_reference_delay_combines_global_baseline_and_scoped_sources ... ok
+test worker::tests::unavailable_policy_fails_before_spawn_and_cleans_root ... ok
+test supervisor::tests::test_only_launch_path_kills_descendant_process_group ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.40s
+
+     Running tests/adversarial.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/adversarial-05130d1d7e67268c)
+
+running 3 tests
+test candidate_sandbox_never_receives_merge_or_release_credentials ... ok
+test sandbox_escape_network_connection_is_denied ... ok
+test sandbox_escape_write_outside_worker_root_is_denied ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/provider_adapter_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/provider_adapter_contracts-670a40af40b7cb84)
+
+running 6 tests
+test provider_adapter_exposes_only_the_named_allowlisted_environment ... ok
+test provider_adapter_enforces_wall_and_output_budgets ... ok
+test provider_adapter_reports_denials_and_malformed_lines_through_drain_observations ... ok
+test provider_adapter_maps_exit_status_and_interrupt_to_completion_reasons ... ok
+test provider_event_cursor_never_panics_on_truncated_or_oversized_input ... ok
+test provider_adapter_runs_are_isolated_from_each_other ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+     Running tests/runtime_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/runtime_contracts-4b4d2d6ea0b92c9f)
+
+running 24 tests
+test budgets_and_run_specs_reject_invalid_inputs ... ok
+test deterministic_adapters_reject_provider_configuration ... ok
+test deterministic_runtime_drains_observations_once_and_then_empties ... ok
+test deterministic_runtime_reports_failed_status_when_inventory_exceeds_output_budget ... ok
+test deterministic_runtime_reports_inventory_git_failures ... ok
+test deterministic_runtime_reports_wall_overrun_instead_of_success ... ok
+test deterministic_runtime_skips_tracked_symlinks ... ok
+test deterministic_runtime_starts_resumes_interrupts_and_snapshots_real_worktrees ... ok
+test experiment_run_ids_match_the_signed_result_length_contract ... ok
+deterministic fixture
+cat: /var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/.tmpZtlWr1/run-two/worktree/fixture.txt: Operation not permitted
+cat: /var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/.tmptvCn0T/canonical-secret: Operation not permitted
+test isolated_worktrees_bind_expiring_tokens_to_one_run ... ok
+test provider_instruction_bounds_and_reference_conflicts_fail_before_invocation ... ok
+test provider_and_sandbox_setup_reject_invalid_inputs ... ok
+test provider_instructions_preserve_task_commitment_and_exact_framed_bytes ... ok
+test reference_instruction_keeps_world_input_and_experiment_unchanged ... ok
+test reference_instruction_rejects_oversized_task_input ... ok
+test run_specs_pin_the_resolved_revision_before_head_moves ... ok
+test run_specs_reject_unresolvable_revisions_at_construction ... ok
+test sandbox_rejects_specs_for_another_run_or_repository_at_the_same_revision ... ok
+test runtime_fails_closed_for_expiry_network_and_output_budget ... ok
+test supervisor_fails_closed_without_a_verified_isolation_backend ... ok
+test supervisor_enforces_combined_output_and_wall_budgets ... ok
+test supervisor_interrupt_waits_for_process_group_termination ... ok
+test supervisor_rejects_unrepresentable_deadline_before_spawn ... ok
+test supervisor_streams_stdin_and_reports_bounded_success_artifacts ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.82s
+
+     Running tests/worker_contracts.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/worker_contracts-e3dd6d8e12fe54c0)
+
+running 7 tests
+test malformed_or_oversized_requests_fail_before_worker_root_creation ... ok
+test replaced_worker_root_is_rejected_before_launch ... ok
+test spawn_failure_cleans_private_worker_root ... ok
+test isolated_workers_stream_bounded_input_in_distinct_domains ... ok
+test worker_domains_receive_distinct_private_environments ... ok
+test timeout_output_overrun_and_crash_all_cleanup_worker_roots ... ok
+test worker_policy_denies_protected_paths ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/hephaestus_senate-1147447a25226801)
+
+running 11 tests
+test backend::tests::claude_calls_are_isolated_and_never_bare ... ok
+test backend::tests::codex_calls_ignore_user_config_and_read_the_prompt_from_stdin ... ok
+test debate::tests::deliberation_parses_labelled_sections_leniently ... ok
+test debate::tests::deliberation_without_labels_is_an_unclear_vote_keeping_the_text ... ok
+test debate::tests::draft_parses_answer_and_agreement_bullets ... ok
+test debate::tests::ratification_needs_a_majority_and_no_dissent ... ok
+test debate::tests::sizes_match_the_approved_table ... ok
+test persona::tests::embedded_personas_have_unique_ids_and_every_field ... ok
+test persona::tests::roster_reply_keeps_known_ids_in_order_and_tops_up_from_the_fallback ... ok
+test persona::tests::seeded_roster_never_exceeds_the_persona_list ... ok
+test persona::tests::seeded_roster_is_reproducible_distinct_and_spans_domains ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/bin/senate.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/senate-f68b736c00edec5c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/senate_cli.rs (/tmp/heph-evaluator-trust-bvqzfomm/target/llvm-cov-target/debug/deps/senate_cli-1cd4fb855398865e)
+
+running 13 tests
+test a_failed_senator_is_recorded_and_the_debate_continues ... ok
+test a_failed_amendment_fold_keeps_the_ratified_draft_and_credits_the_amendment ... ok
+test a_small_senate_reaches_consensus_and_reports_everything ... ok
+test amendments_in_the_ratifying_round_are_folded_into_the_answer ... ok
+test a_hung_call_times_out_and_every_failed_opening_is_an_error ... ok
+test claude_is_called_with_isolation_flags_and_never_bare ... ok
+test an_unusable_roster_reply_falls_back_to_a_reproducible_seeded_roster ... ok
+test codex_replies_are_read_from_the_last_message_file ... ok
+test context_files_are_appended_to_the_question ... ok
+test no_installed_backend_is_a_clear_error ... ok
+test personas_lists_the_roster_with_the_disclaimer ... ok
+test the_backend_can_be_chosen_by_config_and_found_on_path ... ok
+test dissent_runs_to_the_round_cap_and_is_credited ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.51s
+
+
+    Finished report saved to /tmp/heph-evaluator-trust-bvqzfomm/launch-settings-lcov.info

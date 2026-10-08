@@ -38,7 +38,7 @@ live-model improvement and full installation acceptance remain required.
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current evaluator-recovery checkpoint passes 727 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance and two new recovery/privacy mutation guards pass. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. All 428 mutations passed at immutable checkpoint 709d965; later affected scopes have separate results. The configured matrix is now 432, without implying a fresh full 432-entry result. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current launch-settings checkpoint passes 728 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance and the two new attachment/refusal guards pass. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. All 428 mutations passed at immutable checkpoint 709d965; later affected scopes have separate results. A complete 432-entry audit is running at immutable 98ce84d; the current configured matrix is 434, without implying a fresh full 434-entry result. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -488,3 +488,32 @@ The full mutation audit, representative real-provider quality and cost evidence,
 fresh-user authentication, native Intel and release/quarantine acceptance remain
 open. Local shell fixtures and provider-launch markers establish neither model
 quality nor revenue. The full product goal remains active.
+
+## Verification of provider-setting handoff, 2026-10-08
+
+Claude's fresh-user review found that a helper launch silently reused a running
+daemon, ignoring new provider settings. The helper now refuses implicit reuse
+when one of its five source/provider startup variables is present. Stop and
+restart to apply them, or use `--no-daemon` to explicitly attach. Empty and
+unchanged values also require explicit attachment; no values are printed.
+Normal reopening without those settings and fresh frozen starts remain supported.
+Allowlisted credential values and PATH are also captured at startup; changes to
+those values alone cannot be detected and still require a restart.
+
+The [dated evidence](evidence/2026-10-08-launch-settings/README.md) records an
+actual native red/green regression for terminal and browser launch, all three
+pilot tests in production and all-feature configurations, matching restart/replay,
+and two killed mutation guards on exact Rust 1.88. A previous delivered archive
+fails the strengthened probe; the current ARM64 archive passes full acceptance,
+including explicit browser attachment and a real PTY on the pilot data directory.
+The copied guide gives the exact operator-TUI command for reaching Forge.
+Installed helper/CLI/daemon and all nine copied pack files match archive/repository
+bytes. No provider launch marker remains, and owned package processes stopped.
+
+Fresh verification passes **728 Rust tests including doc tests**, **all 51 coverage
+floors**, both Clippy modes, Rust 1.88 checks, docs, Actionlint and all 434 anchors.
+The complete 432-entry audit remains tied to 98ce84d; the two new guard results do
+not turn it into a full current 434-entry result. Claude found no blocking issue
+in the code and identified documentation limits that were corrected. All model
+fixtures here are local; authentication, representative quality and revenue
+remain unproved. The full product objective remains active.

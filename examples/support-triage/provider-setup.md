@@ -19,6 +19,19 @@ starts. Stop the browser with Ctrl+C, then stop the daemon serving this pilot:
 heph stop --data-dir "$PILOT_DIR/data"
 ```
 
+Confirm that stop succeeds before applying new settings. If a daemon is already
+running, `heph` refuses a launch that supplies the five `HEPHAESTUS_*`
+source/provider settings shown below, including empty or unchanged values;
+it cannot apply those settings to the existing process. Use `--no-daemon` only
+to reopen a console with the daemon's existing configuration. It does not update
+provider settings. Recorded prompt profiles describe the intended provider/model
+and limits, not the daemon's executable or authentication configuration.
+
+If those settings are exported in your shell, unset them or use `--no-daemon`
+when reopening. Allowlisted credential values and `PATH` are also inherited when
+the daemon starts; changes to those values alone are not detected by the helper.
+Restart after changing them as well.
+
 Choose the matching configuration below and launch the browser again. Starting
 the same data directory replays the registered World and pair and stays frozen.
 Use absolute provider executable paths. The new browser launch prints a new URL.

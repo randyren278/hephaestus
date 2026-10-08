@@ -75,6 +75,34 @@ def main() -> int:
 
     try:
         with console(heph, data, home, no_daemon=False):
+            # Startup settings cannot alter the daemon already serving this
+            # directory. Refuse rather than presenting a stale configuration.
+            try:
+                refused = subprocess.run(
+                    [heph, "web", "--data-dir", str(data)],
+                    capture_output=True, text=True, timeout=5,
+                )
+            except subprocess.TimeoutExpired:
+                raise AssertionError("helper served with ignored launch settings instead of refusing") from None
+            assert refused.returncode != 0
+            assert "launch settings were not applied" in refused.stderr
+            assert "heph stop" in refused.stderr and "--no-daemon" in refused.stderr
+            assert str(stub) not in refused.stderr and str(pack / "repository") not in refused.stderr
+            with console(heph, data, home, no_daemon=True):
+                assert cli_data(cli, data, "status")["frozen"] is True
+            names = ("HEPHAESTUS_SOURCE_REPOSITORY", "HEPHAESTUS_CODEX_EXECUTABLE", "HEPHAESTUS_CLAUDE_EXECUTABLE", "HEPHAESTUS_CODEX_AUTH_FILE", "HEPHAESTUS_PROVIDER_ENV_ALLOWLIST")
+            settings = {name: os.environ.pop(name) for name in names if name in os.environ}
+            try:
+                with console(heph, data, home, no_daemon=False):
+                    assert cli_data(cli, data, "status")["frozen"] is True
+            finally:
+                os.environ.update(settings)
+            terminal = subprocess.run(
+                [sys.executable, str(Path(__file__).with_name("tui_acceptance.py")), cli, str(data), str(home), os.environ["PATH"]],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+            assert "exited cleanly on q" in terminal.stdout
+            assert cli_data(cli, data, "status")["frozen"] is True
             before_invalid = cli_data(cli, data, "genome", "list")
             before_worlds = cli_data(cli, data, "world", "list")
             before_setups = set(data.glob("pilot-prepare-*"))
@@ -179,6 +207,9 @@ def main() -> int:
         "source_templates_preserved": True, "setup_mode": "0700", "global_git_signing_override_verified": True, "git_hooks_templates_and_location_env_ignored": True, "invalid_cost_rejected_before_registration": True,
         "evaluator_binding_matches_install": True,
         "evaluator_mismatch_refused_before_admission": True,
+        "ignored_launch_settings_refused": True,
+        "explicit_attachment_and_unconfigured_reopen_verified": True,
+        "pilot_terminal_attachment_verified": True,
         "scope": "offline placeholder model and marker stubs; no auth or model availability established",
     }, sort_keys=True))
     return 0

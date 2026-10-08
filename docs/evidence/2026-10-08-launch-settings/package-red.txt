@@ -1,0 +1,31 @@
+Installed Hephaestus in /tmp/hpkg.GVzZ0N/home/.local/share/hephaestus/releases/hephaestus-v0.1.0-macos-arm64
+Add /tmp/hpkg.GVzZ0N/home/.local/bin to PATH, then run: heph
+Browser console and evidence reports: heph web
+Acceptance prerequisite: host Git at /opt/homebrew/bin/git; host Node/npm are excluded from PATH.
+Daemon socket address: 57 bytes; resolved storage address: 141 bytes.
+hephaestus 0.1.0
+{"packaged_terminal": "80x24", "empty_data_bootstrap": true, "first_launch_prompt": true, "packaged_evaluator_lookup": true, "registered_fixture": true, "arena_measured": true, "metrics_selection_verified": true, "replay_verified": true, "completed_six_steps": true, "terminal_restored": true}
+fixture=quickstart path=/tmp/hpkg.GVzZ0N/home/quickstart
+source_repository=/tmp/hpkg.GVzZ0N/home/quickstart/repository
+65254833cff5c3acc33908c0cc1702f3bb3b347ef73368970d9aca879e4767da bytes=189
+4ddce318ebdfe302900170ed83918ff18034cd2cfc8ee1e34a1a54814a877b36 bytes=188
+5e20ee479fbbf00887daa681594305f12f58cb209b141544a233a6edce1c3d6f bytes=776032
+1af8eba02554544a476409e4261406afacdae218b035b56b6c5b9dc357cca0f3 public_key=4a9f8be7d2e89a31a3b53d94898c7841a31d307a1d0c12d1d0accb2a65413f53
+hephaestus:world:57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e quickstart-world artifact=57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e
+hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 quickstart-parent world=hephaestus:world:57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e artifact=a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 parents=
+hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 quickstart-candidate world=hephaestus:world:57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e artifact=68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 parents=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71
+acknowledged frozen=false killed_runs=0
+run=reference-13 genome=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 world=hephaestus:world:57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e revision=f9a68c4de2da306f00c8d61180df1cdecd31a6a5 reason=Success latency_ms=35 cost_microusd=0 stdout=d5fe1965298e90020690ca4989ddc303374b5907977e2a89edcd45d38fc12abb stderr=af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262 trace_artifacts=2
+evaluation=package-f37c680d939102525c5a0df27c1125b3f5345da4 parent=hephaestus:genome:a68564e2f31cfed0f963111574329d4f013e79ddc004173b7b55f0614ff51e71 candidate=hephaestus:genome:68a6d30130c5281c71e526fa106a6e0571cd84e53df596185f790f83e98d8f21 world=hephaestus:world:57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e candidate_visible=1/1 parent_visible=0/1 event=arena:evaluation:package-f37c680d939102525c5a0df27c1125b3f5345da4:recorded sequence=38 aggregate=arena:evaluation:package-f37c680d939102525c5a0df27c1125b3f5345da4
+selection=package-f37c680d939102525c5a0df27c1125b3f5345da4 world=hephaestus:world:57eae34d65f9fe390ace5df638b86a4f96e7a0762366aa81e8e18997b32d237e correctness_regressions=0 correctness_improvements=2 lower_bps=10000 metrics_eligible=true pareto_dominates=true invariant_gate_verified=false promotion_eligible=false event=arena:selection:package-f37c680d939102525c5a0df27c1125b3f5345da4:selected sequence=42 aggregate=arena:selection:package-f37c680d939102525c5a0df27c1125b3f5345da4 receipt=ba250ceb247f378c4700336053fcb8a434ff7204a59bd3ddfe70cb61b05718ed
+replayed events=43 frozen=false active_runs=0 projection=7cb45adf41691a9755c4a3726dacc991f8179082dd996f375b893f4d024c8e98
+packaged TUI rendered under the isolated PATH and exited cleanly on q
+{"broken_bundle_has_no_side_effects": true, "bundled_assets_sha256": {"app.js": "2d549fef21c5cf4cabb2f6b2717af6681414c9ec0e284c8d4a5e3fb335af5b3d", "index.html": "fb60fd0f696414e5ac0cad17e6634ac4fbbabae1422c53e2d421c772546308da", "styles.css": "cf1028cb82234035ffec2f142b8d66032c25596f382e210e5b5878adee7bffd3", "web-header-crest.svg": "8248f79fded60babfc884cdc87f3ddca742078843ccc72e06f6758ef29a10163"}, "comparisons_match_cli": true, "ctrl_c_preserves_daemon": true, "fresh_bootstrap_frozen": true, "host_node_options_ignored": true, "no_daemon_has_no_side_effects": true, "read_only_state_unchanged": true, "status": "passed"}
+Traceback (most recent call last):
+  File "/Users/randyren/Developer/hephaestus/scripts/package/pilot_acceptance.py", line 212, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/randyren/Developer/hephaestus/scripts/package/pilot_acceptance.py", line 86, in main
+    raise AssertionError("helper served with ignored launch settings instead of refusing") from None
+AssertionError: helper served with ignored launch settings instead of refusing
+preserved acceptance workspace: /tmp/hpkg.GVzZ0N

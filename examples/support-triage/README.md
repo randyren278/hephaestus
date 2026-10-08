@@ -139,8 +139,14 @@ This pack measures strict routing/priority correctness, not answer style or
 support quality. A small sample or one successful comparison does not prove
 reliable improvement. Preserve unfavorable results and report uncertainty.
 
-After the initial Selection, use `Evidence & Costs → Forge: revise a prompt`
-to revise its evaluated candidate from actual evidence. The
+After the initial Selection, open the operator terminal console in another terminal:
+
+```sh
+hephaestus --data-dir "$PILOT_DIR/data" tui
+```
+
+Choose `Evidence & Costs → Forge: revise a prompt` to revise the evaluated
+candidate from actual evidence. The browser console is read-only. The
 [existing checklist prompt body](checklist.prompt.md) belongs to the initial checklist
 variant; submitting it unchanged as a revision of that same variant correctly
 rejects. Author a distinct evidence-based revision, keep the model and World

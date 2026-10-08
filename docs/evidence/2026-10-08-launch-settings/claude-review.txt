@@ -1,0 +1,47 @@
+I found one concrete obstacle that a fresh user will plausibly hit. It's in the step where provider credentials are handed to the daemon. Everything before that step checks out against the code. I only read code and ran nothing.
+
+## The obstacle: `heph web` silently ignores provider settings when a daemon is already running
+
+`provider-setup.md` tells the user to apply provider settings by restarting the daemon. The steps are: Ctrl+C the browser, run `heph stop --data-dir "$PILOT_DIR/data"`, then relaunch `heph web` with `HEPHAESTUS_CODEX_EXECUTABLE`, `HEPHAESTUS_CODEX_AUTH_FILE`, `HEPHAESTUS_CLAUDE_EXECUTABLE` or `HEPHAESTUS_PROVIDER_ENV_ALLOWLIST` set (`examples/support-triage/provider-setup.md:15-50`).
+
+In the code:
+- **The settings are only read when the daemon starts** (`crates/hephaestus-control/src/server.rs:1056-1060`). The Codex auth file is read from the daemon's own environment (`runtime_exec.rs:780`).
+- **`heph web` reuses whatever daemon is already running** and gives no warning (`crates/hephaestus-control/src/bin/heph.rs:154-173`). Its only message comes afterwards and says the browser leaves the daemon running (`heph.rs:261-263`).
+- **Nothing shows the daemon's provider settings.** The setup guide's "Confirm before evaluating" step says to re-read the two prompt profiles (`provider-setup.md:58-64`), but those profiles don't include the provider executable, auth file or allowlist.
+
+So if a user skips `heph stop`, or it fails, the relaunch looks normal but the daemon still has its original settings: bare `codex`/`claude`, no auth file and an empty allowlist. A related silent case: if a variable named in the allowlist isn't set, it is skipped without any message (`runtime_exec.rs:806-813`).
+
+The mistake is likely because Ctrl+C feels like stopping everything. Nothing catches it until after `unfreeze` and `arena evaluate`. The failed comparison is then recorded under the documented ID `support-triage-v1-001`, and retrying that ID just returns the recorded failure (`examples/support-triage/README.md:120-122`). The user has to work out why and pick a new ID.
+
+## Small fix, with a test that can fail
+
+In `heph.rs`, change `ensure_daemon`/`run_web` (and `run_launch` too):
+- If a daemon is already running for the data directory and any of the four provider variables (or `HEPHAESTUS_SOURCE_REPOSITORY`) is set, exit non-zero before starting Node.
+- The message should say the settings were not applied and to run `heph stop --data-dir …` first, or use `--no-daemon` just to reopen the console.
+
+Don't refuse when none of those variables are set, so normal reopening keeps working. This needs `--no-daemon` to skip the new check.
+
+Test, in the style of `crates/hephaestus-control/tests/pilot_preparation.rs`:
+1. Start a frozen daemon on a temporary data directory.
+2. Run `HEPHAESTUS_CODEX_AUTH_FILE=/nonexistent heph web --data-dir D`. Expect a non-zero exit, stderr naming `heph stop`, and no web server.
+3. Run the same with `--no-daemon`, and also with no variables set. Both should still reach the web console as they do today.
+4. Run `heph stop`, then the relaunch with the variables. It should start a new daemon.
+
+Today step 2 fails: `heph web` exits successfully and serves the old daemon.
+
+Optionally, `provider-setup.md:58-64` could also say that the profiles don't show provider settings, so a successful restart is the only confirmation.
+
+## What checks out
+
+- **`pilot prepare`** (`bin/hephaestus/pilot.rs`):
+  - The three required flags and the cost range match the README.
+  - The frozen check runs before and after.
+  - It uses the evaluator next to the CLI binary and keeps the setup directory.
+  - The `--json` output and keeping the user's socket path also match the docs.
+- **Evaluator match:** `heph` passes the evaluator next to its own binary, and both `heph` and the CLI resolve their real paths (`heph.rs:327-376`, `hephaestus.rs:916-921`). For packaged and source installs the two evaluators are the same file, which addresses the earlier evaluator-mismatch review.
+- **Long comparisons:** `arena evaluate` keeps checking job status rather than relying on the 15 s reply timeout (`hephaestus.rs:753-788`). A 4-hour, 48-trial run won't make the CLI time out.
+
+## Evidence needed next (I didn't produce or assume any of this)
+
+1. A green run of the fix above.
+2. One owner-authorized real-provider comparison following the packaged README exactly. Record the items in `examples/support-triage/README.md:125-134`: provider CLI version, the model requested, scores on visible and sealed tasks, the confidence interval, whether cost was reported, the result after restarting and replaying, and the downloaded report checked against the daemon. That run would also show whether the documented Codex and Claude handoffs actually work in the sandbox. Nothing in the repository establishes that yet.

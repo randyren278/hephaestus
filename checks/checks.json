@@ -3281,6 +3281,22 @@
       "find": "        _ => return ExecuteError::Internal,\n    };\n    ExecuteError::Rejected(message.to_owned())",
       "replace": "        _ => return ExecuteError::Rejected(error.to_string()),\n    };\n    ExecuteError::Rejected(message.to_owned())",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib evaluator_open_errors_explain_recovery_and_keep_unknown_details_private"
+    },
+    {
+      "id": "control-helper-ignored-launch-settings-bypassed",
+      "file": "crates/hephaestus-control/src/bin/heph.rs",
+      "invariant": "A helper launch cannot silently ignore source/provider startup settings while reusing a daemon.",
+      "find": "        if configured && !no_daemon {",
+      "replace": "        if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test pilot_preparation helper_refuses_ignored_launch_settings_and_allows_explicit_attachment -- --exact"
+    },
+    {
+      "id": "control-helper-explicit-attachment-refused",
+      "file": "crates/hephaestus-control/src/bin/heph.rs",
+      "invariant": "Explicit --no-daemon attachment uses the existing daemon even when startup settings are present.",
+      "find": "        if configured && !no_daemon {",
+      "replace": "        if configured {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --test pilot_preparation helper_refuses_ignored_launch_settings_and_allows_explicit_attachment -- --exact"
     }
   ]
 }

@@ -54,6 +54,14 @@ Open the exact local URL it prints. Under **Evidence & activity**, expand
 daemon frozen without running agents. Ctrl+C closes the browser server;
 `heph stop --data-dir /path/to/pilot/data` stops the remaining daemon.
 
+When a daemon is already running, launching with `HEPHAESTUS_*` source/provider settings
+requires stopping it first. The helper refuses to silently ignore those settings.
+Use `--no-daemon` to attach with the existing daemon's configuration; that flag
+does not apply new provider settings.
+Empty or unchanged settings also require explicit attachment. Changes to
+allowlisted credential values or `PATH` alone are not detected; restart to apply
+them. See the copied provider setup guide for the complete handoff.
+
 The acceptance script additionally needs Python 3 for its PTY driver. It tests with Git present while excluding host Node and npm from `PATH`; this does not prove operation without Git. The tour verifies replay before stopping its daemon; the separate reference Gauntlet verifies stop/restart recovery.
 
 For a manual workflow, create the local quickstart source and configuration fixture:

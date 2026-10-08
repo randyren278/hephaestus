@@ -1,0 +1,10 @@
+   Compiling hephaestus-control v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.44s
+     Running tests/pilot_preparation.rs (/tmp/heph-launch-guard-os2fxey_/target188/debug/deps/pilot_preparation-48e465b726984c9b)
+
+running 3 tests
+test helper_refuses_ignored_launch_settings_and_allows_explicit_attachment ... ok
+test installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provider ... ok
+test evaluator_mismatch_rejects_before_hosted_work_and_matching_restart_recovers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.74s

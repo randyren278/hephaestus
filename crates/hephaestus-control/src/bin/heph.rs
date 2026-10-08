@@ -152,7 +152,20 @@ fn run_launch(data_dir: &Path, force_tour: bool, no_daemon: bool) -> ExitCode {
 }
 
 fn ensure_daemon(data_dir: &Path, no_daemon: bool) -> Result<(), String> {
-    if !daemon_reachable(data_dir) {
+    if daemon_reachable(data_dir) {
+        let configured = [
+            "HEPHAESTUS_SOURCE_REPOSITORY",
+            "HEPHAESTUS_CODEX_EXECUTABLE",
+            "HEPHAESTUS_CLAUDE_EXECUTABLE",
+            "HEPHAESTUS_CODEX_AUTH_FILE",
+            "HEPHAESTUS_PROVIDER_ENV_ALLOWLIST",
+        ]
+        .iter()
+        .any(|name| env::var_os(name).is_some());
+        if configured && !no_daemon {
+            return Err("a daemon is already running; launch settings were not applied. Use `heph stop --data-dir <same-directory>` before restarting with these settings, or use --no-daemon to attach to the existing daemon".to_owned());
+        }
+    } else {
         if no_daemon {
             return Err(format!(
                 "no daemon is running for {}; omit --no-daemon to start one automatically",

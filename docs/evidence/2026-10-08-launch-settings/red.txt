@@ -1,0 +1,22 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.12s
+     Running tests/pilot_preparation.rs (target/debug/deps/pilot_preparation-e671668c6ad2882c)
+
+running 1 test
+test helper_refuses_ignored_launch_settings_and_allows_explicit_attachment ... FAILED
+
+failures:
+
+---- helper_refuses_ignored_launch_settings_and_allows_explicit_attachment stdout ----
+
+thread 'helper_refuses_ignored_launch_settings_and_allows_explicit_attachment' (19600878) panicked at crates/hephaestus-control/tests/pilot_preparation.rs:185:13:
+ignored HEPHAESTUS_SOURCE_REPOSITORY must refuse
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    helper_refuses_ignored_launch_settings_and_allows_explicit_attachment
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.28s
+
+error: test failed, to rerun pass `-p hephaestus-control --test pilot_preparation`
