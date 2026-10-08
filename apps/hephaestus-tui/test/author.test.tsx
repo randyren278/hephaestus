@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {access, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {defaultAgentPath, editorCommand, ensureAgentSource, expandPath, markdownAgentTemplate, slugify} from '../src/author.js';
+import {defaultAgentPath, editorCommand, ensureAgentSource, expandPath, launchEditor, markdownAgentTemplate, slugify} from '../src/author.js';
 
 test('slugify lowercases, collapses separators, and trims edges', () => {
 	assert.equal(slugify('Coding World v2!'), 'coding-world-v2');
@@ -46,7 +46,6 @@ test('ensureAgentSource creates the workspace directory and a starter template o
 		assert.match(first, /name: my-world/);
 		assert.match(first, /```hephaestus-reference-v1\n\{"schema_version":1,"operation":"identity"\}\n```\n$/);
 		// A second call must not clobber operator edits.
-		const {writeFile} = await import('node:fs/promises');
 		await writeFile(path, 'edited content\n');
 		ensureAgentSource(path, 'My World');
 		const second = await readFile(path, 'utf8');
@@ -65,4 +64,27 @@ test('markdownAgentTemplate body is exactly the strict fenced reference instruct
 
 test('ensureAgentSource refuses a relative path', () => {
 	assert.throws(() => ensureAgentSource('relative/path.md', 'World'), /must be absolute/);
+});
+
+test('launchEditor accepts flags and shell quoting while passing metacharacters in the path literally', async () => {
+	const workspace = await mkdtemp(join(tmpdir(), 'hephaestus-editor-'));
+	try {
+		const editor = join(workspace, 'fake editor.sh');
+		const report = join(workspace, 'arguments.txt');
+		const injected = join(workspace, 'injected');
+		const path = join(workspace, `agent $(touch '${injected}') \`touch '${injected}'\` "quotes".md`);
+		await writeFile(editor, '#!/bin/sh\nreport="$1"\nshift\nprintf \'%s\\n\' "$@" > "$report"\n');
+		// The report path and command are trusted settings; the agent path is not shell text.
+		await launchEditor(path, `sh '${editor}' '${report}' --wait 'two words'`);
+		assert.equal(await readFile(report, 'utf8'), `--wait\ntwo words\n${path}\n`);
+		await assert.rejects(access(injected), {code: 'ENOENT'});
+	} finally {
+		await rm(workspace, {recursive: true, force: true});
+	}
+});
+
+test('launchEditor reports nonzero status, a missing command and interruption as failures', async () => {
+	await assert.rejects(launchEditor('/tmp/agent.md', 'false'), /Editor failed \(status 1\)/);
+	await assert.rejects(launchEditor('/tmp/agent.md', '/definitely-missing-hephaestus-editor'), /Editor failed \(status 127\)/);
+	await assert.rejects(launchEditor('/tmp/agent.md', 'kill -TERM $$; true'), /Editor interrupted \(SIGTERM\)/);
 });

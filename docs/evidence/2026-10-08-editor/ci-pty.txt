@@ -1,0 +1,41 @@
+running 1 test
+PTY 80x24: Runs, Evidence receipts, Costs, and Denials all showed real daemon data.
+Runs evidence: SUCCEEDED a68564e2f31c · 19ms · $0.0000 · success | SUCCEEDED a68564e2f31c · 15ms · $0.0000 · success | SUCCEEDED a68564e2f31c · 22ms · $0.0000 · success
+Evidence evidence: › a68564e2f31c→68a6d30130c5 1/1 visible · 10000bps
+Costs evidence: COSTS (2) · total $0.0000
+Denials evidence: › request rejected status
+
+PTY 80x24: authored, registered, and tested a Markdown agent end to end through the real daemon.
+Registration evidence: Genome quickstart-world dc313cda2ebb
+Test evidence: › Author Markdown agent  ‹                   │ Visible score 0 → 0 / 11
+
+{
+  "packaged_tui_80x24": [
+    {
+      "editor_succeeded": true,
+      "exact_arguments": true,
+      "editor_received_exact_keyboard_input": true,
+      "quiet_editor_interval_seconds": 2,
+      "single_launch": true,
+      "raw_mode_restored": true,
+      "source_preserved": true,
+      "registration_step_entered": true,
+      "terminal_restored_on_exit": true
+    },
+    {
+      "editor_succeeded": false,
+      "exact_arguments": true,
+      "editor_received_exact_keyboard_input": true,
+      "quiet_editor_interval_seconds": 2,
+      "single_launch": true,
+      "raw_mode_restored": true,
+      "source_preserved": true,
+      "registration_step_entered": false,
+      "terminal_restored_on_exit": true
+    }
+  ]
+}
+
+test tui_evidence_screens_and_markdown_authoring_flow_through_a_pty ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 39.44s

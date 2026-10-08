@@ -1,0 +1,16 @@
+**No blocker remains in the private-storage foundation.** I re-read both files; I didn't run the tests.
+
+**The `compare_failed` fix:**
+- **Reachable from both states:** `running` and `compare_unknown` can both move to `compare_failed` (`revision-workspace.ts:215-216`).
+- **No route to assessment:** `compare_failed` can only stay put or go to `compare_unknown`. Only `completed` leads to `assessment_unknown` (`:216`), and the test confirms the attempt is rejected (`test:296`).
+- **Fresh ID required:** going back to `compare_unknown` needs exactly one appended ID. Only `newAttempt` adds one, and it's allowed from `compare_failed` (`:229`, `:232`, `:325`).
+- **Earlier IDs kept:** the prefix check at `:228` stops previous attempt IDs from being lost or changed. The test covers this (`test:297-300`).
+- **Failure found on resume:** going straight from `compare_unknown` to `compare_failed` is covered (`test:302-303`).
+
+**Snapshot resume branches:** both are now tested. A leftover copy with the matching hash resumes into `record_unknown`. A corrupt copy at the same name is refused, the file is left untouched and the phase stays `editing` (`test:271-286`).
+
+**Non-blocking notes for UI wiring:**
+1. `save()` is public and accepts `editing → record_unknown` with any valid hash, even if no snapshot file exists. It fails safely later, because `retryPath` refuses a missing or mismatched file. Still, the controller should only enter `record_unknown` through `snapshot()`.
+2. Small test gap: no test checks that `newAttempt` is rejected from `running` or `compare_unknown`. The code does reject it (`:325`), and the `compare_unknown` case is already tested at `test:195`.
+
+The UI controller work you listed (reconciling with the daemon, checking the returned prompt hash, saving only on phase or binding changes, showing retained rejected draft paths, and sanitizing untrusted display fields) is outside this review and still to do.

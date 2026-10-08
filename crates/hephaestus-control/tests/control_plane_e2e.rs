@@ -8031,12 +8031,16 @@ fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
     );
     println!("{}", String::from_utf8_lossy(&evidence_output.stdout));
 
+    let author_home = directory.path().join("author-home");
+    fs::create_dir(&author_home).expect("create isolated author workspace home");
     let author_output = ProcessCommand::new("python3")
         .arg(app.join("scripts/pty_author.py"))
         .arg(&app)
         .arg(&data_dir)
         .arg("quickstart-world")
         .env("EDITOR", "true")
+        .env_remove("VISUAL")
+        .env("HOME", &author_home)
         .output()
         .expect("run Ink Markdown authoring pseudo-terminal test");
     assert!(
@@ -8046,6 +8050,21 @@ fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
         String::from_utf8_lossy(&author_output.stderr)
     );
     println!("{}", String::from_utf8_lossy(&author_output.stdout));
+
+    let editor_output = ProcessCommand::new("python3")
+        .arg(app.join("scripts/pty_editor.py"))
+        .arg(&app)
+        .arg(&data_dir)
+        .arg("quickstart-world")
+        .output()
+        .expect("run packaged Ink editor pseudo-terminal test");
+    assert!(
+        editor_output.status.success(),
+        "PTY editor ownership and recovery failed:\nstdout={}\nstderr={}",
+        String::from_utf8_lossy(&editor_output.stdout),
+        String::from_utf8_lossy(&editor_output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&editor_output.stdout));
 
     daemon.stop();
 }

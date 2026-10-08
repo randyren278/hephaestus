@@ -1,0 +1,26 @@
+{
+  "packaged_tui_80x24": [
+    {
+      "editor_succeeded": true,
+      "exact_arguments": true,
+      "editor_received_exact_keyboard_input": true,
+      "quiet_editor_interval_seconds": 2,
+      "single_launch": true,
+      "raw_mode_restored": true,
+      "source_preserved": true,
+      "registration_step_entered": true,
+      "terminal_restored_on_exit": true
+    },
+    {
+      "editor_succeeded": false,
+      "exact_arguments": true,
+      "editor_received_exact_keyboard_input": true,
+      "quiet_editor_interval_seconds": 2,
+      "single_launch": true,
+      "raw_mode_restored": true,
+      "source_preserved": true,
+      "registration_step_entered": false,
+      "terminal_restored_on_exit": true
+    }
+  ]
+}

@@ -53,7 +53,14 @@ escape codes) when the process is not attached to a TTY or `NO_COLOR` is set
 (`FORCE_COLOR` can still force color back on). `NO_COLOR`/piped output never
 lose data — only decoration.
 
-This is roadmap item 9's current slice, extended with roadmap item 12's drift/canary read screens and item 13's meta-evaluation read screens. Still missing: a recorded demo video covering the new screens (see `docs/demo/`), and an MCP gateway/remote-worker activity view — the daemon's control protocol has no list command for MCP calls or remote-worker jobs (only `mcp_call` dispatch and `worker_credential_mint`/`remote_run_submit`/`remote_job_status` by known ID), so there is nothing to browse yet; a lookup-by-known-ID screen would add little over the existing `Inspect job by ID` action. The Markdown starter template's body is the deterministic reference runtime's `identity` instruction, editable to `ascii_uppercase` or extended once richer runtimes exist; the reference runtime's parser only accepts that exact fenced block, so free-form prose must live outside it until a richer runtime reads it.
+This is roadmap item 9's current slice, extended with roadmap item 12's drift/canary read screens and item 13's meta-evaluation read screens. Still missing: a recorded demo video covering the new screens (see `docs/demo/`), and an MCP gateway/remote-worker activity view — the daemon's control protocol has no list command for MCP calls or remote-worker jobs (only `mcp_call` dispatch and `worker_credential_mint`/`remote_run_submit`/`remote_job_status` by known ID), so there is nothing to browse yet. The Markdown starter template uses the deterministic reference runtime's strict fenced `identity` instruction, editable to `ascii_uppercase`. Registered Codex and Claude Genomes use an ordinary prose body and a pinned model family; see [Genome instructions](../../docs/GENOMES.md). Guided evidence-bound prose revision screens remain in progress.
+
+Editor settings may include flags and shell quoting, such as `EDITOR='code --wait'`.
+The source path is passed as a literal argument. While editing, Ink releases the
+terminal and the console pauses its polling; when the editor returns, Ink
+restores terminal modes and redraws. A nonzero exit keeps the source and stays on
+the path step with a retry notice. Interrupting a wait-style editor with Ctrl-C
+can exit the console; the daemon continues and the source stays on disk.
 
 ## Development checks
 
@@ -64,13 +71,19 @@ npm run typecheck
 npm run build:package
 ```
 
-Three live-daemon PTY acceptance fixtures exist as opt-in Rust integration tests, all gated by `HEPHAESTUS_TUI_PTY_E2E=1` and requiring `npm ci` in this directory first:
+Live-daemon PTY acceptance fixtures exist as opt-in Rust integration tests, all gated by `HEPHAESTUS_TUI_PTY_E2E=1` and requiring `npm ci` and `npm run build:package` in this directory first:
 
 - `async_job_status_and_cancellation_remain_responsive_and_confirm_process_death` launches the Rust CLI from a source checkout inside an 80×24 pseudo-terminal, selects a relative data directory while a second daemon is configured as the fallback, exercises confirmed cancellation against the selected daemon, checks stale status when launched without an available daemon, and verifies terminal restoration on `q`. This is also the live-job responsiveness proof: while a real job runs, it navigates to status, issues `Cancel job by ID`, and gets daemon-confirmed termination before the test's own budget expires.
 - `tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty` builds a real promoted lineage through the CLI, then drives the Ink lineage screens in a 100×30 pseudo-terminal (`scripts/pty_lineage.py`): it opens the World, navigates the lineage tree to the Champion row, inspects its prompt diff against its parent, and rolls it back through the reason prompt and `Y` confirmation, asserting the daemon's rollback event and the refreshed quarantined/standby state.
 - `tui_evidence_screens_and_markdown_authoring_flow_through_a_pty` builds a real World, parent/candidate Genome pair, run, paired evaluation, and denial through the CLI, drives the Evidence & Costs screens in an 80×24 pseudo-terminal (`scripts/pty_evidence.py`) asserting each shows that real data with Worlds visually separated, then drives the full Markdown authoring flow (`scripts/pty_author.py`): World pick, the default path and starter template, an `$EDITOR` hand-off (set to a no-op for determinism) with verified raw-mode restoration, `genome_register` against the real compiler, and a paired Test via `evaluate_pair` that waits for a live visible score from the reused `ArenaProgressPanel`.
 
-Run all three with:
+The evidence/authoring fixture also runs the packaged console's editor checks
+(`scripts/pty_editor.py`) with a flag-bearing fake editor that reads actual
+keyboard input. It checks exact Unicode input, no console output during the
+editor interval, single launch on double Enter, success/failure recovery, source
+preservation and terminal restoration, all under an isolated temporary home.
+
+Run these fixtures with:
 
 ```sh
 HEPHAESTUS_TUI_PTY_E2E=1 cargo test -p hephaestus-control --all-features --test control_plane_e2e -- --nocapture \

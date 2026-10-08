@@ -1,7 +1,6 @@
-import {spawn} from 'node:child_process';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, useWindowSize} from 'ink';
-import {defaultAgentPath, editorCommand, ensureAgentSource} from './author.js';
+import {defaultAgentPath, ensureAgentSource, launchEditor} from './author.js';
 import {ControlClient} from './client.js';
 import {aggregateCosts, type CostEntry} from './evidence.js';
 import {CostsPanel, DenialsPanel, EvidencePanel, RunsPanel} from './evidence-view.js';
@@ -129,7 +128,7 @@ export function ArenaProgressPanel({job, stale, notice, compact = false, animate
 }
 
 export function App({client: providedClient, pollMs = 1500, forceTour = false}: Props) {
-	const {exit} = useApp();
+	const {exit, suspendTerminal} = useApp();
 	const theme = useTheme();
 	const {columns = 80, rows = 24} = useWindowSize();
 	const [client] = useState(() => providedClient ?? new ControlClient());
@@ -181,19 +180,23 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 	const [lifetime] = useState(() => new AbortController());
 	const closing = useRef(false);
 	const refreshing = useRef(false);
+	const authorEditing = useRef(false);
+	const refreshGeneration = useRef(0);
 	const arenaCurrentId = useRef('');
 	const arenaRefreshing = useRef<string | null>(null);
 	const refresh = useCallback(async (announce = true): Promise<ApiResponse | undefined> => {
-		if (closing.current || refreshing.current) return undefined;
+		if (closing.current || authorEditing.current || refreshing.current) return undefined;
 		refreshing.current = true;
+		const generation = refreshGeneration.current;
 		try {
 			const response = await client.request({command: 'status'}, lifetime.signal);
+			if (generation !== refreshGeneration.current) return undefined;
 			setStatus(response);
 			setStale(Boolean(response.error));
 			if (announce) setNotice(messageFor(response));
 			return response;
 		} catch (error) {
-			if (lifetime.signal.aborted) return undefined;
+			if (lifetime.signal.aborted || generation !== refreshGeneration.current) return undefined;
 			setStale(true);
 			if (announce) setNotice(error instanceof Error ? safeText(error.message) : 'Local daemon unavailable');
 			return undefined;
@@ -424,19 +427,6 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 		}
 	}, [client, lifetime]);
 
-	/** Hands the real terminal to `$EDITOR`/`$VISUAL` and restores Ink's raw-mode input afterward. */
-	const openEditor = async (path: string): Promise<void> => {
-		const wasRaw = Boolean(process.stdin.isTTY && process.stdin.isRaw);
-		if (process.stdin.isTTY) process.stdin.setRawMode(false);
-		process.stdin.pause();
-		await new Promise<void>(resolve => {
-			const child = spawn(editorCommand(), [path], {stdio: 'inherit'});
-			child.on('exit', () => resolve());
-			child.on('error', () => resolve());
-		});
-		process.stdin.resume();
-		if (process.stdin.isTTY && wasRaw) process.stdin.setRawMode(true);
-	};
 	const registerAgent = async (path: string, worldId: string) => {
 		if (busy) return;
 		setBusy(true);
@@ -506,6 +496,7 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 	};
 
 	useInput((input, key) => {
+		if (authorEditing.current) return;
 		if (view === 'tour') return; // TourScreen owns its own input while active.
 		if (view === 'home' && input.toLowerCase().includes('q')) { quit(); return; }
 		if (view === 'job-id') {
@@ -708,17 +699,25 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 			if (key.return || input.includes('\r') || input.includes('\n')) {
 				const typed = input.replace(/[\r\n]/g, '').replace(/[\u0000-\u001f\u007f]/g, '');
 				const path = (authorPath + typed).trim();
-				if (path && world) {
+				if (path && world && !busy) {
+					authorEditing.current = true;
+					refreshGeneration.current += 1;
+					setBusy(true);
 					setAuthorPath(path);
 					(async () => {
+						let sourceReady = false;
 						try {
 							const resolved = ensureAgentSource(path, world.name);
+							sourceReady = true;
 							setAuthorPath(resolved);
-							await openEditor(resolved);
+							await suspendTerminal(() => launchEditor(resolved));
 							setAuthorNotice(`Editor closed for ${safeText(resolved)}. Press Enter to register with the daemon.`);
 							setView('author-register');
 						} catch (error) {
-							setAuthorNotice(error instanceof Error ? safeText(error.message) : 'Could not open the Markdown agent source');
+							setAuthorNotice(`${error instanceof Error ? safeText(error.message) : 'Could not open the Markdown agent source'}. ${sourceReady ? 'Source kept; ' : ''}Enter retries the editor.`);
+						} finally {
+							authorEditing.current = false;
+							if (!lifetime.signal.aborted) setBusy(false);
 						}
 					})();
 				}
@@ -896,6 +895,7 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 				<Text bold {...colorProps(theme.color('judge'))}>AUTHOR MARKDOWN AGENT / {world ? safeText(world.name) : ''}</Text>
 				<Text {...colorProps(theme.color('muted'))}>Markdown Genome source path (created with a starter template if missing):</Text>
 				<Text wrap="truncate">{authorPath}</Text>
+				{authorNotice && <Text wrap="truncate" {...colorProps(theme.color('danger'))}>{safeText(authorNotice)}</Text>}
 			</Box>}
 			{view === 'author-register' && <Box flexDirection="column" borderStyle="single" {...borderColorProps(theme.color('border'))} paddingX={1}>
 				<Text bold {...colorProps(theme.color('judge'))}>REGISTER / {world ? safeText(world.name) : ''}</Text>

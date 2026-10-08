@@ -166,3 +166,12 @@ checks were killed, with no survivors, stale entries or timeouts. The restored
 source rebuilt successfully and repeated the actual old/new upgrade and second
 restart. Guided authoring and representative live-model quality evidence remain
 required. This does not establish full product readiness or revenue.
+
+The shared terminal editor handoff now supports flags and quoted commands,
+reports failures on the source-path step and preserves the file for retry.
+Actual packaged-console PTY checks type Unicode into the editor, verify no Ink
+output during its ownership and verify terminal modes after success, failure and
+exit. The existing full registration/comparison fixture passes and now includes
+the packaged-editor checks in CI. See the
+[editor evidence](evidence/2026-10-08-editor/README.md). Private draft and recovery
+storage for guided Forge is under development; the screens are not wired yet.

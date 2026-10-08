@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {dirname, isAbsolute, join} from 'node:path';
@@ -59,4 +60,15 @@ export function ensureAgentSource(path: string, worldName: string): string {
 /** The editor command to hand the terminal off to: `$VISUAL`, then `$EDITOR`, then `vi`. */
 export function editorCommand(): string {
 	return process.env['VISUAL'] || process.env['EDITOR'] || 'vi';
+}
+
+/** The trusted editor setting may contain flags; the path stays a literal argument. */
+export async function launchEditor(path: string, command = editorCommand()): Promise<void> {
+	// Pause Node's event loop as well as Ink: the parent must not compete with
+	// an interactive editor for reads from the inherited terminal.
+	const result = spawnSync('/bin/sh', ['-c', `${command} "$@"`, 'hephaestus-editor', path], {stdio: 'inherit'});
+	if (result.error) throw new Error('Could not launch the editor');
+	if (result.status !== 0 || result.signal !== null) {
+		throw new Error(result.signal ? `Editor interrupted (${result.signal})` : `Editor failed (status ${result.status})`);
+	}
 }

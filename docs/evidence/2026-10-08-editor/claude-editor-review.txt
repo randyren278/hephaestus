@@ -1,0 +1,18 @@
+Read-only Claude Code review of the editor handoff; its independent draft-storage review is outside this checkpoint.
+
+## Editor hand-off (`author.ts`, `ui.tsx`, `author.test.tsx`, `pty_editor.py`)
+
+**No blocking issue.** I checked the change against Ink's own `beginSuspend`/`endSuspend` code in `node_modules/ink/build/ink.js` (lines 872–948):
+
+- Ink clears its frame, turns raw mode off and pauses input before the callback runs. Because `spawnSync` blocks Node's event loop, nothing in the parent can read stdin or redraw until the editor exits. `endSuspend` then turns input back on and forces a full redraw.
+- **Double Enter:** `authorEditing.current` is set in the same tick (`ui.tsx:700`), and the input handler returns early while it's set (`ui.tsx:496`). Two Enters arriving together therefore launch one editor, which `pty_editor.py:95` and `:107` check.
+- **"Source kept" notice:** it now only appears when the source file was actually created (`ui.tsx:704`, `:707`, `:713`).
+- **Shell metacharacters:** the path is passed as a literal argument via `"$@"` (`author.ts:69`). The test uses a marker file inside its own temp workspace (`author.test.tsx:75-81`).
+- **Typed input:** the editor receives the exact Unicode line, including `q` and `--wait`, with echo off, and the test asserts that nothing is written between `EDITOR_START` and `EDITOR_END` (`pty_editor.py:97-106`).
+
+**Not blocking, worth knowing:**
+1. **`pty_editor.py` doesn't run in CI.** The other `pty_*.py` scripts are run from `crates/hephaestus-control/tests/control_plane_e2e.rs` (e.g. `pty_author.py` at line 8035), but nothing calls `pty_editor.py`. Until it's added to that test, these results come from manual runs only and won't catch a regression.
+2. **Ctrl-C in a wait-style editor ends the TUI.** With raw mode off, an editor such as `code --wait` leaves Ctrl-C as a terminal signal, which goes to Node as well as the editor. The TUI registers no signal handler, so the TUI exits along with the editor. This was already true with the old async spawn. At minimum, document it.
+3. **Pollers stall during editing.** While `spawnSync` blocks, every timer stops. Status refresh is skipped (`ui.tsx:187`), but any other in-flight daemon request or arena poll will see its timeout expire all at once when the editor closes. That could show a misleading stale or timeout notice after a long edit.
+4. **Enter can silently do nothing.** If some other action left `busy` set, Enter is ignored with no message (`ui.tsx:699`).
+5. **Nit:** `author.test.tsx:49` imports `writeFile` again, though line 3 already imports it.

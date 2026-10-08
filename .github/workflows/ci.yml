@@ -196,6 +196,10 @@ jobs:
         working-directory: apps/hephaestus-tui
         run: npm ci
 
+      - name: Build the packaged TUI for terminal handoff checks
+        working-directory: apps/hephaestus-tui
+        run: npm run build:package
+
       - name: PTY end-to-end tests against a live daemon
         env:
           HEPHAESTUS_TUI_PTY_E2E: "1"
