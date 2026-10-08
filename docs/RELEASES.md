@@ -73,7 +73,7 @@ All three should succeed before you run the archive's install.sh (see
 
 ## Reproducibility: what is actually proven
 
-The `reproducibility` job in `.github/workflows/release.yml` checks out the tagged commit once,
+The `reproducibility` job in `.github/workflows/release.yml` checks out the selected commit once,
 builds the `arm64` archive twice from that single checkout with the same
 toolchain, and fails the workflow if the two archives are not byte-identical.
 Locally, the same experiment (two `cargo build --release` runs of the `hephaestus`
@@ -99,8 +99,10 @@ claimed as done.
   limits).
 - The release workflow does not publish to Homebrew, crates.io, or any other
   package index.
-- Native Intel acceptance and the updated release workflow still require a
-  hosted run. Local syntax and shell checks cannot establish that they passed.
+- The [manual release rehearsal](evidence/2026-10-08-native-release-rehearsal/README.md)
+  passed native ARM64 and Intel package acceptance, both Rust inventories and
+  same-machine reproducibility at `739cb9c`. Signing, attestation and publication
+  were skipped for that dispatch; their actual hosted acceptance remains open.
 - Cosign keyless signing depends on GitHub's OIDC token issuer and Sigstore's
   public Fulcio/Rekor infrastructure being reachable from the runner; a
   transient outage there fails the `sign-and-attest` job rather than

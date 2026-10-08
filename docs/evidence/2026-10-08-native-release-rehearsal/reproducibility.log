@@ -1,0 +1,601 @@
+Reproducibility (build twice, compare)	Set up job	﻿2026-10-08T23:37:25.4497650Z Current runner version: '2.337.0'
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4520780Z ##[group]Runner Image Provisioner
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4521480Z Hosted Compute Agent
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4521880Z Version: 20260828.587
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4522320Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4522810Z Build Date: 2026-08-28T16:44:25Z
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4523320Z Worker ID: {0e6229ad-e7c1-442c-b816-efd74ed3ac61}
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4523840Z Azure Region: westus
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4524290Z ##[endgroup]
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4525480Z ##[group]Operating System
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4525920Z macOS
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4526370Z 15.7.9
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4526770Z 24G830
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4527150Z ##[endgroup]
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4527530Z ##[group]Runner Image
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4527930Z Image: macos-15-arm64
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4528370Z Version: 20260907.0337.1
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4529170Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4531040Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4531840Z ##[endgroup]
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4532660Z ##[group]GITHUB_TOKEN Permissions
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4534890Z Contents: read
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4535340Z Metadata: read
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4535740Z ##[endgroup]
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4537480Z Secret source: Actions
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4538080Z Cache mode: write
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4538550Z Prepare workflow directory
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4927870Z Prepare all required actions
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.4997120Z Getting action download info
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:25.9405820Z Download action repository 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09' (SHA:fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09)
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:26.2816480Z Download action repository 'dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87' (SHA:6bed0761d98439e5a578e2877258200ad565ba87)
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:26.5767280Z Download action repository 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020' (SHA:820762786026740c76f36085b0efc47a31fe5020)
+Reproducibility (build twice, compare)	Set up job	2026-10-08T23:37:26.8000680Z Complete job name: Reproducibility (build twice, compare)
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	﻿2026-10-08T23:37:26.8696970Z ##[group]Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8697870Z with:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8698210Z   persist-credentials: false
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8698720Z   repository: randyren278/hephaestus
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8702000Z   token: ***
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8702350Z   ssh-strict: true
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8702670Z   ssh-user: git
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8702990Z   clean: true
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8703330Z   sparse-checkout-cone-mode: true
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8703710Z   fetch-depth: 1
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8704060Z   fetch-tags: false
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8704420Z   show-progress: true
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8704810Z   lfs: false
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8705120Z   submodules: false
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8705460Z   set-safe-directory: true
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8705820Z   allow-unsafe-pr-checkout: false
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:26.8706600Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.3335170Z Syncing repository: randyren278/hephaestus
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.3341220Z ##[group]Getting Git version info
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.3343350Z Working directory is '/Users/runner/work/hephaestus/hephaestus'
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.3344820Z [command]/opt/homebrew/bin/git version
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4076830Z git version 2.55.0
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4094550Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4104380Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/c1c75c9a-3f46-495a-85e9-98d76d0cadd7/.gitconfig'
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4116610Z Temporarily overriding HOME='/Users/runner/work/_temp/c1c75c9a-3f46-495a-85e9-98d76d0cadd7' before making global git config changes
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4118650Z Adding repository directory to the temporary git global config as a safe directory
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4122280Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/hephaestus/hephaestus
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4687790Z Deleting the contents of '/Users/runner/work/hephaestus/hephaestus'
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4793860Z ##[group]Initializing the repository
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.4898370Z [command]/opt/homebrew/bin/git init /Users/runner/work/hephaestus/hephaestus
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5002700Z hint: Using 'master' as the name for the initial branch. This default branch name
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5049300Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5055550Z hint: to use in all of your new repositories, which will suppress this warning,
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5060300Z hint: call:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5060970Z hint:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5064200Z hint: 	git config --global init.defaultBranch <name>
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5064990Z hint:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5065720Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5067030Z hint: 'development'. The just-created branch can be renamed via this command:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5067760Z hint:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5068420Z hint: 	git branch -m <name>
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5068990Z hint:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5069710Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5071350Z Initialized empty Git repository in /Users/runner/work/hephaestus/hephaestus/.git/
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5078140Z [command]/opt/homebrew/bin/git remote add origin https://github.com/randyren278/hephaestus
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5086210Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5087240Z ##[group]Disabling automatic garbage collection
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5088000Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5089950Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5090780Z ##[group]Setting up auth
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5103600Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.5179840Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.6304120Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.6387280Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.7406920Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.7420540Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.9079890Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.9181090Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.9182780Z ##[group]Fetching the repository
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:27.9186130Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +739cb9cb71acd0a83f980bdc21652ea6006399c7:refs/remotes/origin/main
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9222470Z From https://github.com/randyren278/hephaestus
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9223590Z  * [new ref]         739cb9cb71acd0a83f980bdc21652ea6006399c7 -> origin/main
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9225800Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9226910Z ##[group]Determining the checkout info
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9227490Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9229810Z [command]/opt/homebrew/bin/git sparse-checkout disable
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9299260Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9363190Z ##[group]Checking out the ref
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:28.9364930Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0514940Z Switched to a new branch 'main'
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0526940Z branch 'main' set up to track 'origin/main'.
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0531010Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0633060Z [command]/opt/homebrew/bin/git log -1 --format=%H
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0706290Z 739cb9cb71acd0a83f980bdc21652ea6006399c7
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0713930Z ##[group]Removing auth
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0717800Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.0787070Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.1632620Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.1687480Z http.https://github.com/.extraheader
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.1692590Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.1804880Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.2566660Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.2629930Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Reproducibility (build twice, compare)	Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:37:29.3617720Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	﻿2026-10-08T23:37:29.3906500Z ##[group]Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.3906860Z with:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.3907020Z   toolchain: stable
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.3907180Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.3980430Z ##[start-action display=Parse toolchain version;id=__dtolnay_rust-toolchain.parse]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4036860Z ##[group]Run if [[ -z $toolchain ]]; then
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4037260Z [36;1mif [[ -z $toolchain ]]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4037760Z [36;1m  # GitHub does not enforce `required: true` inputs itself. https://github.com/actions/runner/issues/1070[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4038330Z [36;1m  echo "'toolchain' is a required input" >&2[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4038560Z [36;1m  exit 1[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4038840Z [36;1melif [[ $toolchain =~ ^stable' '[0-9]+' '(year|month|week|day)s?' 'ago$ ]]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4039210Z [36;1m  if [[ macOS == macOS ]]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4039770Z [36;1m    echo "toolchain=1.$((($(date -v-$(sed 's/stable \([0-9]*\) \(.\).*/\1\2/' <<< $toolchain) +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4040270Z [36;1m  else[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4040660Z [36;1m    echo "toolchain=1.$((($(date --date "${toolchain#stable }" +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4041100Z [36;1m  fi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4041390Z [36;1melif [[ $toolchain =~ ^stable' 'minus' '[0-9]+' 'releases?$ ]]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4041840Z [36;1m  echo "toolchain=1.$((($(date +%s)/60/60/24-16569)/7/6-${toolchain//[^0-9]/}))" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4042230Z [36;1melif [[ $toolchain =~ ^1\.[0-9]+$ ]]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4042660Z [36;1m  echo "toolchain=1.$((i=${toolchain#1.}, c=($(date +%s)/60/60/24-16569)/7/6, i+9*i*(10*i<=c)+90*i*(100*i<=c)))" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4043060Z [36;1melse[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4043250Z [36;1m  echo "toolchain=$toolchain" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4043490Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4093940Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4094380Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4094590Z   toolchain: stable
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4094750Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4671070Z ##[end-action id=__dtolnay_rust-toolchain.parse;outcome=success;conclusion=success;duration_ms=68]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4699430Z ##[start-action display=Construct rustup command line;id=__dtolnay_rust-toolchain.flags]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4756290Z ##[group]Run echo "targets=$(for t in ${targets//,/ }; do echo -n ' --target' $t; done)" >> $GITHUB_OUTPUT
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4757320Z [36;1mecho "targets=$(for t in ${targets//,/ }; do echo -n ' --target' $t; done)" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4757860Z [36;1mecho "components=$(for c in ${components//,/ }; do echo -n ' --component' $c; done)" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4758280Z [36;1mecho "downgrade=" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4806720Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4807170Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4807420Z   targets:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4807640Z   components:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.4808680Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5421820Z ##[end-action id=__dtolnay_rust-toolchain.flags;outcome=success;conclusion=success;duration_ms=72]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5424430Z ##[start-action display=Set $CARGO_HOME;id=__dtolnay_rust-toolchain.__run]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5452780Z ##[group]Run echo CARGO_HOME=${CARGO_HOME:-"$HOME/.cargo"} >> $GITHUB_ENV
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5453360Z [36;1mecho CARGO_HOME=${CARGO_HOME:-"$HOME/.cargo"} >> $GITHUB_ENV[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5512670Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5513060Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5933150Z ##[end-action id=__dtolnay_rust-toolchain.__run;outcome=success;conclusion=success;duration_ms=50]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5935640Z ##[start-action display=Install rustup if needed;id=__dtolnay_rust-toolchain.__run_2]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5967020Z ##[group]Run if ! command -v rustup &>/dev/null; then
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5967920Z [36;1mif ! command -v rustup &>/dev/null; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5968600Z [36;1m  curl --proto '=https' --tlsv1.2 --retry 10 --retry-connrefused --location --silent --show-error --fail https://sh.rustup.rs | sh -s -- --default-toolchain none -y[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5969270Z [36;1m  echo "$CARGO_HOME/bin" >> $GITHUB_PATH[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.5969560Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6009680Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6010160Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6010410Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6010660Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6334310Z ##[end-action id=__dtolnay_rust-toolchain.__run_2;outcome=success;conclusion=success;duration_ms=39]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6336790Z ##[start-action display=Install rustup if needed on windows;id=__dtolnay_rust-toolchain.__run_3]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6343890Z ##[end-action id=__dtolnay_rust-toolchain.__run_3;outcome=skipped;conclusion=skipped;duration_ms=0]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6351930Z ##[start-action display=rustup toolchain install stable;id=__dtolnay_rust-toolchain.__run_4]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6391020Z ##[group]Run rustup toolchain install stable --profile minimal --no-self-update
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6391560Z [36;1mrustup toolchain install stable --profile minimal --no-self-update[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6447090Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6447450Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6447640Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6447920Z   RUSTUP_PERMIT_COPY_RENAME: 1
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:29.6448150Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.1650250Z info: syncing channel updates for stable-aarch64-apple-darwin
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.3471730Z info: latest update on 2026-10-01 for version 1.99.0 (b940084d7 2026-09-28)
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.3603370Z info: removing previous version of component clippy
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.3725030Z info: removing previous version of component rustfmt
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.3770350Z info: removing previous version of component cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.3884500Z info: removing previous version of component rust-std
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.4026430Z info: removing previous version of component rustc
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:30.4152400Z info: downloading 5 components
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.5780430Z
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6473570Z   stable-aarch64-apple-darwin updated - rustc 1.99.0 (b940084d7 2026-09-28) (from rustc 1.98.1 (48a229cea 2026-09-01))
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6475480Z info: self-update is disabled for this build of rustup
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6486180Z info: any updates to rustup will need to be fetched with your system package manager
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6486550Z
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6658460Z ##[end-action id=__dtolnay_rust-toolchain.__run_4;outcome=success;conclusion=success;duration_ms=8026]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6677400Z ##[start-action display=rustup default stable;id=__dtolnay_rust-toolchain.__run_5]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6713980Z ##[group]Run rustup default stable
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6714340Z [36;1mrustup default stable[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6780400Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6780880Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6781210Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.6781520Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7559330Z info: using existing install for stable-aarch64-apple-darwin
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7582530Z info: default toolchain set to stable-aarch64-apple-darwin
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7583360Z
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7784210Z   stable-aarch64-apple-darwin unchanged - rustc 1.99.0 (b940084d7 2026-09-28)
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7784820Z
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7798860Z info: note that the toolchain 'stable-aarch64-apple-darwin' is currently in use (overridden by '/Users/runner/work/hephaestus/hephaestus/rust-toolchain.toml')
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7812160Z ##[end-action id=__dtolnay_rust-toolchain.__run_5;outcome=success;conclusion=success;duration_ms=113]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7815800Z ##[start-action display=Create cachekey;id=__dtolnay_rust-toolchain.rustc-version]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7851840Z ##[group]Run DATE=$(rustc +stable --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7853140Z [36;1mDATE=$(rustc +stable --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7853800Z [36;1mHASH=$(rustc +stable --version --verbose | sed -ne 's/^commit-hash: //p')[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7854270Z [36;1mecho "cachekey=$(echo $DATE$HASH | head -c12)" >> $GITHUB_OUTPUT[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7894130Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7894510Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7894860Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.7895120Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9139640Z ##[end-action id=__dtolnay_rust-toolchain.rustc-version;outcome=success;conclusion=success;duration_ms=131]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9142880Z ##[start-action display=Disable incremental compilation;id=__dtolnay_rust-toolchain.__run_6]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9174490Z ##[group]Run if [ -z "${CARGO_INCREMENTAL+set}" ]; then
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9174980Z [36;1mif [ -z "${CARGO_INCREMENTAL+set}" ]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9175320Z [36;1m  echo CARGO_INCREMENTAL=0 >> $GITHUB_ENV[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9175690Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9216060Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9216440Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9216810Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9217090Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9696500Z ##[end-action id=__dtolnay_rust-toolchain.__run_6;outcome=success;conclusion=success;duration_ms=55]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9703880Z ##[start-action display=Enable colors in Cargo output;id=__dtolnay_rust-toolchain.__run_7]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9738710Z ##[group]Run if [ -z "${CARGO_TERM_COLOR+set}" ]; then
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9739130Z [36;1mif [ -z "${CARGO_TERM_COLOR+set}" ]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9816570Z [36;1m  echo CARGO_TERM_COLOR=always >> $GITHUB_ENV[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9816960Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9859550Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9859850Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9860020Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9860220Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:37.9860390Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0326220Z ##[end-action id=__dtolnay_rust-toolchain.__run_7;outcome=success;conclusion=success;duration_ms=62]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0328660Z ##[start-action display=Enable Cargo sparse registry;id=__dtolnay_rust-toolchain.__run_8]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0356500Z ##[group]Run # implemented in 1.66, stabilized in 1.68, made default in 1.70
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0357030Z [36;1m# implemented in 1.66, stabilized in 1.68, made default in 1.70[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0357660Z [36;1mif [ -z "${CARGO_REGISTRIES_CRATES_IO_PROTOCOL+set}" -o -f "/Users/runner/work/_temp"/.implicit_cargo_registries_crates_io_protocol ]; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0358390Z [36;1m  if rustc +stable --version --verbose | grep -q '^release: 1\.6[89]\.'; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0359050Z [36;1m    touch "/Users/runner/work/_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0359510Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse >> $GITHUB_ENV[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0359940Z [36;1m  elif rustc +stable --version --verbose | grep -q '^release: 1\.6[67]\.'; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0360520Z [36;1m    touch "/Users/runner/work/_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0361020Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git >> $GITHUB_ENV[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0361310Z [36;1m  fi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0361470Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0399280Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0399610Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0399820Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0400040Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0400220Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.0400650Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1457230Z ##[end-action id=__dtolnay_rust-toolchain.__run_8;outcome=success;conclusion=success;duration_ms=112]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1459870Z ##[start-action display=Work around spurious network errors in curl 8.0;id=__dtolnay_rust-toolchain.__run_9]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1481840Z ##[group]Run # https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1482540Z [36;1m# https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1483190Z [36;1mif rustc +stable --version --verbose | grep -q '^release: 1\.7[01]\.'; then[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1483590Z [36;1m  echo CARGO_HTTP_MULTIPLEXING=false >> $GITHUB_ENV[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1483860Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1521330Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1521600Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1521800Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1522060Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1522260Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.1522420Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2239250Z ##[end-action id=__dtolnay_rust-toolchain.__run_9;outcome=success;conclusion=success;duration_ms=77]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2242650Z ##[start-action display=rustc +stable --version --verbose;id=__dtolnay_rust-toolchain.__run_10]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2263340Z ##[group]Run rustc +stable --version --verbose
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2263660Z [36;1mrustc +stable --version --verbose[0m
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2299480Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2299790Z env:
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2300010Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2300250Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2300450Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2300630Z ##[endgroup]
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2998120Z rustc 1.99.0 (b940084d7 2026-09-28)
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2999000Z binary: rustc
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.2999570Z commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.3000430Z commit-date: 2026-09-28
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.3000990Z host: aarch64-apple-darwin
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.3001510Z release: 1.99.0
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.3022140Z LLVM version: 23.1.1
+Reproducibility (build twice, compare)	Run dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87	2026-10-08T23:37:38.3033950Z ##[end-action id=__dtolnay_rust-toolchain.__run_10;outcome=success;conclusion=success;duration_ms=79]
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	﻿2026-10-08T23:37:38.3138860Z ##[group]Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3139200Z with:
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3139710Z   node-version: 22
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3139900Z   check-latest: false
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3142450Z   token: ***
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3142650Z   package-manager-cache: true
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3142940Z env:
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3143140Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3143380Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3143600Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.3143800Z ##[endgroup]
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.4860490Z Found in cache @ /Users/runner/hostedtoolcache/node/22.23.2/arm64
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.4864500Z ##[group]Environment details
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.9934140Z node: v22.23.2
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.9934460Z npm: 10.9.8
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.9934610Z yarn: 1.22.22
+Reproducibility (build twice, compare)	Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	2026-10-08T23:37:38.9935080Z ##[endgroup]
+Reproducibility (build twice, compare)	Build once	﻿2026-10-08T23:37:39.0008380Z ##[group]Run python3 scripts/package_macos.py --arch arm64 --output-dir target/packages/first
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0009070Z [36;1mpython3 scripts/package_macos.py --arch arm64 --output-dir target/packages/first[0m
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0052770Z shell: /bin/bash -e {0}
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0053040Z env:
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0053260Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0053610Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0053810Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.0054030Z ##[endgroup]
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:39.4060080Z + npm ci --no-audit --no-fund
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.0102890Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.0103410Z added 47 packages in 3s
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.0988720Z + npm run build:package
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.2272390Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.2290720Z > @hephaestus/operator-tui@0.1.0 build:package
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.2292740Z > node scripts/build-package.mjs
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.2296220Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.3518120Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.3519890Z   dist/main.bundle.mjs  1.9mb ⚠️
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.3554680Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.3580160Z ⚡ Done in 74ms
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:42.3637020Z + npm ci --no-audit --no-fund
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.0363560Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.0364220Z added 7 packages in 597ms
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.0431300Z + npm run build
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.1553920Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.1654810Z > @hephaestus/web-console@0.1.0 build
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.1756060Z > node scripts/build.mjs
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.1855970Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2394200Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2396910Z   dist/main.bundle.mjs  62.6kb
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2402860Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2403290Z ⚡ Done in 6ms
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2498370Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2501490Z   dist/web/app.js  34.9kb
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2501880Z
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2502280Z ⚡ Done in 3ms
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.2572630Z + cargo build --locked --release --workspace --target aarch64-apple-darwin
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.3226320Z info: syncing channel updates for stable-aarch64-apple-darwin
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.3948430Z info: latest update on 2026-10-01 for version 1.99.0 (b940084d7 2026-09-28)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.4067720Z info: component clippy is up to date
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.4071760Z info: component rustfmt is up to date
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:43.4072590Z info: downloading component llvm-tools
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:45.9748110Z [1m[92m    Updating[0m crates.io index
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.2303250Z [1m[92m Downloading[0m crates ...
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3011390Z [1m[92m  Downloaded[0m base64ct v1.8.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3196560Z [1m[92m  Downloaded[0m anstyle-parse v1.0.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3258750Z [1m[92m  Downloaded[0m fs2 v0.4.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3311430Z [1m[92m  Downloaded[0m rustc_version v0.4.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3340680Z [1m[92m  Downloaded[0m semver v1.0.28
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3396690Z [1m[92m  Downloaded[0m smallvec v1.15.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3444700Z [1m[92m  Downloaded[0m version_check v0.9.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3500570Z [1m[92m  Downloaded[0m cfg-if v1.0.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3578740Z [1m[92m  Downloaded[0m clap_derive v4.6.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3722650Z [1m[92m  Downloaded[0m const-oid v0.9.6
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3774130Z [1m[92m  Downloaded[0m hashlink v0.10.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.3840800Z [1m[92m  Downloaded[0m memchr v2.8.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4015070Z [1m[92m  Downloaded[0m digest v0.10.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4172800Z [1m[92m  Downloaded[0m fallible-iterator v0.3.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4225140Z [1m[92m  Downloaded[0m fastrand v2.5.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4237720Z [1m[92m  Downloaded[0m getrandom v0.4.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4390920Z [1m[92m  Downloaded[0m itoa v1.0.18
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4499260Z [1m[92m  Downloaded[0m num-traits v0.2.19
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4631250Z [1m[92m  Downloaded[0m pkcs8 v0.10.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4741770Z [1m[92m  Downloaded[0m sha2 v0.10.9
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4792860Z [1m[92m  Downloaded[0m strsim v0.11.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.4884010Z [1m[92m  Downloaded[0m tempfile v3.27.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5014440Z [1m[92m  Downloaded[0m unicode-width v0.2.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5154480Z [1m[92m  Downloaded[0m arrayvec v0.7.8
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5208110Z [1m[92m  Downloaded[0m block-buffer v0.10.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5248830Z [1m[92m  Downloaded[0m crypto-common v0.1.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5295650Z [1m[92m  Downloaded[0m encoding_rs v0.8.35
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5761610Z [1m[92m  Downloaded[0m quote v1.0.47
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.5905000Z [1m[92m  Downloaded[0m rusqlite v0.37.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.6107790Z [1m[92m  Downloaded[0m base64 v0.23.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.6182430Z [1m[92m  Downloaded[0m rustix v1.1.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.6810290Z [1m[92m  Downloaded[0m anstream v1.0.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.6883650Z [1m[92m  Downloaded[0m unicode-ident v1.0.24
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.6961620Z [1m[92m  Downloaded[0m encoding_rs_io v0.1.8
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.6982840Z [1m[92m  Downloaded[0m serde_derive v1.0.229
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.7054120Z [1m[92m  Downloaded[0m zeroize v1.9.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.7080450Z [1m[92m  Downloaded[0m getrandom v0.2.17
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.7166890Z [1m[92m  Downloaded[0m errno v0.3.14
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.7199690Z [1m[92m  Downloaded[0m anstyle v1.0.14
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.7224120Z [1m[92m  Downloaded[0m hashbrown v0.15.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.7359640Z [1m[92m  Downloaded[0m vcpkg v0.2.15
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.8901940Z [1m[92m  Downloaded[0m bitflags v2.13.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.8987540Z [1m[92m  Downloaded[0m ed25519 v2.2.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9026180Z [1m[92m  Downloaded[0m granit-parser v1.1.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9215720Z [1m[92m  Downloaded[0m shlex v2.0.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9244500Z [1m[92m  Downloaded[0m fallible-streaming-iterator v0.1.9
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9262520Z [1m[92m  Downloaded[0m once_cell v1.21.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9325120Z [1m[92m  Downloaded[0m blake3 v1.8.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9510900Z [1m[92m  Downloaded[0m clap_builder v4.6.6
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9663530Z [1m[92m  Downloaded[0m nohash-hasher v0.2.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9681860Z [1m[92m  Downloaded[0m serde v1.0.229
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9748670Z [1m[92m  Downloaded[0m colorchoice v1.0.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9763100Z [1m[92m  Downloaded[0m spki v0.7.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:46.9811340Z [1m[92m  Downloaded[0m clap v4.6.6
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0066030Z [1m[92m  Downloaded[0m arraydeque v0.5.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0098820Z [1m[92m  Downloaded[0m is_terminal_polyfill v1.70.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0116420Z [1m[92m  Downloaded[0m proc-macro2 v1.0.107
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0179370Z [1m[92m  Downloaded[0m rustix v0.38.44
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0815780Z [1m[92m  Downloaded[0m subtle v2.6.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0834760Z [1m[92m  Downloaded[0m cpufeatures v0.2.17
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0864720Z [1m[92m  Downloaded[0m foldhash v0.1.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0883520Z [1m[92m  Downloaded[0m generic-array v0.14.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0918470Z [1m[92m  Downloaded[0m heck v0.5.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0946680Z [1m[92m  Downloaded[0m signature v2.2.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.0974470Z [1m[92m  Downloaded[0m zmij v1.0.23
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1031780Z [1m[92m  Downloaded[0m der v0.7.10
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1151210Z [1m[92m  Downloaded[0m rand_core v0.6.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1182240Z [1m[92m  Downloaded[0m ed25519-dalek v2.2.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1234900Z [1m[92m  Downloaded[0m find-msvc-tools v0.1.11
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1273040Z [1m[92m  Downloaded[0m autocfg v1.5.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1310490Z [1m[92m  Downloaded[0m anstyle-query v1.1.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1334600Z [1m[92m  Downloaded[0m serde_json v1.0.151
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1512580Z [1m[92m  Downloaded[0m cc v1.4.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1584530Z [1m[92m  Downloaded[0m constant_time_eq v0.4.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1633360Z [1m[92m  Downloaded[0m syn v3.0.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.1888590Z [1m[92m  Downloaded[0m serde-saphyr v1.1.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.2786210Z [1m[92m  Downloaded[0m pkg-config v0.3.34
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.2822570Z [1m[92m  Downloaded[0m libc v0.2.189
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.3709310Z [1m[92m  Downloaded[0m utf8parse v0.2.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.3725370Z [1m[92m  Downloaded[0m typenum v1.20.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.3778660Z [1m[92m  Downloaded[0m clap_lex v1.1.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.3794440Z [1m[92m  Downloaded[0m annotate-snippets v0.12.16
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.3858710Z [1m[92m  Downloaded[0m curve25519-dalek v4.1.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.4011810Z [1m[92m  Downloaded[0m libsqlite3-sys v0.35.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.4724070Z [1m[92m  Downloaded[0m serde_core v1.0.229
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.5264360Z [1m[92m   Compiling[0m cfg-if v1.0.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.5267350Z [1m[92m   Compiling[0m libc v0.2.189
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.5268670Z [1m[92m   Compiling[0m proc-macro2 v1.0.107
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:47.8135030Z [1m[92m   Compiling[0m quote v1.0.47
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:51.2959730Z [1m[92m   Compiling[0m unicode-ident v1.0.24
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:51.4241700Z [1m[92m   Compiling[0m shlex v2.0.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:51.5964940Z [1m[92m   Compiling[0m find-msvc-tools v0.1.11
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:51.8487560Z [1m[92m   Compiling[0m serde_core v1.0.229
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:52.1492700Z [1m[92m   Compiling[0m cc v1.4.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:52.2975560Z [1m[92m   Compiling[0m syn v3.0.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:52.4216270Z [1m[92m   Compiling[0m zmij v1.0.23
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:53.5075890Z [1m[92m   Compiling[0m version_check v0.9.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:53.7339240Z [1m[92m   Compiling[0m bitflags v2.13.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:54.1304480Z [1m[92m   Compiling[0m generic-array v0.14.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:54.8779240Z [1m[92m   Compiling[0m serde_json v1.0.151
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:55.0965210Z [1m[92m   Compiling[0m serde v1.0.229
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:55.3656980Z [1m[92m   Compiling[0m memchr v2.8.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:55.5179840Z [1m[92m   Compiling[0m typenum v1.20.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:55.6111570Z [1m[92m   Compiling[0m serde_derive v1.0.229
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:55.9886380Z [1m[92m   Compiling[0m itoa v1.0.18
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:56.0542310Z [1m[92m   Compiling[0m anstyle v1.0.14
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:56.6244640Z [1m[92m   Compiling[0m errno v0.3.14
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:56.7039300Z [1m[92m   Compiling[0m vcpkg v0.2.15
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:57.0660360Z [1m[92m   Compiling[0m pkg-config v0.3.34
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:57.4012440Z [1m[92m   Compiling[0m libsqlite3-sys v0.35.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:57.6018980Z [1m[92m   Compiling[0m blake3 v1.8.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:57.8027770Z [1m[92m   Compiling[0m smallvec v1.15.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:57.9597870Z [1m[92m   Compiling[0m semver v1.0.28
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:57.9795210Z [1m[92m   Compiling[0m foldhash v0.1.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:58.1286020Z [1m[92m   Compiling[0m rustc_version v0.4.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:58.1286760Z [1m[92m   Compiling[0m hashbrown v0.15.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:58.5822500Z [1m[92m   Compiling[0m block-buffer v0.10.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:58.6401380Z [1m[92m   Compiling[0m crypto-common v0.1.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:58.6937340Z [1m[92m   Compiling[0m constant_time_eq v0.4.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:58.8398760Z [1m[92m   Compiling[0m arrayvec v0.7.8
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:59.0084470Z [1m[92m   Compiling[0m autocfg v1.5.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:59.2427420Z [1m[92m   Compiling[0m num-traits v0.2.19
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:59.3805830Z [1m[92m   Compiling[0m digest v0.10.7
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:59.5202710Z [1m[92m   Compiling[0m hashlink v0.10.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:59.8113530Z [1m[92m   Compiling[0m curve25519-dalek v4.1.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:37:59.9820520Z [1m[92m   Compiling[0m rustix v0.38.44
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:00.2291600Z [1m[92m   Compiling[0m utf8parse v0.2.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:00.2687670Z [1m[92m   Compiling[0m fallible-iterator v0.3.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:00.4974810Z [1m[92m   Compiling[0m fallible-streaming-iterator v0.1.9
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:00.5648960Z [1m[92m   Compiling[0m anstyle-parse v1.0.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:00.8140050Z [1m[92m   Compiling[0m hephaestus-core v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-core)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.0051950Z [1m[92m   Compiling[0m cpufeatures v0.2.17
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.0827820Z [1m[92m   Compiling[0m encoding_rs v0.8.35
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.3171510Z [1m[92m   Compiling[0m is_terminal_polyfill v1.70.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.3575240Z [1m[92m   Compiling[0m anstyle-query v1.1.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.4001570Z [1m[92m   Compiling[0m getrandom v0.4.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.5668220Z [1m[92m   Compiling[0m subtle v2.6.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.6418410Z [1m[92m   Compiling[0m rustix v1.1.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:01.8505760Z [1m[92m   Compiling[0m unicode-width v0.2.2
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:02.0858450Z [1m[92m   Compiling[0m arraydeque v0.5.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:02.2462080Z [1m[92m   Compiling[0m colorchoice v1.0.5
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:02.3071550Z [1m[92m   Compiling[0m signature v2.2.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:02.3771860Z [1m[92m   Compiling[0m zeroize v1.9.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:04.6523230Z [1m[92m   Compiling[0m ed25519 v2.2.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:04.8472510Z [1m[92m   Compiling[0m anstream v1.0.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:05.3527930Z [1m[92m   Compiling[0m granit-parser v1.1.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:06.3275020Z [1m[92m   Compiling[0m annotate-snippets v0.12.16
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:07.1920520Z [1m[92m   Compiling[0m encoding_rs_io v0.1.8
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:07.5094150Z [1m[92m   Compiling[0m sha2 v0.10.9
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:11.6083360Z [1m[92m   Compiling[0m clap_lex v1.1.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:11.9115050Z [1m[92m   Compiling[0m base64 v0.23.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:12.7461960Z [1m[92m   Compiling[0m nohash-hasher v0.2.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:12.8369360Z [1m[92m   Compiling[0m strsim v0.11.1
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:13.8971700Z [1m[92m   Compiling[0m heck v0.5.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:13.9730730Z [1m[92m   Compiling[0m clap_builder v4.6.6
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:14.0889680Z [1m[92m   Compiling[0m clap_derive v4.6.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:16.9331410Z [1m[92m   Compiling[0m serde-saphyr v1.1.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:30.9698190Z [1m[92m   Compiling[0m hephaestus-runtime v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-runtime)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:35.9715900Z [1m[92m   Compiling[0m ed25519-dalek v2.2.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:36.0835720Z [1m[92m   Compiling[0m rusqlite v0.37.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:39.1181620Z [1m[92m   Compiling[0m hephaestus-ledger v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-ledger)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:39.1714520Z [1m[92m   Compiling[0m once_cell v1.21.4
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:39.3658090Z [1m[92m   Compiling[0m fastrand v2.5.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:39.6593630Z [1m[92m   Compiling[0m tempfile v3.27.0
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:40.4993870Z [1m[92m   Compiling[0m hephaestus-experience v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-experience)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:41.8950620Z [1m[92m   Compiling[0m hephaestus-genome v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-genome)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:42.6463090Z [1m[92m   Compiling[0m clap v4.6.6
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:42.7190510Z [1m[92m   Compiling[0m hephaestus-arena v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-arena)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:48.5600540Z [1m[92m   Compiling[0m fs2 v0.4.3
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:48.7401820Z [1m[92m   Compiling[0m hephaestus-control v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-control)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:38:55.2401840Z [1m[92m   Compiling[0m hephaestus-senate v0.1.0 (/Users/runner/work/hephaestus/hephaestus/crates/hephaestus-senate)
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:39:30.0150910Z [1m[92m    Finished[0m `release` profile [optimized] target(s) in 1m 44s
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:39:30.7539350Z Downloading pinned Node.js 24.21.0 (arm64) from https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz
+Reproducibility (build twice, compare)	Build once	2026-10-08T23:39:46.3308970Z Created /Users/runner/work/hephaestus/hephaestus/target/packages/first/hephaestus-v0.1.0-macos-arm64.tar.gz (46,651,223 bytes)
+Reproducibility (build twice, compare)	Build again from the same source	﻿2026-10-08T23:39:46.3598280Z ##[group]Run python3 scripts/package_macos.py --arch arm64 --output-dir target/packages/second
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3599120Z [36;1mpython3 scripts/package_macos.py --arch arm64 --output-dir target/packages/second[0m
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3766250Z shell: /bin/bash -e {0}
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3766570Z env:
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3766770Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3767060Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3767280Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.3767520Z ##[endgroup]
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:46.6033800Z + npm ci --no-audit --no-fund
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.1214980Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.1216540Z added 47 packages in 2s
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.1272100Z + npm run build:package
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.2470130Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.2470660Z > @hephaestus/operator-tui@0.1.0 build:package
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.2471090Z > node scripts/build-package.mjs
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.2471300Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.3512980Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.3518720Z   dist/main.bundle.mjs  1.9mb ⚠️
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.3519180Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.3519440Z ⚡ Done in 62ms
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:49.3586470Z + npm ci --no-audit --no-fund
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.0476000Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.0477210Z added 7 packages in 628ms
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.0532480Z + npm run build
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.1601080Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.1601670Z > @hephaestus/web-console@0.1.0 build
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.1602390Z > node scripts/build.mjs
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.1602750Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2085960Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2086560Z   dist/main.bundle.mjs  62.6kb
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2086840Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2087180Z ⚡ Done in 5ms
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2200050Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2200750Z   dist/web/app.js  34.9kb
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2201210Z
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2201820Z ⚡ Done in 4ms
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.2276930Z + cargo build --locked --release --workspace --target aarch64-apple-darwin
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:39:50.5265410Z [1m[92m    Finished[0m `release` profile [optimized] target(s) in 0.19s
+Reproducibility (build twice, compare)	Build again from the same source	2026-10-08T23:40:06.3089950Z Created /Users/runner/work/hephaestus/hephaestus/target/packages/second/hephaestus-v0.1.0-macos-arm64.tar.gz (46,651,223 bytes)
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	﻿2026-10-08T23:40:06.3351130Z ##[group]Run a=$(find target/packages/first -name '*.tar.gz')
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3351890Z [36;1ma=$(find target/packages/first -name '*.tar.gz')[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3352310Z [36;1mb=$(find target/packages/second -name '*.tar.gz')[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3352770Z [36;1msha_a=$(shasum -a 256 "$a" | cut -d' ' -f1)[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3353200Z [36;1msha_b=$(shasum -a 256 "$b" | cut -d' ' -f1)[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3354760Z [36;1mecho "first:  $sha_a  $a"[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3355170Z [36;1mecho "second: $sha_b  $b"[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3355470Z [36;1mif [[ "$sha_a" != "$sha_b" ]]; then[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3356040Z [36;1m  echo "::error::archives are not byte-identical across two same-machine builds"[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3356450Z [36;1m  exit 1[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3356830Z [36;1mfi[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3357180Z [36;1mecho "reproducible: identical SHA-256 across two independent builds"[0m
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3414870Z shell: /bin/bash -e {0}
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3415280Z env:
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3415660Z   CARGO_HOME: /Users/runner/.cargo
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3416060Z   CARGO_INCREMENTAL: 0
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3416320Z   CARGO_TERM_COLOR: always
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.3416770Z ##[endgroup]
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.9035290Z first:  9fadc27e70fd43a6b938e79b5cd09b2f38db5813dd43aba61ca0b2d203bf9b03  target/packages/first/hephaestus-v0.1.0-macos-arm64.tar.gz
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.9037410Z second: 9fadc27e70fd43a6b938e79b5cd09b2f38db5813dd43aba61ca0b2d203bf9b03  target/packages/second/hephaestus-v0.1.0-macos-arm64.tar.gz
+Reproducibility (build twice, compare)	Compare the two archives byte-for-byte	2026-10-08T23:40:06.9038460Z reproducible: identical SHA-256 across two independent builds
+Reproducibility (build twice, compare)	Post Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020	﻿2026-10-08T23:40:06.9408770Z Post job cleanup.
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	﻿2026-10-08T23:40:07.4234680Z Post job cleanup.
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5461740Z [command]/opt/homebrew/bin/git version
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5783980Z git version 2.55.0
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5835560Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/f22fd45d-098c-4d93-a21d-7b52b3cceffc/.gitconfig'
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5842660Z Temporarily overriding HOME='/Users/runner/work/_temp/f22fd45d-098c-4d93-a21d-7b52b3cceffc' before making global git config changes
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5843530Z Adding repository directory to the temporary git global config as a safe directory
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5845440Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/hephaestus/hephaestus
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.5945730Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.6005980Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.6887010Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.6942920Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.7793490Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Reproducibility (build twice, compare)	Post Run actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09	2026-10-08T23:40:07.7855950Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Reproducibility (build twice, compare)	Complete job	﻿2026-10-08T23:40:07.8562540Z Cleaning up orphan processes

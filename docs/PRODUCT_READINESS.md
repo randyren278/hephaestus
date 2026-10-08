@@ -34,13 +34,13 @@ acceptance remain required.
 
 | Requirement | Evidence needed | Current status |
 |---|---|---|
-| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Evaluator-installation recovery has actionable fixed errors, physical safety/privacy tests, matching-daemon restart and exact retry evidence. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
+| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Evaluator-installation recovery has actionable fixed errors, physical safety/privacy tests, matching-daemon restart and exact retry evidence. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Hosted native ARM64 and Intel acceptance also pass through the [manual release rehearsal](evidence/2026-10-08-native-release-rehearsal/README.md); quarantined browser-download first launch remains |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The installed 24-case support-triage pack has native initialization and frozen preparation, with retries, profile readback and crash/graceful restart. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; evaluator, clusters and provider replay checks pass. Current workspace tests and all 51 coverage floors pass. The current full 442-entry audit at immutable 632b4bc kills every entry and restores the workspace; 732 restored Rust tests pass. The earlier 434-entry audit remains historical evidence for ebbb21b |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented and verified against both real 48-call comparisons, including downloaded reports, desktop/mobile readback and restart; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Two real Codex comparisons completed, 96 experimental calls total: baseline/checklist and evidence-bound Forge child. Both tied 24/24; the child’s Forge assessment is metrics_rejected. Signed receipts, browser exports and restart/replay verified. Attributable USD cost and independent private/customer evidence remain |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The prior launch-settings checkpoint passed 728 Rust tests including doc tests, all 51 coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance passed. The complete audit at immutable ebbb21b killed all 434 mutations, followed by source restoration and 728 restored tests. The later redaction correction adds eight mutations and is covered by the current full 442-entry audit with 732 restored tests, plus the separate coverage and package verification below. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The prior launch-settings checkpoint passed 728 Rust tests including doc tests, all 51 coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance passed. The complete audit at immutable ebbb21b killed all 434 mutations, followed by source restoration and 728 restored tests. The later redaction correction adds eight mutations and is covered by the current full 442-entry audit with 732 restored tests, plus the separate coverage and package verification below. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. The subsequent hosted release rehearsal passes native ARM64 and Intel package acceptance. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -155,8 +155,9 @@ coverage, mutation and real daemon upgrade checks. Two authorized real Codex
 comparisons are complete, and both allowances are exhausted. Any further
 provider experiment needs new explicit authorization. Remaining work includes
 attributable USD cost, independent private or customer evidence, fresh-user
-provider acceptance, native Intel and downloaded-archive first launch, and an
-available commercial offer before claiming full product readiness.
+provider acceptance, downloaded-archive first launch, and an available
+commercial offer before claiming full product readiness. Native Intel installed
+acceptance subsequently passes in the release rehearsal recorded below.
 
 ## Verification of the comparison slice
 
@@ -648,3 +649,19 @@ a private byte-identical copy once and reuses it on matching restart. The
 [linked-evaluator evidence](evidence/2026-10-08-linked-evaluator-fixture/README.md)
 records the exact local red rejection and three passing fixture tests against a
 still-two-linked source binary. Production guards and World pinning are unchanged.
+
+## Hosted native release rehearsal, 2026-10-08
+
+The [manual release rehearsal](evidence/2026-10-08-native-release-rehearsal/README.md)
+at `739cb9c` passes all five build/check jobs: native ARM64 and Intel package
+acceptance, both Rust dependency inventories, and same-machine ARM64 archive
+reproducibility. Signing and publication were skipped; no release tag or public
+release was created. Both downloaded rehearsal archives match their checksums,
+contain native binaries and omit the owner's private HTML guide.
+
+This closes native Intel installed acceptance and the nonpublishing workflow
+rehearsal. Hosted signing/attestation/publication, quarantined browser-download
+first launch, fresh-user provider acceptance, attributable USD, independent
+customer evidence and an available commercial offer remain open. Earlier
+checkpoint sections retain their original limits; this later evidence
+supersedes their native Intel pending status only.

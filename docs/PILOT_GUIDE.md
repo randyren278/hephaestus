@@ -57,11 +57,12 @@ call a model. Package users need no source checkout or host Node/npm/Python for
 these steps. Actual hosted work still requires your selected provider CLI and
 explicit account handoff.
 
-The current verified installation path is native Apple Silicon macOS.
-Clean source and locally built ARM64 package checks pass. Native Intel,
-hosted release delivery and first launch from a quarantined browser download
-remain unverified. Follow [product readiness](PRODUCT_READINESS.md) for the
-current acceptance evidence before choosing a delivery route.
+Clean source and locally built ARM64 package checks pass. The
+[nonpublishing release rehearsal](evidence/2026-10-08-native-release-rehearsal/README.md)
+also passes installed-package acceptance on native Apple Silicon and Intel
+macOS runners. Hosted release signing/publication and first launch from a
+quarantined browser download remain unverified. Follow
+[product readiness](PRODUCT_READINESS.md) before choosing a delivery route.
 
 ## Measure and decide
 

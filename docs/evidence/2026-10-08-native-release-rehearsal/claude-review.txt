@@ -1,0 +1,32 @@
+No blockers. The docs keep the five categories separate and avoid overclaiming. Two statements don't match the recorded evidence, though: one says too much and one says too little. Fix both before committing. Everything below comes from reading the files; I did not query GitHub or hash anything.
+
+## What matches the record
+
+- **Terminal jobs:** proof.json shows run 37860441104 at `739cb9cb…` (the audited commit), started by manual dispatch, concluded `success`. The two builds, two inventories and the reproducibility job all succeeded; **Sign and attest** and **Publish GitHub Release** were `skipped`. That matches the `if:` conditions in release.yml (they run only on a `v*` tag push), so "no tag or release" holds.
+- **Native runner installed acceptance:** both logs end with the same pass summary. Host Node/npm are hidden, Git is present (`/opt/homebrew/bin/git` on Apple Silicon, `/usr/local/bin/git` on Intel), `completed_six_steps: true`, browser and pilot preparation pass, and `provider_launches: 0` with an offline-only scope. README correctly says no real provider authentication was proven.
+- **CLI artifact download:** archive sizes, SHA-256 values, package metadata and `private_guide_absent` are recorded. The two `.sha256` files match `packages[].sha256`. README correctly separates GitHub artifact digests from archive SHA-256s.
+- **Unsigned manual rehearsal:** README, RELEASES.md, PILOT_GUIDE.md, MACOS_INSTALL.md and the last PRODUCT_READINESS section all say signing, attestation and publication were skipped and remain open.
+- **Same-machine reproducibility:** reproducibility.log:584-586 shows identical `9fadc27…` for the first and second builds on `macos-15-arm64`. The scope is stated narrowly everywhere.
+- **Fresh-user quarantine and paid-customer requirements:** consistently left open. That covers quarantined browser-download first launch, Developer ID signing/notarization, fresh-user provider acceptance, attributable USD, customer evidence and an available paid offer.
+
+## Fix before committing
+
+1. **Mach-O architecture claim has no recorded data.** README.md:8-9 says proof.json "records … native Mach-O architecture". proof.json only has the package's own metadata (`architecture`, `rust_target`) and per-binary hashes. It has no `file`/`lipo` result. PRODUCT_READINESS.md:660 ("contain native binaries") depends on the same claim. Either add the recorded Mach-O check output to proof.json, or change the wording to "package metadata declares …".
+2. **README understates the reproducibility result.** README.md:34-36 says the reproducibility job does "not prove … identity with the separate accepted ARM64 job's archive". But the accepted ARM64 archive in proof.json (`packages[0].sha256`) is also `9fadc27…`, the same as both reproducibility builds. So the record does show byte identity across two separate runner jobs on the same image and toolchain. It still isn't independent third-party reproduction. Reword it to say that rather than deny it.
+3. **Commit the evidence and docs together.** The evidence directory is untracked while four docs link to it. Leave out `.DS_Store` and `python/.DS_Store`.
+
+## Minor wording
+
+- PRODUCT_READINESS.md:37 says "downloaded-archive first launch remains". A CLI download did happen, so "quarantined browser-download first launch" would be clearer, matching line 663.
+- The reliability row (PRODUCT_READINESS.md:43) still mentions only native ARM64 installed acceptance. It's accurate but out of date now that Intel has passed.
+- proof.json doesn't say what file `acceptance_sha256` hashes. Name the file it covers so a reader can check it against the committed logs.
+- RELEASES.md:76 says the reproducibility job uses "the tagged commit". This rehearsal built from a dispatched commit with no tag, so the wording fits a tag release only.
+
+## Still unproved by any recorded evidence
+
+- A real tag-push run of Sigstore signing, provenance attestation and GitHub Release publication. The `cosign verify-blob` and `gh attestation verify` steps in RELEASES.md have never been run against real output.
+- First launch from a quarantined browser download on a fresh user's Mac, on either architecture. The only quarantine evidence is the local ARM64 probe. Nothing records code-signature or Gatekeeper behaviour for the Intel binaries; MACOS_INSTALL.md:98 limits its ad-hoc signature claim to ARM64, which is correct.
+- Apple Developer ID signing and notarization (not implemented).
+- Intel archive reproducibility (the reproducibility job builds ARM64 only), and independent third-party rebuilding.
+- Operation without Git.
+- Fresh-user provider authentication, attributable USD cost, independent customer acceptance and an available paid offer.

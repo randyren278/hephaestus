@@ -1,0 +1,327 @@
+{
+  "run": {
+    "conclusion": "success",
+    "event": "workflow_dispatch",
+    "headSha": "739cb9cb71acd0a83f980bdc21652ea6006399c7",
+    "jobs": [
+      {
+        "databaseId": 113594616391,
+        "name": "Reproducibility (build twice, compare)",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-08T23:37:24Z",
+        "completedAt": "2026-10-08T23:40:11Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113594616391"
+      },
+      {
+        "databaseId": 113594616550,
+        "name": "Build (arm64)",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-08T23:37:22Z",
+        "completedAt": "2026-10-08T23:39:33Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113594616550"
+      },
+      {
+        "databaseId": 113594616622,
+        "name": "Rust dependency inventory (arm64)",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-08T23:37:19Z",
+        "completedAt": "2026-10-08T23:38:38Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113594616622"
+      },
+      {
+        "databaseId": 113594616723,
+        "name": "Rust dependency inventory (x86_64)",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-08T23:37:19Z",
+        "completedAt": "2026-10-08T23:38:07Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113594616723"
+      },
+      {
+        "databaseId": 113594617186,
+        "name": "Build (x86_64)",
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-08T23:37:20Z",
+        "completedAt": "2026-10-08T23:43:19Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113594617186"
+      },
+      {
+        "databaseId": 113596383027,
+        "name": "Sign and attest",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": "2026-10-08T23:43:19Z",
+        "completedAt": "2026-10-08T23:43:19Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113596383027"
+      },
+      {
+        "databaseId": 113596383158,
+        "name": "Publish GitHub Release",
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": "2026-10-08T23:43:19Z",
+        "completedAt": "2026-10-08T23:43:19Z",
+        "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104/job/113596383158"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/randyren278/hephaestus/actions/runs/37860441104"
+  },
+  "packages": [
+    {
+      "architecture": "arm64",
+      "filename": "hephaestus-v0.1.0-macos-arm64.tar.gz",
+      "bytes": 46651223,
+      "sha256": "9fadc27e70fd43a6b938e79b5cd09b2f38db5813dd43aba61ca0b2d203bf9b03",
+      "metadata": {
+        "version": "0.1.0",
+        "platform": "macos",
+        "architecture": "arm64",
+        "rust_target": "aarch64-apple-darwin",
+        "node_version": "24.21.0",
+        "node_archive_sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057"
+      },
+      "binary_sha256": {
+        "heph": "f726c9db841e5ca9610448ed883b387950a5e8c34915775d38af2c3d53680abf",
+        "hephaestus": "c2af031f6dceeeda5f0a6bfa21a4e3c8ede8ae29df79555408ed64d65a8c854f",
+        "hephaestus-process-guardian": "c3673d4183d1ac7bbe4042e9723ce49a9600b018ec660883e38f5f69a4013367",
+        "hephaestus-reference-evaluator": "724b2e4689157fa090b21ca09f71211ebe1968ae53b9c8f9d663b4bfe40a7251",
+        "hephaestus-reference-worker": "37258a48ba66a9f69ca615834be6c170d26f85b8626f4329ce1c1d7ea92c851a",
+        "hephaestusd": "202c44f3b072737517be4c2cb3d38f82e30174ebcf21b5ba1e8bd2e21a8b97bb",
+        "node": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+        "senate": "4ef900cf8e9ef631b1ac1e728fcbd61ffdf6c3e891a90e1b6b5044a324fe9ee1"
+      },
+      "private_guide_absent": true,
+      "acceptance_sha256": "e3a58cea06073894ec380f1641142c182ea3a097db480a1db747af568619d9b0",
+      "native_binary_checks": {
+        "heph": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/heph",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "hephaestus": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "hephaestus-process-guardian": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus-process-guardian",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "hephaestus-reference-evaluator": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus-reference-evaluator",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "hephaestus-reference-worker": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus-reference-worker",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "hephaestusd": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestusd",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "node": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/node",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        },
+        "senate": {
+          "member": "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/senate",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777228,
+          "architecture": "arm64",
+          "file_output": "Mach-O 64-bit executable arm64"
+        }
+      },
+      "native_check_method": "read archive member header; verify Mach-O magic and CPU type; /usr/bin/file -b - on its first4096bytes",
+      "acceptance_file": "acceptance-arm64.log"
+    },
+    {
+      "architecture": "x86_64",
+      "filename": "hephaestus-v0.1.0-macos-x86_64.tar.gz",
+      "bytes": 48332811,
+      "sha256": "d2cddda060f7cd5ed57c9831e52fcf3e5ee95251470d1c4174840e22e1b5c8b6",
+      "metadata": {
+        "version": "0.1.0",
+        "platform": "macos",
+        "architecture": "x86_64",
+        "rust_target": "x86_64-apple-darwin",
+        "node_version": "24.21.0",
+        "node_archive_sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097"
+      },
+      "binary_sha256": {
+        "heph": "2611b8e0a5a7550a6668568a4a22be7a966c85914af2e4e8c7154ebf10209a15",
+        "hephaestus": "fbc3020f8a0090c8a49c229625e6146242c9bd539134df89ec3c9af382129ed5",
+        "hephaestus-process-guardian": "7bcac8c614e64f95377fdc8ca71f3ee5d214fd2d3683981cf66e7443c4bec29a",
+        "hephaestus-reference-evaluator": "d80e662248f95463eb8979a2d58044b68249e9e917ac9ca6d980720db84ce68e",
+        "hephaestus-reference-worker": "425dce8347ef4e7abd7b1f4d336fe4064a4ca937356a5d8483e51c67b8ddd110",
+        "hephaestusd": "fcf3ebd63115fed10165839b2b36b952d2e7f6dacff599489e8792f2190307f8",
+        "node": "7abcf39bd37ab251015337ff75304d7555f0d8e88c6e0fbf04bce8ce34636f49",
+        "senate": "afcf56355aa4932ac0ba100dfa92af8f9f3a7613222516c9b819ab3e4686f9b9"
+      },
+      "private_guide_absent": true,
+      "acceptance_sha256": "4b33b92fc4ec4143b9d8ca4b80b3a83b1bf20f0ae8f06d05aeddd4c91ae55f59",
+      "native_binary_checks": {
+        "heph": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/heph",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "hephaestus": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/hephaestus",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "hephaestus-process-guardian": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/hephaestus-process-guardian",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "hephaestus-reference-evaluator": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/hephaestus-reference-evaluator",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "hephaestus-reference-worker": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/hephaestus-reference-worker",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "hephaestusd": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/hephaestusd",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "node": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/node",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        },
+        "senate": {
+          "member": "hephaestus-v0.1.0-macos-x86_64/hephaestus/bin/senate",
+          "magic_hex": "cffaedfe",
+          "byte_order": "little",
+          "cpu_type": 16777223,
+          "architecture": "x86_64",
+          "file_output": "Mach-O 64-bit executable x86_64"
+        }
+      },
+      "native_check_method": "read archive member header; verify Mach-O magic and CPU type; /usr/bin/file -b - on its first4096bytes",
+      "acceptance_file": "acceptance-x86_64.log"
+    }
+  ],
+  "reproducibility": {
+    "first_sha256": "9fadc27e70fd43a6b938e79b5cd09b2f38db5813dd43aba61ca0b2d203bf9b03",
+    "second_sha256": "9fadc27e70fd43a6b938e79b5cd09b2f38db5813dd43aba61ca0b2d203bf9b03",
+    "scope": "two builds on one runner from one checkout and toolchain; not independent third-party reproduction",
+    "matches_separate_accepted_arm64_archive": true,
+    "log_export": {
+      "file": "reproducibility.log",
+      "normalization": "trailing whitespace stripped per line; original downloaded workflow log retained locally",
+      "original_job_lines_sha256": "9154037026e9d35e6da64de344db4d0fd6902e65bd4c76cc0720e0d1799e21c4",
+      "export_sha256": "25faa2783be3a4b5cfa5c678518c4bcf71b69bef084200f3d4576f3d7d7d7a04"
+    }
+  },
+  "artifacts": [
+    {
+      "id": 11586466218,
+      "name": "hephaestus-arm64",
+      "size_in_bytes": 46245840,
+      "expired": false,
+      "digest": "sha256:5c0a1d407743804987db3a4fc69a511317089b7bbf7683f26915164043c363ce"
+    },
+    {
+      "id": 11586351674,
+      "name": "package-acceptance-arm64",
+      "size_in_bytes": 4262,
+      "expired": false,
+      "digest": "sha256:d7fe3efde75849d1e41de98061cb4a12afd984c05ba8fa2ef1b284e09ceeefdd"
+    },
+    {
+      "id": 11586256885,
+      "name": "hephaestus-sbom-arm64",
+      "size_in_bytes": 94789,
+      "expired": false,
+      "digest": "sha256:75b2e623473bb00b3aa9689e32223faaeb2f8126ef7b4ef72604883fec67d2a6"
+    },
+    {
+      "id": 11586067739,
+      "name": "hephaestus-x86_64",
+      "size_in_bytes": 47904266,
+      "expired": false,
+      "digest": "sha256:4f616dfdf7ad07eddcd3bbac037bab408b235c538259678eb31995cc0ddccfca"
+    },
+    {
+      "id": 11585942263,
+      "name": "hephaestus-sbom-x86_64",
+      "size_in_bytes": 96348,
+      "expired": false,
+      "digest": "sha256:dd4ece61535d247f6c96b48b68ee5b5398601598e1182d0824a224eab3850d45"
+    },
+    {
+      "id": 11585553858,
+      "name": "package-acceptance-x86_64",
+      "size_in_bytes": 4260,
+      "expired": false,
+      "digest": "sha256:172ee7e4f5fd691a82563b3f36570171963ffde32aaab93f52091ba84859ea3f"
+    }
+  ],
+  "limits": [
+    "unsigned manual-rehearsal artifacts; no Sigstore signing or provenance attestation",
+    "no GitHub Release published",
+    "CLI download is not fresh-user quarantined browser launch",
+    "no real model launched by package acceptance fixtures",
+    "customer acceptance and attributable USD remain unverified"
+  ]
+}

@@ -123,7 +123,7 @@ first launch from a published browser download on a fresh user's Mac.
 
 ## Platform and release limits
 
-Archives are single-architecture. The installer checks that the archive architecture matches the current process architecture; install the matching `arm64` or `x86_64` archive. The acceptance script verifies install relocation and the offline fixture with Git present, while hiding host Node and npm. It is not proof of operation on a machine without Git. The release workflow is configured to publish on an explicit version tag, with Sigstore signatures and build provenance; see [release verification](RELEASES.md). Apple code signing and notarization are not implemented. Acceptance uses locally built archives; first launch after a quarantined browser download remains unverified.
+Archives are single-architecture. The installer checks that the archive architecture matches the current process architecture; install the matching `arm64` or `x86_64` archive. The acceptance script verifies install relocation and the offline fixture with Git present, while hiding host Node and npm. It is not proof of operation on a machine without Git. The release workflow is configured to publish on an explicit version tag, with Sigstore signatures and build provenance; see [release verification](RELEASES.md). Apple code signing and notarization are not implemented. Acceptance covers local archives and a [hosted rehearsal on both native architectures](evidence/2026-10-08-native-release-rehearsal/README.md); first launch after a quarantined browser download remains unverified.
 
 ## Local development: first-launch scan of new test binaries (macOS)
 
