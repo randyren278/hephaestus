@@ -27,6 +27,7 @@ NODE_SHA256 = {
 RUST_TARGET = {"arm64": "aarch64-apple-darwin", "x86_64": "x86_64-apple-darwin"}
 NODE_ARCH = {"arm64": "arm64", "x86_64": "x64"}
 BINARIES = (
+    "heph",
     "hephaestus",
     "hephaestusd",
     "hephaestus-reference-worker",

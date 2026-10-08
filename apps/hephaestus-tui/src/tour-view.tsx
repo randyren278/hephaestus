@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -9,7 +10,7 @@ import {
 	quickstartFixtureAvailable, quickstartFixturePaths, renderCandidateTemplate,
 	renderWorldTemplate, replaySeal, resolveDataDir, stepProgressLabel, writeTourMarker,
 } from './tour.js';
-import {safeText, type ApiResponse, type ArenaJobProgress, type Command, type EvaluationListEntry} from './protocol.js';
+import {safeText, type ApiResponse, type ArenaJobProgress, type Command} from './protocol.js';
 import {CelebrationBurst, CrestClash, ProgressBar, TorchFlicker} from './motion.js';
 import {borderColorProps, colorProps, useTheme} from './theme.js';
 
@@ -27,6 +28,7 @@ export type TourScreenProps = {
 
 export type Phase = 'idle' | 'running' | 'done' | 'error' | 'unavailable';
 export type StepResult = {phase: Phase; lines: string[]; canRetry: boolean};
+type LineageResult = StepResult & {worldId?: string; parentGenomeId?: string; candidateGenomeId?: string};
 
 const idleResult: StepResult = {phase: 'idle', lines: [], canRetry: false};
 
@@ -48,21 +50,7 @@ export function resolveEvaluatorPath(): string | undefined {
 
 /** Runs a bootstrap step against the real daemon: registers (or reuses) the
  * bundled quickstart World and its parent/candidate Genomes. */
-export async function registerLineage(client: TourClient, dataDir: string): Promise<StepResult> {
-	const existingWorlds = await client.request({command: 'world_list'});
-	if (existingWorlds.data?.type === 'worlds' && existingWorlds.data.worlds.length > 0) {
-		const world = existingWorlds.data.worlds[0]!;
-		const genomes = await client.request({command: 'genome_list'});
-		const names = genomes.data?.type === 'genomes' ? genomes.data.genomes.map(genome => `${genome.name} ${genome.genome_id.slice(0, 12)}`) : [];
-		return {
-			phase: 'done',
-			canRetry: false,
-			lines: [
-				`Reusing already-registered World ${safeText(world.name)} (${world.world_id.slice(0, 12)}…)`,
-				...names.map(name => `  Genome ${name}`),
-			],
-		};
-	}
+export async function registerLineage(client: TourClient, dataDir: string): Promise<LineageResult> {
 	const paths = quickstartFixturePaths(dataDir);
 	if (!quickstartFixtureAvailable(paths)) {
 		return {
@@ -70,7 +58,7 @@ export async function registerLineage(client: TourClient, dataDir: string): Prom
 			canRetry: true,
 			lines: [
 				`No bundled quickstart fixture at ${paths.dir}.`,
-				'Run `hephaestus init --fixture quickstart <dir>` first (heph does this automatically), then retry.',
+				`Run hephaestus init --fixture quickstart ${JSON.stringify(paths.dir)}, then retry.`,
 			],
 		};
 	}
@@ -124,12 +112,17 @@ export async function registerLineage(client: TourClient, dataDir: string): Prom
 	return {
 		phase: 'done',
 		canRetry: false,
+		worldId, parentGenomeId: parentId, candidateGenomeId: candidateId,
 		lines: [
-			`Registered World ${worldResponse.data.world.name} (${worldId.slice(0, 12)}…)`,
-			`Registered parent Genome ${parentResponse.data.genome.name} (${parentId.slice(0, 12)}…)`,
-			`Registered candidate Genome ${candidateResponse.data.genome.name} (${candidateId.slice(0, 12)}…)`,
+			`Registered World ${safeText(worldResponse.data.world.name)} (${worldId.split(':').at(-1)!.slice(0, 12)}…)`,
+			`Registered parent Genome ${safeText(parentResponse.data.genome.name)} (${parentId.split(':').at(-1)!.slice(0, 12)}…)`,
+			`Registered candidate Genome ${safeText(candidateResponse.data.genome.name)} (${candidateId.split(':').at(-1)!.slice(0, 12)}…)`,
 		],
 	};
+}
+
+function tourJobId(prefix: string, ...genomes: string[]): string {
+	return `${prefix}-${createHash('sha256').update(JSON.stringify(genomes)).digest('hex')}`;
 }
 
 export async function unfreezeAndRun(client: TourClient, worldId: string | undefined, parentGenomeId: string | undefined): Promise<StepResult> {
@@ -141,7 +134,7 @@ export async function unfreezeAndRun(client: TourClient, worldId: string | undef
 	const acknowledgement = unfreeze.data?.type === 'acknowledged'
 		? `Ledgered: evolution ${unfreeze.data.frozen ? 'remains frozen' : 'unfrozen'}.`
 		: 'Unfreeze acknowledged.';
-	const jobId = `tour-run-${parentGenomeId.slice(0, 12)}`;
+	const jobId = tourJobId('tour-run', parentGenomeId);
 	const submitted = await client.request({command: 'run_submit', job_id: jobId, genome_id: parentGenomeId});
 	if (submitted.error) {
 		return {
@@ -156,7 +149,8 @@ export async function unfreezeAndRun(client: TourClient, worldId: string | undef
 		};
 	}
 	let terminal: ApiResponse | undefined = submitted;
-	for (let attempt = 0; attempt < 100; attempt += 1) {
+	const deadline = Date.now() + 20_000;
+	while (Date.now() < deadline) {
 		if (terminal?.data?.type === 'job' && ['succeeded', 'failed', 'interrupted'].includes(terminal.data.job.state)) break;
 		await new Promise(resolve => setTimeout(resolve, 100));
 		terminal = await client.request({command: 'job_status', job_id: jobId});
@@ -178,7 +172,7 @@ export async function measureInArena(client: TourClient, worldId: string | undef
 	if (!worldId || !parentGenomeId || !candidateGenomeId) {
 		return {phase: 'unavailable', canRetry: false, lines: ['No registered World/Genomes from the lineage step; nothing to measure yet.']};
 	}
-	const evaluationId = `tour-${parentGenomeId.slice(0, 8)}-${candidateGenomeId.slice(0, 8)}`;
+	const evaluationId = tourJobId('tour', parentGenomeId, candidateGenomeId);
 	const started = await client.request({command: 'evaluate_pair', evaluation_id: evaluationId, parent_genome_id: parentGenomeId, candidate_genome_id: candidateGenomeId});
 	if (started.error) {
 		return {
@@ -191,7 +185,9 @@ export async function measureInArena(client: TourClient, worldId: string | undef
 		};
 	}
 	let latest = started;
-	for (let attempt = 0; attempt < 200; attempt += 1) {
+	// The bundled four reference trials and protected scorer have a 50-second bound.
+	const deadline = Date.now() + 60_000;
+	while (Date.now() < deadline) {
 		if (latest.data?.type === 'arena_job') {
 			onProgress(latest.data.job);
 			if (!['admitted', 'running', 'cancellation_requested'].includes(latest.data.job.state)) break;
@@ -203,23 +199,29 @@ export async function measureInArena(client: TourClient, worldId: string | undef
 	if (!job || job.state !== 'succeeded' || !job.evaluation) {
 		return {phase: 'error', canRetry: true, lines: [`Arena evaluation did not reach a visible score (state: ${job?.state ?? 'unknown'}).`]};
 	}
-	const list = await client.request({command: 'evaluation_list', limit: 50});
-	const entry: EvaluationListEntry | undefined = list.data?.type === 'evaluation_list'
-		? list.data.evaluations.find(candidate => candidate.evaluation.evaluation_id === evaluationId)
-		: undefined;
+	if (job.evaluation_id !== evaluationId || job.parent_genome_id !== parentGenomeId || job.candidate_genome_id !== candidateGenomeId) {
+		return {phase: 'error', canRetry: false, lines: ['Arena returned evidence for a different comparison.']};
+	}
+	const selected = await client.request({command: 'arena_select', evaluation_id: evaluationId});
 	const lines = [
 		`Visible score: parent ${job.evaluation.parent_visible_correct}/${job.evaluation.visible_total} → candidate ${job.evaluation.candidate_visible_correct}/${job.evaluation.visible_total}`,
 		'Sealed tasks are never shown here — only visible-task correctness and this aggregate ever leave the Arena.',
 	];
-	if (entry?.selection) {
-		const selection = entry.selection;
+	if (selected.data?.type === 'selection') {
+		const selection = selected.data.selection;
+		if (selection.evaluation_id !== evaluationId || selection.world_id !== worldId
+			|| selection.parent_genome_id !== parentGenomeId || selection.candidate_genome_id !== candidateGenomeId) {
+			return {phase: 'error', canRetry: false, lines: [...lines, 'Selection returned evidence for a different comparison.']};
+		}
 		lines.push(
 			`Correctness delta ${selection.estimate_bps} bps (95% CI ${selection.lower_bps}..${selection.upper_bps} bps)`,
 			`Eligible for promotion: ${selection.promotion_eligible ? 'yes' : 'no'} (metrics ${selection.metrics_eligible ? 'pass' : 'fail'}, invariants ${selection.invariant_gate_verified ? 'verified' : 'unverified'})`,
 			celebrationBanner(selection.promotion_eligible),
 		);
 	} else {
-		lines.push('No selection receipt yet for this evaluation; run `hephaestus arena select` to compute one.');
+		return {phase: 'error', canRetry: true, lines: [...lines, selected.error
+			? `Selection unavailable: ${selected.error.code}: ${selected.error.message}`
+			: 'Selection returned an unexpected response.']};
 	}
 	return {phase: 'done', canRetry: false, lines, evaluationId};
 }
@@ -304,18 +306,11 @@ export function TourScreen({client, dataDir: dataDirProp, onExit, animate = true
 					result = {phase: 'done', canRetry: false, lines: ['Every claim below is backed by a receipt in the canonical event ledger.']};
 					break;
 				case 'lineage': {
-					result = await registerLineage(client, dataDir);
-					if (result.phase === 'done') {
-						const worlds = await client.request({command: 'world_list'});
-						const genomes = await client.request({command: 'genome_list'});
-						if (worlds.data?.type === 'worlds' && worlds.data.worlds[0]) context.current.worldId = worlds.data.worlds[0].world_id;
-						if (genomes.data?.type === 'genomes') {
-							const parent = genomes.data.genomes.find(genome => genome.parent_ids.length === 0);
-							const candidate = genomes.data.genomes.find(genome => genome.parent_ids.length > 0);
-							if (parent) context.current.parentGenomeId = parent.genome_id;
-							if (candidate) context.current.candidateGenomeId = candidate.genome_id;
-						}
-					}
+					context.current = {};
+					const lineage = await registerLineage(client, dataDir);
+					const {worldId, parentGenomeId, candidateGenomeId} = lineage;
+					if (worldId && parentGenomeId && candidateGenomeId) context.current = {worldId, parentGenomeId, candidateGenomeId};
+					result = lineage;
 					break;
 				}
 				case 'unfreeze_run':
@@ -343,6 +338,9 @@ export function TourScreen({client, dataDir: dataDirProp, onExit, animate = true
 					};
 			}
 			setResults(previous => ({...previous, [step]: result}));
+		} catch (error) {
+			setResults(previous => ({...previous, [step]: {phase: 'error', canRetry: true,
+				lines: [error instanceof Error ? safeText(error.message) : 'Tour step could not finish; retry when the daemon is available.']}}));
 		} finally {
 			running.current = false;
 		}

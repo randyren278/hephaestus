@@ -148,7 +148,7 @@ function err(message = 'canonical operation failed'): ApiResponse {
 	return {version: 1, request_id: 'r', error: {code: 'internal', message}};
 }
 
-test('registerLineage reuses an already-registered World and its Genomes', async () => {
+test('registerLineage does not adopt an unrelated registered World when its fixture is missing', async () => {
 	const client = fakeClient({
 		world_list: () => ok({type: 'worlds', worlds: [{world_id: 'world-1', name: 'quickstart-world', artifact_id: 'a1'}]}),
 		genome_list: () => ok({
@@ -160,8 +160,11 @@ test('registerLineage reuses an already-registered World and its Genomes', async
 		}),
 	});
 	const result = await registerLineage(client, '/nonexistent-data-dir');
-	assert.equal(result.phase, 'done');
-	assert.match(result.lines.join('\n'), /Reusing already-registered World/);
+	assert.equal(result.phase, 'unavailable');
+	assert.equal(result.worldId, undefined);
+	assert.equal(result.parentGenomeId, undefined);
+	assert.equal(result.candidateGenomeId, undefined);
+	assert.match(result.lines.join('\n'), /No bundled quickstart fixture/);
 });
 
 test('registerLineage explains plainly when no bundled fixture exists yet', async () => {
@@ -193,7 +196,7 @@ test('registerLineage registers a fresh World and both Genomes from the bundled 
 		process.env['HEPHAESTUS_EVALUATOR'] = evaluator;
 
 		const client = fakeClient({
-			world_list: () => ok({type: 'worlds', worlds: []}),
+			world_list: () => { throw new Error('Tour must register its fixture instead of adopting an arbitrary World'); },
 			manifest_put: () => ok({type: 'artifact', artifact_id: 'manifest-id', bytes: 2}),
 			artifact_put: () => ok({type: 'artifact', artifact_id: 'evaluator-id', bytes: 4}),
 			verifier_show: () => ok({type: 'verifier', artifact_id: 'verifier-id', public_key_hex: 'ab'.repeat(32)}),
@@ -216,6 +219,9 @@ test('registerLineage registers a fresh World and both Genomes from the bundled 
 
 		const result = await registerLineage(client, dataDir);
 		assert.equal(result.phase, 'done');
+		assert.equal(result.worldId, 'world-9');
+		assert.equal(result.parentGenomeId, 'parent-9');
+		assert.equal(result.candidateGenomeId, 'candidate-9');
 		assert.match(result.lines.join('\n'), /Registered World quickstart-world/);
 		assert.match(result.lines.join('\n'), /Registered parent Genome/);
 		assert.match(result.lines.join('\n'), /Registered candidate Genome/);
@@ -264,25 +270,20 @@ test('unfreezeAndRun reports a successful terminal run', async () => {
 test('measureInArena surfaces the visible score, eligibility, and CI from a scripted evaluation', async () => {
 	const evaluation = {parent_visible_correct: 0, candidate_visible_correct: 1, visible_total: 1};
 	const client = fakeClient({
-		evaluate_pair: () => ok({
+		evaluate_pair: command => ok({
 			type: 'arena_job',
-			job: {evaluation_id: 'eval-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2, evaluation},
+			job: {evaluation_id: (command as Extract<Command, {command: 'evaluate_pair'}>).evaluation_id, parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2, evaluation},
 		}),
-		job_status: () => ok({
-			type: 'arena_job',
-			job: {evaluation_id: 'eval-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2, evaluation},
-		}),
-		evaluation_list: () => ok({
-			type: 'evaluation_list',
-			evaluations: [{
-				evaluation: {evaluation_id: 'tour-parent-1-candidat', world_id: 'world-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1', ...evaluation},
-				selection: {
+		arena_select: command => ok({
+			type: 'selection',
+			selection: {
+					evaluation_id: (command as Extract<Command, {command: 'arena_select'}>).evaluation_id,
+					world_id: 'world-1', parent_genome_id: 'parent-1', candidate_genome_id: 'candidate-1',
+					event_id: 'selected', event_hash: 'selection-hash', evaluation_event_id: 'evaluated', evaluation_event_hash: 'evaluation-hash',
 					metrics_eligible: true, estimate_bps: 5000, lower_bps: 100, upper_bps: 9000,
 					parent_cost_microusd: 0, candidate_cost_microusd: 0, parent_latency_millis: 1, candidate_latency_millis: 1,
-					invariant_gate_verified: true, promotion_eligible: false,
-				},
-				invariants: null, forge_assessment: null, champion_transition_ids: [],
-			}],
+					invariant_gate_verified: false, promotion_eligible: false,
+			},
 		}),
 	});
 	const result = await measureInArena(client, 'world-1', 'parent-1', 'candidate-1', () => {});
@@ -292,6 +293,66 @@ test('measureInArena surfaces the visible score, eligibility, and CI from a scri
 	assert.match(text, /Correctness delta 5000 bps/);
 	assert.match(text, /Eligible for promotion: no/);
 	assert.match(text, /Sealed tasks are never shown/);
+});
+
+test('tour run IDs distinguish full canonical identities and remain stable on retries', async () => {
+	const jobs: string[] = [];
+	const client = fakeClient({
+		unfreeze: () => ok({type: 'acknowledged', frozen: false, killed_runs: 0}),
+		run_submit: command => {
+			const submitted = command as Extract<Command, {command: 'run_submit'}>;
+			jobs.push(submitted.job_id);
+			return err('fixture refusal');
+		},
+	});
+	const first = `hephaestus:genome:${'a'.repeat(64)}`;
+	const second = `hephaestus:genome:${'b'.repeat(64)}`;
+	for (const parent of [first, second, first]) await unfreezeAndRun(client, 'world', parent);
+	assert.notEqual(jobs[0], jobs[1]);
+	assert.equal(jobs[0], jobs[2]);
+});
+
+test('tour comparison IDs distinguish both directed roles and remain stable on retries', async () => {
+	const evaluations: string[] = [];
+	const client = fakeClient({evaluate_pair: command => {
+		evaluations.push((command as Extract<Command, {command: 'evaluate_pair'}>).evaluation_id);
+		return err('fixture refusal');
+	}});
+	const [first, second, third] = ['a', 'b', 'c'].map(value => `hephaestus:genome:${value.repeat(64)}`);
+	for (const [parent, candidate] of [[first!, second!], [first!, third!], [second!, first!], [first!, second!]]) {
+		await measureInArena(client, 'world', parent!, candidate!, () => {});
+	}
+	assert.equal(new Set(evaluations.slice(0, 3)).size, 3);
+	assert.equal(evaluations[0], evaluations[3]);
+});
+
+test('the tour retains measured scores but reports a retryable selection refusal', async () => {
+	const client = fakeClient({
+		evaluate_pair: command => ok({type: 'arena_job', job: {
+			evaluation_id: (command as Extract<Command, {command: 'evaluate_pair'}>).evaluation_id,
+			parent_genome_id: 'parent', candidate_genome_id: 'candidate', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2,
+			evaluation: {parent_visible_correct: 0, candidate_visible_correct: 1, visible_total: 1},
+		}}),
+		arena_select: () => err('another operation is active'),
+	});
+	const result = await measureInArena(client, 'world', 'parent', 'candidate', () => {});
+	assert.equal(result.phase, 'error');
+	assert.equal(result.canRetry, true);
+	assert.match(result.lines.join('\n'), /parent 0\/1 → candidate 1\/1/);
+	assert.match(result.lines.join('\n'), /Selection unavailable/);
+	assert.doesNotMatch(result.lines.join('\n'), /Eligible for promotion/);
+});
+
+test('the tour refuses substituted comparison evidence before requesting a selection', async () => {
+	const client = fakeClient({evaluate_pair: command => ok({type: 'arena_job', job: {
+		evaluation_id: (command as Extract<Command, {command: 'evaluate_pair'}>).evaluation_id,
+		parent_genome_id: 'parent', candidate_genome_id: 'unrelated', state: 'succeeded', phase: 'terminal', completed_trials: 2, total_trials: 2,
+		evaluation: {parent_visible_correct: 0, candidate_visible_correct: 1, visible_total: 1},
+	}})});
+	const result = await measureInArena(client, 'world', 'parent', 'candidate', () => {});
+	assert.equal(result.phase, 'error');
+	assert.equal(result.canRetry, false);
+	assert.match(result.lines.join('\n'), /different comparison/);
 });
 
 test('proveReplay seals a matching replay and flags a divergent one', async () => {

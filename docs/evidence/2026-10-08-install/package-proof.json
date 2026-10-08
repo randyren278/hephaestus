@@ -1,0 +1,19 @@
+{
+  "packaged_terminal": "80x24",
+  "empty_data_bootstrap": true,
+  "first_launch_prompt": true,
+  "packaged_evaluator_lookup": true,
+  "registered_fixture": true,
+  "arena_measured": true,
+  "metrics_selection_verified": true,
+  "replay_verified": true,
+  "completed_six_steps": true,
+  "terminal_restored": true,
+  "architecture": "arm64",
+  "node_version": "24.21.0",
+  "host_node_npm_hidden": true,
+  "archive_sha256": "7b22d9ad07dea5dccff2c1fc0ea9008f97fdacbcca467337af355647196b7ddb",
+  "archive_bytes": 46571692,
+  "current_tui_bundle_verified": true,
+  "tui_bundle_sha256": "3c9c6d294f2e4cf2679634d552ca45734e35df4e0d5664b54ab643f832c07fa6"
+}

@@ -51,17 +51,20 @@ DAEMON="$PREFIX/bin/hephaestusd"
 EVALUATOR="$PREFIX/share/hephaestus/current/bin/hephaestus-reference-evaluator"
 WORKER="$PREFIX/bin/hephaestus-reference-worker"
 SENATE="$PREFIX/bin/senate"
+HEPH="$PREFIX/bin/heph"
 FIXTURES_DIR="$PREFIX/share/hephaestus/current/share/hephaestus/fixtures"
 DATA="$WORK/home/data"
 FIXTURE="$WORK/home/quickstart"
 
 "$CLI" --version
-"$SENATE" personas | grep -q "^turing " || { echo "packaged senate binary did not list its embedded personas" >&2; exit 1; }
+PERSONAS=$("$SENATE" personas)
+grep -q "^turing " <<< "$PERSONAS" || { echo "packaged senate binary did not list its embedded personas" >&2; exit 1; }
 [[ "$("$PREFIX/share/hephaestus/current/bin/node" --version)" == v24.21.0 ]] || { echo "bundled Node version is wrong" >&2; exit 1; }
 if command -v npm >/dev/null 2>&1 || command -v node >/dev/null 2>&1; then
   echo "acceptance PATH unexpectedly exposes a host Node/npm" >&2
   exit 1
 fi
+"$WORK/tools/python3" "$ROOT/apps/hephaestus-tui/scripts/pty_tour.py" "$HEPH" "$WORK/home/tour-data" --require-measured --packaged --first-launch
 "$CLI" init --fixture quickstart "$FIXTURE"
 [[ -f "$FIXTURE/world.template.json" ]]
 [[ -f "$FIXTURE/agent.md" ]]
@@ -142,4 +145,4 @@ printf '%s\n' "$GAUNTLET_REFERENCE" | grep -q '"status":"complete"' || {
   exit 1
 }
 
-echo "Isolated-home macOS package install, relocation, fixture init, offline Arena, replay, bundled TUI, gauntlet-coding evolve, and gauntlet-reference acceptance passed (host Git prerequisite)."
+echo "Isolated-home macOS package install, relocation, fresh six-step tour, fixture init, offline Arena, replay, bundled TUI, gauntlet-coding evolve, and gauntlet-reference acceptance passed (host Git prerequisite)."

@@ -1,9 +1,11 @@
 # macOS package
 
-**In short.** This page covers the ready-made macOS package: one download with everything inside, including the terminal console and its own copy of Node.js, so you don't need Rust, npm, or a source checkout. If you're installing from source instead, see [Getting started](GETTING_STARTED.md).
+This page covers the macOS package, which includes the terminal console and
+its own Node.js runtime. Installed use requires Git; Rust, npm and a source
+checkout are unnecessary. For source installation, see [Getting started](GETTING_STARTED.md).
 
 
-The packaging builder creates a relocatable, architecture-specific compressed tar archive for Apple Silicon (`arm64`) or Intel (`x86_64`). The package keeps `hephaestus`, the daemon, reference worker, evaluator, and process guardian together under `bin/`; the daemon and CLI resolve their helper binaries beside themselves. It also contains a bundled Ink TUI and a pinned Node.js 24.21.0 runtime. Running the installed CLI does not require a separate Node or npm installation.
+The packaging builder creates a relocatable, architecture-specific compressed tar archive for Apple Silicon (`arm64`) or Intel (`x86_64`). The package keeps `heph`, `hephaestus`, the daemon, reference worker, evaluator, and process guardian together under `bin/`; the daemon and CLI resolve their helper binaries beside themselves. It also contains a bundled Ink TUI and a pinned Node.js 24.21.0 runtime. Running the installed CLI does not require a separate Node or npm installation.
 
 ## Build an archive
 
@@ -15,7 +17,7 @@ python3 scripts/package_macos.py --arch arm64
 python3 scripts/package_macos.py --arch x86_64
 ```
 
-The Rust build uses a separate package-build target directory by default. The output archive is written under the target packages directory with a workspace version and target architecture in its filename. `scripts/package_macos_acceptance.sh <archive>` installs and exercises an archive in a temporary clean home. It relocates the install tree, initializes a fixture, runs an offline Arena comparison, replays the ledger, and opens the TUI with no host Node or npm on `PATH`.
+The Rust build uses a separate package-build target directory by default. The output archive is written under the target packages directory with a workspace version and target architecture in its filename. `scripts/package_macos_acceptance.sh <archive>` installs and exercises an archive in a temporary clean home. It relocates the install tree, completes the six-step tour from an empty data directory, initializes a fixture, runs an offline Arena comparison, replays the ledger, and opens the TUI with no host Node or npm on `PATH`.
 
 ## Install and launch
 
@@ -27,13 +29,22 @@ cd hephaestus-v0.1.0-macos-arm64
 ./install.sh
 export PATH="$HOME/.local/bin:$PATH"
 hephaestus --version
+heph
 ```
 
 The installer creates a versioned release under `~/.local/share/hephaestus/releases`, switches the relative `current` link, and adds command symlinks under `~/.local/bin`. The installed tree can be moved as a unit. An alternate prefix is supported with `./install.sh --prefix /path/to/prefix`; existing unrelated executables or symlinks are left alone.
 
-The acceptance script additionally needs Python 3 for its PTY driver. It tests with Git present while excluding host Node and npm from `PATH`; this does not prove operation without Git. It verifies explicit ledger replay within one daemon process, not daemon stop/restart recovery.
+`heph` creates the quickstart project under the selected data directory, starts
+the daemon frozen, and opens the guided tour. Enter advances each step, including
+unfreezing and running the offline example. The Arena step records or reads its
+metrics Selection; invariant verification and promotion remain separate. Quit
+returns to the home menu. Use `heph stop` to stop the daemon, or `heph --tour` to
+repeat the tour. A separate data directory can be selected with
+`heph --data-dir /path/to/data`.
 
-Create the local quickstart source and configuration fixture:
+The acceptance script additionally needs Python 3 for its PTY driver. It tests with Git present while excluding host Node and npm from `PATH`; this does not prove operation without Git. The tour verifies replay before stopping its daemon; the separate reference Gauntlet verifies stop/restart recovery.
+
+For a manual workflow, create the local quickstart source and configuration fixture:
 
 ```sh
 hephaestus init --fixture quickstart ./hephaestus-quickstart
@@ -45,7 +56,7 @@ The package contains no hosted model credentials and does not invoke a paid prov
 
 ## Platform and release limits
 
-Archives are single-architecture. The installer checks that the archive architecture matches the current process architecture; install the matching `arm64` or `x86_64` archive. The acceptance script verifies install relocation and the offline fixture with Git present, while hiding host Node and npm. It is not proof of operation on a machine without Git. The package is not signed or notarized by this repository, and CI does not publish GitHub Releases automatically. Use a trusted archive source and verify its SHA-256 before installation when distributing it outside the local acceptance flow.
+Archives are single-architecture. The installer checks that the archive architecture matches the current process architecture; install the matching `arm64` or `x86_64` archive. The acceptance script verifies install relocation and the offline fixture with Git present, while hiding host Node and npm. It is not proof of operation on a machine without Git. The release workflow is configured to publish on an explicit version tag, with Sigstore signatures and build provenance; see [release verification](RELEASES.md). Apple code signing and notarization are not implemented. Acceptance uses locally built archives; first launch after a quarantined browser download remains unverified.
 
 ## Local development: first-launch scan of new test binaries (macOS)
 

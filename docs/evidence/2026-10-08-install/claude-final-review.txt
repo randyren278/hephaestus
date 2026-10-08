@@ -1,0 +1,14 @@
+I found one concrete blocker. The other changes in this slice look right.
+
+**Blocker: the run step's harness wait is shorter than the UI's own deadline.**
+- In `apps/hephaestus-tui/src/tour-view.tsx:152`, `unfreezeAndRun` polls for up to 20s. Its result lines, including `Ledgered:`, are only rendered once that polling ends (`tour-view.tsx:160-167`). The acknowledgement doesn't show up first.
+- In `apps/hephaestus-tui/scripts/pty_tour.py:114`, the harness only waits 15s for `Ledgered:`. Because both lines render at the same moment, the extra 15s `· succeeded` wait at `pty_tour.py:116` adds nothing. The real limit is 15s.
+- So if the packaged reference run takes 15–20s, acceptance fails with "tour did not unfreeze and attempt the parent run" even though the UI is still within its deadline. That's plausible on a first launch, with the sandbox and evaluator starting cold.
+- **Fix:** give the `Ledgered:` wait about 25s (the UI deadline plus the unfreeze/submit round trips), the same way Arena gets 70s around its 60s.
+
+**Checked and fine:**
+- **First-launch prompt:** `heph.rs:84-85` only asks when `--tour` is absent and no completed marker exists. Pressing Enter sends an empty answer, which counts as "no", so the launch continues. The harness correctly leaves out `--tour` when `--first-launch` is set.
+- **Evaluator override:** it's now only set outside packaged mode (`pty_tour.py:53-56`), and the acceptance script doesn't export one.
+- **Line wrapping at 80x24:** the run line is `Run async-<32 hex> · succeeded`, about 54 characters, so it fits in the 76-column interior and the `· succeeded` match won't break across a wrap. The score, `Correctness delta`, and `Eligible for promotion: no` lines also fit, and the harness matches them from the start of the line.
+- **Arena:** the harness gives 70s against the UI's 60s polling plus the evaluate/select requests. Once it sees `Visible score:` it waits for the full score and the Selection lines, and it still exits cleanly on a refusal or error.
+- **Chunk races:** `mark()` drains output for 0.2s before each key press, and every check only looks at text after that mark, so leftover output from the previous step can't produce a false match.

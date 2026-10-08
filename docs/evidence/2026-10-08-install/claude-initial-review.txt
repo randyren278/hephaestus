@@ -1,0 +1,27 @@
+No blockers in the changed code. I found two flake risks in the PTY harness, one coverage gap in acceptance, and a few minor points. This is from reading the code only; I haven't run anything.
+
+## Confirmed against the code
+
+- **Packaging the launcher:** `heph` is an existing Rust binary (`crates/hephaestus-control/src/bin/heph.rs`). It resolves the binaries next to it through `canonicalize()` (`heph.rs:198`), so it works through the `$PREFIX/bin` → `current` → `releases/<r>` symlink chain. The `BINARIES` list in `package_macos.py`, the two loops in `install.sh` and the relocation test (`test_macos_package.py:152`) agree, and that test would catch a later mismatch. People upgrading from an older package are fine: they have no `bin/heph` link, so the pre-check passes. People who installed from source already hit the existing refusal for `hephaestus` etc., so `heph` adds no new conflict.
+- **IDs:**
+  - `tour-<64hex>` (Arena) and `tour-run-<64hex>` (run) can't be prefixes of each other, because "run-" isn't hex. Both stay within `validate_job_id`'s limits of 128 bytes and `[A-Za-z0-9._-]` (`runtime_exec.rs:639`).
+  - Hashing a JSON array keeps the parent/candidate direction.
+  - The derived run ID `async-<32hex>` keeps the line `Run … · succeeded` well under the 76 usable columns at 80x24.
+- **Retries and replaying the tour are safe on the daemon side.** `submit_job` and `submit_arena_job` return the existing job if it's bound to the same Genome or pair, and reject a different one (`job_exec.rs:36`, `run_exec.rs:309`). `select_and_record` reloads an existing `arena:selection:{id}:selected` event instead of appending a second one (`selection.rs:549`). Registering a Genome again under the same World is also idempotent.
+- **Selection binding:** the evaluation id and both roles are checked before `arena_select`. Evaluation id, World and both roles are checked after it. The tour sends no invariant, promotion or champion commands.
+- **Paths:** `hephaestus tui` passes an absolute `HEPHAESTUS_HOME` (`hephaestus.rs:874-883`), so a relative `heph --data-dir` won't break `read_bounded_file`'s absolute-path rule. That function follows symlinks, so the symlinked evaluator path is accepted.
+
+## Worth fixing before relying on the acceptance result
+
+1. **Race in `pty_tour.py:104`.** `until("Ledgered:")` returns as soon as that line appears. The `· succeeded` check then reads the buffer once, without waiting. Ink usually writes the whole frame at once, but a pty read can split it, and the next line may not be buffered yet. Under `--require-measured`, wait on `until('· succeeded', …)` instead.
+2. **Same race at `pty_tour.py:113-118`.** The loop stops on `Visible score:`, but `Correctness delta …` and `Eligible for promotion: no` come two to three lines later in the same frame and are checked without waiting. Stop on `Eligible for promotion:` or on `Selection unavailable`/`Something went wrong` instead.
+3. **The fallback evaluator lookup a real fresh install uses is never tested.** `pty_tour.py:50-51` always sets `HEPHAESTUS_EVALUATOR`, so packaged acceptance never exercises `resolveEvaluatorPath`'s packaged-layout fallback (`tour-view.tsx:42-44`, `../../../bin` from `share/hephaestus/tui`). A real user doesn't set that variable. As written, if the fallback broke, the Lineage step would degrade to "unavailable" for real users while acceptance still passes. Only set the override when the binary is not in a packaged layout, or add a flag that skips it in the package script.
+4. **Poll limits vs. harness timeouts.** The tour polls for about 10 s on the run (`tour-view.tsx:152`) and about 20 s in the Arena (`:187`). The harness allows 15 s and 45 s. On a slow or cold machine the Arena step would show an error (state `running`) and fail `--require-measured`, even though the daemon would have finished. Raise the Arena limit, or have the tour keep polling while the job is still running.
+
+## Minor (not blockers)
+
+- **Run result isn't checked against the request.** `unfreezeAndRun` accepts `worldId` but only checks that it exists. Unlike the Arena step, it doesn't confirm that the returned `job.job_id`, `genome_id` and `world_id` match what was submitted. The daemon rebinding guard covers the practical risk; checking here would make the two steps consistent.
+- **Registration result isn't checked either.** `registerLineage` doesn't confirm that the returned `genome.world_id === worldId`, or that the candidate's `parent_ids` includes `parentId`. This matches the "carry returned identities" intent, but the daemon guarantees both.
+- **Stale docstring.** `pty_tour.py`'s docstring still says Run and Arena are "accepted either way". That's no longer true with `--require-measured`.
+- **Expected values to check in your packaged run.** The tour expects `Correctness delta 10000 bps`, and the CLI section expects `correctness_improvements=2`. They come from separate code paths, so if one fixture change breaks one of them, it fails without obviously pointing at the other.
+- **Untracked `.DS_Store` files.** `.DS_Store` and `python/.DS_Store` are untracked; keep them out of the commit.

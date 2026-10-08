@@ -78,6 +78,9 @@ class MacosPackageTests(unittest.TestCase):
     def test_senate_binary_is_bundled(self) -> None:
         self.assertIn("senate", PACKAGE_BUILDER.BINARIES)
 
+    def test_first_run_launcher_is_bundled(self) -> None:
+        self.assertIn("heph", PACKAGE_BUILDER.BINARIES)
+
     def test_bundled_fixtures_cover_quickstart_gauntlet_coding_and_gauntlet_reference(self) -> None:
         self.assertEqual(
             PACKAGE_BUILDER.FIXTURES,

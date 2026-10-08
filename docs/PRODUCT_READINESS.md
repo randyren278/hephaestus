@@ -32,13 +32,13 @@ live-model improvement and full installation acceptance remain required.
 
 | Requirement | Evidence needed | Current status |
 |---|---|---|
-| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Existing implementation; current full acceptance still to run |
+| Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Native ARM64 package verified through install, relocation, the real first-launch choice and six-step tour, bundled Node with host Node/npm hidden, offline Arena and restart/replay. Clean source installation, native Intel acceptance and downloaded-archive first launch remain |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Guided revision checkpoint passes 711 Rust, 185 UI and 44 Python tests, all 51 coverage floors, both Clippy modes and 25 affected mutations. Full product acceptance and the complete mutation matrix remain to verify |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current UI checks pass 189 tests; guided revision checkpoint passes 711 Rust and 44 Python tests, all 51 coverage floors, both Clippy modes and 25 affected mutations. Full product acceptance and the complete mutation matrix remain to verify |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Positioning and delivery work remains |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -226,3 +226,23 @@ confirmation, parent-budget and terminal-visibility findings were incorporated.
 Representative live-model quality, fresh installation acceptance and the
 commercial delivery audit still remain; this checkpoint does not complete the
 full product goal.
+
+## Packaged installation checkpoint, 2026-10-08
+
+The ARM64 archive now includes `heph` and passes installation and relocation
+in an isolated home. The real first-launch choice and all six tour steps passed
+at 80×24 with host Node/npm hidden and no evaluator override. The tour displayed
+parent 0/1 → candidate 1/1, verified metrics Selection and replay, then restored
+the terminal. Offline Arena and both bundled Gauntlets also passed, including
+the reference Gauntlet's daemon restart and signed-receipt replay. See the
+[installed package evidence](evidence/2026-10-08-install/README.md).
+
+Tour registration now carries the fixture's exact returned identities instead
+of choosing arbitrary registered agents. Full identity hashes distinguish
+directed runs and comparisons. Selection failures preserve the visible score
+and offer retry; substituted evidence refuses. All 189 UI checks pass on the
+development runtime and Node 22, and nine package plus seven source-installer
+contracts pass. Source contracts use fake build tools. Actual clean source
+installation, native Intel acceptance, downloaded-archive first launch and
+release-workflow acceptance gates remain; this checkpoint establishes neither
+representative live-model improvement nor the commercial offer.
