@@ -3,20 +3,21 @@
 
 use super::{
     ArtifactBackend, ArtifactId, BTreeMap, ControlPlane, ControlState, EventIndex, EventInput,
-    EventLedger, ExecuteError, ForgeProposalPayload, GenomeRecord, MAX_ARTIFACT_FILE_BYTES,
-    MAX_SOURCE_FILE_BYTES, MUTATION_CATALOG_VERSION, OPERATOR_ACTOR, Path, RegisteredObjects,
-    ResponseData, TrustedManifest, WorldRecord, compile_forge_child, compile_genome,
-    compile_markdown_genome, compile_world, existing_forge_assessment_response,
-    existing_forge_response, forge_aggregate_id, forge_assessment_event_id,
-    forge_assessment_payload, forge_assessment_record, forge_event_id, forge_prompt_mutation,
-    forge_proposal_record, hex_encode, mutation_edge_kind, read_bounded_file, read_source_text,
-    reference_instruction_operation, resolve_forge_hypothesis, source_format, timestamp_millis,
-    validate_job_id, verified_forge_source, verify_arena_evaluation_records_with,
-    verify_canary_history_with, verify_champion_history_with, verify_cluster_history_with,
-    verify_drift_adaptation_history, verify_drift_history_with, verify_evolution_history,
-    verify_forge_assessment_history, verify_forge_assessment_history_with, verify_forge_history,
-    verify_forge_history_with, verify_gene_bank_history_with, verify_invariant_history_with,
-    verify_meta_evolution_history, verify_selection_history_with,
+    EventLedger, ExecuteError, ForgeProposalPayload, GenomeProfileRecord, GenomeRecord,
+    MAX_ARTIFACT_FILE_BYTES, MAX_SOURCE_FILE_BYTES, MUTATION_CATALOG_VERSION, MutationTarget,
+    OPERATOR_ACTOR, Path, RegisteredObjects, ResponseData, TrustedManifest, Visibility,
+    WorldRecord, compile_forge_child, compile_genome, compile_markdown_genome, compile_world,
+    existing_forge_assessment_response, existing_forge_response, forge_aggregate_id,
+    forge_assessment_event_id, forge_assessment_payload, forge_assessment_record, forge_event_id,
+    forge_prompt_mutation, forge_proposal_record, hex_encode, mutation_edge_kind,
+    read_bounded_file, read_source_text, reference_instruction_operation, resolve_forge_hypothesis,
+    source_format, timestamp_millis, validate_job_id, verified_forge_source,
+    verify_arena_evaluation_records_with, verify_canary_history_with, verify_champion_history_with,
+    verify_cluster_history_with, verify_drift_adaptation_history, verify_drift_history_with,
+    verify_evolution_history, verify_forge_assessment_history,
+    verify_forge_assessment_history_with, verify_forge_history, verify_forge_history_with,
+    verify_gene_bank_history_with, verify_invariant_history_with, verify_meta_evolution_history,
+    verify_selection_history_with,
 };
 
 use super::verification::ForgeHypothesisSource;
@@ -374,6 +375,63 @@ impl ControlPlane {
         Ok(ResponseData::GenomePrompt {
             genome_id: genome_id.to_owned(),
             prompt,
+        })
+    }
+
+    pub(super) fn genome_profile(&self, genome_id: &str) -> Result<ResponseData, ExecuteError> {
+        let genome = self
+            .state
+            .registered
+            .genome(genome_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let world = self
+            .state
+            .registered
+            .world(&genome.record().world_id)
+            .ok_or(ExecuteError::Internal)?;
+        let compiled = genome.compiled();
+        let policy = world.compiled().evaluation_policy();
+        let visible = self.world_manifest(
+            world.compiled(),
+            "arena.visible_manifest",
+            Visibility::Visible,
+        )?;
+        let sealed = self.world_manifest(
+            world.compiled(),
+            "arena.sealed_manifest",
+            Visibility::Sealed,
+        )?;
+        let hosted = matches!(compiled.model_provider(), "codex" | "claude");
+        let visible_tasks =
+            u32::try_from(visible.operator_tasks().len()).map_err(|_| ExecuteError::Internal)?;
+        let sealed_tasks =
+            u32::try_from(sealed.operator_tasks().len()).map_err(|_| ExecuteError::Internal)?;
+        let (trial, overall) = Self::paired_budget_plan(
+            hosted,
+            policy.maximum_cost_microusd(),
+            (visible_tasks as usize) + (sealed_tasks as usize),
+        )?;
+        Ok(ResponseData::GenomeProfile {
+            profile: Box::new(GenomeProfileRecord {
+                genome: genome.record().clone(),
+                world: world.record().clone(),
+                provider: compiled.model_provider().to_owned(),
+                family: compiled.model_family().to_owned(),
+                workspace_write: compiled.authority().allows_workspace_write(),
+                network: compiled.authority().allows_network(),
+                prompt_artifact_id: compiled.artifact_id("agent.prompt").map(str::to_owned),
+                harness_mutation_allowed: world
+                    .compiled()
+                    .mutation_scope()
+                    .contains(&MutationTarget::Harness),
+                output_scoring: policy.output_scoring(),
+                visible_tasks,
+                sealed_tasks,
+                paired_trial_wall_millis: trial.wall_millis,
+                paired_trial_output_bytes: trial.maximum_output_bytes,
+                paired_total_wall_millis: overall.wall_millis,
+                reported_cost_limit_microusd: trial.maximum_cost_microusd.to_string(),
+            }),
         })
     }
 

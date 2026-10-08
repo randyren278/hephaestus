@@ -209,6 +209,7 @@ jobs:
           async_job_status_and_cancellation_remain_responsive_and_confirm_process_death
           tui_lineage_inspects_and_rolls_back_the_champion_through_a_pty
           tui_evidence_screens_and_markdown_authoring_flow_through_a_pty
+          tui_hosted_prompt_revision_recovers_and_assesses_through_a_pty
           tui_gene_bank_lists_and_inspects_an_extracted_gene_through_a_pty
 
   mutation:
@@ -240,31 +241,31 @@ jobs:
             prefix: crates/hephaestus-control/
             shard_index: 0
             shard_count: 5
-            minimum: 27
+            minimum: 28
             timeout_minutes: 30
           - scope: hephaestus-control-2
             prefix: crates/hephaestus-control/
             shard_index: 1
             shard_count: 5
-            minimum: 26
+            minimum: 28
             timeout_minutes: 30
           - scope: hephaestus-control-3
             prefix: crates/hephaestus-control/
             shard_index: 2
             shard_count: 5
-            minimum: 26
+            minimum: 27
             timeout_minutes: 30
           - scope: hephaestus-control-4
             prefix: crates/hephaestus-control/
             shard_index: 3
             shard_count: 5
-            minimum: 26
+            minimum: 27
             timeout_minutes: 30
           - scope: hephaestus-control-5
             prefix: crates/hephaestus-control/
             shard_index: 4
             shard_count: 5
-            minimum: 26
+            minimum: 27
             timeout_minutes: 30
           - scope: runtime-deterministic
             prefix: crates/hephaestus-runtime/src/deterministic.rs

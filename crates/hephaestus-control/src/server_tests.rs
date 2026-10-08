@@ -1508,6 +1508,7 @@ fn bounded_socket_handler_routes_valid_requests_and_rejects_bad_or_saturated_cli
         crate::ApiError {
             code: ApiErrorCode::InvalidRequest,
             message: "request exceeds limit".to_owned(),
+            rejected: None,
         }
     );
     let just_over_limit = vec![b'x'; MAX_REQUEST_BYTES + 1];

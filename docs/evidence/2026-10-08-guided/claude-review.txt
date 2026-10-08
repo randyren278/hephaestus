@@ -1,0 +1,22 @@
+**Verdict: I found no remaining blockers in these fixes.** This was a code read only; I didn't run anything.
+
+**`revision-view.tsx`**
+- **Provider and model checks:** `confirmationFits` (`revision-view.tsx:31-35`) accepts only `claude`/`codex` as exact provider strings. The model family must be strict ASCII, at most 128 characters, and unchanged by `safeText`.
+- **Visible columns:** the `columns - 2` check matches the outer `paddingX={1}`, so the `Model:` line can't be cut off when the check passes.
+- **Rows:** the worst case on the `recorded` / `compare_failed` screen is about 20 lines, which fits within the 22-row minimum. The `Model:` line is near the top of the panel, so it would never be the line that gets hidden.
+- **Confirm uses the profile on screen:** `Y` checks `state.child`, and in those phases that is the same profile the panel shows (`:229`, `:216-218`).
+- **Error recovery:** `perform` (`:74-82`) drops `job`, `assessment` and `selection`, and keeps only the cursor reloaded from the saved draft. So no stale job or assessment survives an error.
+
+**`run_exec.rs` `submit_confirmed_arena_job` (`:80-126`)**
+- **Retries:** an existing ID goes straight to `submit_arena_job`. That still rejects a different Genome pair (`:309-317`) and returns the original admission otherwise.
+- **Candidate check:** it compares the full `GenomeProfileRecord` with `!=`, which covers the Genome, World, authority, scoring and every limit. Because the profile is fetched by the candidate ID, an `expected` profile for a different Genome can't match.
+- **Parent check:** the parent must match on provider, family, both authority flags, World, both task counts, trial wall, output bytes, total wall and reported cost limit.
+- **Budgets match what's admitted:** with providers forced equal, the admission budget input `parent || candidate` hosted (`:414`) equals the profile's `hosted`. Both sides also use the same `paired_budget_plan`, World policy and task count, including the test-support wall override. So the confirmed numbers are exactly what gets admitted.
+- **No race:** the profile check and the admission happen in the same `&mut self` call, so state can't change between them.
+
+**Test (`forge_revision_tests.rs:277`)** covers the stale-limit rejection and the deterministic-candidate-with-hosted-parent rejection on a World that allows mixed environments. In both cases it also asserts that no job was created.
+
+**Residual limitations (not blockers):**
+- The mixed-pair test only checks `rejected == Some(true)`, not the error message. It doesn't show the rejection comes from the new parent check rather than some other refusal. Checking the message would make that explicit.
+- The parent comparison leaves out `output_scoring` and `harness_mutation_allowed`. Both come from the World, which already has to match, so this is fine for now. It would need revisiting if either ever becomes a per-Genome setting.
+- A stale-profile retry on an existing ID returns the original admission without checking `expected`. That is intentional, but the client has to treat the returned job's own limits as authoritative, not the profile it confirmed.

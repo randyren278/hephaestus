@@ -215,6 +215,11 @@ enum WorkerCommand {
 
 #[derive(Subcommand)]
 enum GenomeCommand {
+    /// Show an authenticated Forge proposal, including prompt revisions.
+    Proposal {
+        /// Stable proposal identity.
+        proposal_id: String,
+    },
     /// Show one canonical Genome record.
     Show {
         /// Content-derived Genome identity.
@@ -222,6 +227,11 @@ enum GenomeCommand {
     },
     /// Print the verified prompt body of a registered Markdown Genome.
     Prompt {
+        /// Content-derived Genome identity.
+        genome_id: String,
+    },
+    /// Inspect model, authority, World scoring and aggregate trial settings without running work.
+    Profile {
         /// Content-derived Genome identity.
         genome_id: String,
     },
@@ -1684,6 +1694,8 @@ fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static s
     Ok(match command {
         GenomeCommand::Show { genome_id } => Command::GenomeShow { genome_id },
         GenomeCommand::Prompt { genome_id } => Command::GenomePrompt { genome_id },
+        GenomeCommand::Profile { genome_id } => Command::GenomeProfile { genome_id },
+        GenomeCommand::Proposal { proposal_id } => Command::GenomeProposalShow { proposal_id },
         GenomeCommand::List => Command::GenomeList,
         GenomeCommand::Register { path, world } => Command::GenomeRegister {
             path: absolute_path(path)?,
@@ -1761,6 +1773,10 @@ fn print_human(response: &ApiResponse) {
             println!("{}", forge_assessment_human(assessment));
         }
         (Some(ResponseData::GenomePrompt { prompt, .. }), None) => print!("{prompt}"),
+        (Some(ResponseData::GenomeProfile { profile }), None) => println!(
+            "{}",
+            serde_json::to_string_pretty(profile).expect("execution metadata is serializable")
+        ),
         (Some(ResponseData::Job { job, progress }), None) => println!(
             "job={} genome={} run={} state={:?} terminal={:?} traces={} last_phase={} last_sequence={}",
             job.job_id,

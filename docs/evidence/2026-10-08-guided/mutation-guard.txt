@@ -1,0 +1,85 @@
+root:    /Users/randyren/Developer/hephaestus
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 480s
+
+RUN       frozen-reference-run-started     command=cargo test -p hephaestus-control --all-features --test control_plane_e2e reference_runtime_runs_through_real_daemon_and_replays_terminal_evidence timeout=480s
+KILLED    frozen-reference-run-started     crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-evaluation-task-context-hardcoded command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events timeout=480s
+KILLED    control-evaluation-task-context-hardcoded crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-world-cost-law-bypassed  command=cargo test -p hephaestus-control --all-features --lib -- run_evaluation_cost_ceiling_enforces_the_registered_world_law timeout=480s
+KILLED    control-world-cost-law-bypassed  crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-self-pair-accepted       command=cargo test -p hephaestus-control --all-features --lib -- evaluate_pair_rejects_a_genome_paired_against_itself timeout=480s
+KILLED    control-self-pair-accepted       crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-world-bound-evaluator-bypassed command=cargo test -p hephaestus-control --all-features --test control_plane_e2e daemon_evaluation_results_replay_and_feed_exact_authenticated_arena_events timeout=480s
+KILLED    control-world-bound-evaluator-bypassed crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-sealed-tasks-not-scheduled command=cargo test -p hephaestus-control --all-features --lib evidence_evaluation_list_includes_selection_and_invariant_summaries_and_hides_sealed_data timeout=480s
+KILLED    control-sealed-tasks-not-scheduled crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-paired-retry-reruns-candidates command=cargo test -p hephaestus-control --all-features --lib -- retried_paired_evaluation_reuses_the_completed_arena_job_without_rerunning_it timeout=480s
+KILLED    control-paired-retry-reruns-candidates crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       control-paired-seed-diverges     command=cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_reference_instructions_use_one_pinned_worker_for_paired_trials timeout=480s
+KILLED    control-paired-seed-diverges     crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       reference-worker-changed-after-startup-accepted command=cargo test -p hephaestus-control --all-features --lib pin_reference_worker_rejects_a_public_executable_replaced_before_first_pin timeout=480s
+KILLED    reference-worker-changed-after-startup-accepted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       pinned-reference-worker-reuse-skips-per-use-digest-reverification command=cargo test -p hephaestus-control --all-features --lib pinned_reference_worker_cache_fails_closed_on_corruption_and_recovers_on_next_use timeout=480s
+KILLED    pinned-reference-worker-reuse-skips-per-use-digest-reverification crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       reference-instruction-cas-not-interpreted command=cargo test -p hephaestus-control --all-features --test control_plane_e2e markdown_reference_instructions_use_one_pinned_worker_for_paired_trials timeout=480s
+KILLED    reference-instruction-cas-not-interpreted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       reference-evaluation-uses-private-pinned-worker command=cargo test -p hephaestus-control --all-features --test control_plane_e2e synchronous_reference_run_uses_private_worker_snapshot_after_public_replacement timeout=480s
+KILLED    reference-evaluation-uses-private-pinned-worker crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       arena-invalid-json-expectations-admitted command=cargo test -p hephaestus-control --all-features --lib provider_pair_world_scoring --quiet timeout=480s
+KILLED    arena-invalid-json-expectations-admitted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-paired-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-paired-instruction-omitted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-direct-instruction-omitted command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-direct-instruction-omitted crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-paired-model-omitted    command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-paired-model-omitted    crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-direct-model-omitted    command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-direct-model-omitted    crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       provider-prose-parsed-as-reference command=cargo test -p hephaestus-control --all-features --lib provider_prose_instructions --quiet timeout=480s
+KILLED    provider-prose-parsed-as-reference crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       forge-revision-evolution-busy-gate-skipped command=cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations timeout=480s
+KILLED    forge-revision-evolution-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs (timeout 480s)
+RUN       paired-hosted-wall-budget-regressed command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_budget_plan --quiet timeout=480s
+KILLED    paired-hosted-wall-budget-regressed crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       paired-one-day-total-bound-bypassed command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_budget_plan --quiet timeout=480s
+KILLED    paired-one-day-total-bound-bypassed crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       confirmed-pair-profile-check-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet timeout=480s
+KILLED    confirmed-pair-profile-check-skipped crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       confirmed-pair-existing-id-lookup-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet timeout=480s
+KILLED    confirmed-pair-existing-id-lookup-skipped crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+RUN       forge-proposal-read-cas-verification-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_history --quiet timeout=480s
+KILLED    forge-proposal-read-cas-verification-skipped crates/hephaestus-control/src/forge_revision.rs (timeout 480s)
+RUN       confirmed-pair-parent-profile-check-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet timeout=480s
+KILLED    confirmed-pair-parent-profile-check-skipped crates/hephaestus-control/src/run_exec.rs (timeout 480s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+frozen-reference-run-started     crates/hephaestus-control/src/run_exec.rs KILLED
+control-evaluation-task-context-hardcoded crates/hephaestus-control/src/run_exec.rs KILLED
+control-world-cost-law-bypassed  crates/hephaestus-control/src/run_exec.rs KILLED
+control-self-pair-accepted       crates/hephaestus-control/src/run_exec.rs KILLED
+control-world-bound-evaluator-bypassed crates/hephaestus-control/src/run_exec.rs KILLED
+control-sealed-tasks-not-scheduled crates/hephaestus-control/src/run_exec.rs KILLED
+control-paired-retry-reruns-candidates crates/hephaestus-control/src/run_exec.rs KILLED
+control-paired-seed-diverges     crates/hephaestus-control/src/run_exec.rs KILLED
+reference-worker-changed-after-startup-accepted crates/hephaestus-control/src/run_exec.rs KILLED
+pinned-reference-worker-reuse-skips-per-use-digest-reverification crates/hephaestus-control/src/run_exec.rs KILLED
+reference-instruction-cas-not-interpreted crates/hephaestus-control/src/run_exec.rs KILLED
+reference-evaluation-uses-private-pinned-worker crates/hephaestus-control/src/run_exec.rs KILLED
+arena-invalid-json-expectations-admitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-paired-instruction-omitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-direct-instruction-omitted crates/hephaestus-control/src/run_exec.rs KILLED
+provider-paired-model-omitted    crates/hephaestus-control/src/run_exec.rs KILLED
+provider-direct-model-omitted    crates/hephaestus-control/src/run_exec.rs KILLED
+provider-prose-parsed-as-reference crates/hephaestus-control/src/run_exec.rs KILLED
+forge-revision-evolution-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs KILLED
+paired-hosted-wall-budget-regressed crates/hephaestus-control/src/run_exec.rs KILLED
+paired-one-day-total-bound-bypassed crates/hephaestus-control/src/run_exec.rs KILLED
+confirmed-pair-profile-check-skipped crates/hephaestus-control/src/run_exec.rs KILLED
+confirmed-pair-existing-id-lookup-skipped crates/hephaestus-control/src/run_exec.rs KILLED
+forge-proposal-read-cas-verification-skipped crates/hephaestus-control/src/forge_revision.rs KILLED
+confirmed-pair-parent-profile-check-skipped crates/hephaestus-control/src/run_exec.rs KILLED
+
+25 mutations run, 25 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

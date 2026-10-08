@@ -466,6 +466,7 @@ impl ControlPlane {
         let blocked = matches!(
             command,
             Command::EvaluatePair { .. }
+                | Command::EvaluatePairConfirmed { .. }
                 | Command::ArenaSelect { .. }
                 | Command::ArenaInvariants { .. }
                 | Command::GenomePropose { .. }

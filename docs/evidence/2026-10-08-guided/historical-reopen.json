@@ -1,0 +1,19 @@
+{
+  "catalog_schema1_preserved": true,
+  "prose_schema2_preserved": true,
+  "exact_prompt_preserved": true,
+  "champion_preserved": true,
+  "historical_terminal_preserved": true,
+  "historical_trial_wall_millis": 10000,
+  "binary_sha256": {
+    "hephaestus": "11cb07fe1a5630417a11cc6f4a0054ae8bb07de1137bf0d7ed11118ef710a57f",
+    "hephaestusd": "d6df1b06e9d59b0d454c1e18ccd67b09f4bb68f39eb98d1e93516ec58d335187"
+  },
+  "replay": {
+    "type": "replay",
+    "event_count": 209,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "9751d9b3d14ce1910fb1e21fc1c4e2e7547255007596a7cf1f7d4e43085f9168"
+  }
+}

@@ -12,10 +12,11 @@ import {MetaEvaluationDetailPanel, MetaEvaluationListPanel, MetaStrategyDetailPa
 import {CelebrationBurst, CrestClash, ProgressBar, TorchFlicker, Typewriter, type FrameOptions} from './motion.js';
 import {BANNER_CHAR_TOKEN, borderColorProps, colorProps, HOME_BANNER_ROWS, TOKEN_ROLE, TUI_BANNER, useTheme, type Role, type Theme} from './theme.js';
 import {TourScreen} from './tour-view.js';
+import {RevisionScreen} from './revision-view.js';
 import {safeText, type ApiResponse, type ArenaJobProgress, type Canary, type Champion, type Command, type DenialEntry, type Drift, type EvaluationListEntry, type GeneAggregate, type GeneSummary, type Genome, type MetaEvaluation, type MetaStrategy, type ResponseData, type RunListEntry, type World} from './protocol.js';
 
 const MENU = ['Status', 'Freeze', 'Unfreeze', 'Kill all active work', 'Inspect job by ID', 'Cancel job by ID', 'Arena progress by ID', 'Lineage and Champions', 'Evidence & Costs', 'Gene Bank', 'Drift, Canary & Meta-eval', 'Author Markdown agent', 'Take the tour'] as const;
-const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials'] as const;
+const EVIDENCE_MENU = ['Runs', 'Evidence receipts', 'Costs', 'Denials', 'Forge: revise a prompt'] as const;
 const OPERATE_MENU = ['Drift records', 'Canaries', 'Evolver strategies', 'Meta-evaluations'] as const;
 type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' | 'confirm-kill-all'
 	| 'worlds' | 'lineage' | 'genome' | 'rollback-reason' | 'confirm-rollback'
@@ -24,7 +25,7 @@ type View = 'home' | 'job-id' | 'arena-id' | 'arena-progress' | 'confirm-kill' |
 	| 'operate-menu' | 'drifts' | 'drift-detail' | 'canaries' | 'canary-detail'
 	| 'meta-strategies' | 'meta-strategy-detail' | 'meta-evaluations' | 'meta-evaluation-detail'
 	| 'author-world' | 'author-path' | 'author-register' | 'author-test-parent'
-	| 'tour';
+	| 'tour' | 'revision';
 const LINEAGE_VIEWS: View[] = ['worlds', 'lineage', 'genome', 'rollback-reason', 'confirm-rollback'];
 const EVIDENCE_LIST_VIEWS: View[] = ['runs', 'evidence', 'costs', 'denials'];
 const EVIDENCE_VIEWS: View[] = ['evidence-menu', ...EVIDENCE_LIST_VIEWS];
@@ -34,7 +35,7 @@ const OPERATE_VIEWS: View[] = ['operate-menu', ...OPERATE_LIST_VIEWS, 'drift-det
 const AUTHOR_VIEWS: View[] = ['author-world', 'author-path', 'author-register', 'author-test-parent'];
 const LIST_LIMIT = 200;
 type TuiClient = Pick<ControlClient, 'request'>;
-type Props = {client?: TuiClient; pollMs?: number; forceTour?: boolean};
+type Props = {client?: TuiClient; pollMs?: number; forceTour?: boolean; revisionDataDir?: string};
 
 function waitForPoll(ms: number, signal: AbortSignal): Promise<void> {
 	if (signal.aborted) return Promise.reject(new Error('daemon request aborted'));
@@ -127,7 +128,7 @@ export function ArenaProgressPanel({job, stale, notice, compact = false, animate
 	</Box>;
 }
 
-export function App({client: providedClient, pollMs = 1500, forceTour = false}: Props) {
+export function App({client: providedClient, pollMs = 1500, forceTour = false, revisionDataDir}: Props) {
 	const {exit, suspendTerminal} = useApp();
 	const theme = useTheme();
 	const {columns = 80, rows = 24} = useWindowSize();
@@ -205,10 +206,11 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 		}
 	}, [client, lifetime]);
 	useEffect(() => {
+		if (view === 'revision') return;
 		void refresh();
 		const timer = setInterval(() => void refresh(false), pollMs);
 		return () => clearInterval(timer);
-	}, [refresh, pollMs]);
+	}, [refresh, pollMs, view === 'revision']);
 	useEffect(() => () => lifetime.abort(), [lifetime]);
 
 	const act = async (command: Command, pending: string) => {
@@ -497,7 +499,7 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 
 	useInput((input, key) => {
 		if (authorEditing.current) return;
-		if (view === 'tour') return; // TourScreen owns its own input while active.
+		if (view === 'tour' || view === 'revision') return; // These screens own their input.
 		if (view === 'home' && input.toLowerCase().includes('q')) { quit(); return; }
 		if (view === 'job-id') {
 			if (key.escape) { setView('home'); return; }
@@ -572,6 +574,7 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 					case 1: setEvaluationIndex(0); setView('evidence'); void loadEvaluations(); break;
 					case 2: setCostIndex(0); setView('costs'); void loadCosts(); break;
 					case 3: setDenialIndex(0); setView('denials'); void loadDenials(); break;
+					case 4: refreshGeneration.current += 1; setView('revision'); break;
 				}
 			}
 			return;
@@ -845,6 +848,11 @@ export function App({client: providedClient, pollMs = 1500, forceTour = false}: 
 	const statusRole: Role = stale ? 'danger' : statusText === 'FROZEN' ? 'judge' : status ? 'success' : 'muted';
 	if (view === 'tour') {
 		return <TourScreen client={client} onExit={() => { setView('home'); void refresh(); }} />;
+	}
+	if (view === 'revision') {
+		const directory = revisionDataDir ?? (client instanceof ControlClient ? client.dataDir : undefined);
+		if (!directory) return <Text>Revision workspace unavailable; configure revisionDataDir for this client.</Text>;
+		return <RevisionScreen client={client} dataDir={directory} pollMs={pollMs} onExit={() => setView('evidence-menu')} />;
 	}
 	return <Box flexDirection="column" width={Math.max(1, columns)} height={Math.max(1, rows)} paddingX={1}>
 		<Box justifyContent="space-between">

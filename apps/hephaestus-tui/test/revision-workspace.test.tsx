@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {MAX_PROMPT_BYTES, RevisionWorkspace} from '../src/revision-workspace.js';
 
-const source = {source_evaluation_id: 'comparison', selection_event_id: 'selection:comparison', world_id: 'world:abc', parent_genome_id: 'genome:abc'};
+const source = {source_evaluation_id: 'comparison', selection_event_id: 'selection:comparison', selection_event_hash: 'selection-hash', world_id: 'world:abc', parent_genome_id: 'genome:abc'};
 const before = '\uFEFFBefore\r\ncafé 🙂  ';
 const after = '\uFEFFAfter\r\ncafé 🙂  ';
 
@@ -73,10 +73,8 @@ test('a reviewed snapshot is private, retryable across restart and independent o
 	assert.equal(value.evaluation_ids.length, 1);
 	assert.match(value.evaluation_ids[0]!, /^tui-arena-[a-f0-9-]{36}$/);
 	value = await restarted.save({...value, phase: 'completed'});
-	const next = await restarted.newAttempt(value);
-	assert.equal(next.evaluation_ids.length, 2);
-	assert.notEqual(next.evaluation_ids[0], next.evaluation_ids[1]);
-	assert.deepEqual(await restarted.load(value.proposal_id), next);
+	await assert.rejects(restarted.newAttempt(value), /Only an unstarted or failed/);
+	assert.deepEqual(await restarted.load(value.proposal_id), value);
 }));
 
 test('snapshot refuses a draft changed since review and detects later snapshot tampering', async () => fixture(async workspace => {
@@ -176,7 +174,7 @@ test('stale and concurrent cursor updates cannot overwrite saved IDs or bindings
 	assert.equal(latest.cursor_revision, 1);
 	await assert.rejects(workspace.save(original), /cursor changed/);
 	await assert.rejects(workspace.save({...latest, parent_genome_id: 'genome:other'}), /source binding cannot change/);
-	await assert.rejects(workspace.newAttempt(latest), /Finish or reconcile/);
+	await assert.rejects(workspace.newAttempt(latest), /Only an unstarted or failed/);
 }));
 
 test('phases require their bindings and prevent losing comparison IDs or rolling back a recorded snapshot', async () => fixture(async workspace => {
@@ -192,7 +190,7 @@ test('phases require their bindings and prevent losing comparison IDs or rolling
 	await assert.rejects(workspace.save(recorded), /cursor changed/);
 	await assert.rejects(workspace.save({...value, evaluation_ids: []}), /Invalid revision recovery cursor/);
 	await assert.rejects(workspace.save({...value, evaluation_ids: [`tui-arena-00000000-0000-0000-0000-000000000000`]}), /comparison identities/);
-	await assert.rejects(workspace.newAttempt(value), /Finish or reconcile/);
+	await assert.rejects(workspace.newAttempt(value), /Only an unstarted or failed/);
 }));
 
 test('hard-linked drafts, FIFOs and symlinked retry snapshots reject without changing other files', async () => fixture(async (workspace, root) => {
@@ -223,7 +221,7 @@ test('a revision permits 100 distinct attempts and then reports the exact limit'
 	value = await workspace.save({...value, phase: 'recorded', child_genome_id: 'genome:child'});
 	for (let i = 0; i < 100; i++) {
 		value = await workspace.newAttempt(value);
-		value = await workspace.save({...value, phase: 'completed'});
+		value = await workspace.save({...value, phase: 'compare_failed'});
 	}
 	assert.equal(new Set(value.evaluation_ids).size, 100);
 	await assert.rejects(workspace.newAttempt(value), /100 comparison attempt limit/);
@@ -254,7 +252,7 @@ test('definite rejections have explicit recovery states and controls in source I
 	value = await workspace.snapshot(value, (await workspace.review(value)).change.sha256);
 	const rejected = await workspace.save({...value, phase: 'record_rejected'});
 	assert.equal((await workspace.load(value.proposal_id)).phase, 'record_rejected');
-	await assert.rejects(workspace.newAttempt(rejected), /Finish or reconcile/);
+	await assert.rejects(workspace.newAttempt(rejected), /Only an unstarted or failed/);
 	value = {...await workspace.create(source, before), hypothesis: 'A separate revision.'};
 	await writeFile(workspace.path(value.proposal_id, 'draft'), after);
 	value = await workspace.snapshot(value, (await workspace.review(value)).change.sha256);

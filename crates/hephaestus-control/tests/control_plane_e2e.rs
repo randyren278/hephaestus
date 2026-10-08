@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -8067,6 +8068,156 @@ fn tui_evidence_screens_and_markdown_authoring_flow_through_a_pty() {
     println!("{}", String::from_utf8_lossy(&editor_output.stdout));
 
     daemon.stop();
+}
+
+/// Actual offline hosted prompts through the packaged guided revision flow,
+/// with TUI exits after recording and during the comparison.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn tui_hosted_prompt_revision_recovers_and_assesses_through_a_pty() {
+    if std::env::var_os("HEPHAESTUS_TUI_PTY_E2E").is_none() {
+        return;
+    }
+    let directory = tempdir().expect("temporary directory");
+    let data_dir = directory.path().join("data");
+    let repository = directory.path().join("source");
+    fs::create_dir(&repository).unwrap();
+    git(&repository, &["init"]);
+    git(&repository, &["config", "user.name", "Hephaestus Test"]);
+    git(
+        &repository,
+        &["config", "user.email", "hephaestus@example.invalid"],
+    );
+    let before = "Return the task unchanged.\r\ncafé ";
+    let after = "Return the task in uppercase.\r\ncafé ";
+    let quickstart = Path::new(QUICKSTART);
+    let mut script = "#!/bin/sh\ncase \" $* \" in *' --model=sonnet '*) ;; *) exit 41 ;; esac\ncat > \"$TMPDIR/frame\"\n".to_owned();
+    for (role, instruction) in [("before", before), ("after", after)] {
+        for visibility in ["visible", "sealed"] {
+            let manifest: serde_json::Value = serde_json::from_slice(
+                &fs::read(quickstart.join(format!("tasks/{visibility}.json"))).unwrap(),
+            )
+            .unwrap();
+            let input = manifest["tasks"][0]["input"].as_str().unwrap();
+            let frame_name = format!("{role}-{visibility}.frame");
+            fs::write(repository.join(&frame_name), format!(
+                "HEPHAESTUS-PROVIDER-INPUT-V2\nFollow the agent instructions to complete the task. Section lengths count UTF-8 bytes.\nAGENT-INSTRUCTION {}\n{instruction}\nTASK {}\n{input}\n", instruction.len(), input.len()
+            )).unwrap();
+            let result = serde_json::json!({"type":"result","subtype":"success","result": if role == "after" { input.to_uppercase() } else { input.to_owned() },"total_cost_usd":0.0});
+            let delay = if role == "before" { "sleep 2\n" } else { "" };
+            write!(script, "if cmp -s \"$TMPDIR/frame\" '{frame_name}'; then\n{delay}printf '%s\\n' '{result}'\nexit 0\nfi\n").unwrap();
+        }
+    }
+    script.push_str("exit 42\n");
+    git(&repository, &["add", "."]);
+    git(&repository, &["commit", "-m", "exact prompt frames"]);
+    let fake = directory.path().join("fake-claude");
+    write_script(&fake, &script);
+    let daemon = Daemon::start_with_claude_executable(&data_dir, &repository, &fake);
+    let text = |arguments: &[&str]| cli_text(&data_dir, arguments);
+    let visible = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/visible.json").to_str().unwrap(),
+    ]));
+    let sealed = first_word(&text(&[
+        "arena",
+        "manifest",
+        quickstart.join("tasks/sealed.json").to_str().unwrap(),
+    ]));
+    let evaluator = first_word(&text(&[
+        "artifact",
+        "put",
+        data_dir.join("reference-evaluator").to_str().unwrap(),
+    ]));
+    let verifier = first_word(&text(&["verifier"]));
+    let world_path = directory.path().join("world.json");
+    fs::write(
+        &world_path,
+        fs::read_to_string(quickstart.join("world.template.json"))
+            .unwrap()
+            .replace("__VISIBLE_MANIFEST__", &visible)
+            .replace("__SEALED_MANIFEST__", &sealed)
+            .replace("__EVALUATOR__", &evaluator)
+            .replace("__VERIFIER__", &verifier),
+    )
+    .unwrap();
+    let world_id = first_word(&text(&["world", "register", world_path.to_str().unwrap()]));
+    let parent_path = directory.path().join("hosted-parent.md");
+    let candidate_path = directory.path().join("hosted-candidate.md");
+    let source = |name: &str, parents: Vec<String>| {
+        format!(
+            "---\nschema_version: 1\nname: {name}\nparents: {}\nmodel:\n  provider: claude\n  family: sonnet\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {{}}\n---\n{before}",
+            serde_json::to_string(&parents).unwrap()
+        )
+    };
+    fs::write(&parent_path, source("guided-parent", Vec::new())).unwrap();
+    let parent_id = first_word(&text(&[
+        "genome",
+        "register",
+        parent_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    fs::write(
+        &candidate_path,
+        source("guided-candidate", vec![parent_id.clone()]),
+    )
+    .unwrap();
+    let candidate_id = first_word(&text(&[
+        "genome",
+        "register",
+        candidate_path.to_str().unwrap(),
+        "--world",
+        &world_id,
+    ]));
+    assert!(cli(&data_dir, &["unfreeze"]).status.success());
+    assert!(
+        cli(
+            &data_dir,
+            &[
+                "arena",
+                "evaluate",
+                "guided-source",
+                &parent_id,
+                &candidate_id
+            ]
+        )
+        .status
+        .success()
+    );
+    let body = directory.path().join("after.txt");
+    fs::write(&body, after).unwrap();
+    let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/hephaestus-tui");
+    let output = ProcessCommand::new("python3")
+        .arg(app.join("scripts/pty_revision.py"))
+        .arg(&app)
+        .arg(&data_dir)
+        .arg("guided-source")
+        .arg(&body)
+        .arg(&candidate_path)
+        .output()
+        .expect("packaged revision PTY");
+    assert!(
+        output.status.success(),
+        "Revision PTY failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+    let replay = response(&cli(&data_dir, &["replay"]));
+    assert!(matches!(replay.data, Some(ResponseData::Replay { .. })));
+    let champion = response(&cli(&data_dir, &["champion", "show", &world_id]));
+    assert!(
+        matches!(champion.data, Some(ResponseData::Champion { champion }) if champion.champion_genome_id.is_none())
+    );
+    daemon.stop();
+    let restarted = Daemon::start_with_claude_executable(&data_dir, &repository, &fake);
+    assert!(matches!(
+        response(&cli(&data_dir, &["replay"])).data,
+        Some(ResponseData::Replay { .. })
+    ));
+    restarted.stop();
 }
 
 /// Extracts a Gene from a real promoted, evidence-bound Champion transition,

@@ -7,22 +7,22 @@ use super::{
     ArenaTrialSpec, ArtifactBackend, ArtifactId, AsyncArenaTrialLaunch, CanonicalStorage,
     CapabilitySet, CompiledGenome, CompiledWorld, ControlPlane, Duration, EvaluationBinding,
     EvaluationStores, EventInput, EventLedger, EvidenceRecorder, ExecuteError, ExperimentContext,
-    GenomeRecord, Instant, IsolatedEvaluator, JobState, JobTerminal, OperatorClusterAnalysis,
-    OperatorInvariantCheck, PAIRED_EVALUATION_OUTPUT_BYTES, PAIRED_EVALUATION_SEED,
-    PAIRED_EVALUATION_WALL_MILLIS, PROVIDER_RUN_WALL_MILLIS, PathBuf, PermissionsExt,
-    PinnedReferenceWorker, Provider, RUN_RESULT_SCHEMA_VERSION, RUNTIME_ACTOR, ReceiptContext,
-    RedactionPolicy, ReferenceInstruction, ResponseData, RetentionLimits, RunBudgetReceipt,
-    RunResultReceipt, RunSpec, SandboxCleanupGuard, SandboxManager, SupervisedRuntime,
-    TempDirBuilder, TrialPlan, TrustedManifest, Visibility, WorkerLimits, candidate_isolation,
-    check_failure_clusters, check_reference_output_invariants, env, executable_digest,
-    execute_async_arena_trials, execute_candidate_runtime, execute_provider_runtime,
-    execute_reference_runtime, fs, genome_reference_instruction, invariant_record,
-    load_failure_clusters, load_operator_evaluation, load_reference_output_invariants,
-    map_cluster_error, map_invariant_error, map_selection_error, mpsc, paired_run_id,
-    paired_run_prefix, persist_reference_output, provider_execution_environment,
-    reference_environment_id, resolve_provider_extra_env, resolve_source_revision,
-    select_and_record, selection_record, timestamp_millis, validate_job_id,
-    validated_evaluation_budget, with_provider_login,
+    GenomeRecord, Instant, IsolatedEvaluator, JobState, JobTerminal, MAX_EVALUATION_WALL_MILLIS,
+    OperatorClusterAnalysis, OperatorInvariantCheck, PAIRED_EVALUATION_OUTPUT_BYTES,
+    PAIRED_EVALUATION_SEED, PAIRED_EVALUATION_WALL_MILLIS, PROVIDER_RUN_WALL_MILLIS, PathBuf,
+    PermissionsExt, PinnedReferenceWorker, Provider, RUN_RESULT_SCHEMA_VERSION, RUNTIME_ACTOR,
+    ReceiptContext, RedactionPolicy, ReferenceInstruction, ResponseData, RetentionLimits,
+    RunBudgetReceipt, RunResultReceipt, RunSpec, SandboxCleanupGuard, SandboxManager,
+    SupervisedRuntime, TempDirBuilder, TrialPlan, TrustedManifest, Visibility, WorkerLimits,
+    candidate_isolation, check_failure_clusters, check_reference_output_invariants, env,
+    executable_digest, execute_async_arena_trials, execute_candidate_runtime,
+    execute_provider_runtime, execute_reference_runtime, fs, genome_reference_instruction,
+    invariant_record, load_failure_clusters, load_operator_evaluation,
+    load_reference_output_invariants, map_cluster_error, map_invariant_error, map_selection_error,
+    mpsc, paired_run_id, paired_run_prefix, persist_reference_output,
+    provider_execution_environment, reference_environment_id, resolve_provider_extra_env,
+    resolve_source_revision, select_and_record, selection_record, timestamp_millis,
+    validate_job_id, validated_evaluation_budget, with_provider_login,
 };
 
 #[cfg(not(test))]
@@ -37,6 +37,156 @@ use super::spawn_named_thread;
 use super::verification::forge_analysis_record;
 
 impl ControlPlane {
+    pub(super) fn arena_selection_show(
+        &self,
+        evaluation_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        let event_id = format!("arena:selection:{evaluation_id}:selected");
+        let event = history
+            .iter()
+            .find(|event| event.event_id == event_id)
+            .ok_or(ExecuteError::NotFound)?;
+        let (actual_id, world_id) = hephaestus_arena::selection_event_references(event)
+            .map_err(|_| ExecuteError::Internal)?;
+        if actual_id != evaluation_id {
+            return Err(ExecuteError::Internal);
+        }
+        let world = self
+            .state
+            .registered
+            .world(&world_id)
+            .ok_or(ExecuteError::Internal)?;
+        let selected = hephaestus_arena::verify_selection_event_in(
+            &hephaestus_ledger::EventIndex::build(&history),
+            &storage.artifacts,
+            event,
+            world.compiled(),
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        Ok(ResponseData::Selection {
+            selection: Box::new(selection_record(
+                &world_id,
+                selected.receipt(),
+                selected.event(),
+            )),
+        })
+    }
+
+    pub(super) fn submit_confirmed_arena_job(
+        &mut self,
+        evaluation_id: &str,
+        parent_genome_id: &str,
+        candidate_genome_id: &str,
+        expected: &super::GenomeProfileRecord,
+    ) -> Result<ResponseData, ExecuteError> {
+        // A retry reads the original admission, including its original limits.
+        // Profile changes must never turn an existing job into a fresh refusal.
+        if self.state.arena_jobs.contains_key(evaluation_id) {
+            return self.submit_arena_job(
+                evaluation_id,
+                parent_genome_id,
+                candidate_genome_id,
+                false,
+            );
+        }
+        let ResponseData::GenomeProfile { profile } = self.genome_profile(candidate_genome_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        if profile.as_ref() != expected {
+            return Err(ExecuteError::Rejected(
+                "execution settings changed; refresh and confirm the current profile".to_owned(),
+            ));
+        }
+        let ResponseData::GenomeProfile { profile: parent } =
+            self.genome_profile(parent_genome_id)?
+        else {
+            return Err(ExecuteError::Internal);
+        };
+        if parent.provider != profile.provider
+            || parent.family != profile.family
+            || parent.workspace_write != profile.workspace_write
+            || parent.network != profile.network
+            || parent.world != profile.world
+            || parent.visible_tasks != profile.visible_tasks
+            || parent.sealed_tasks != profile.sealed_tasks
+            || parent.paired_trial_wall_millis != profile.paired_trial_wall_millis
+            || parent.paired_trial_output_bytes != profile.paired_trial_output_bytes
+            || parent.paired_total_wall_millis != profile.paired_total_wall_millis
+            || parent.reported_cost_limit_microusd != profile.reported_cost_limit_microusd
+        {
+            return Err(ExecuteError::Rejected("confirmed comparisons require the same model, authority, World and limits for both roles".to_owned()));
+        }
+        self.submit_arena_job(evaluation_id, parent_genome_id, candidate_genome_id, false)
+    }
+
+    /// Shared admission/inspection budgets for the two roles of a paired evaluation.
+    pub(super) fn paired_budget_plan(
+        hosted: bool,
+        world_cost_limit: u64,
+        task_count: usize,
+    ) -> Result<(RunBudgetReceipt, RunBudgetReceipt), ExecuteError> {
+        if task_count == 0 || task_count > 1000 {
+            return Err(ExecuteError::Invalid(
+                "paired task count is outside the bounded range",
+            ));
+        }
+        let trial = RunBudgetReceipt {
+            wall_millis: if hosted {
+                PROVIDER_RUN_WALL_MILLIS
+            } else {
+                PAIRED_EVALUATION_WALL_MILLIS
+            },
+            maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES,
+            maximum_cost_microusd: if hosted { world_cost_limit } else { 0 },
+        };
+        validated_evaluation_budget(
+            trial.wall_millis,
+            trial.maximum_output_bytes,
+            trial.maximum_cost_microusd,
+        )?;
+        let total_trials = u64::try_from(task_count)
+            .map_err(|_| ExecuteError::Internal)?
+            .checked_mul(2)
+            .ok_or(ExecuteError::Internal)?;
+        let maximum_overall_wall = trial
+            .wall_millis
+            .checked_mul(total_trials)
+            .and_then(|wall| wall.checked_add(PAIRED_EVALUATION_WALL_MILLIS))
+            .ok_or(ExecuteError::Internal)?;
+        if maximum_overall_wall > MAX_EVALUATION_WALL_MILLIS {
+            return Err(ExecuteError::Rejected(
+                "paired evaluation exceeds the one-day wall limit; use a smaller task pack"
+                    .to_owned(),
+            ));
+        }
+        #[cfg(feature = "test-support")]
+        let overall_wall = test_overall_wall(
+            maximum_overall_wall,
+            env::var(TEST_ARENA_OVERALL_WALL_ENV).ok().as_deref(),
+        )
+        .map_err(|()| ExecuteError::Invalid("test Arena wall budget must only lower the bound"))?;
+        #[cfg(not(feature = "test-support"))]
+        let overall_wall = maximum_overall_wall;
+        let overall = RunBudgetReceipt {
+            wall_millis: overall_wall,
+            maximum_output_bytes: trial
+                .maximum_output_bytes
+                .checked_mul(total_trials)
+                .ok_or(ExecuteError::Internal)?,
+            maximum_cost_microusd: trial
+                .maximum_cost_microusd
+                .checked_mul(total_trials)
+                .ok_or(ExecuteError::Internal)?,
+        };
+        Ok((trial, overall))
+    }
+
     pub(super) fn run_reference(
         &mut self,
         run_id: &str,
@@ -242,26 +392,6 @@ impl ControlPlane {
                 ExecuteError::Rejected("World does not declare arena.evaluator".to_owned())
             })?
             .to_owned();
-        // A paired trial's cost ceiling is bounded by the World's own Law
-        // exactly like a single provider `run`, rather than the reference
-        // smoke test's fixed zero; a homogeneous reference-only pair keeps
-        // that zero ceiling unchanged.
-        let per_trial_cost_ceiling = if parent_provider.is_some() || candidate_provider.is_some() {
-            self.registered_world_cost_ceiling(&parent_genome.world_id)?
-        } else {
-            0
-        };
-        let per_trial_wall = PAIRED_EVALUATION_WALL_MILLIS;
-        let budget = validated_evaluation_budget(
-            per_trial_wall,
-            PAIRED_EVALUATION_OUTPUT_BYTES,
-            per_trial_cost_ceiling,
-        )?;
-        let trial_budget = RunBudgetReceipt {
-            wall_millis: per_trial_wall,
-            maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES,
-            maximum_cost_microusd: per_trial_cost_ceiling,
-        };
         let tasks = visible
             .operator_tasks()
             .into_iter()
@@ -280,27 +410,19 @@ impl ControlPlane {
         }
         let total_trials = tasks.len().checked_mul(2).ok_or(ExecuteError::Internal)?;
         let total_trials_u32 = u32::try_from(total_trials).map_err(|_| ExecuteError::Internal)?;
-        let maximum_overall_wall = per_trial_wall
-            .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
-            .and_then(|wall| wall.checked_add(PAIRED_EVALUATION_WALL_MILLIS))
-            .ok_or(ExecuteError::Internal)?;
-        #[cfg(feature = "test-support")]
-        let overall_wall = test_overall_wall(
-            maximum_overall_wall,
-            env::var(TEST_ARENA_OVERALL_WALL_ENV).ok().as_deref(),
-        )
-        .map_err(|()| ExecuteError::Invalid("test Arena wall budget must only lower the bound"))?;
-        #[cfg(not(feature = "test-support"))]
-        let overall_wall = maximum_overall_wall;
-        let overall_budget = RunBudgetReceipt {
-            wall_millis: overall_wall,
-            maximum_output_bytes: PAIRED_EVALUATION_OUTPUT_BYTES
-                .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
-                .ok_or(ExecuteError::Internal)?,
-            maximum_cost_microusd: per_trial_cost_ceiling
-                .checked_mul(u64::try_from(total_trials).map_err(|_| ExecuteError::Internal)?)
-                .ok_or(ExecuteError::Internal)?,
-        };
+        let (trial_budget, overall_budget) = Self::paired_budget_plan(
+            parent_provider.is_some() || candidate_provider.is_some(),
+            world.evaluation_policy().maximum_cost_microusd(),
+            tasks.len(),
+        )?;
+        let per_trial_wall = trial_budget.wall_millis;
+        let per_trial_cost_ceiling = trial_budget.maximum_cost_microusd;
+        let overall_wall = overall_budget.wall_millis;
+        let budget = validated_evaluation_budget(
+            per_trial_wall,
+            trial_budget.maximum_output_bytes,
+            per_trial_cost_ceiling,
+        )?;
         let evaluator_limits = WorkerLimits::new(
             Duration::from_millis(PAIRED_EVALUATION_WALL_MILLIS),
             16 * 1024 * 1024,

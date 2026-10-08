@@ -15,6 +15,7 @@ export type RevisionCursor = {
 	assessment_id: string;
 	source_evaluation_id: string;
 	selection_event_id: string;
+	selection_event_hash: string;
 	world_id: string;
 	parent_genome_id: string;
 	before_sha256: string;
@@ -58,6 +59,7 @@ function cursor(value: unknown): value is RevisionCursor {
 		&& Number.isSafeInteger(v['cursor_revision']) && v['cursor_revision'] >= 0 && v['cursor_revision'] < 999999
 		&& localId(v['proposal_id'], 'rev') && localId(v['assessment_id'], 'assess')
 		&& identity(v['source_evaluation_id']) && identity(v['selection_event_id'])
+		&& identity(v['selection_event_hash'])
 		&& identity(v['world_id']) && identity(v['parent_genome_id']) && digest(v['before_sha256'])
 		&& typeof v['hypothesis'] === 'string' && Buffer.byteLength(v['hypothesis']) <= 512
 		&& !/[\u0000-\u001f\u007f-\u009f]/u.test(v['hypothesis'])
@@ -164,7 +166,7 @@ export class RevisionWorkspace {
 		return join(this.directory, `${proposalId}.record-${hash}.txt`);
 	}
 
-	async create(source: Pick<RevisionCursor, 'source_evaluation_id' | 'selection_event_id' | 'world_id' | 'parent_genome_id'>, verifiedPrompt: string): Promise<RevisionCursor> {
+	async create(source: Pick<RevisionCursor, 'source_evaluation_id' | 'selection_event_id' | 'selection_event_hash' | 'world_id' | 'parent_genome_id'>, verifiedPrompt: string): Promise<RevisionCursor> {
 		const bytes = Buffer.from(verifiedPrompt, 'utf8');
 		if (bytes.length > MAX_PROMPT_BYTES) throw new Error('Prompt exceeds 1 MiB');
 		promptText(bytes);
@@ -207,13 +209,13 @@ export class RevisionWorkspace {
 		if (!cursor(value)) throw new Error('Invalid revision recovery cursor');
 		const current = await this.load(value.proposal_id);
 		if (current.cursor_revision !== value.cursor_revision) throw new Error('Revision cursor changed; reload before continuing');
-		for (const key of ['assessment_id', 'source_evaluation_id', 'selection_event_id', 'world_id', 'parent_genome_id', 'before_sha256'] as const) {
+		for (const key of ['assessment_id', 'source_evaluation_id', 'selection_event_id', 'selection_event_hash', 'world_id', 'parent_genome_id', 'before_sha256'] as const) {
 			if (current[key] !== value[key]) throw new Error('Revision source binding cannot change');
 		}
 		const transitions: Record<RevisionPhase, RevisionPhase[]> = {
 			editing: ['editing', 'record_unknown'], record_unknown: ['record_unknown', 'recorded', 'record_rejected'], record_rejected: ['record_rejected'],
 			recorded: ['recorded', 'compare_unknown'], compare_unknown: ['compare_unknown', 'running', 'completed', 'compare_rejected', 'compare_failed'], compare_rejected: ['compare_rejected', 'compare_unknown'],
-			compare_failed: ['compare_failed', 'compare_unknown'], running: ['running', 'completed', 'compare_failed'], completed: ['completed', 'compare_unknown', 'assessment_unknown'],
+			compare_failed: ['compare_failed', 'compare_unknown'], running: ['running', 'completed', 'compare_failed'], completed: ['completed', 'assessment_unknown'],
 			assessment_unknown: ['assessment_unknown', 'assessed'], assessed: ['assessed'],
 		};
 		if (!transitions[current.phase].includes(value.phase)) throw new Error('Invalid revision phase transition');
@@ -226,7 +228,7 @@ export class RevisionWorkspace {
 		}
 		const added = value.evaluation_ids.length - current.evaluation_ids.length;
 		if (current.evaluation_ids.some((id, index) => value.evaluation_ids[index] !== id)
-			|| (added !== 0 && !(added === 1 && ['recorded', 'completed', 'compare_rejected', 'compare_failed'].includes(current.phase) && value.phase === 'compare_unknown'))) {
+			|| (added !== 0 && !(added === 1 && ['recorded', 'compare_rejected', 'compare_failed'].includes(current.phase) && value.phase === 'compare_unknown'))) {
 			throw new Error('Recorded comparison identities cannot be lost or replaced');
 		}
 		if (value.phase === 'compare_unknown' && current.phase !== 'compare_unknown' && added !== 1) throw new Error('New comparison requires a new identity');
@@ -322,7 +324,7 @@ export class RevisionWorkspace {
 	}
 
 	async newAttempt(value: RevisionCursor): Promise<RevisionCursor> {
-		if (!['recorded', 'completed', 'compare_rejected', 'compare_failed'].includes(value.phase)) throw new Error('Finish or reconcile the previous operation before starting a comparison');
+		if (!['recorded', 'compare_rejected', 'compare_failed'].includes(value.phase)) throw new Error('Only an unstarted or failed comparison can start another attempt');
 		if (value.evaluation_ids.length >= 100) throw new Error('Revision has reached its 100 comparison attempt limit');
 		const updated = {...value, evaluation_ids: [...value.evaluation_ids, `tui-arena-${randomUUID()}`], phase: 'compare_unknown' as const};
 		return this.save(updated);

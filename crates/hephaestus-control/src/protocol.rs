@@ -27,6 +27,22 @@ pub struct ApiRequest {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    /// Read an already-recorded selection without recording one or admitting work.
+    ArenaSelectionShow {
+        /// Stable evaluation identity.
+        evaluation_id: String,
+    },
+    /// Admit a local comparison only if its immutable candidate profile and limits match.
+    EvaluatePairConfirmed {
+        /// Stable comparison identity.
+        evaluation_id: String,
+        /// Directed baseline role.
+        parent_genome_id: String,
+        /// Directed candidate role.
+        candidate_genome_id: String,
+        /// Exact profile displayed and explicitly confirmed by the operator.
+        expected_profile: Box<GenomeProfileRecord>,
+    },
     /// Inspect the current canonical projection.
     Status,
     /// Stop new evolution work.
@@ -44,6 +60,16 @@ pub enum Command {
     GenomePrompt {
         /// Content-derived Genome identity.
         genome_id: String,
+    },
+    /// Inspect immutable execution settings and aggregate task counts, without running work.
+    GenomeProfile {
+        /// Content-derived registered Genome identity.
+        genome_id: String,
+    },
+    /// Read an authenticated catalog or prompt-revision proposal without admitting work.
+    GenomeProposalShow {
+        /// Stable proposal identity.
+        proposal_id: String,
     },
     /// List every registered immutable Genome record.
     GenomeList,
@@ -583,6 +609,7 @@ impl ApiResponse {
             error: Some(ApiError {
                 code,
                 message: message.into(),
+                rejected: None,
             }),
         }
     }
@@ -614,6 +641,11 @@ pub enum ResponseData {
     Genome {
         /// Canonical projection record.
         genome: GenomeRecord,
+    },
+    /// Read-only execution settings for a Genome and its World.
+    GenomeProfile {
+        /// Compiler-backed settings and verified aggregate task counts.
+        profile: Box<GenomeProfileRecord>,
     },
     /// One durable, compiler-backed Forge child proposal. It is not a promotion.
     ForgeProposal {
@@ -1105,6 +1137,42 @@ pub struct ForgeAnalysisRecord {
     pub analysis: ClusterAnalysis,
     /// Canonical event metadata.
     pub event: ClusterEvent,
+}
+
+/// Immutable execution metadata for explaining a proposed paired experiment.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenomeProfileRecord {
+    /// Exact registered Genome metadata.
+    pub genome: GenomeRecord,
+    /// Exact registered World metadata.
+    pub world: WorldRecord,
+    /// Provider pinned by the Genome.
+    pub provider: String,
+    /// Model family pinned by the Genome.
+    pub family: String,
+    /// Whether the Genome requests workspace writes.
+    pub workspace_write: bool,
+    /// Whether the Genome requests network access.
+    pub network: bool,
+    /// Reserved instruction content address, if present; never its body.
+    pub prompt_artifact_id: Option<String>,
+    /// Whether the World permits harness mutations.
+    pub harness_mutation_allowed: bool,
+    /// Immutable task comparison semantics.
+    pub output_scoring: hephaestus_genome::OutputScoring,
+    /// Verified visible task count.
+    pub visible_tasks: u32,
+    /// Verified sealed task count, without any task contents.
+    pub sealed_tasks: u32,
+    /// Current admission deadline for a same-provider paired trial.
+    pub paired_trial_wall_millis: u64,
+    /// Current admission output bound per trial.
+    pub paired_trial_output_bytes: u64,
+    /// Overall admission wall deadline for all paired trials and scoring.
+    pub paired_total_wall_millis: u64,
+    /// World-reported cost limit as exact decimal micro-USD, safe across JSON clients.
+    pub reported_cost_limit_microusd: String,
 }
 
 /// Canonical event metadata accompanying a Forge proposal response.
@@ -2159,6 +2227,10 @@ pub struct ApiError {
     pub code: ApiErrorCode,
     /// Human-readable message without internal storage detail.
     pub message: String,
+    /// Explicit admission refusal for revision and confirmed-comparison commands.
+    /// Absent on legacy commands and temporary refusals such as freeze/busy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejected: Option<bool>,
 }
 
 /// Stable fail-closed local API categories.

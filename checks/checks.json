@@ -3184,9 +3184,57 @@
       "id": "forge-revision-evolution-busy-gate-skipped",
       "file": "crates/hephaestus-control/src/worker_remote.rs",
       "invariant": "External prose revisions cannot race the daemon orchestration or an active bounded job.",
-      "find": "    pub(super) fn require_no_active_evolution_for_external_command(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let blocked = matches!(\n            command,\n            Command::EvaluatePair { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomePropose { .. }\n                | Command::GenomeRevise { .. }\n",
-      "replace": "    pub(super) fn require_no_active_evolution_for_external_command(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let blocked = matches!(\n            command,\n            Command::EvaluatePair { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomePropose { .. }\n",
+      "find": "    pub(super) fn require_no_active_evolution_for_external_command(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let blocked = matches!(\n            command,\n            Command::EvaluatePair { .. }\n                | Command::EvaluatePairConfirmed { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomePropose { .. }\n                | Command::GenomeRevise { .. }\n",
+      "replace": "    pub(super) fn require_no_active_evolution_for_external_command(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let blocked = matches!(\n            command,\n            Command::EvaluatePair { .. }\n                | Command::EvaluatePairConfirmed { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomePropose { .. }\n",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations"
+    },
+    {
+      "id": "paired-hosted-wall-budget-regressed",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Hosted paired trials retain the provider deadline rather than the reference deadline.",
+      "find": "                PROVIDER_RUN_WALL_MILLIS\n            } else {",
+      "replace": "                PAIRED_EVALUATION_WALL_MILLIS\n            } else {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_budget_plan --quiet"
+    },
+    {
+      "id": "paired-one-day-total-bound-bypassed",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "An aggregate paired evaluation never exceeds the one-day limit.",
+      "find": "if maximum_overall_wall > MAX_EVALUATION_WALL_MILLIS {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_budget_plan --quiet"
+    },
+    {
+      "id": "confirmed-pair-profile-check-skipped",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "New comparisons require the exact execution profile the operator confirmed.",
+      "find": "if profile.as_ref() != expected {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet"
+    },
+    {
+      "id": "confirmed-pair-existing-id-lookup-skipped",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "Lost-response retries return their existing admission even after execution settings change.",
+      "find": "if self.state.arena_jobs.contains_key(evaluation_id) {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet"
+    },
+    {
+      "id": "forge-proposal-read-cas-verification-skipped",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Recovery reads authenticate the proposal and its immutable prompt bytes.",
+      "find": "super::verification::verify_forge_history(\n            &storage.artifacts,\n            &history,\n            &self.state.registered,\n        )",
+      "replace": "Ok::<(), ControlError>(())",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_history --quiet"
+    },
+    {
+      "id": "confirmed-pair-parent-profile-check-skipped",
+      "file": "crates/hephaestus-control/src/run_exec.rs",
+      "invariant": "A confirmed same-model comparison cannot acquire hosted budgets from an unconfirmed parent.",
+      "find": "        if parent.provider != profile.provider\n            || parent.family != profile.family\n            || parent.workspace_write != profile.workspace_write\n            || parent.network != profile.network\n            || parent.world != profile.world\n            || parent.visible_tasks != profile.visible_tasks\n            || parent.sealed_tasks != profile.sealed_tasks\n            || parent.paired_trial_wall_millis != profile.paired_trial_wall_millis\n            || parent.paired_trial_output_bytes != profile.paired_trial_output_bytes\n            || parent.paired_total_wall_millis != profile.paired_total_wall_millis\n            || parent.reported_cost_limit_microusd != profile.reported_cost_limit_microusd\n        {",
+      "replace": "        if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_paired_confirmation --quiet"
     }
   ]
 }

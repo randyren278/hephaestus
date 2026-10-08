@@ -17,6 +17,15 @@ struct RevisionFixture {
 }
 
 fn revision_fixture(directory: &TempDir, harness_scope: bool) -> RevisionFixture {
+    revision_fixture_with_mixed(directory, harness_scope, false)
+}
+
+#[allow(clippy::too_many_lines)]
+fn revision_fixture_with_mixed(
+    directory: &TempDir,
+    harness_scope: bool,
+    mixed: bool,
+) -> RevisionFixture {
     let (mut plane, _, _) =
         real_worker_arena_fixture_with_invariants(directory, Some(CLEAN_INVARIANTS));
     let token = plane.token_hex.clone();
@@ -24,6 +33,9 @@ fn revision_fixture(directory: &TempDir, harness_scope: bool) -> RevisionFixture
     let mut world_source: serde_json::Value =
         serde_json::from_slice(&fs::read(&world_path).unwrap()).unwrap();
     world_source["name"] = serde_json::json!("hosted-revision-world");
+    if mixed {
+        world_source["laws"]["allow_mixed_environments"] = serde_json::json!(true);
+    }
     world_source["mutation_scope"] = if harness_scope {
         serde_json::json!(["harness"])
     } else {
@@ -126,6 +138,328 @@ fn revise(fixture: &mut RevisionFixture, proposal_id: &str) -> Result<ResponseDa
         &fixture.prompt_path,
         HYPOTHESIS,
     )
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn hosted_forge_revision_profile_and_proposal_reads_work_during_a_job_and_freeze() {
+    let directory = tempdir().unwrap();
+    let mut fixture = revision_fixture(&directory, true);
+    let expected = revise(&mut fixture, "read-only-proposal").unwrap();
+    fs::remove_file(&fixture.prompt_path).unwrap();
+    let token = fixture.plane.token_hex.clone();
+    let original_genomes = fixture.plane.state.registered.genome_records();
+    fixture
+        .plane
+        .submit_arena_job(
+            "read-only-pair",
+            &fixture.baseline.genome_id,
+            &fixture.candidate.genome_id,
+            false,
+        )
+        .unwrap();
+    dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "freeze-profile",
+        Command::Freeze,
+    );
+    for attempt in ["active-profile", "frozen-profile"] {
+        let response = dispatch_call(
+            &mut fixture.plane,
+            &token,
+            attempt,
+            Command::GenomeProfile {
+                genome_id: fixture.candidate.genome_id.clone(),
+            },
+        );
+        let Some(ResponseData::GenomeProfile { profile }) = response.data else {
+            panic!("profile rejected: {:?}", response.error);
+        };
+        assert_eq!(profile.genome, fixture.candidate);
+        assert_eq!(profile.world.world_id, fixture.candidate.world_id);
+        assert_eq!(profile.provider, "claude");
+        assert_eq!(profile.family, "sonnet");
+        assert!(!profile.workspace_write);
+        assert!(!profile.network);
+        assert!(profile.harness_mutation_allowed);
+        assert_eq!(
+            profile.output_scoring,
+            hephaestus_genome::OutputScoring::Exact
+        );
+        assert_eq!((profile.visible_tasks, profile.sealed_tasks), (1, 1));
+        assert_eq!(profile.paired_trial_wall_millis, 300_000);
+        assert_eq!(profile.paired_trial_output_bytes, 1_048_576);
+        assert_eq!(profile.paired_total_wall_millis, 1_210_000);
+        let cost = fixture
+            .plane
+            .state
+            .registered
+            .world(&fixture.candidate.world_id)
+            .unwrap()
+            .compiled()
+            .evaluation_policy()
+            .maximum_cost_microusd();
+        assert_eq!(profile.reported_cost_limit_microusd, cost.to_string());
+        assert_eq!(
+            profile.prompt_artifact_id.as_deref(),
+            fixture
+                .plane
+                .compiled_genome(&fixture.candidate.genome_id)
+                .unwrap()
+                .artifact_id("agent.prompt")
+        );
+        assert_eq!(
+            dispatch_call(
+                &mut fixture.plane,
+                &token,
+                &format!("{attempt}-proposal"),
+                Command::GenomeProposalShow {
+                    proposal_id: "read-only-proposal".to_owned(),
+                }
+            )
+            .data
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            dispatch_call(
+                &mut fixture.plane,
+                &token,
+                &format!("{attempt}-selection"),
+                Command::ArenaSelectionShow {
+                    evaluation_id: "revision-source".to_owned(),
+                }
+            )
+            .data
+            .unwrap(),
+            ResponseData::Selection {
+                selection: Box::new(fixture.source.clone())
+            }
+        );
+    }
+    assert_eq!(
+        fixture.plane.state.registered.genome_records(),
+        original_genomes
+    );
+    assert!(matches!(
+        fixture.plane.genome_profile("missing"),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        fixture.plane.genome_proposal_show("missing"),
+        Err(ExecuteError::NotFound)
+    ));
+    assert!(matches!(
+        fixture.plane.genome_proposal_show(""),
+        Err(ExecuteError::Invalid(_))
+    ));
+    assert!(matches!(
+        fixture.plane.arena_selection_show("missing"),
+        Err(ExecuteError::NotFound)
+    ));
+    let record = &fixture.plane.state.arena_jobs["read-only-pair"];
+    assert_eq!(record.trial_budget.wall_millis, 300_000);
+    assert_eq!(record.overall_budget.wall_millis, 1_210_000);
+    fixture.plane.request_active_job_cancellation().unwrap();
+    for _ in 0..200 {
+        fixture.plane.service_async_messages().unwrap();
+        if fixture.plane.active_arena_job.is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(fixture.plane.active_arena_job.is_none());
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn hosted_paired_confirmation_checks_limits_and_allows_a_slow_provider() {
+    let directory = tempdir().unwrap();
+    let mut fixture = revision_fixture_with_mixed(&directory, true, true);
+    let ResponseData::ForgeRevision { revision } = revise(&mut fixture, "confirmed-child").unwrap()
+    else {
+        panic!("revision");
+    };
+    let token = fixture.plane.token_hex.clone();
+    let ResponseData::GenomeProfile { profile } = fixture
+        .plane
+        .genome_profile(&revision.payload.child.genome_id)
+        .unwrap()
+    else {
+        panic!("profile");
+    };
+    let mut changed = profile.clone();
+    changed.paired_trial_wall_millis = 10_000;
+    let refused = dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "wrong-confirmation",
+        Command::EvaluatePairConfirmed {
+            evaluation_id: "confirmed-pair".to_owned(),
+            parent_genome_id: fixture.candidate.genome_id.clone(),
+            candidate_genome_id: revision.payload.child.genome_id.clone(),
+            expected_profile: changed,
+        },
+    );
+    assert_eq!(refused.error.unwrap().rejected, Some(true));
+    assert!(
+        !fixture
+            .plane
+            .state
+            .arena_jobs
+            .contains_key("confirmed-pair")
+    );
+    let reference_path = directory.path().join("confirmed-reference.md");
+    fs::write(&reference_path,
+        "---\nschema_version: 1\nname: confirmed-reference\nparents: []\nmodel:\n  provider: deterministic\n  family: reference\nauthority:\n  workspace_write: false\n  network: false\nartifacts: {}\n---\n```hephaestus-reference-v1\n{\"schema_version\":1,\"operation\":\"identity\"}\n```\n"
+    ).unwrap();
+    let ResponseData::Genome { genome: reference } = fixture
+        .plane
+        .register_genome(
+            reference_path.to_str().unwrap(),
+            &fixture.candidate.world_id,
+        )
+        .unwrap()
+    else {
+        panic!("reference");
+    };
+    let ResponseData::GenomeProfile {
+        profile: reference_profile,
+    } = fixture.plane.genome_profile(&reference.genome_id).unwrap()
+    else {
+        panic!("reference profile");
+    };
+    assert_eq!(reference_profile.paired_trial_wall_millis, 10_000);
+    assert_eq!(reference_profile.reported_cost_limit_microusd, "0");
+    let mixed = dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "mixed-confirmation",
+        Command::EvaluatePairConfirmed {
+            evaluation_id: "unconfirmed-mixed-pair".to_owned(),
+            parent_genome_id: fixture.candidate.genome_id.clone(),
+            candidate_genome_id: reference.genome_id,
+            expected_profile: reference_profile,
+        },
+    );
+    let mixed_error = mixed.error.unwrap();
+    assert_eq!(mixed_error.rejected, Some(true));
+    assert!(
+        mixed_error
+            .message
+            .contains("same model, authority, World and limits for both roles")
+    );
+    assert!(
+        !fixture
+            .plane
+            .state
+            .arena_jobs
+            .contains_key("unconfirmed-mixed-pair")
+    );
+    dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "freeze-confirmed",
+        Command::Freeze,
+    );
+    let frozen = dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "frozen-confirmation",
+        Command::EvaluatePairConfirmed {
+            evaluation_id: "confirmed-pair".to_owned(),
+            parent_genome_id: fixture.candidate.genome_id.clone(),
+            candidate_genome_id: revision.payload.child.genome_id.clone(),
+            expected_profile: profile.clone(),
+        },
+    );
+    assert_eq!(frozen.error.unwrap().rejected, None);
+    dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "unfreeze-confirmed",
+        Command::Unfreeze,
+    );
+    // Only the child's visible trial exceeds the historical ten-second deadline.
+    let executable = directory.path().join("revision-fake-claude");
+    let script = fs::read_to_string(&executable).unwrap().replace(
+        "if cmp -s \"$TMPDIR/frame\" 'after-visible.frame'; then\n",
+        "if cmp -s \"$TMPDIR/frame\" 'after-visible.frame'; then\nsleep 11\n",
+    );
+    assert!(script.contains("sleep 11"));
+    fs::write(&executable, script).unwrap();
+    let admitted = dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "right-confirmation",
+        Command::EvaluatePairConfirmed {
+            evaluation_id: "confirmed-pair".to_owned(),
+            parent_genome_id: fixture.candidate.genome_id.clone(),
+            candidate_genome_id: revision.payload.child.genome_id.clone(),
+            expected_profile: profile,
+        },
+    );
+    assert!(admitted.error.is_none(), "{:?}", admitted.error);
+    drain_active_arena_test_job(&mut fixture.plane, "confirmed-pair");
+    assert_eq!(
+        fixture.plane.state.arena_jobs["confirmed-pair"]
+            .trial_budget
+            .wall_millis,
+        300_000
+    );
+    let ResponseData::Selection { selection } = fixture
+        .plane
+        .select_arena_evaluation("confirmed-pair")
+        .unwrap()
+    else {
+        panic!("selection");
+    };
+    assert_eq!(selection.receipt.candidate_correctness_bps(), 10_000);
+    assert!(selection.receipt.candidate_latency_millis() >= 11_000);
+    let ResponseData::GenomeProfile { mut profile } = fixture
+        .plane
+        .genome_profile(&revision.payload.child.genome_id)
+        .unwrap()
+    else {
+        panic!("profile");
+    };
+    profile.paired_trial_wall_millis = 10_000;
+    let retried = dispatch_call(
+        &mut fixture.plane,
+        &token,
+        "changed-profile-retry",
+        Command::EvaluatePairConfirmed {
+            evaluation_id: "confirmed-pair".to_owned(),
+            parent_genome_id: fixture.candidate.genome_id.clone(),
+            candidate_genome_id: revision.payload.child.genome_id.clone(),
+            expected_profile: profile,
+        },
+    );
+    assert!(
+        matches!(retried.data, Some(ResponseData::ArenaJob { job }) if job.state == JobState::Succeeded)
+    );
+}
+
+#[test]
+fn hosted_forge_revision_budget_plan_preserves_reference_limits_and_bounds_hosted_totals() {
+    let (reference, total) = ControlPlane::paired_budget_plan(false, u64::MAX, 1000).unwrap();
+    assert_eq!(reference.wall_millis, 10_000);
+    assert_eq!(reference.maximum_cost_microusd, 0);
+    assert_eq!(total.wall_millis, 20_010_000);
+    assert_eq!(total.maximum_cost_microusd, 0);
+    let (hosted, total) = ControlPlane::paired_budget_plan(true, 1_000_000_000, 143).unwrap();
+    assert_eq!(hosted.wall_millis, 300_000);
+    assert_eq!(total.wall_millis, 85_810_000);
+    assert_eq!(total.maximum_cost_microusd, 286_000_000_000);
+    assert_eq!(total.maximum_output_bytes, 286 * 1_048_576);
+    assert!(matches!(
+        ControlPlane::paired_budget_plan(true, 0, 144),
+        Err(ExecuteError::Rejected(_))
+    ));
+    assert!(ControlPlane::paired_budget_plan(true, 1_000_000_001, 1).is_err());
+    assert!(ControlPlane::paired_budget_plan(true, 0, 0).is_err());
+    assert!(ControlPlane::paired_budget_plan(false, 0, 1001).is_err());
 }
 
 #[test]
@@ -732,6 +1066,13 @@ fn hosted_forge_revision_history_rejects_tampered_bindings_and_canonical_payload
     let artifact = ArtifactId::parse(&revision.payload.prompt_artifact_after).unwrap();
     let artifacts = ArtifactStore::open(fixture.plane.data_dir.join("blobs")).unwrap();
     fs::write(artifacts.path_for(&artifact), b"corrupt content").unwrap();
+    assert!(
+        matches!(
+            fixture.plane.genome_proposal_show("tamper-prose"),
+            Err(ExecuteError::Internal)
+        ),
+        "proposal recovery must re-verify referenced CAS bytes"
+    );
     assert!(
         matches!(fixture.plane.replay_response(), Err(ExecuteError::Internal)),
         "replay must re-read changed CAS bytes"

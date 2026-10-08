@@ -23,20 +23,22 @@ customer-value gaps; Codex confirmed them against the checkout:
    and a report they can review alongside exact agent identities.
 
 The first implementation slice addressed item 3 and console reliability.
-The second adds World-pinned scoring for item 1. The third fixes hosted instruction/model delivery and historical replay, a prerequisite for item 2. Verification and guided authoring for item 2, plus representative
-live-model improvement, remain required.
+The second adds World-pinned scoring for item 1. Subsequent slices fix hosted
+instruction/model delivery and historical replay, then implement and verify
+evidence-bound prose revisions and guided authoring for item 2. Representative
+live-model improvement and full installation acceptance remain required.
 
 ## Acceptance for the full product
 
 | Requirement | Evidence needed | Current status |
 |---|---|---|
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Existing implementation; current full acceptance still to run |
-| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Manual registration and provider instruction/model delivery verified with offline CLI fixtures; guided workflow incomplete |
+| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
-| Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command implemented; six scoped integration/contract tests, all 51 coverage floors and default/all-feature workspace clippy pass; restored binaries preserve actual old history through upgrade and restart; all 30 affected mutations killed |
+| Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Full final revision gates still required |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Guided revision checkpoint passes 711 Rust, 184 UI and 44 Python tests, all 51 coverage floors, both Clippy modes and 25 affected mutations. Full product acceptance and the complete mutation matrix remain to verify |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Positioning and delivery work remains |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -47,7 +49,11 @@ inferred from deterministic Gauntlet evidence.
 
 Verified hosted Genome instructions now reach direct, submitted and paired execution. Contract v2 preserves exact instruction bytes separately from task commitments, pins the requested model, and retains v1 history replay. The offline fixture verifies different role instructions and models through the actual stdin pipe and reopens the saved control plane. Real old/new daemon upgrade evidence is recorded below. This proves configuration delivery, not live-model quality.
 
-Finish coverage, mutation and real daemon upgrade verification for the new operator-authored prose proposal path. Then use that workflow for a representative live-provider comparison before claiming product readiness. Guided onboarding, commercial positioning and full final acceptance remain required.
+The operator-authored prose proposal path and guided revision flow now pass
+coverage, mutation and real daemon upgrade checks. Continue with fresh
+installation and onboarding acceptance, representative live-provider evidence
+within authorized usage, and commercial positioning before claiming product
+readiness.
 
 ## Verification of the comparison slice
 
@@ -174,4 +180,47 @@ output during its ownership and verify terminal modes after success, failure and
 exit. The existing full registration/comparison fixture passes and now includes
 the packaged-editor checks in CI. See the
 [editor evidence](evidence/2026-10-08-editor/README.md). Private draft and recovery
-storage for guided Forge is under development; the screens are not wired yet.
+storage now supports the guided Forge screens described below.
+
+
+## Guided revision validation checkpoint, 2026-10-08
+
+`Evidence & Costs → Forge: revise a prompt` now guides an existing hosted
+candidate from its canonical source Selection through an editor draft,
+explicit hypothesis, immutable proposal, separately confirmed comparison,
+and metrics assessment. A failed source candidate remains valid revision
+evidence. Models, authority, World and other artifacts remain fixed by the
+proposal contract. Original Markdown files are preserved.
+
+The profile exposes model, authority, scoring, task counts and per-trial/total
+reported cost and wall limits. Confirmation requires the complete ASCII model
+identifier and at least an 80×22 terminal. The daemon validates the displayed
+profile and both roles' settings atomically before a new comparison. Existing
+IDs return their original admission across an upgrade. Hosted paired trials
+use the five-minute provider deadline; reference trials and protected scoring
+retain their ten-second bounds, and aggregate work must fit within one day.
+Reported costs do not guarantee provider billing or subscription quota limits.
+
+Private content snapshots and recovery cursors persist before write requests.
+Unknown outcomes retry saved identities, recovery verifies canonical proposal
+and receipt bindings, and background progress reads only the already-bound
+job. Cancellation uses that job's directed identity without waiting for prompt
+reads. Successful comparisons cannot be rerun in this guided flow. Assessment
+never performs invariant verification or promotion.
+
+The packaged 80×24 offline terminal check exercised real editor input,
+Unicode/CRLF snapshot preservation, a restart after recording, another restart
+during the live comparison, one canonical proposal/evaluation/assessment,
+source preservation and an unchanged Champion. A full Rust workspace coverage
+run passed 711 tests and all 51 critical coverage floors. All 184 UI tests pass
+on both the development runtime and Node 22; all 44 Python tests pass. Both
+Clippy modes, typechecking, packaging, formatting and documentation checks pass.
+All 25 affected mutations were killed, with no survivors, stale entries or
+timeouts. The restored source was rebuilt before repeating the terminal checks
+and reopening actual historical catalog-v1/prose-v2 history, including its
+ten-second admissions. See the [guided revision evidence](evidence/2026-10-08-guided/README.md).
+Actual Claude Code reviewed these changes and its recovery,
+confirmation, parent-budget and terminal-visibility findings were incorporated.
+Representative live-model quality, fresh installation acceptance and the
+commercial delivery audit still remain; this checkpoint does not complete the
+full product goal.

@@ -73,12 +73,12 @@ use crate::{
     EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
     ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
     ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, ForgeRevisionPayload,
-    ForgeRevisionRecord, GeneSelectionPolicy, GeneTransferOutcome, GenomeRecord, InvariantRecord,
-    JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, McpDecision,
-    MetaEvaluationAdmittedPayload, MetaEvaluationPayload, MetaEvaluationStatus, MetaLineageOutcome,
-    MetaLineageProgress, MetaStrategyRegisteredPayload, MutationPrioritization, MutationSlot,
-    RemoteJobState, ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord,
-    SelectionRecord, WorkerScope, WorldRecord,
+    ForgeRevisionRecord, GeneSelectionPolicy, GeneTransferOutcome, GenomeProfileRecord,
+    GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT,
+    McpDecision, MetaEvaluationAdmittedPayload, MetaEvaluationPayload, MetaEvaluationStatus,
+    MetaLineageOutcome, MetaLineageProgress, MetaStrategyRegisteredPayload, MutationPrioritization,
+    MutationSlot, RemoteJobState, ResponseData, RunCompletionReason, RunListEntry,
+    SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -1274,13 +1274,22 @@ impl ControlPlane {
                 }
             };
         }
+        let explicit_admission = matches!(
+            request.command,
+            Command::GenomeRevise { .. } | Command::EvaluatePairConfirmed { .. }
+        );
         match self.execute(&request_id, request.command) {
             Ok(data) => ApiResponse::success(request_id, data),
             Err(ExecuteError::Invalid(message)) => {
                 ApiResponse::failure(request_id, ApiErrorCode::InvalidRequest, message)
             }
             Err(ExecuteError::Rejected(message)) => {
-                ApiResponse::failure(request_id, ApiErrorCode::InvalidRequest, message)
+                let mut response =
+                    ApiResponse::failure(request_id, ApiErrorCode::InvalidRequest, message);
+                if explicit_admission {
+                    response.error.as_mut().expect("failure body").rejected = Some(true);
+                }
+                response
             }
             Err(ExecuteError::NotFound) => ApiResponse::failure(
                 request_id,
@@ -1333,6 +1342,22 @@ impl ControlPlane {
                 .map(|genome| ResponseData::Genome { genome })
                 .ok_or(ExecuteError::NotFound),
             Command::GenomePrompt { genome_id } => self.genome_prompt(&genome_id),
+            Command::GenomeProfile { genome_id } => self.genome_profile(&genome_id),
+            Command::ArenaSelectionShow { evaluation_id } => {
+                self.arena_selection_show(&evaluation_id)
+            }
+            Command::EvaluatePairConfirmed {
+                evaluation_id,
+                parent_genome_id,
+                candidate_genome_id,
+                expected_profile,
+            } => self.submit_confirmed_arena_job(
+                &evaluation_id,
+                &parent_genome_id,
+                &candidate_genome_id,
+                &expected_profile,
+            ),
+            Command::GenomeProposalShow { proposal_id } => self.genome_proposal_show(&proposal_id),
             Command::GenomeList => Ok(ResponseData::Genomes {
                 genomes: self
                     .state

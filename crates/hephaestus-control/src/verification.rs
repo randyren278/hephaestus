@@ -1613,7 +1613,12 @@ pub(super) fn verify_cluster_history_with(
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn require_command_fields(command: &Command) -> Result<(), ExecuteError> {
-    if let Command::GenomeShow { genome_id } | Command::GenomePrompt { genome_id } = command
+    if let Command::GenomeProposalShow { proposal_id } = command {
+        validate_job_id(proposal_id)?;
+    }
+    if let Command::GenomeShow { genome_id }
+    | Command::GenomePrompt { genome_id }
+    | Command::GenomeProfile { genome_id } = command
         && genome_id.trim().is_empty()
     {
         return Err(ExecuteError::Invalid("genome_id is required"));
@@ -1713,6 +1718,12 @@ pub(super) fn require_command_fields(command: &Command) -> Result<(), ExecuteErr
         parent_genome_id,
         candidate_genome_id,
         remote: _,
+    }
+    | Command::EvaluatePairConfirmed {
+        evaluation_id,
+        parent_genome_id,
+        candidate_genome_id,
+        ..
     } = command
         && (evaluation_id.trim().is_empty()
             || parent_genome_id.trim().is_empty()
@@ -1722,7 +1733,8 @@ pub(super) fn require_command_fields(command: &Command) -> Result<(), ExecuteErr
             "evaluation and Genome identifiers are required",
         ));
     }
-    if let Command::ArenaSelect { evaluation_id } = command
+    if let Command::ArenaSelect { evaluation_id } | Command::ArenaSelectionShow { evaluation_id } =
+        command
         && evaluation_id.trim().is_empty()
     {
         return Err(ExecuteError::Invalid("evaluation_id is required"));

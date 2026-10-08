@@ -1,0 +1,10 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.41s
+     Running tests/control_plane_e2e.rs (target/debug/deps/control_plane_e2e-315966be956dc242)
+
+running 1 test
+{"packaged_terminal": "80x24", "editor_input_verified": true, "exact_snapshot_verified": true, "source_unchanged": true, "record_restart_verified": true, "running_restart_verified": true, "proposal_id": "tui-rev-7c3a89c9-3eff-43d5-836b-fe32c278811b", "evaluation_id": "tui-arena-6dcd52b5-c222-4fae-ae1c-5500ad2947a6", "assessment_id": "tui-assess-5d6c30f3-c127-4462-834c-6d5756f4da64", "canonical_proposals": 1, "canonical_comparisons": 1, "canonical_assessments": 1, "promotion_eligible": false}
+
+test tui_hosted_prompt_revision_recovers_and_assesses_through_a_pty ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 35.18s

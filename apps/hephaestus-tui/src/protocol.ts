@@ -7,6 +7,12 @@ export type Command =
 	| {command: 'job_kill'; job_id: string}
 	| {command: 'genome_list'}
 	| {command: 'genome_show'; genome_id: string}
+	| {command: 'genome_profile'; genome_id: string}
+	| {command: 'genome_proposal_show'; proposal_id: string}
+	| {command: 'genome_revise'; proposal_id: string; selection_event_id: string; parent_genome_id: string; prompt_path: string; hypothesis: string}
+	| {command: 'arena_select'; evaluation_id: string}
+	| {command: 'arena_selection_show'; evaluation_id: string}
+	| {command: 'genome_assess'; assessment_id: string; proposal_id: string; selection_event_id: string}
 	| {command: 'genome_register'; path: string; world_id: string}
 	| {command: 'world_list'}
 	| {command: 'world_register'; path: string}
@@ -33,6 +39,7 @@ export type Command =
 	| {command: 'gene_list'}
 	| {command: 'gene_speciate'; species_id: string; gene_id: string; domain_world_id: string}
 	| {command: 'evaluate_pair'; evaluation_id: string; parent_genome_id: string; candidate_genome_id: string}
+	| {command: 'evaluate_pair_confirmed'; evaluation_id: string; parent_genome_id: string; candidate_genome_id: string; expected_profile: GenomeProfile}
 	| {command: 'evolve_start'; run_id: string; world_id: string; from_genome_id: string; generations: number; budget: number}
 	| {command: 'evolve_status'; run_id: string}
 	| {command: 'evolve_cancel'; run_id: string}
@@ -62,6 +69,32 @@ export type ArenaJobProgress = {
 };
 export type Genome = {genome_id: string; name: string; world_id: string; artifact_id: string; parent_ids: string[]};
 export type World = {world_id: string; name: string; artifact_id: string};
+export type GenomeProfile = {
+	genome: Genome; world: World; provider: string; family: string;
+	workspace_write: boolean; network: boolean; prompt_artifact_id: string | null;
+	harness_mutation_allowed: boolean; output_scoring: 'exact' | 'trimmed' | 'json_canonical';
+	visible_tasks: number; sealed_tasks: number; paired_trial_wall_millis: number; paired_trial_output_bytes: number;
+	paired_total_wall_millis: number;
+	reported_cost_limit_microusd: string;
+};
+export type Selection = EvaluationSelectionSummary & {
+	evaluation_id: string; world_id: string; parent_genome_id: string; candidate_genome_id: string;
+	event_id: string; event_hash: string;
+	evaluation_event_id: string; evaluation_event_hash: string;
+};
+export type ForgeRevision = {
+	proposal_id: string; selection_event_id: string; evaluation_id: string; world_id: string;
+	parent_genome_id: string; child: Genome; hypothesis: string;
+	selection_event_hash: string; event_hash: string;
+	prompt_artifact_before: string; prompt_artifact_after: string; event_id: string; promotion_eligible: false;
+};
+export type ForgeAssessment = {
+	assessment_id: string; proposal_id: string; selection_event_id: string; evaluation_id: string; world_id: string;
+	parent_genome_id: string; child_genome_id: string; outcome: 'metrics_passed' | 'metrics_rejected';
+	event_id: string; promotion_eligible: false; invariant_gate_verified: false;
+	proposal_event_id: string; proposal_event_hash: string; selection_event_hash: string;
+	evaluation_event_id: string; evaluation_event_hash: string;
+};
 export type ChampionTransitionKind = 'seeded' | 'promoted' | 'rolled_back';
 export type ChampionTransition = {
 	transition_id: string; world_id: string; kind: ChampionTransitionKind; champion_genome_id: string;
@@ -211,6 +244,10 @@ export type ResponseData =
 	| {type: 'job'; job: Job; progress: {trace_events: number; last_event_sequence: number | null; last_phase: string | null}}
 	| {type: 'arena_job'; job: ArenaJobProgress}
 	| {type: 'genome'; genome: Genome}
+	| {type: 'genome_profile'; profile: GenomeProfile}
+	| {type: 'selection'; selection: Selection}
+	| {type: 'forge_revision'; revision: ForgeRevision}
+	| {type: 'forge_assessment'; assessment: ForgeAssessment}
 	| {type: 'genomes'; genomes: Genome[]}
 	| {type: 'worlds'; worlds: World[]}
 	| {type: 'world'; world: World}
@@ -239,7 +276,7 @@ export type ResponseData =
 	| {type: 'run_list'; runs: RunListEntry[]}
 	| {type: 'evaluation_list'; evaluations: EvaluationListEntry[]}
 	| {type: 'denial_list'; denials: DenialEntry[]};
-export type ApiResponse = {version: number; request_id: string; data?: ResponseData; error?: {code: string; message: string}};
+export type ApiResponse = {version: number; request_id: string; data?: ResponseData; error?: {code: string; message: string; rejected?: boolean}};
 
 export const MAX_FRAME_BYTES = 7 * 1_048_576;
 export const SOCKET_TIMEOUT_MS = 20_000;
@@ -298,6 +335,78 @@ function parseGenome(value: unknown): Genome | undefined {
 function parseWorld(value: unknown): World | undefined {
 	if (!record(value) || !identifier(value['world_id']) || !boundedString(value['name'], 256) || !identifier(value['artifact_id'])) return undefined;
 	return {world_id: value['world_id'], name: value['name'], artifact_id: value['artifact_id']};
+}
+
+function parseGenomeProfile(value: unknown): GenomeProfile | undefined {
+	if (!record(value)) return undefined;
+	const genome = parseGenome(value['genome']);
+	const world = parseWorld(value['world']);
+	if (!genome || !world || genome.world_id !== world.world_id
+		|| !boundedString(value['provider'], 256) || !boundedString(value['family'], 256)
+		|| typeof value['workspace_write'] !== 'boolean' || typeof value['network'] !== 'boolean'
+		|| !optionalIdentifier(value['prompt_artifact_id']) || typeof value['harness_mutation_allowed'] !== 'boolean'
+		|| !['exact', 'trimmed', 'json_canonical'].includes(String(value['output_scoring']))
+		|| !boundedCount(value['visible_tasks']) || !boundedCount(value['sealed_tasks'])
+		|| !safeInteger(value['paired_trial_wall_millis']) || value['paired_trial_wall_millis'] === 0
+		|| !safeInteger(value['paired_trial_output_bytes']) || value['paired_trial_output_bytes'] === 0
+		|| !safeInteger(value['paired_total_wall_millis']) || value['paired_total_wall_millis'] === 0
+		|| typeof value['reported_cost_limit_microusd'] !== 'string'
+		|| !/^(0|[1-9][0-9]{0,19})$/.test(value['reported_cost_limit_microusd'])
+		|| BigInt(value['reported_cost_limit_microusd']) > 18446744073709551615n) return undefined;
+	return {genome, world, provider: value['provider'], family: value['family'], workspace_write: value['workspace_write'], network: value['network'],
+		prompt_artifact_id: value['prompt_artifact_id'], harness_mutation_allowed: value['harness_mutation_allowed'],
+		output_scoring: value['output_scoring'] as GenomeProfile['output_scoring'], visible_tasks: value['visible_tasks'], sealed_tasks: value['sealed_tasks'],
+		paired_trial_wall_millis: value['paired_trial_wall_millis'], paired_trial_output_bytes: value['paired_trial_output_bytes'],
+		paired_total_wall_millis: value['paired_total_wall_millis'],
+		reported_cost_limit_microusd: value['reported_cost_limit_microusd']};
+}
+
+function parseSelection(value: unknown): Selection | undefined {
+	if (!record(value) || !record(value['receipt']) || !record(value['event'])) return undefined;
+	const receipt = value['receipt']; const event = value['event'];
+	const evaluationId = receipt['evaluation_id']; const worldId = receipt['world_id'];
+	const parentId = receipt['parent_genome_id']; const candidateId = receipt['candidate_genome_id'];
+	const evaluationEventId = receipt['evaluation_event_id']; const evaluationEventHash = receipt['evaluation_event_hash'];
+	if (!validSelectionSummary(receipt) || !identifier(value['evaluation_id']) || !identifier(value['world_id'])
+		|| evaluationId !== value['evaluation_id'] || worldId !== value['world_id']
+		|| !identifier(parentId) || !identifier(candidateId)
+		|| !identifier(evaluationEventId) || !identifier(evaluationEventHash)
+		|| !identifier(event['event_id']) || !identifier(event['event_hash'])) return undefined;
+	return {evaluation_id: value['evaluation_id'], world_id: value['world_id'], parent_genome_id: parentId, candidate_genome_id: candidateId,
+		evaluation_event_id: evaluationEventId, evaluation_event_hash: evaluationEventHash,
+		event_id: event['event_id'], event_hash: event['event_hash'], metrics_eligible: receipt['metrics_eligible'], estimate_bps: receipt['estimate_bps'], lower_bps: receipt['lower_bps'], upper_bps: receipt['upper_bps'],
+		parent_cost_microusd: receipt['parent_cost_microusd'], candidate_cost_microusd: receipt['candidate_cost_microusd'],
+		parent_latency_millis: receipt['parent_latency_millis'], candidate_latency_millis: receipt['candidate_latency_millis'],
+		invariant_gate_verified: receipt['invariant_gate_verified'], promotion_eligible: receipt['promotion_eligible']};
+}
+
+function parseRevision(value: unknown): ForgeRevision | undefined {
+	if (!record(value) || value['promotion_eligible'] !== false || !record(value['payload']) || !record(value['event'])) return undefined;
+	const p = value['payload']; const e = value['event']; const child = parseGenome(p['child']);
+	if (p['schema_version'] !== 2 || !child || p['artifact_name'] !== 'agent.prompt'
+		|| !identifier(p['proposal_id']) || !identifier(p['selection_event_id']) || !identifier(p['evaluation_id'])
+		|| !identifier(p['world_id']) || !identifier(p['parent_genome_id']) || !boundedString(p['hypothesis'], 512)
+		|| !identifier(p['prompt_artifact_before']) || !identifier(p['prompt_artifact_after']) || !identifier(e['event_id'])
+		|| !identifier(p['selection_event_hash']) || !identifier(e['event_hash'])
+		|| child.world_id !== p['world_id'] || child.parent_ids.length !== 1 || child.parent_ids[0] !== p['parent_genome_id']) return undefined;
+	return {proposal_id: p['proposal_id'], selection_event_id: p['selection_event_id'], evaluation_id: p['evaluation_id'], world_id: p['world_id'], parent_genome_id: p['parent_genome_id'], child, hypothesis: p['hypothesis'],
+		selection_event_hash: p['selection_event_hash'], event_hash: e['event_hash'],
+		prompt_artifact_before: p['prompt_artifact_before'], prompt_artifact_after: p['prompt_artifact_after'], event_id: e['event_id'], promotion_eligible: false};
+}
+
+function parseAssessment(value: unknown): ForgeAssessment | undefined {
+	if (!record(value) || !record(value['payload']) || !record(value['event'])) return undefined;
+	const p = value['payload']; const e = value['event'];
+	if (p['schema_version'] !== 1 || !identifier(p['assessment_id']) || !identifier(p['proposal_id']) || !identifier(p['selection_event_id'])
+		|| !identifier(p['evaluation_id']) || !identifier(p['world_id']) || !identifier(p['parent_genome_id']) || !identifier(p['child_genome_id'])
+		|| !['metrics_passed', 'metrics_rejected'].includes(String(p['outcome'])) || !identifier(e['event_id'])
+		|| !identifier(p['proposal_event_id']) || !identifier(p['proposal_event_hash']) || !identifier(p['selection_event_hash'])
+		|| !identifier(p['evaluation_event_id']) || !identifier(p['evaluation_event_hash'])
+		|| p['promotion_eligible'] !== false || p['invariant_gate_verified'] !== false) return undefined;
+	return {assessment_id: p['assessment_id'], proposal_id: p['proposal_id'], selection_event_id: p['selection_event_id'], evaluation_id: p['evaluation_id'], world_id: p['world_id'], parent_genome_id: p['parent_genome_id'], child_genome_id: p['child_genome_id'],
+		proposal_event_id: p['proposal_event_id'], proposal_event_hash: p['proposal_event_hash'], selection_event_hash: p['selection_event_hash'],
+		evaluation_event_id: p['evaluation_event_id'], evaluation_event_hash: p['evaluation_event_hash'],
+		outcome: p['outcome'] as ForgeAssessment['outcome'], event_id: e['event_id'], promotion_eligible: false, invariant_gate_verified: false};
 }
 
 function optionalIdentifier(value: unknown): value is string | null {
@@ -813,7 +922,8 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 		if (!record(error) || !boundedString(error['code'], 64) || !boundedString(error['message'], 1024)) {
 			throw new Error('daemon response has an invalid error');
 		}
-		return {version: 1, request_id: expectedRequestId, error: {code: error['code'], message: safeText(error['message'])}};
+		if (error['rejected'] !== undefined && (error['rejected'] !== true || error['code'] !== 'invalid_request')) throw new Error('daemon response has an invalid rejection marker');
+		return {version: 1, request_id: expectedRequestId, error: {code: error['code'], message: safeText(error['message']), ...(error['rejected'] === true ? {rejected: true} : {})}};
 	}
 	const data = parsed['data'];
 	if (!record(data)) throw new Error('daemon response has an invalid data object');
@@ -893,6 +1003,26 @@ export function parseResponse(text: string, expectedRequestId: string): ApiRespo
 		case 'genome_prompt':
 			if (!identifier(data['genome_id']) || typeof data['prompt'] !== 'string' || data['prompt'].length > MAX_FRAME_BYTES) break;
 			return {version: 1, request_id: expectedRequestId, data: {type: 'genome_prompt', genome_id: data['genome_id'], prompt: data['prompt']}};
+		case 'genome_profile': {
+			const profile = parseGenomeProfile(data['profile']);
+			if (!profile) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'genome_profile', profile}};
+		}
+		case 'selection': {
+			const selection = parseSelection(data['selection']);
+			if (!selection) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'selection', selection}};
+		}
+		case 'forge_revision': {
+			const revision = parseRevision(data['revision']);
+			if (!revision) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'forge_revision', revision}};
+		}
+		case 'forge_assessment': {
+			const assessment = parseAssessment(data['assessment']);
+			if (!assessment) break;
+			return {version: 1, request_id: expectedRequestId, data: {type: 'forge_assessment', assessment}};
+		}
 		case 'champion': {
 			const champion = parseChampion(data['champion']);
 			if (!champion) break;

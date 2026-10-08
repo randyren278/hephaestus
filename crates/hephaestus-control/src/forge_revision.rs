@@ -243,6 +243,31 @@ pub(super) fn verify_revision(
 }
 
 impl ControlPlane {
+    pub(super) fn genome_proposal_show(
+        &self,
+        proposal_id: &str,
+    ) -> Result<ResponseData, ExecuteError> {
+        validate_job_id(proposal_id)?;
+        let storage = self.storage.as_ref().ok_or(ExecuteError::Internal)?;
+        let history = storage
+            .ledger
+            .replay_verified()
+            .map_err(|_| ExecuteError::Internal)?;
+        super::verification::verify_forge_history(
+            &storage.artifacts,
+            &history,
+            &self.state.registered,
+        )
+        .map_err(|_| ExecuteError::Internal)?;
+        let event = history
+            .iter()
+            .find(|event| event.event_id == forge_event_id(proposal_id))
+            .ok_or(ExecuteError::NotFound)?;
+        Ok(decode_forge_proposal_kind(event)
+            .map_err(|_| ExecuteError::Internal)?
+            .into_response(event))
+    }
+
     #[allow(clippy::too_many_lines)]
     pub(super) fn revise_genome(
         &mut self,
