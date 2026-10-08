@@ -1,0 +1,39 @@
+I found no material defects. The three fixes from the first review are correct, and nothing I found blocks the pilot. I used Read/Glob/Grep only and ran nothing, so the runtime results below are the ones you reported, not ones I reproduced.
+
+## The three fixes
+
+- **Cost range is correct.**
+  - `pilot.rs:29` rejects anything outside 1 to `MAX_EVALUATION_COST_MICROUSD` (1,000,000,000, from `server.rs:97`) while parsing arguments, before it contacts the daemon.
+  - That is exactly the per-trial check in `validated_evaluation_budget` (`run_records.rs:424`).
+  - The total for a run (per-trial × 48) is only checked for overflow (`run_exec.rs:182-185`), not against the maximum. So the per-trial maximum still works when the profile is read back after registration.
+  - `"__COST_CEILING_MICROUSD__"` is replaced together with its quotes, so the World ends up with a JSON integer, as the README says.
+- **Git isolation is correct.**
+  - `fixture_git_command` (`hephaestus.rs:1074-1093`) removes the environment variables that redirect Git to another repository, plus `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`.
+  - It sets `-c core.hooksPath=/dev/null` and `init --template=`, and the commit sets `-c commit.gpgsign=false`. Settings given with `-c` override the user's global config.
+  - The Rust test and the Python script both check this properly: a signer that doesn't exist plus `gpgsign = true` would make init fail, and markers, a foreign repo and a foreign index confirm nothing leaked.
+- **The run docs are consistent.** `$PILOT_DIR/data` is used in `README.md`, in `provider-setup.md` and by the script. The commands use the printed `PARENT_ID`/`CANDIDATE_ID`. `heph stop --data-dir …` works because `--data-dir` is a global flag (`heph.rs:45`).
+- **The same-install evaluator statement is true.** `IsolatedEvaluator::open_with_policy` → `verify_executable` (`isolated_evaluator.rs:84`) fails closed when the daemon's evaluator doesn't match the World's `arena.evaluator`.
+
+## Minor issues (none block the pilot)
+
+1. **A wrong evaluator gives an unhelpful error.** `open_evaluator` turns a mismatch into `ExecuteError::Internal` (`run_exec.rs:1237`). A user who mixes installs gets a generic internal error instead of "evaluator mismatch". The docs' "checked again" claim is still true.
+2. **Some Git environment settings still reach the fixture repo.**
+   - `GIT_AUTHOR_*` and `GIT_COMMITTER_*` override `-c user.name/email`, so a user's real identity or dates can end up in the fixture commit. That commit stays local, so the privacy impact is small.
+   - `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` are not removed. Hooks and signing are still overridden, but other settings such as `core.fsmonitor` still apply.
+   - "Ignores location environment" is accurate. "Ignores user Git config" would overstate it.
+3. **Setup directories pile up.** Each `pilot prepare` call that gets past the frozen check keeps a new `data/pilot-prepare-*` directory (`pilot.rs:196-206`), including failed attempts and retries. They hold prompts and the World, but no credentials. The README says files are kept, but not that a new directory is created on every retry.
+4. **Two of the script's claims are proved more narrowly than they read.**
+   - `invalid_cost_rejected_before_registration` and `unfrozen_preparation_rejected` only compare `genome list`. A leaked manifest, artifact or World, or a new setup directory, would not be caught. For cost, argument parsing makes the claim true anyway.
+   - Adding a World-list comparison and a "no new `pilot-prepare-*`" check would make the proof match the claim.
+5. **Cleanup in the Python script can hide the real failure.** The `finally` block at `pilot_acceptance.py:122` uses `check=True`. If `heph stop` fails during cleanup, its error replaces the original assertion failure.
+6. **The Rust test's `git ls-files` (`pilot_preparation.rs:130-136`) uses the inherited environment.** Every `cli()` call clears it, but this one doesn't. If the test ran inside a Git hook that sets `GIT_DIR`/`GIT_INDEX_FILE`, it would list the wrong index. No such hook exists in the repo today.
+
+## Test coverage
+
+- **Rust real-daemon test:**
+  - **Covers:** invalid costs, retries that return the same IDs, the `null` model ID staying a quoted string, a model ID containing a newline being rejected, an interrupted run that keeps its files and then recovers with the same IDs, original pack files left unchanged, rejection when unfrozen, and a restart after a SIGKILL. The `Drop` kill runs before the temp directory is removed.
+  - **Note:** the restart is a crash, not a graceful stop. That is a stronger test, so it can be described that way.
+- **Python package script:**
+  - **Covers:** the installed `heph web` daemon, Git isolation, invalid costs, a retry, the Claude profile, rejection when unfrozen, a graceful `heph stop` and restart, and replay.
+  - **Doesn't cover:** the interrupted-run recovery and the model-ID quoting cases. Those are tested only in the Rust test.
+- **Neither one shows** that authentication works, that the model is available, or anything about hosted quality. The script's `scope` string and `provider-setup.md` already say this, which matches what the tests prove.

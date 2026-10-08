@@ -1,0 +1,63 @@
+{
+  "base_commit": "967c6b25f421de028d30c6030e9ac5f1af3a2e99",
+  "archive_sha256": "6c930c38d54d6fc0cb5059687bdb3d874b6f185008e2f3eb0fea3a5caa700cf3",
+  "archive_bytes": 46629487,
+  "source_hashes": {
+    "crates/hephaestus-control/src/bin/hephaestus.rs": "006cd5b8d805e50f957e94b1ea4dcc5a05144b6129f69909d0d4a82303f07638",
+    "crates/hephaestus-control/src/bin/hephaestus/pilot.rs": "3756a04496c1b98f8b338a964dfc8fea62fc6e628843a4d3b0cd8688a78a0aa7",
+    "crates/hephaestus-control/src/lib.rs": "41755128d5b1a1e4727c95cee773b0f935a41cdf07cc7e81c7e812ca589e6a53",
+    "crates/hephaestus-control/src/server.rs": "e6035c093b955506daebc89d549939e17ee04a71e94882f0cca4c4de7fd3fd1e",
+    "crates/hephaestus-control/tests/pilot_preparation.rs": "d17eb0a69fd57dff6073b4206fbdcbc6a9d6cbe931778daa1cfa4af0abf2c58f",
+    "crates/hephaestus-genome/src/world.rs": "4bf6cb782d6e24656779c7fda6bbdb40791947bbfbcdc2d3473826351c0e1272",
+    "scripts/package_macos.py": "c18cc15db34aa48259c2a6dcaf22611ffe5625612a3cf3d97edc44e431286b0d",
+    "scripts/package_macos_acceptance.sh": "4d692a907d1a5e7968287850fb1db5f20558b7ad6d0cc7f6e0cb7af9e8d02667",
+    "scripts/package/pilot_acceptance.py": "b0def9695e432de4e4b7e1ea172a4587d4afd07c6b7c2272d39bdd6d385747a3",
+    "scripts/tests/test_macos_package.py": "2e6db586a67af23c30cf485228ddceb3ebd1148414a0e49b4260700fbfa5b8b3"
+  },
+  "fixture_files_sha256": {
+    "candidate.template.md": "dec6de259407c5ae29164ad40d90b9b22b4761edc5ae3dd85668a0b2e8eb6b1d",
+    "checklist.prompt.md": "c5835a28565e39e034deede18474b6e02305ac263b6e9b83bdc14fcf6efb0dd4",
+    "baseline.template.md": "ced409e6a2317dbb60151d88ff8405d131bbb465263b5b04996898ad111c5833",
+    "world.template.json": "63d02d4e67b5252003a7945501fa77819c964ccb291c8043fecddae390a8ecd9",
+    "README.md": "d5d1b68dbc91ef47d3f4f30caa5d35c9b26afd877ac18b224e35e241cbc64a87",
+    "provider-setup.md": "5d33e08102ef3d22416384a983b08ce8e13ed2c1f7a08425e8db3c060a254698",
+    "policy.md": "3c8d631da985a0201b3cc1876288de395989a8dd66b6a116ed6d92efcc33f4fd",
+    "tasks/visible.json": "35bade0f978e66a1c178f4e6bde5277ae8af7c0999e1b9e5e19fff88bf2516c3",
+    "tasks/sealed.json": "d300952bebb1c1c595c7b1c5221929e83ba4bb9336549007690644ea35c23357"
+  },
+  "installed_binaries_sha256": {
+    "hephaestus": "01347cd4cab95414684bc1d2b16ef1e09a2706689bd728ccece21c9c981cbef5",
+    "hephaestusd": "21557e592357e106a281ff81296753a16c7feb7a3c92bea2dcea5e57de4b825e",
+    "hephaestus-reference-evaluator": "5edf2ff25e99650a5fa4230896b4246cfc71da1c7fafcd2ae705b66e7683b6f8",
+    "heph": "524118e5b0dfa31b2633c87128e1bd4a7df7da263e31f62b629b0d0742031fbf"
+  },
+  "installed_binaries_match_archive": true,
+  "installed_fixture_matches_current_source": true,
+  "package_acceptance_exit": 0,
+  "source_install_exit": 0,
+  "source_pilot_acceptance_exit": 0,
+  "native_pilot_daemon_test_exit": 0,
+  "provider_launches": 0,
+  "source_socket_path_bytes": 98,
+  "source_canonical_socket_path_bytes": 106,
+  "owned_processes_stopped": true,
+  "socket_red_failed_with_SUN_LEN": true,
+  "socket_green_rust_1_88_exit": 0,
+  "rust_1_88_all_targets_all_features_exit": 0,
+  "tui_tests_passed": 191,
+  "web_tests_passed": 40,
+  "tui_web_node_22_typechecks_exit": 0,
+  "python_tests_passed": 47,
+  "installer_contracts_passed": 20,
+  "mutation_source_anchors": 429,
+  "scope": "local unsigned native ARM64 package and real daemon with offline model identifiers/provider marker stubs; no credentials, live models, revenue, hosted release, Intel or quarantine acceptance",
+  "workspace_tests": {
+    "command": "RUST_TEST_THREADS=2 cargo test --workspace --all-features",
+    "passed_including_doc_tests": 724,
+    "failed": 0,
+    "ignored": 0,
+    "exit": 0
+  },
+  "clippy_workspace_both_modes_exit": 0,
+  "remaining_evolve_socket_bug_reproduced_without_provider_launch": true
+}

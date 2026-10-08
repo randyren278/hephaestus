@@ -33,12 +33,12 @@ live-model improvement and full installation acceptance remain required.
 | Requirement | Evidence needed | Current status |
 |---|---|---|
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
-| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The 24-case support-triage pack passes frozen-daemon registration, profile readback and replay. Fresh-user provider acceptance still remains |
+| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The installed 24-case support-triage pack has native initialization and frozen preparation, with retries, profile readback and crash/graceful restart. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 721 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. A subsequent strict ledger repair passes all 15 ledger mutations; the configured matrix is now 429, without implying a fresh full 429-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Current Node 22 checks pass 191 TUI and 40 web tests; the current Rust workspace run passes 724 tests including doc tests, 47 Python tests, and both Clippy modes pass. All 428 mutations pass at immutable checkpoint 709d965; all 45 affected guards for the subsequent minimum-compiler edits also pass. A subsequent strict ledger repair passes all 15 ledger mutations; the configured matrix is now 429, without implying a fresh full 429-entry run. Earlier coverage passed all 51 floors. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
@@ -368,7 +368,60 @@ The refreshed workspace passes 721 Rust tests including doc tests, 191 TUI tests
 the exact Rust 1.88 all-target/all-feature check pass. All 429 configured mutation
 source anchors remain valid; no new full mutation or coverage run is implied.
 
-The browser export no longer needs a source checkout for package users. The public
-support-triage acceptance pack still needs a checkout; bundling its preparation
-materials is the next delivery gap. Live-provider acceptance, hosted delivery,
-native Intel and downloaded/quarantined first launch remain open.
+The browser export no longer needs a source checkout for package users. The
+subsequent installed pilot checkpoint below bundles the public support-triage
+pack and removes its checkout requirement. Live-provider acceptance, hosted
+delivery, native Intel and downloaded/quarantined first launch remain open.
+
+## Installed pilot preparation, 2026-10-08
+
+Native packages now include the complete support-triage pack and local provider
+setup guide. `hephaestus init --fixture support-triage` creates a separate Git
+source repository containing no tasks or expected labels. The native
+`pilot prepare` command requires an explicit Codex/Claude provider, exact model
+identifier and positive per-trial reported-cost ceiling. It registers the World
+and both prompts through the ordinary daemon API, prints their immutable
+identities and full profiles, and requires a frozen daemon with no active runs.
+It starts no providers and does not handle account setup. Package users need
+Git, with no source checkout or host Node/npm/Python for this workflow.
+
+Invalid cost ceilings are rejected before daemon contact. Model values are
+quoted as YAML strings, including `null`, and malformed identifiers reject.
+Every attempt after the frozen check retains a new owner-only setup directory;
+partial registration is resumable, and successful retries preserve identities.
+Fixture initialization suppresses Git hooks, templates, commit signing and
+repository-location environment overrides. This does not mean all user Git
+configuration is ignored. The helper expects CLI, daemon and reference evaluator
+from the same installation; protected evaluation still checks the digest.
+
+Actual clean-home ARM64 package installation and relocation pass the tour,
+consoles, offline Arena, both Gauntlets and frozen pilot preparation with host
+Node/npm hidden. The source installation passes the same pilot workflow.
+Provider-launch markers remain absent; no evaluations occur during preparation.
+The real-daemon Rust check covers partial failure/retry, original-file
+preservation, invalid models, unfrozen rejection and crash/restart replay.
+A separate installed check covers graceful stop/restart and verifies invalid
+cost and unfrozen attempts against World/Genome/setup sets and audit counts.
+
+Source verification exposed a socket path bug when canonicalization lengthened
+an otherwise working daemon address. The helper now preserves the supplied
+socket path and canonicalizes only setup storage. The real-daemon test uses a
+short parent alias whose resolved socket path exceeds platform limits. In an
+isolated Rust 1.88 checkout, the old behavior fails with `SUN_LEN`, and restored
+source passes. See the [installed pilot evidence](evidence/2026-10-08-installed-pilot/README.md).
+Claude reviewed the implementation and subsequent socket correction; its
+findings and the runtime checks are recorded with their separate scopes. Its
+final review identified the same canonical-socket issue in the existing
+`evolve coding` helper; that remains the next reliability correction.
+
+The refreshed workspace passes 724 Rust tests including doc tests. Both Clippy
+modes and the exact Rust 1.88 all-target/all-feature check pass; Node 22 checks
+pass 191 TUI and 40 web tests with typechecks, Python passes 47 tests, and all
+20 installer contracts pass. All 429 existing mutation source anchors remain
+valid; the isolated socket regression is an additional focused red/green check,
+not a fresh full mutation matrix or coverage result.
+
+Provider authentication, model availability and representative live quality are
+still unproved. Quota/auth-handoff authorization, hosted release delivery,
+native Intel and downloaded/quarantined first launch remain open. This delivery
+checkpoint does not establish product completion or a revenue result.

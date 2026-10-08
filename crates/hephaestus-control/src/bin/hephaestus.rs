@@ -20,6 +20,9 @@ use hephaestus_control::{
     WorldRecord, data_dir_from_environment,
 };
 
+#[path = "hephaestus/pilot.rs"]
+mod pilot;
+
 #[derive(Parser)]
 #[command(name = "hephaestus", about = "Hephaestus operator CLI", version)]
 struct Arguments {
@@ -170,6 +173,11 @@ enum CliCommand {
         fixture: String,
         /// New destination directory (must not already exist).
         path: PathBuf,
+    },
+    /// Prepare a hosted pilot pair without starting provider work.
+    Pilot {
+        #[command(subcommand)]
+        command: pilot::PilotCommand,
     },
     /// Open the local interactive terminal operator interface.
     Tui {
@@ -813,6 +821,19 @@ fn handle_local_command(arguments: &Arguments) -> Option<ExitCode> {
         CliCommand::Init { fixture, path } => {
             Some(initialize_fixture(fixture, path, arguments.json))
         }
+        CliCommand::Pilot { command } => Some(
+            match arguments
+                .data_dir
+                .clone()
+                .map_or_else(data_dir_from_environment, Ok)
+            {
+                Ok(data_dir) => pilot::run(command, &data_dir, arguments.json),
+                Err(error) => {
+                    eprintln!("hephaestus: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+        ),
         CliCommand::Senate { args } => Some(launch_senate(args)),
         _ => None,
     }
@@ -915,29 +936,31 @@ fn packaged_tui_paths(executable: &Path) -> Option<(PathBuf, PathBuf)> {
     (node.is_file() && entrypoint.is_file()).then_some((node, entrypoint))
 }
 
-fn fixture_source_dir() -> Result<PathBuf, String> {
+fn fixture_source_dir(fixture: &str) -> Result<PathBuf, String> {
+    if !matches!(fixture, "quickstart" | "support-triage") {
+        return Err(format!(
+            "unsupported fixture: {fixture}; choose quickstart or support-triage"
+        ));
+    }
     if let Some(share) = packaged_share_dir(&current_executable()) {
-        let fixtures = share.join("fixtures/quickstart");
+        let fixtures = share.join("fixtures").join(fixture);
         if fixtures.is_dir() {
             return Ok(fixtures);
         }
-        return Err("installed quickstart fixture is unavailable".to_owned());
+        return Err(format!("installed {fixture} fixture is unavailable"));
     }
     let source_checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
-        .join("examples/quickstart");
+        .join("examples")
+        .join(fixture);
     source_checkout
         .is_dir()
         .then_some(source_checkout)
-        .ok_or_else(|| "quickstart fixture is unavailable".to_owned())
+        .ok_or_else(|| format!("{fixture} fixture is unavailable"))
 }
 
 fn initialize_fixture(fixture: &str, destination: &Path, json: bool) -> ExitCode {
-    if fixture != "quickstart" {
-        eprintln!("hephaestus: unsupported fixture: {fixture}");
-        return ExitCode::FAILURE;
-    }
-    let source = match fixture_source_dir() {
+    let source = match fixture_source_dir(fixture) {
         Ok(source) => source,
         Err(error) => {
             eprintln!("hephaestus: {error}");
@@ -965,13 +988,13 @@ fn initialize_fixture(fixture: &str, destination: &Path, json: bool) -> ExitCode
     }
     if json {
         let output = serde_json::json!({
-            "fixture": "quickstart",
+            "fixture": fixture,
             "path": destination.to_string_lossy(),
             "repository": destination.join("repository").to_string_lossy(),
         });
         println!("{output}");
     } else {
-        println!("fixture=quickstart path={}", destination.display());
+        println!("fixture={fixture} path={}", destination.display());
         println!(
             "source_repository={}",
             destination.join("repository").display()
@@ -1012,21 +1035,20 @@ fn initialize_fixture_repository(repository: &Path) -> Result<(), String> {
     fs::create_dir(repository).map_err(|error| error.to_string())?;
     fs::write(
         repository.join("README.md"),
-        "# Hephaestus quickstart workspace\n\nThis repository is the offline reference-run target.\n",
+        "# Hephaestus evaluation workspace\n\nTask manifests and expected outputs live outside this source repository.\n",
     )
     .map_err(|error| error.to_string())?;
-    run_git(repository, ["init", "-q"])?;
+    run_git(repository, ["init", "-q", "--template="])?;
     run_git(repository, ["add", "README.md"])?;
-    let output = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(repository)
+    let output = fixture_git_command(repository)
         .args(["-c", "user.name=Hephaestus Fixture"])
+        .args(["-c", "commit.gpgsign=false"])
         .args([
             "-c",
             "user.email=fixture@localhost",
             "commit",
             "-m",
-            "Initialize quickstart fixture",
+            "Initialize evaluation fixture",
         ])
         .output()
         .map_err(|error| error.to_string())?;
@@ -1038,9 +1060,7 @@ fn initialize_fixture_repository(repository: &Path) -> Result<(), String> {
 }
 
 fn run_git<const N: usize>(repository: &Path, arguments: [&str; N]) -> Result<(), String> {
-    let output = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(repository)
+    let output = fixture_git_command(repository)
         .args(arguments)
         .output()
         .map_err(|error| error.to_string())?;
@@ -1049,6 +1069,27 @@ fn run_git<const N: usize>(repository: &Path, arguments: [&str; N]) -> Result<()
     } else {
         Err("git could not initialize the fixture repository".to_owned())
     }
+}
+
+fn fixture_git_command(repository: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("git");
+    command
+        .arg("-C")
+        .arg(repository)
+        .args(["-c", "core.hooksPath=/dev/null"]);
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+    ] {
+        command.env_remove(name);
+    }
+    command
 }
 
 /// Locates the bundled `examples/gauntlet/coding` fixture: a packaged share
@@ -1497,6 +1538,7 @@ fn command_from_cli(command: CliCommand) -> Result<Command, &'static str> {
             command: WorkerCommand::Status { job_id },
         } => Command::RemoteJobStatus { job_id },
         CliCommand::Init { .. } => return Err("init is a local command"),
+        CliCommand::Pilot { .. } => return Err("pilot is a local preparation command"),
         CliCommand::Tui { .. } => return Err("tui is a local interactive command"),
         CliCommand::Senate { .. } => return Err("senate is a local command"),
     })
@@ -3137,9 +3179,25 @@ mod tests {
 
     #[test]
     fn source_checkout_fixture_path_resolves_from_control_crate() {
-        let fixture = fixture_source_dir().expect("source checkout fixture is available");
+        let fixture =
+            fixture_source_dir("quickstart").expect("source checkout fixture is available");
         assert!(fixture.join("world.template.json").is_file());
         assert!(fixture.join("tasks/visible.json").is_file());
+    }
+
+    #[test]
+    fn support_triage_fixture_has_local_preparation_materials_and_unknown_names_fail() {
+        let fixture = fixture_source_dir("support-triage").expect("support pack resolves");
+        for file in [
+            "provider-setup.md",
+            "baseline.template.md",
+            "candidate.template.md",
+            "policy.md",
+            "tasks/sealed.json",
+        ] {
+            assert!(fixture.join(file).is_file(), "missing {file}");
+        }
+        assert!(fixture_source_dir("../quickstart").is_err());
     }
 
     #[test]

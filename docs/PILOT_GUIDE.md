@@ -47,6 +47,16 @@ Forge assessment and a Champion transition remain separate decisions.
    the acceptance pack's registration instructions with a fresh data directory
    and separate source repository. The daemon starts frozen.
 
+The installed CLI copies the public pack and its local provider guide with
+`hephaestus init --fixture support-triage /new/pilot/directory`. Follow its copied
+README to start the matching installation's frozen daemon, then use
+`hephaestus --data-dir /pilot/data pilot prepare /pilot --provider codex --model EXACT_MODEL_ID --cost-microusd 250000`.
+Choose your own provider, available exact model and positive reported cost ceiling.
+Preparation registers the pair and reads profiles; it does not authenticate or
+call a model. Package users need no source checkout or host Node/npm/Python for
+these steps. Actual hosted work still requires your selected provider CLI and
+explicit account handoff.
+
 The current verified installation path is native Apple Silicon macOS.
 Clean source and locally built ARM64 package checks pass. Native Intel,
 hosted release delivery and first launch from a quarantined browser download

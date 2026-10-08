@@ -18,83 +18,81 @@ generalization. All cases and labels are public and fictional. “Sealed” here
 exercises the runtime's evaluator boundary; it is not a confidential benchmark.
 Use independently authored private holdouts for a customer pilot.
 
-## Prepare without spending provider quota
+## Create an installed pilot
 
-Use a fresh daemon data directory and a separate minimal Git repository as
-its source repository. Keep this pack, task manifests and expected labels
-outside that repository. Start the daemon frozen, with provider setup as
-documented in [Runtimes](../../docs/RUNTIMES.md). Registration, profiles and
-replay do not call a model. Authenticate with your provider's own tools; do
-not put credentials in Genomes, task files or reports.
-
-For example, with the installed commands on your PATH and Node.js 22 or newer
-(also required by the source web console), create a new private workspace and
-start a foreground daemon:
+The macOS package includes this pack. Source installations also use the same
+initializer. Git is required; package users need no host Node, npm, Python or
+source checkout for these steps.
 
 ```sh
 mkdir -p "$HOME/.local/share/hephaestus/pilots"
-PILOT_DIR=$(mktemp -d "$HOME/.local/share/hephaestus/pilots/pilot.XXXXXX")
-mkdir "$PILOT_DIR/source"
-printf 'Isolated pilot source; no task labels.\n' > "$PILOT_DIR/source/README.md"
-git -C "$PILOT_DIR/source" init
-git -C "$PILOT_DIR/source" add README.md
-git -C "$PILOT_DIR/source" -c user.name='Hephaestus pilot' -c user.email='pilot@localhost' -c commit.gpgsign=false commit -m 'Initialize pilot source'
-HEPH_BIN=$(dirname "$(command -v hephaestus)")
-HEPH_EVALUATOR=$(node -p 'require("node:fs").realpathSync(process.argv[1])' "$HEPH_BIN/hephaestus-reference-evaluator")
+PILOT_ROOT=$(mktemp -d "$HOME/.local/share/hephaestus/pilots/pilot.XXXXXX")
+PILOT_DIR="$PILOT_ROOT/support-triage"
+hephaestus init --fixture support-triage "$PILOT_DIR"
 printf 'Pilot directory: %s\n' "$PILOT_DIR"
-hephaestusd --data-dir "$PILOT_DIR/data" \
-  --source-repository "$PILOT_DIR/source" \
-  --evaluator-executable "$HEPH_EVALUATOR"
+HEPHAESTUS_SOURCE_REPOSITORY="$PILOT_DIR/repository" \
+  heph web --data-dir "$PILOT_DIR/data"
 ```
 
-Leave that terminal running; use the printed pilot directory's data subdirectory
-as `<fresh-data-dir>` in another terminal. The installed reference evaluator
-launcher is beside `hephaestus`, normally under your installation prefix's bin
-directory. The command resolves that launcher to its real file; the protected
-evaluator boundary rejects a symlink as the final path component.
-Before starting a daemon for actual hosted work, configure the selected CLI's
-subscription or API authentication handoff using
-[Live runs against your own subscription](../../docs/RUNTIMES.md#live-runs-against-your-own-subscription).
-These launch arguments alone do not make your host login available inside a
-provider's private HOME. You can perform the frozen preparation first and
-restart the same data directory with the authorized provider configuration.
+The initializer copies this pack and creates a committed minimal Git repository
+under its repository subdirectory. The task manifests, expected labels and
+prompts stay outside that source repository. It preserves an existing destination
+by refusing to overwrite it. The random parent directory is private to its owner.
+`heph web` starts the daemon frozen, resolves the installed protected evaluator
+without a host Node command, and opens the read-only browser server. Open its
+printed URL; leave the terminal running. It does not run an agent.
 
-Choose one provider (`codex` or `claude`) and an explicit model identifier
-available to your installed CLI. Use the same identifier for both prompts.
-Do not use a moving model alias when you need comparable dated results.
+## Prepare without spending provider quota
 
-1. Publish [visible tasks](tasks/visible.json), [sealed tasks](tasks/sealed.json),
-   the installed reference evaluator and the daemon verifier with the CLI
-   commands below. Record their returned artifact identities.
-2. Copy [the World template](world.template.json) into your private setup
-   directory. Replace its four artifact placeholders. Replace the quoted
-   cost placeholder with a non-negative **JSON integer** in micro-US-dollars,
-   then register the World. The immutable policy is `json_canonical`.
-   For example, `250000` means a $0.25 reported per-trial ceiling and a $12
-   aggregate allowance for this pack's 48 invocations. Choose the ceiling
-   using your provider's expected usage; it is not a billing cap. Codex records
-   no USD cost, so its recorded cost gates cannot prove actual spending stayed
-   within the allowance.
-3. Copy [the baseline template](baseline.template.md), replace the provider
-   and model placeholders and register it under that World.
-4. Copy [the candidate template](candidate.template.md), replace those same
-   model values and the parent placeholder with the baseline's Genome identity.
-   Register it under the same World. These are initial variants; this step
-   does not claim an evidence-bound Forge proposal.
-5. Read both profiles and confirm the complete model, World, authority,
-   scoring, task counts and budgets before unfreezing.
+In another terminal, set `PILOT_DIR` to the directory printed above. Choose one
+provider (`codex` or `claude`) and the exact model identifier you intend to use.
+The preparation command does not check model availability or authenticate a
+provider. An alias may change over time; use a dated identifier when available.
 
 ```sh
-hephaestus --data-dir <fresh-data-dir> arena manifest <pack>/tasks/visible.json
-hephaestus --data-dir <fresh-data-dir> arena manifest <pack>/tasks/sealed.json
-hephaestus --data-dir <fresh-data-dir> artifact put <installed-reference-evaluator>
-hephaestus --data-dir <fresh-data-dir> verifier
-hephaestus --data-dir <fresh-data-dir> world register <private-setup>/world.json
-hephaestus --data-dir <fresh-data-dir> genome register <private-setup>/baseline.md --world <world-id>
-hephaestus --data-dir <fresh-data-dir> genome register <private-setup>/candidate.md --world <world-id>
-hephaestus --data-dir <fresh-data-dir> genome profile <baseline-id>
-hephaestus --data-dir <fresh-data-dir> genome profile <candidate-id>
+PILOT_DIR="/your/printed/pilot/directory"
+hephaestus --data-dir "$PILOT_DIR/data" pilot prepare "$PILOT_DIR" \
+  --provider codex --model EXACT_MODEL_ID --cost-microusd 250000
 ```
+
+All three flags are required. The cost must be 1 through 1,000,000,000 micro-USD;
+invalid limits are rejected before registration. The cost example is a $0.25 **reported per-trial**
+ceiling: 48 invocations would have a $12 reported aggregate allowance. Choose
+it from your expected usage; it is not a billing or subscription quota cap.
+Codex reports no USD amount, so recorded cost gates cannot prove actual spending.
+
+Preparation requires a frozen daemon with no active runs. Use the CLI and
+`heph` from the same installation, so the CLI-adjacent reference evaluator
+matches the daemon. A custom daemon evaluator is not supported by this helper;
+evaluator identity is checked again before any comparison trials start. It publishes both
+manifests, the installed evaluator and daemon verifier, replaces the World and
+prompt placeholders, registers the World and directed pair, and reads back both
+profiles. It never unfreezes or submits provider work. Its output includes the
+exact World, parent and candidate identities, both complete profiles, and the
+private directory containing generated setup files. With the CLI's `--json`
+flag, stdout contains one JSON object. Original pack files are preserved.
+
+Registration uses ordinary daemon commands and is not an atomic transaction.
+If interrupted, retain the data directory and retry with the same inputs:
+immutable registrations reuse their identities. Changed input files or model/cost
+flags deliberately create new identities. Confirm the resulting profiles again.
+Every attempt that passes the frozen check retains a new private setup directory;
+its path is printed even if a later registration fails.
+A successful preparation is configuration evidence, not a completed evaluation.
+
+Read both profiles and confirm the full provider/model, same World, read-only
+source authority, network permission, strict JSON scoring, 12 visible plus 12
+sealed tasks, and budgets. Then follow the copied [provider setup guide](provider-setup.md)
+to restart this daemon with your explicitly authorized authentication handoff.
+Your normal host login is not automatically available in the provider's private
+HOME. Never put credentials in Genomes, task files or reports.
+
+For manual registration, the [World template](world.template.json),
+[baseline](baseline.template.md), [candidate](candidate.template.md),
+[visible manifest](tasks/visible.json) and [sealed manifest](tasks/sealed.json)
+remain available. The World cost placeholder must become a JSON integer.
+Model identifiers belong in quoted YAML scalars. The immutable scoring policy
+is `json_canonical`. These are initial variants, not an evidence-bound Forge proposal.
 
 ## Run only within authorized usage
 
@@ -106,11 +104,15 @@ per-trial World ceiling. These are reported receipt limits, not guaranteed
 subscription quota or billing caps; Codex reports no USD amount. Review the
 profiles and provider usage allowance first.
 
+Use the exact `parent_genome_id` and `candidate_genome_id` from preparation:
+
 ```sh
-hephaestus --data-dir <fresh-data-dir> unfreeze
-hephaestus --data-dir <fresh-data-dir> arena evaluate support-triage-v1-001 <baseline-id> <candidate-id>
-hephaestus --data-dir <fresh-data-dir> arena select support-triage-v1-001
-hephaestus --data-dir <fresh-data-dir> replay
+PARENT_ID="your printed parent_genome_id"
+CANDIDATE_ID="your printed candidate_genome_id"
+hephaestus --data-dir "$PILOT_DIR/data" unfreeze
+hephaestus --data-dir "$PILOT_DIR/data" arena evaluate support-triage-v1-001 "$PARENT_ID" "$CANDIDATE_ID"
+hephaestus --data-dir "$PILOT_DIR/data" arena select support-triage-v1-001
+hephaestus --data-dir "$PILOT_DIR/data" replay
 ```
 
 Retrying the same evaluation ID reuses its original admission and recorded state; it does not

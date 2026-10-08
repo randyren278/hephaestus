@@ -31,9 +31,10 @@ the result supports.
 
 Start with a workflow that has checkable answers, such as ticket routing or
 structured extraction. The [24-case support-triage pack](examples/support-triage/README.md)
-provides fictional inputs and two reasonable prompt variants. You can prepare
-it while the daemon is frozen, then review the provider allowance before
-running a model. The [pilot guide](docs/PILOT_GUIDE.md) explains the deliverables
+provides fictional inputs and two reasonable prompt variants. Native packages
+include it: `hephaestus init --fixture support-triage /path/to/new-pilot`.
+Use the copied guide to prepare it while frozen, then review the provider
+allowance before running a model. The [pilot guide](docs/PILOT_GUIDE.md) explains the deliverables
 and how to evaluate a change on your own workflow.
 
 <p align="center">

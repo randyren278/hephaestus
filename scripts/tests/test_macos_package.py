@@ -90,6 +90,7 @@ class MacosPackageTests(unittest.TestCase):
             PACKAGE_BUILDER.FIXTURES,
             {
                 "quickstart": "examples/quickstart",
+                "support-triage": "examples/support-triage",
                 "gauntlet-coding": "examples/gauntlet/coding",
                 "gauntlet-reference": "examples/gauntlet-reference",
             },

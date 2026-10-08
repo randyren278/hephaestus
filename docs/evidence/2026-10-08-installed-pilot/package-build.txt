@@ -1,0 +1,32 @@
++ npm ci --no-audit --no-fund
+
+added 47 packages in 2s
++ npm run build:package
+
+> @hephaestus/operator-tui@0.1.0 build:package
+> node scripts/build-package.mjs
+
+
+  dist/main.bundle.mjs  1.9mb ⚠️
+
+⚡ Done in 55ms
++ npm ci --no-audit --no-fund
+
+added 7 packages in 501ms
++ npm run build
+
+> @hephaestus/web-console@0.1.0 build
+> node scripts/build.mjs
+
+
+  dist/main.bundle.mjs  62.6kb
+
+⚡ Done in 8ms
+
+  dist/web/app.js  34.9kb
+
+⚡ Done in 4ms
++ cargo build --locked --release --workspace --target aarch64-apple-darwin
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `release` profile [optimized] target(s) in 7.65s
+Created /private/tmp/hephaestus-readiness-pilot-packages/hephaestus-v0.1.0-macos-arm64.tar.gz (46,629,487 bytes)

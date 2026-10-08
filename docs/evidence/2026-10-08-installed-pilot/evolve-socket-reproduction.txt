@@ -1,0 +1,4 @@
+Current evolve coding helper, original socket path 98 bytes / resolved 106 bytes.
+hephaestus: status failed: Io(Error { kind: InvalidInput, message: "path must be shorter than SUN_LEN" })
+hephaestus: could not reach a daemon at /private/tmp/hephaestus-pilot-source-acceptance-verified/pilot-acceptance/support-triage/data (start `hephaestusd` first)
+Provider markers absent; operational state stays frozen with no active runs.

@@ -1,0 +1,22 @@
+I found no defects in the current test or `pilot.rs`. One older problem of the same kind remains elsewhere in the CLI. This is based on reading the code only; I didn't run anything.
+
+**The socket-path fix in `pilot.rs` is correct**
+- `pilot.rs:186` builds the `Client` from the data directory exactly as the user typed it. The canonical (fully resolved) path is used only for the setup temp directory and file registration (`pilot.rs:187-201`).
+- The daemon also binds `control.sock` and `worker.sock` at the path it was given, without resolving it (`server.rs:1050`, `server.rs:1181-1192`; `hephaestusd.rs` doesn't resolve it either). So the CLI and the daemon agree on the short socket address.
+- The setup directory reported back is the long canonical path. That's fine, because only ordinary file operations use it, and their path limit is far larger than the socket limit.
+
+**The real-daemon test now catches the regression, and the earlier draft's problems are gone**
+- **Symlink placement:** the symlink is now `HOME` itself (`/tmp/hpilot-XXXXXX/home`). `pack/data` is a real child directory, so the daemon's policy against a symlinked final data folder no longer applies. That was the bug in the first draft.
+- **Path lengths on macOS:** the short address is about 47 bytes (`/tmp/hpilot-XXXXXX/home/pilot/data/control.sock`), well under the 104-byte macOS limit. The resolved address is the system temp folder plus a 99-character folder name plus `/pilot/data/control.sock`, which is over 108 bytes.
+  - That folder name is 99 characters, not the 96 you mentioned. It doesn't matter.
+  - The `> 108` check at line 185 uses the path before resolution. On macOS the resolved path adds `/private`, so the real length is even longer and the check is a safe lower bound.
+- **Linux:** `/tmp/.tmpXXXXXX` + 1 + 99 + 24 ≈ 140 bytes, which is over Linux's 108-byte limit. So reverting `pilot.rs:186` back to the canonical path would make the connection fail on both platforms, and the test would catch it. That matches what you expect from the Rust 1.88 revert-versus-restore run.
+- **Two temp directories:** the backing directory and the `/tmp` alias root are separate `TempDir`s. Deleting the alias removes only the `home` symlink, not what it points to.
+- **Cleanup order:** the `Daemon` guards are declared after both temp directories, so the daemon is killed before the directories are deleted, even if the test panics.
+- **`git ls-files` environment:** it now clears inherited variables with `env_clear()` and sets only `HOME` and `PATH`. Any leaked `GIT_DIR`/`GIT_WORK_TREE` from the host is gone. The fixture `.gitconfig` (hooksPath, templateDir) doesn't affect `ls-files`.
+
+**Remaining issue: same bug class, outside this change**
+- `run_evolve_coding` at `bin/hephaestus.rs:1166` resolves the data directory and then calls `Client::new(data_dir.clone())` at line 1205. So `evolve coding` would still fail to connect when the user's data directory is a short symlink to a path that's too long for a socket.
+- The pilot change doesn't introduce or touch this. If you want the same guarantee there, it's a one-line fix: build the client from the original path and keep the resolved path only for `work_dir`.
+
+**Scope:** this doesn't cover model availability, authentication, or output quality. The test uses a provider stub and checks that it was never launched.

@@ -66,6 +66,20 @@ This copies the World template, Markdown Genomes, task manifests, and instructio
 
 The package contains no hosted model credentials and does not invoke a paid provider. Its quickstart uses the bounded offline reference instruction language only. Promotion remains disabled until invariant evidence is joined to selection in a verified promotion decision.
 
+For a representative hosted workflow, copy the support-triage pilot pack:
+
+```sh
+hephaestus init --fixture support-triage ./support-triage-pilot
+```
+
+Its copied README and provider-setup guide describe a private workspace, a frozen
+daemon and `pilot prepare` with explicit provider/model/cost flags. Preparation
+publishes the manifests and registers both prompt variants without calling a
+provider. It works from this package without a checkout or host Node/npm/Python.
+Actual evaluation requires your own provider CLI, authorized usage and explicit
+authentication handoff. The cases are public and fictional; use independent
+private holdouts for customer decisions.
+
 ## Platform and release limits
 
 Archives are single-architecture. The installer checks that the archive architecture matches the current process architecture; install the matching `arm64` or `x86_64` archive. The acceptance script verifies install relocation and the offline fixture with Git present, while hiding host Node and npm. It is not proof of operation on a machine without Git. The release workflow is configured to publish on an explicit version tag, with Sigstore signatures and build provenance; see [release verification](RELEASES.md). Apple code signing and notarization are not implemented. Acceptance uses locally built archives; first launch after a quarantined browser download remains unverified.

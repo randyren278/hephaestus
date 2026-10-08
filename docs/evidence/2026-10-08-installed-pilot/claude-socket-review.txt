@@ -1,0 +1,56 @@
+The production fix in `pilot.rs` looks correct. The new real-daemon test, though, can't pass as written, and it never reaches the code it's meant to check. Everything below comes from reading the code. I ran nothing, so none of the runtime outcomes described here have been observed.
+
+## 1. The fix in `pilot.rs:184-189`: correct, no regression found
+
+- The daemon binds `control.sock` at exactly the path it was given (`hephaestusd.rs:35-77` → `server.rs:1181`, with no canonicalization). A `Client` built from the original data directory (`pilot.rs:186`) therefore connects to the same address as the daemon and the ordinary CLI (`hephaestus.rs:716-725`).
+- The setup files still need the canonicalized directory, because the daemon requires absolute paths (`runtime_exec.rs:37-38`). Canonicalizing only for `tempdir_in` (`pilot.rs:198-201`) gets this right and also handles a relative `--data-dir`.
+- Edge case, not a defect: if a relative `--data-dir` is given, `Client` resolves it against the CLI's working directory, the same as every other CLI command.
+
+## 2. Blocking defect: the daemon rejects the test's symlinked data directory
+
+In `pilot_preparation.rs:173-177`, `data` is itself a symlink, and `start()` passes it straight to `hephaestusd --data-dir`. Opening the ledger calls `prepare_private_directory(&ledger_dir)` (`server.rs:982`). That check uses `symlink_metadata` and returns `"data path cannot be a symlink"` when the final path component is a symlink (`run_records.rs:467-469`). The daemon should exit, and `start()` should panic with "daemon exited before readiness" (or time out) before any `pilot prepare` call runs.
+
+The check only inspects the final component. A symlink higher up the path is allowed, and that matches the real bug (`/tmp` → `/private/tmp`). Suggested fix:
+
+```rust
+let long_root = home.join("<long name>");          // real directory
+fs::create_dir(&long_root).unwrap();
+let short = home.join("s");
+std::os::unix::fs::symlink(&long_root, &short).unwrap();
+let data = short.join("data");                     // real dir, created by the daemon
+```
+
+## 3. Second defect: the length assertion fails on Linux CI
+
+Linux CI runs this test (`ci.yml:97`, `ubuntu-24.04`, `cargo llvm-cov --workspace`). There, `tempdir()` is `/tmp/.tmpXXXXXX` (15 bytes). The canonical socket path then works out to 15 + 1 + 73 (directory name) + 13 (`/control.sock`) = **102 bytes**, so the `> 108` assertion at line 178 fails before the daemon starts. On macOS, `$TMPDIR` plus `/private` makes the path about 154 bytes, so the assertion passes there and the test hits defect 2 instead.
+
+Also, macOS's `sun_path` limit is 104 bytes, not 108. Suggestions:
+- Make the long name long enough that the path exceeds 108 bytes no matter where the temp directory is (directory names can be up to 255 bytes).
+- Assert that the short socket path is under 104 bytes, so a long `$TMPDIR` produces a clear failure rather than a confusing one.
+
+Once 2 and 3 are fixed, the test would be a real regression test. The pre-fix code built `Client` from the canonical path, so it would fail on `UnixStream::connect`, and the first `json(&prepare(...))` would panic.
+
+## 4. The Python harness doesn't cover the long-path case
+
+`package_macos_acceptance.sh:15,39` puts the data directory at `/tmp/hpkg.XXXXXX/home/pilot-acceptance/support-triage/data`. The socket path is about 71 bytes, or about 79 with `/private` added, well under 104. The package acceptance run therefore can't reproduce this bug. Only the Rust test covers it, and that test is currently broken.
+
+## 5. Strengthened checks
+
+- **The new checks are in Python only.** In Rust, the invalid-cost check (`:207-218`) and the unfrozen check (`:282-287`) still compare only `GenomeList`. The World/setup-set and event-delta checks exist only in `pilot_acceptance.py`.
+- **The event deltas are correct.** `execute` writes an audit event before handling each command (`server.rs:1322`), and `Status` reports the count after its own event (`protocol.rs:628`). So `+1` (invalid cost: only `after_status`'s own event) and `+2` (unfrozen: the pilot's one `Status` plus `after_status`) are the right values.
+  - Caveat: requests that fail auth, API version or `require_command_fields` are never audited, so the delta alone can't prove the daemon was never contacted. Together with the genome/world/setup comparisons it's adequate.
+  - The invalid costs are actually rejected by clap (`pilot.rs:29`) before any daemon contact, so those three runs really test argument parsing.
+- **Cleanup (`pilot_acceptance.py:137-145`) looks right.** I expect `sys.exc_info()` inside `finally` to return the exception being propagated in CPython 3, but I haven't run it to confirm. Two minor points:
+  - Only `CalledProcessError` and `TimeoutExpired` are swallowed. An `OSError` from `subprocess.run` (for example, `heph` missing) would still replace the original exception, though Python's exception chaining would still show the original in the traceback.
+  - On the success path, a failed stop is re-raised, which is correct.
+
+## Summary
+
+| Item | Status |
+|---|---|
+| `pilot.rs` Client/canonical split | Correct; no regression found |
+| Real-daemon test exercises the fix | **No.** The daemon should refuse the symlinked data directory (`run_records.rs:468`) |
+| Length assertion portability | **Fails on Linux CI** (102 bytes, not > 108); also uses the wrong limit for macOS |
+| Python harness covers the long path | No (about 79 bytes) |
+| Event deltas / set checks | Correct, Python only |
+| Cleanup preserves the original failure | Yes, for the two caught exception types |

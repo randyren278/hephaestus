@@ -36,5 +36,6 @@ pub use protocol::{
     WorkerScope, WorldRecord,
 };
 pub use server::{
-    ControlPlane, RemoteCompletion, WorkerReply, WorkerRequest, data_dir_from_environment,
+    ControlPlane, MAX_EVALUATION_COST_MICROUSD, RemoteCompletion, WorkerReply, WorkerRequest,
+    data_dir_from_environment,
 };

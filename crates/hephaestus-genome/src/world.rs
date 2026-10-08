@@ -63,7 +63,7 @@ impl WorldEvaluationPolicy {
         self.output_scoring
     }
 
-    /// Maximum aggregate candidate spend permitted by the World.
+    /// Maximum reported candidate cost per trial; paired admission derives the aggregate allowance.
     #[must_use]
     pub const fn maximum_cost_microusd(self) -> u64 {
         self.maximum_cost_microusd

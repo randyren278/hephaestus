@@ -1,0 +1,8 @@
+   Compiling hephaestus-control v0.1.0 (/private/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/checkout/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running tests/pilot_preparation.rs (/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-msrv-ulgk1mj9/target188/debug/deps/pilot_preparation-48e465b726984c9b)
+
+running 1 test
+test installed_pilot_preparation_is_frozen_idempotent_and_never_launches_a_provider ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.25s

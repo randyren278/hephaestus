@@ -1,0 +1,60 @@
+I found three code defects and two documentation defects that matter. None of them can trigger provider work or touch credentials. The rest of the requested scope looks correct as written but has never been run, so it still needs runtime verification. I used only Read/Glob/Grep: no shell, no edits, no network.
+
+## Code defects
+
+**1. The cost isn't range-checked, so a bad value leaves permanent registrations behind.** `pilot.rs:27-28, 168-172`
+- Any `u64` is written into the World. The limit of `MAX_EVALUATION_COST_MICROUSD = 1_000_000_000` (`server.rs:96`) is only checked later, in `validated_evaluation_budget` (`run_records.rs:424`).
+- That check runs during `genome_profile` → `paired_budget_plan` (`genome_ops.rs:409-413`). By then the World and both Genomes are already registered, and that can't be undone.
+- With `--cost-microusd 1000000001`, preparation fails at profile readback (`pilot.rs:257-266`) and leaves an unusable World and pair behind. Retrying with the same inputs gives the same result.
+- **Fix:** reject cost values above 1e9 in the preflight block, before `require_frozen`.
+- I'd also reject `0` for a hosted provider. A zero ceiling on Claude, which does report USD, would fail every trial only after the provider work was already done, which wastes the authorized quota.
+
+**2. The evaluator binding is never checked against the daemon's evaluator.** `pilot.rs:187-192, 216-221`
+- The World is bound to the `hephaestus-reference-evaluator` that sits next to the CLI. The daemon runs its own `evaluator_executable` and checks it against the bound ID only at evaluation time (`run_exec.rs:432` → `isolated_evaluator.rs:84`).
+- For a normal install both resolve to the same sibling binary (`runtime_exec.rs:712-736`). But a source-built CLI paired with an installed daemon, or a daemon started with `--evaluator-executable`, will register a World that cannot be evaluated.
+- It does fail closed before any trials start, so no quota is spent. But it surfaces only after unfreeze, as an `Internal` error.
+- `ResponseData::Status` (`protocol.rs:623-632`) doesn't report the daemon's evaluator digest, so the CLI has no way to check this today.
+- **Fix:** either expose the daemon's evaluator artifact ID and compare before registering, or document the requirement that both use the same install.
+
+**3. The fixture commit isn't protected from the user's Git config.** `hephaestus.rs:1041-1056`
+- `commit.gpgsign=false` correctly blocks GPG and SSH signing. But the user's global `core.hooksPath` and `init.templateDir` hooks still run on `git init` and `git commit`.
+- A global pre-commit hook could reject the commit (the initializer then deletes the destination and fails), or worse, change what gets committed.
+- Inherited `GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE` would send `git -C` to a different repository.
+- **Fix:** add `-c core.hooksPath=/dev/null`, `--no-verify`, `--template=` (empty) on init, and clear those `GIT_*` variables. Low probability, but this is supposed to be a clean, reproducible starting commit.
+
+## Documentation defects
+
+**4. The run commands point at the wrong data directory.** `examples/support-triage/README.md:101-105`
+- `unfreeze`, `arena evaluate`, `arena select` and `replay` all use `<fresh-data-dir>`.
+- But preparation registered everything in `$PILOT_DIR/data` (lines 34, 54), and `provider-setup.md:23` says to restart the *same* data directory.
+- On a fresh directory there is no World or pair, and the evaluation ID refers to nothing. These lines should use `"$PILOT_DIR/data"` and the printed `parent_genome_id` / `candidate_genome_id`.
+
+**5. The meaning of the cost ceiling is documented two different ways.** `crates/hephaestus-genome/src/world.rs:66`
+- The doc comment says `maximum_cost_microusd` is the "Maximum aggregate candidate spend permitted by the World".
+- The runtime treats it as a per-trial limit and multiplies it by the number of trials (`run_exec.rs:146, 182-185`).
+- The README's "reported per-trial" wording (lines 58-60, 96-97) matches the runtime, so the README is accurate. The doc comment is out of date.
+- This matters because operators reading the code will get the opposite meaning. It's outside the changed files, but the pilot's claims depend on it.
+
+## Smaller points
+- `pilot.rs:273` always labels the output `fixture: "support-triage"`, but any directory with the five matching filenames is accepted.
+- `scripts/package_macos.py:146-150`: the comment lists what loads fixtures by name but leaves out `init --fixture support-triage`.
+- `pilot.rs:70-80`: in non-`--json` mode the output is still pretty-printed JSON with prose lines around it. That's fine, but it doesn't parse as a single JSON document.
+- `pilot.rs:194-198`: the setup directory is created inside the daemon's data directory, after the frozen check. A failed run leaves it behind. That's intentional and the message says so.
+
+## Checked and correct as written
+- **Model and frontmatter safety:** `validate_provider_model` (`spec.rs:393-403`) allows only `[A-Za-z0-9-_.:/]` up to 256 bytes. The value is then JSON-quoted, so it is also a valid double-quoted YAML scalar. This blocks newline injection and stops values like `null` being read as non-strings. The daemon checks the model again when registering (`genome_ops.rs:121-122`).
+- **Placeholders:** each template must contain each placeholder exactly once, checked before any daemon contact (`pilot.rs:166-181`). The cost placeholder is replaced together with its quotes, so it becomes a JSON integer.
+- **Frozen requirement:** `frozen: true, active_runs: 0` is required both before and after registration (`pilot.rs:101-113, 186, 269`). It only calls the manifest put, artifact put, verifier show, World register, Genome register and Genome profile commands. There is no unfreeze, no run or evaluate call, and no credential or environment access.
+- **Verifier binding:** the World register handler rejects any verifier that isn't this daemon's key (`genome_ops.rs:37-50`). Manifests are canonicalized and content-addressed.
+- **Retries:** World and Genome registration return the existing record when the content is identical (`genome_ops.rs:32-36, 110-119`). Manifest and artifact puts are content-addressed. The candidate's ID depends deterministically on the parent's ID, so re-running with the same inputs is idempotent, as the README claims.
+- **Preserving originals:** the pack is only read. Generated files go into a new private temp directory (mode 0700). `init` refuses an existing destination, and its cleanup after a lost race only deletes a directory it created itself (`hephaestus.rs:981-1015`, with a test at `:3187`).
+- **Packaging:** the `FIXTURES` map and the tests at `test_macos_package.py:88-111` include `support-triage`, and the evaluator binary is in the package's binaries list.
+
+## Not yet verified at runtime (not code defects)
+- No test registers the quoted-YAML `family: "…"` Genomes in a real daemon, or reads back profiles that report `provider`, `family`, `network: true`, `workspace_write: false` and 12+12 tasks.
+- No test covers the full prepare-then-retry flow against a frozen daemon, or rejection when the daemon isn't frozen or has active runs.
+- No package acceptance test runs `init --fixture support-triage` from a relocated install, or checks that the CLI-adjacent evaluator matches the daemon's evaluator digest.
+- No test of the fixture commit under hostile global Git config (signing on, hooks set).
+- The commands and environment variables in `provider-setup.md` (`heph stop`, `HEPHAESTUS_CODEX_AUTH_FILE`, `HEPHAESTUS_PROVIDER_ENV_ALLOWLIST`) exist in the code, but no test runs them end to end.
+
+The daemon tests and relocated package acceptance Codex is adding next should cover most of this list. They should also include a regression test for cost values of 0 and above 1e9 (item 1), and a check that the CLI and daemon evaluators match (item 2).

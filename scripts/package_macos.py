@@ -150,6 +150,7 @@ def copy_tree(source: Path, destination: Path) -> None:
 # no CLI-level loader and is driven directly by `scripts/gauntlet_reference.py`.
 FIXTURES = {
     "quickstart": "examples/quickstart",
+    "support-triage": "examples/support-triage",
     "gauntlet-coding": "examples/gauntlet/coding",
     "gauntlet-reference": "examples/gauntlet-reference",
 }

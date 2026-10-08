@@ -84,7 +84,8 @@ termination. The admitted overall wall budget bounds the complete Arena job.
 | `hephaestus status` | Freeze state, active runs, event count, registered Genomes |
 | `hephaestus freeze` / `unfreeze` | Halt or resume evolution; ledgered, restart-safe |
 | `hephaestus kill --all` | Request cancellation of the active async job |
-| `hephaestus init [--fixture <name>] <path>` | Copy a bundled example fixture (default `quickstart`) into a new local directory |
+| `hephaestus init [--fixture <name>] <path>` | Copy `quickstart` (default) or `support-triage` into a new directory, with a separate minimal Git repository |
+| `hephaestus pilot prepare <pack> --provider <codex\|claude> --model <id> --cost-microusd <n>` | Register the support-triage World and directed pair while frozen, then read both profiles; no provider work |
 | `hephaestus arena manifest <file>` | Canonicalize a task manifest into the artifact store |
 | `hephaestus artifact put <file>` | Store any file by BLAKE3 address |
 | `hephaestus verifier` | Publish this daemon's runtime-result public key as an artifact |

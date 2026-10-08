@@ -93,7 +93,8 @@ const MAX_WORKER_TTL_SECONDS: u64 = 30 * 24 * 60 * 60;
 const RUNTIME_ACTOR: &str = "daemon-runtime";
 const MAX_EVALUATION_WALL_MILLIS: u64 = 86_400_000;
 const MAX_EVALUATION_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_EVALUATION_COST_MICROUSD: u64 = 1_000_000_000;
+/// Maximum reported cost ceiling accepted for one evaluation trial.
+pub const MAX_EVALUATION_COST_MICROUSD: u64 = 1_000_000_000;
 const PAIRED_EVALUATION_SEED: u64 = 42;
 const PAIRED_EVALUATION_WALL_MILLIS: u64 = 10_000;
 /// Wall budget for a `run`/`submit` of a hosted-provider Genome. A real
