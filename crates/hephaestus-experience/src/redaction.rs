@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::TraceKind;
+
 /// Deterministic pre-persistence secret redaction policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedactionPolicy {
@@ -20,16 +22,38 @@ impl RedactionPolicy {
     }
 
     pub(crate) fn redact(&self, fields: &BTreeMap<String, String>) -> RedactedFields {
+        self.redact_fields(fields, false)
+    }
+
+    pub(crate) fn redact_trace(
+        &self,
+        kind: TraceKind,
+        fields: &BTreeMap<String, String>,
+    ) -> RedactedFields {
+        self.redact_fields(fields, kind == TraceKind::CostObserved)
+    }
+
+    fn redact_fields(
+        &self,
+        fields: &BTreeMap<String, String>,
+        allow_usage_counts: bool,
+    ) -> RedactedFields {
         let mut values = BTreeMap::new();
         let mut redacted = 0_usize;
         for (key, value) in fields {
-            let next = if sensitive_key(key) {
+            let usage_count = allow_usage_counts && numeric_usage_count(key, value);
+            let next = if sensitive_key(key) && !usage_count {
                 redacted += 1;
                 "[REDACTED]".to_owned()
             } else {
                 let next = self.redact_value(value);
-                redacted += usize::from(next != *value);
-                next
+                let changed = next != *value;
+                redacted += usize::from(changed);
+                if usage_count && changed {
+                    "[REDACTED]".to_owned()
+                } else {
+                    next
+                }
             };
             values.insert(key.clone(), next);
         }
@@ -56,6 +80,18 @@ impl RedactionPolicy {
 pub(crate) struct RedactedFields {
     pub values: BTreeMap<String, String>,
     pub redacted: usize,
+}
+
+// These exact provider counters are public measurements only in cost traces.
+// Other token-bearing names and malformed values still fail closed. Values
+// that pass this check still go through known-secret and token redaction.
+fn numeric_usage_count(key: &str, value: &str) -> bool {
+    matches!(
+        key,
+        "input_tokens" | "cached_input_tokens" | "output_tokens" | "reasoning_output_tokens"
+    ) && value.bytes().all(|byte| byte.is_ascii_digit())
+        && (value == "0" || !value.starts_with('0'))
+        && value.parse::<u64>().is_ok()
 }
 
 fn sensitive_key(key: &str) -> bool {
@@ -97,6 +133,14 @@ fn redact_prefixed_tokens(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generic_fields_do_not_get_the_cost_trace_usage_exception() {
+        let fields = BTreeMap::from([("input_tokens".to_owned(), "123".to_owned())]);
+        let redacted = RedactionPolicy::new([]).redact(&fields);
+        assert_eq!(redacted.values["input_tokens"], "[REDACTED]");
+        assert_eq!(redacted.redacted, 1);
+    }
 
     #[test]
     fn redact_text_matches_known_secrets_and_prefixed_tokens() {

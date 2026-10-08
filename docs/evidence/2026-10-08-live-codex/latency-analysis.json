@@ -1,0 +1,9 @@
+{
+  "parent_median_latency_millis": 4576.0,
+  "candidate_median_latency_millis": 4631.0,
+  "median_paired_candidate_minus_parent_millis": 50.0,
+  "candidate_slower_pairs": 13,
+  "candidate_faster_pairs": 11,
+  "equal_pairs": 0,
+  "scope": "One arm-major execution; timing drift confounded with arm; no repeatability, causal overhead, token or USD claim."
+}

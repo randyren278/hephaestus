@@ -1,0 +1,28 @@
+I read the three files you named: `revision.prompt.md`, `examples/support-triage/checklist.prompt.md` and `examples/support-triage/policy.md`. I didn't open anything else, and I didn't run the Python snippet at the end of your message.
+
+## Revision prompt
+
+**I confirmed there is no lossy replacement rule and no change in authority.**
+
+- **Line 1 is unchanged** from the baseline.
+- **The new line 2 is a pure pointer** to the policy. It adds no urgency or routing criteria of its own. It only says to use the policy's queue precedence and to judge urgency using only the policy's criteria.
+- **It drops the baseline's own urgency list** ("resolved, historical, hypothetical or test-only"). That's good: the baseline list was itself incomplete. It left out the policy's "question", "angry wording" and "request to label something urgent". Pointing at the policy is now strictly more faithful than the baseline.
+- **"stop at the first match" is gone**, but "queue precedence" plus the policy's "choose the first matching category in this order" covers it.
+- **"Do these checks privately" is gone**, but line 1's "Return only the JSON object" and "exact JSON contract" cover it.
+- **Authority is unchanged.** Ticket content is still data, and "using only the supplied policy's criteria" if anything makes that stronger.
+
+Minor wording points (not defects):
+- **"urgency" vs `priority`:** the policy's key and heading are `priority`. Using "priority" would match the policy's wording exactly. The meaning is the same either way.
+- **"independently":** priority can still depend on the ticket describing an *unresolved security incident*. That's a fact in the ticket, not the queue label, so it's consistent. A model could still read "independently" as "ignore security when judging priority". The baseline's "separately" carries the same risk, so this isn't a new problem.
+
+## Hypothesis
+
+These are concrete gaps to pin down before you register it:
+
+1. **The second correctness condition is redundant.** If there are zero paired regressions on the same 24 tasks, then child bps ≥ parent bps follows automatically. That only stops being true if the bps denominators can differ, for example if failed calls are dropped. Either state that as the reason for keeping it, or drop it.
+2. **Failed calls aren't defined.** Say that malformed JSON, extra keys, refusals or call errors count as *incorrect* for that arm. They should not be excluded.
+3. **Correctness isn't defined.** Say whether it means an exact match on both `queue` and `priority`, or whether each key is scored separately. A "regression" also needs to be defined per task at that same level.
+4. **The latency measure isn't defined.** Name the field (per-call wall clock or provider duration). Say that total and median are taken over the 24 calls in each arm. State outright that latency cannot decide pass/fail, given the arm-major timing confound.
+5. **There's no outcome rule.** Say what counts as refuted (any regression) and what counts as inconclusive (for example, a call infrastructure failure), so the result can't be reinterpreted after the run.
+
+Nothing else is blocking. Registering only the proposal, with no run, is consistent with what you asked.

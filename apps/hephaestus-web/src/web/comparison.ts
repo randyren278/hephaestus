@@ -7,7 +7,7 @@ export function escapeHtml(value: string): string {
 
 export function comparisonVerdict(entry: EvaluationListEntry): {label: string; explanation: string; tone: string} {
 	if (!entry.selection) return {label: 'Selection pending', explanation: 'The trials are recorded. Record a selection receipt to check the improvement and cost gates.', tone: 'pending'};
-	if (!entry.selection.metrics_eligible) return {label: 'Measured gates not met', explanation: 'The candidate did not clear the World’s measured improvement, reliability, cost and latency requirements.', tone: 'rejected'};
+	if (!entry.selection.metrics_eligible) return {label: 'Measured gates not met', explanation: 'The candidate did not meet the World’s measured selection requirements.', tone: 'rejected'};
 	if (!entry.invariants) return {label: 'Measured gates passed', explanation: 'The measured improvement passed. Independent invariant checks and a Forge assessment are still required before promotion.', tone: 'pending'};
 	if (!entry.invariants.regressions_within_budget || !entry.invariants.candidate_contract_satisfied) return {label: 'Safety checks not met', explanation: 'The measured improvement passed, but the candidate failed its contract or regression budget.', tone: 'rejected'};
 	if (!entry.forge_assessment) return {label: 'Assessment pending', explanation: 'Measured and invariant gates passed. A passing Forge assessment is still required for promotion.', tone: 'pending'};

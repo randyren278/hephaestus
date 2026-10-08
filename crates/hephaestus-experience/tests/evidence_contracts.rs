@@ -6,6 +6,7 @@ use hephaestus_experience::{
     TraceKind, TraceReceipt, bounded_evidence_channel, rehydrate_experience,
 };
 use hephaestus_ledger::{ArtifactId, ArtifactStore, EventInput, EventStore};
+use hephaestus_runtime::{Provider, ProviderEventCursor, RuntimeObservationKind};
 use tempfile::tempdir;
 
 #[test]
@@ -155,6 +156,176 @@ fn traces_cover_observable_runtime_events_and_redact_before_persistence() {
             && event.aggregate_id == "run:run-1"
             && !String::from_utf8_lossy(&event.payload).contains("known-secret")
     }));
+}
+
+#[test]
+fn provider_usage_counters_survive_redacted_persistence_and_restart() {
+    let directory = tempdir().expect("evidence directory");
+    let mut writer = recorder(&directory, 8, 16_384);
+    let mut cursor = ProviderEventCursor::new();
+    let observations = cursor.feed(
+        Provider::Codex,
+        b"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":2048,\"cached_input_tokens\":512,\"output_tokens\":128,\"reasoning_output_tokens\":0}}\n",
+    );
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].kind, RuntimeObservationKind::CostObserved);
+    let receipt = writer
+        .record_trace(
+            TraceInput::new(
+                "provider-usage",
+                provenance(),
+                TraceKind::CostObserved,
+                1,
+                observations[0].fields.clone(),
+            )
+            .expect("usage trace"),
+        )
+        .expect("persist usage");
+    assert_eq!(receipt.redacted_fields, 0);
+    let before = writer
+        .artifact(&receipt.artifact_id)
+        .expect("usage artifact");
+    let artifact: serde_json::Value = serde_json::from_slice(&before).expect("trace JSON");
+    for (key, value) in [
+        ("input_tokens", "2048"),
+        ("cached_input_tokens", "512"),
+        ("output_tokens", "128"),
+        ("reasoning_output_tokens", "0"),
+    ] {
+        assert_eq!(artifact["fields"][key], value);
+    }
+    drop(writer);
+    let reopened = recorder(&directory, 8, 16_384);
+    assert_eq!(reopened.replay_verified().expect("replay").len(), 1);
+    assert_eq!(
+        reopened
+            .artifact(&receipt.artifact_id)
+            .expect("reopened artifact"),
+        before
+    );
+}
+
+#[test]
+fn usage_exception_rejects_credentials_malformed_counts_and_other_trace_kinds() {
+    let directory = tempdir().expect("evidence directory");
+    let mut writer = recorder(&directory, 32, 16_384);
+    for (index, invalid) in [
+        "",
+        "-1",
+        "+1",
+        "1.5",
+        "1e3",
+        "01",
+        "\"123\"",
+        " 123",
+        "123 ",
+        "18446744073709551616",
+        "١٢٣",
+        "sk-sensitive-usage",
+        "known-secret",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let receipt = writer
+            .record_trace(
+                TraceInput::new(
+                    format!("invalid-usage-{index}"),
+                    provenance(),
+                    TraceKind::CostObserved,
+                    1,
+                    BTreeMap::from([("input_tokens".to_owned(), invalid.to_owned())]),
+                )
+                .expect("invalid usage input"),
+            )
+            .expect("persist masked usage");
+        let artifact: serde_json::Value = serde_json::from_slice(
+            &writer
+                .artifact(&receipt.artifact_id)
+                .expect("usage artifact"),
+        )
+        .expect("trace JSON");
+        assert_eq!(artifact["fields"]["input_tokens"], "[REDACTED]");
+        assert_eq!(receipt.redacted_fields, 1);
+    }
+
+    for kind in [TraceKind::CostObserved, TraceKind::ModelResponse] {
+        let receipt = writer
+            .record_trace(
+                TraceInput::new(
+                    format!("usage-key-scope-{kind:?}"),
+                    provenance(),
+                    kind,
+                    1,
+                    BTreeMap::from([
+                        ("input_tokens".to_owned(), "18446744073709551615".to_owned()),
+                        ("input_tokens_secret".to_owned(), "123".to_owned()),
+                        ("Input_Tokens".to_owned(), "123".to_owned()),
+                        ("api_token".to_owned(), "123".to_owned()),
+                        ("authorization".to_owned(), "123".to_owned()),
+                    ]),
+                )
+                .expect("usage scope input"),
+            )
+            .expect("persist scoped usage");
+        let artifact: serde_json::Value = serde_json::from_slice(
+            &writer
+                .artifact(&receipt.artifact_id)
+                .expect("usage artifact"),
+        )
+        .expect("trace JSON");
+        assert_eq!(
+            artifact["fields"]["input_tokens"],
+            if kind == TraceKind::CostObserved {
+                "18446744073709551615"
+            } else {
+                "[REDACTED]"
+            }
+        );
+        for key in [
+            "input_tokens_secret",
+            "Input_Tokens",
+            "api_token",
+            "authorization",
+        ] {
+            assert_eq!(artifact["fields"][key], "[REDACTED]");
+        }
+    }
+}
+
+#[test]
+fn numeric_usage_values_still_redact_known_secret_collisions() {
+    let directory = tempdir().expect("evidence directory");
+    let mut writer = EvidenceRecorder::open(
+        directory.path().join("events.sqlite3"),
+        directory.path().join("artifacts"),
+        RedactionPolicy::new(["4242".to_owned()]),
+        RetentionLimits::new(8, 16_384).expect("retention limits"),
+    )
+    .expect("evidence recorder");
+    let receipt = writer
+        .record_trace(
+            TraceInput::new(
+                "secret-usage",
+                provenance(),
+                TraceKind::CostObserved,
+                1,
+                BTreeMap::from([
+                    ("input_tokens".to_owned(), "4242".to_owned()),
+                    ("output_tokens".to_owned(), "142423".to_owned()),
+                ]),
+            )
+            .expect("secret usage input"),
+        )
+        .expect("persist redacted usage");
+    let bytes = writer
+        .artifact(&receipt.artifact_id)
+        .expect("usage artifact");
+    assert!(!String::from_utf8_lossy(&bytes).contains("4242"));
+    let artifact: serde_json::Value = serde_json::from_slice(&bytes).expect("trace JSON");
+    assert_eq!(artifact["fields"]["input_tokens"], "[REDACTED]");
+    assert_eq!(artifact["fields"]["output_tokens"], "[REDACTED]");
+    assert_eq!(receipt.redacted_fields, 2);
 }
 
 #[test]

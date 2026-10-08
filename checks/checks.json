@@ -663,8 +663,8 @@
       "id": "sensitive-experience-field-persisted",
       "file": "crates/hephaestus-experience/src/redaction.rs",
       "invariant": "Values under credential-bearing field names are removed before persistence.",
-      "find": "            let next = if sensitive_key(key) {",
-      "replace": "            let next = if false && sensitive_key(key) {"
+      "find": "            let next = if sensitive_key(key) && !usage_count {",
+      "replace": "            let next = if false && sensitive_key(key) && !usage_count {"
     },
     {
       "id": "known-secret-literal-persisted",
@@ -3297,6 +3297,62 @@
       "find": "        if configured && !no_daemon {",
       "replace": "        if configured {",
       "test_cmd": "cargo test -p hephaestus-control --all-features --test pilot_preparation helper_refuses_ignored_launch_settings_and_allows_explicit_attachment -- --exact"
+    },
+    {
+      "id": "usage-counts-always-redacted",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Valid numeric provider usage counts remain in persisted cost traces.",
+      "find": "kind == TraceKind::CostObserved",
+      "replace": "false"
+    },
+    {
+      "id": "usage-exception-on-non-cost-traces",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Numeric token fields remain masked outside cost observations.",
+      "find": "kind == TraceKind::CostObserved",
+      "replace": "true"
+    },
+    {
+      "id": "usage-credential-key-exempted",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Only the exact four usage-counter keys can bypass key redaction.",
+      "find": "\"input_tokens\" | \"cached_input_tokens\" | \"output_tokens\" | \"reasoning_output_tokens\"",
+      "replace": "\"input_tokens\" | \"cached_input_tokens\" | \"output_tokens\" | \"reasoning_output_tokens\" | \"api_token\""
+    },
+    {
+      "id": "usage-count-nondigits-accepted",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "A usage count cannot have signs, whitespace or non-ASCII digits.",
+      "find": "value.bytes().all(|byte| byte.is_ascii_digit())",
+      "replace": "true"
+    },
+    {
+      "id": "usage-count-overflow-accepted",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "A usage count fits unsigned 64-bit arithmetic.",
+      "find": "value.parse::<u64>().is_ok()",
+      "replace": "true"
+    },
+    {
+      "id": "usage-count-leading-zero-accepted",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Persisted numeric usage counters use canonical decimal notation.",
+      "find": "(value == \"0\" || !value.starts_with('0'))",
+      "replace": "true"
+    },
+    {
+      "id": "usage-secret-collision-partially-disclosed",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Known-secret collisions mask the whole usage field.",
+      "find": "if usage_count && changed {",
+      "replace": "if false && usage_count && changed {"
+    },
+    {
+      "id": "usage-exception-on-experience-fields",
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "invariant": "Generic experience fields retain token-key redaction.",
+      "find": "self.redact_fields(fields, false)",
+      "replace": "self.redact_fields(fields, true)"
     }
   ]
 }

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "request_id": "cli-29880-1791491527194658000",
+  "data": {
+    "type": "replay",
+    "event_count": 5296,
+    "frozen": true,
+    "active_runs": 0,
+    "projection_hash": "ba4537a70fa0be8269416b6173b7c491f5ad00e105ed0b1880440ceed20f0583"
+  }
+}

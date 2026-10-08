@@ -1,0 +1,27 @@
+{
+  "algorithm": "sha256",
+  "files": {
+    "README.md": "025abc48de511175cc85581fd0622aebc86a2a284e11dd3f0514d1e9ee8165b5",
+    "browser-readback.json": "72748c4135d5f6e4a5a9c20da9bb41810f8e2d86fb90d14e9a9f2bdcce9b6057",
+    "claude-initial-review.txt": "e38bd5d4494a885a603b160149eee59adadd26fa662db30e5eba0b5c3905a707",
+    "claude-proposal-check.txt": "7a9eb941ea5a1838adec4fd54f723ef6686a97f58451e1cbfb7e4ed723b4eb22",
+    "claude-review.txt": "7c49ebf321293cdd894536762f25419363207d6e6d1677ca11fef5eec02e9933",
+    "comparison-desktop.png": "f285404ab84fed77e782a13471fc94da528e758aed69ec64127e27e82300b7ff",
+    "comparison-mobile.png": "ce3cb91dbaddc9ef03e9a2414d880632199b14def2c9702d27871c74a332aa75",
+    "comparison-report.md": "01103c60daf56a24119b370cbd0cbafe8edc0d9b19816c78b53b97767bf32ba6",
+    "completed-runs.json": "becf94dec69ec632ae851cb2ece82c2b9f13ba1b9032e7b10210d9ae777a0871",
+    "evaluations.json": "d3227099f2f6e2e42cab18d0d831d065c1e218e02f72c83b57222270ef31bcf7",
+    "followup-plan.md": "94540732c95cc2b34bbe73b43739fc744dea18960027b66fe3373ff4cf5e4355",
+    "followup-profiles.json": "9e69a0eca56db16f94783cf7567c6cada653aa6b3232b91d5cdde31a9d07ac1d",
+    "latency-analysis.json": "01fe972dd0c4e2d95407dd2eb669f28acda74763bda34fb98d4cdc6e6d8caa12",
+    "profiles.json": "72338de02b10d22c06e322382bb1359e0ab72d549c1807f733597a9d882fa3b0",
+    "proof.json": "ebc5cbc4e74ec3ec9b8950cb8a0d966541c8c4933bebb3d80a5bfe45046c0e23",
+    "provider-usage-limit.json": "e02d1348c852131d97fd7c4004460fcb2047f73bad209d81b9132d32b12ecd7b",
+    "replay-after-restart.json": "84ef285158d84313cc039aed4a115ac64c9df507eb56c391c76824c9f5531ee8",
+    "replay-before-restart.json": "786e666fc58f5ca30f6f3dd3b4b6092c4133d5a3bb3e29f02c6307ac729793c5",
+    "revision-proposal.json": "79ff55c96cde11eea66f4a2b6a32b22bd95b7a14e4405cba08d8513c104fcf96",
+    "revision.prompt.md": "d2a640f88bdd540c8596f26356023571b18b33102131dbae334239d70d52d464",
+    "selection.json": "0ccf328e6e5e6ef8da5d3cf348d456e47329046e7f882f3cf1e69dd91909dfef",
+    "signed-run-receipts.json": "c125486e13ff16da3fcb5ae829512a661197bb673f1c91dd12e2aa01e0503611"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "algorithm": "sha256",
+  "files": {
+    "README.md": "66cf8766ed2cdb017ba4db4de75b6fce3e462103654a4ef2593909877dd6703b",
+    "assessment.json": "7b37a52daff650e283da9aa87feabfb94a5b6823332cd203609ddb4c1a4f1df1",
+    "browser-mobile-readback.json": "12dae488bc2b9d96067c3a87c7b3b254ccddfd5181bd899bdeb92c35f3dfa3f6",
+    "browser-readback.json": "a0305adb7dd5cb61f17b29d3569b0ec4fa2a11fd25e26f819ce8398c339d4180",
+    "claude-review.txt": "5515fe47974817bdfab4d07aeeec710851f12e4a8390fa49e20666fed191d8d9",
+    "comparison-desktop.png": "f6bd76aa2397d3a5376ecc0b2acb3eb0fa1a918e07fdae4fa0e12ff606fb6580",
+    "comparison-mobile.png": "183710d4a66eeb863c25e97d715c27b681e05d3c09f499c11d9c62869150307a",
+    "comparison-report.md": "4091c5bb785b8c2303989d3f76105c4db0bf0e8de38f7ae2b67fe658658a80d0",
+    "completed-runs-after-restart.json": "deff247eec8fead38d597a08f3f10722ec6316d88d4e45b49396e03821f4a37d",
+    "current-template-browser-readback.json": "285529bca74396aaab5bf22c428ed09f95cd09505b16df2a507de6de6c31e7f6",
+    "current-template-report.md": "29c6ffc8748b5a399ddc9201ca07b678c818a48329ced0531336a110b5924266",
+    "evaluations-after-restart.json": "8fcb0710f7fc3fde301e8ccff9ff45f458a6eb70e10be35cff5fc12d769155ee",
+    "latency-analysis.json": "051990e3802b3186505122026b038d1659eb2ffb300f8ebd5b2ab8810867c9d4",
+    "proof.json": "955394b50c2005ecf80403ddcb129109d6d27421a6d0a3e212b94a6908b7855b",
+    "proposal-after-restart.json": "7dc06de48169f7f5b43e427100351064f5ad22f8c279c737b41caf764a3735bf",
+    "provider-usage-limit.json": "34f4d3dadfc7ea6711feed9d2a4bb68d1fb99157fbc9dfc89303bd755331ed33",
+    "replay-after-restart.json": "562c32b878798aee40619ad1bae90bd9473c0c7c116c273e23345dd4db603b98",
+    "replay-before-restart.json": "f7c04ca43596ae2dfc7e93ada908d3514b1f7951723436d98ab81b2d41b8d015",
+    "selection.json": "5a41dd8fbbadaf50a28622c4e11f7f77ff3a730927b629655f963cb1cc41a795",
+    "signed-run-receipts.json": "3402c5e56841db4d3876787da08185dda40a65c8f1c93d312ba5b59c2a1c922a"
+  }
+}

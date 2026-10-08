@@ -2,8 +2,9 @@
 
 The complete configured matrix was run against an owned detached checkout of
 `ebbb21b`. Production code, test commands, mutation entries and timeout gates
-remained unchanged during the run. Later main-worktree commits contain only
-documentation and evidence.
+remained unchanged during the run. The immediately following main-worktree
+commits contained only documentation and evidence. The later usage-redaction
+production change is outside this checkpoint.
 
 The [terminal mutation log](mutations.txt) reports **434 run, 434 killed,
 zero survivors, zero stale anchors and zero timeouts**. The process exited
@@ -23,9 +24,10 @@ Every mutation target still matched its recorded hash and the tracked checkout
 was clean afterward. The [restored-suite proof](restored-proof.json) records the
 command, compiler, terminal result and raw/archived log hashes.
 
-The main worktree's mutation targets match these hashes, and all tracked files
-outside documentation match the audited checkpoint. This verifies the complete
-current configured trust audit. The older 432-entry checkpoint's separate
+At this audit's completion, the main worktree's mutation targets matched these
+hashes and all tracked files outside documentation matched the audited
+checkpoint. This verifies the complete configured trust audit at `ebbb21b`,
+not subsequent production edits. The older 432-entry checkpoint's separate
 result was not combined with affected-scope checks to produce this result.
 
 Claude Code's [read-only review](claude-review.txt) independently counted the

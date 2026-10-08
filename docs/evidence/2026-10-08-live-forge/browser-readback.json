@@ -1,0 +1,8 @@
+{
+  "count": 2,
+  "fragmentRemoved": true,
+  "comparisons": [
+    "SUPPORT-TRIAGE-FORGE-LIVE-2026-10-08-002\nMeasured gates not met\n\nThe candidate did not clear the World\u2019s measured improvement, reliability, cost and latency requirements.\n\nWorld: hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b\n\nMeasure\tParent\tCandidate\nVisible tasks correct\t12 / 12\t12 / 12\nTotal recorded cost\t$0.000000\t$0.000000\nTotal measured latency\t136720 ms\t130974 ms\n\nRecorded USD, not a bill. Hosted zero may be unreported. Codex reports no USD. Reference runs use no paid model. Totals may omit usage not reported by a provider.\n\nPaired correctness change: 0.00 pp. Bootstrap interval: [0.00 pp, 0.00 pp].\n\nIndependent invariant checks: not recorded.\n\nForge assessment: metrics_rejected. Champion transitions linked to this evaluation: 0.\n\nAgent identities and report",
+    "SUPPORT-TRIAGE-LIVE-2026-10-08-001\nMeasured gates not met\n\nThe candidate did not clear the World\u2019s measured improvement, reliability, cost and latency requirements.\n\nWorld: hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b\n\nMeasure\tParent\tCandidate\nVisible tasks correct\t12 / 12\t12 / 12\nTotal recorded cost\t$0.000000\t$0.000000\nTotal measured latency\t117865 ms\t120307 ms\n\nRecorded USD, not a bill. Hosted zero may be unreported. Codex reports no USD. Reference runs use no paid model. Totals may omit usage not reported by a provider.\n\nPaired correctness change: 0.00 pp. Bootstrap interval: [0.00 pp, 0.00 pp].\n\nIndependent invariant checks: not recorded.\n\nForge assessment: not recorded. Champion transitions linked to this evaluation: 0.\n\nAgent identities and report"
+  ]
+}

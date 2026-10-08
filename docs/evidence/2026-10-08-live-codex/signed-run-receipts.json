@@ -1,0 +1,1538 @@
+[
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-0",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-billing-access",
+      "input_commitment": "4c12083af01f3a5079151a44195ba13b50ca2534a7370007581dee8ac49f0c96",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4831,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "9e9cf9f090a71382e39ad369d304ce3a1ca6117f3a497a264225151f2bd038a6",
+      "stderr_artifact_id": "d3e1942bc88d897ff23013b0bd1f1377614462d77501430657f937865eacd5b0",
+      "trace_artifact_ids": [
+        "6e561153272a9e95f72d5d8394367f1e16b3adb093601949959f21c08ef552d9",
+        "ba4ada47f6e26d43c7328e3d347f49e32109baa97e349ee777387815f3f4f7b0",
+        "445db20c4111b5bde7c21baa79c41e471c985c21a73a02d6ad9f208ef36cc202",
+        "539a435b9cc32f0ba9a863fefbecb947f9cef7d038c7012a01de115a6acbfd73"
+      ]
+    },
+    "signature": "4dcda80b5532df7a521320cf8afedefb5e350c958451a1a52153d246d22b3ac1c62a535b94039d17771b0b5209b314123e14d14cb5c8cdbccc78d04dc1c90902"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-1",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-credential-leak",
+      "input_commitment": "48d290fa090c7cd5fa8ab0ad1cee109b808d9723ffa934b5de5e02c3673e377d",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4010,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "c927c5b6ec7105d6c6489b0efbf5a3cb6dd13a1dda69492832ff1a1a5142179a",
+      "trace_artifact_ids": [
+        "485c5466f54bfcc5d822b53c17c095a7a05f6af43b0ba1b738a963d283be3356",
+        "8c21abd3e052fc0cb051a3825509591688f7a34a4a88522e4c88e3685ffc8d68",
+        "a00c73a42aaf215f361e3d599442d6b1c3d881e20df6d4b91003a8b271c4e070",
+        "ddcb92907860de61f6c9bddcc6a9e2530cf95104deda8438edf2c876a464b450"
+      ]
+    },
+    "signature": "bc797ad5ee18337e8d3b84f6c72e73c4e00eca0d4e08488a17ab889ce7f95bb138773201dd1d755e97bc7e069f527f37bda6f72fc1ea58dfde593e6d74b5e705"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-2",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-feature-urgent",
+      "input_commitment": "3a45e47aebf0b1f84c76859be9af80cf7c14aef614af1e8da997b35825147024",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4857,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "bfc4ba2953e9d55a70ff3c374b504f9184396b1a7f406890ee8ddc7bea3121c7",
+      "trace_artifact_ids": [
+        "2624b2326b20faf4339bc7337681e2d30a329a8110d6c75b5bef5ab26786ad9a",
+        "e1b537e405041c2b727e1e24afd96c76b70c05f3aba9838e0afc69a51906712d",
+        "48bfc31bd7c473c335572e7668c783344e295b51a9e682b202da97930c90cd84",
+        "87872b9cd6752165d36ff0b10179a86f07d251734fd7ec85eeebf3dcf7209c17"
+      ]
+    },
+    "signature": "98d0a96105c046e0769dd64c0e24658e6a4140db05d874985cad1093d1b4eca16f4253776686155b4b26e5a445da4661bf892b43468e2bc8f365d0abcca8790a"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-3",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-invoice-copy",
+      "input_commitment": "affe26cb4f3cd574815a7544509a02ca0073c3230eecf887e1c406a42a4681e7",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4486,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "940f3445d386cd070a337bb66f48fb9d18f5e98c1da6abe0ef4b8eab5a110d76",
+      "trace_artifact_ids": [
+        "3978350ec88c5ede356b53d919a6a2ef60f925316c4b0e9124a0a276fc3be3a5",
+        "e8273980817d5ae180de7740ed40acc6b42a88d05ffdbbaeeb06023ff5404f5e",
+        "ad84a672def58ecce821991b1bedd769511ceabcaa641d322ad6648b9a48afcf",
+        "84094889d5e544841a700511d538a9c772b71d02b52d8c87f4572bb7c625c454"
+      ]
+    },
+    "signature": "dfd86242155efd7908162eafe9606f7a6743714413f7e658fe7d8c8bfdecb0fdb787c9b59a6fd0edb292616611ddd70a519cff1bb54194ca1521aee403b9d707"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-4",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-login-reset",
+      "input_commitment": "abce5a392f3f93fc08ff2a034eb40b6047d790247f807cbacdb08ac92cbfc334",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4215,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "4558438f85e7aad1cc507ea7ab521a61c3c5553e41e93435dc0dac6eb083277b",
+      "trace_artifact_ids": [
+        "f5eb208f493fd2bbf1ae57d8d25a61b4fa7b4ffd786bc39977362ee5effaa093",
+        "189d8907c4455dbb1fd3eed635a152c7b87d19108467976da229a4d2986e783b",
+        "8f0518f2b66b1649c2bd3179b3a25f92a6ebdc7644ff2a5312cee2d1edd6605d",
+        "83c5276c2a193cf9d4a792c466eb39e0845c6fabda9914a550b005a8293f63fe"
+      ]
+    },
+    "signature": "d2d0020f1e36573c4fc83a2d289c32b5c5f4aa6761c2bc32bff4f6f67773ba81f6d67a3b3a14ddf0f2decf4f7f0bf61a1b2cd5edd3fe7c6de5b46fff7209d101"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-5",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-mfa-setup",
+      "input_commitment": "f87e3f3fbfdb4317a6a3bf71d035bc73f1562dd49047d334e5310e0ab0ff15b3",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4786,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "9be1ef315346954b0ff81544a2be2fa0871ab441e0c6ea9eeb25e987656671ca",
+      "trace_artifact_ids": [
+        "94471c2961ab304be9a421ec00967649bf1fe4fba5f31e17dc36031bed210748",
+        "d6ad20810c9f9ecfa5d737aefba31e40b6c8f551398e805f8eb6e126c6ce823f",
+        "3ba6acf2271e9ba6d99606af89d482b381ffed0f22d0fc4a249c56d024541a97",
+        "4f682be0ee9e25746ffb77ce7b32a7569c79d5369a4ef3de46d94b3fa3a2fedc"
+      ]
+    },
+    "signature": "54542dacbcb200c8a0f1910d6d3fdb9c115321c094cab7aeaac00cdc7f9422d68b300c215c2d85f53d11a6447aa0a7fd892c7d31db8ce9a6ea1b214af802970d"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-6",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-past-outage",
+      "input_commitment": "27f44218d46c531e25d507e56e75603eb45a1ca0c38582b0e6642b7592dca950",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 6199,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "66294ce4482dafd2836727c5761350fe7ec316263bba807d00370f53892b885d",
+      "trace_artifact_ids": [
+        "ca0fddcebfdfedad090fa8c6485c61df4c350a99d25c15bda26312546914eb01",
+        "8ee518d767a2b07146c4eaaeaf211dd68408fbc6b17897dcf6f84dac971d70c8",
+        "997d6aa7055da8d6df6acdc123ff0d364362aa74d24f5017fdd95d10b97449a1",
+        "f4c6570eb4f43d8288f96faeae15b27f91ec1e6e4234950d89fe34d08da52810"
+      ]
+    },
+    "signature": "54a1785486ecc636d0f6929effef0bf7eba8cc41264f512d3512fdc2f506c965a1f5ff85e200dff07a79924170674c624a392f70bb3dcfadc6ec605d23719905"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-7",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-prod-export",
+      "input_commitment": "9b96af66c35da2bfb1301b79532b7e6c76c1227d825748236244f0fb122226ad",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4487,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "af7964b1398badffc1946c80750e03560a802a3a67b56868766a3f6de38915bd",
+      "stderr_artifact_id": "1d4be20740c456fbb5eeea8dffd56dbc851d9c6822d4671076cd4b24638d7a8c",
+      "trace_artifact_ids": [
+        "32dbe354eb9770b74704f10d91571293dff698c3a1c5833d6e2215b269c35168",
+        "0827720eb522b227ffe3c3f9f9c54bd756707ea404e17a793c7571a4bc051cdd",
+        "764da1f618f6e2b6a8430d2ba1684991ae86a30b3f3a4997f7f6a9505de4a047",
+        "6206c7712ac66d68fa2d07e7b4b785cfe4c81b67afaf0d5c5118f5393c5792bc"
+      ]
+    },
+    "signature": "c51ca064d34cb49487bc18609df6f195d020e323b9e8b3b9031545f42d00f731eb18d04251ab11244d8f30a791ed23a241adffd4e333f8a3e0dca90e5ed1660f"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-8",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-refund-injection",
+      "input_commitment": "79822cb5698a829c12aefbceb25566edd5a471c854473ca239a285520c437462",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4587,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "da4444a7719b7a08ff7f96602899246e0c6524d7afcf130cab54c7cd209b9ef1",
+      "trace_artifact_ids": [
+        "e2ea2039f096c8ed2758e5929b34f624addb562a0adb33ac291688b4a6d3b08c",
+        "46ab0a4608d1a390a1f7ab4c169a240bc3ab9f0830df454e4d01b9e0dbe9818d",
+        "58ed8e8c1062c563d75b62f77702fd5f0d7c30a69e32381de40e6cb85aa0dc4f",
+        "81330582a025558027c32ff187af5e0daa7959140ffde262969c8d9b3abb6d97"
+      ]
+    },
+    "signature": "d79f3ea282eab8cc96b9332a06c8ac530bfe6ea71b715cf77a5715e0785a53a3526d9ed78ae609734f7f7a6382fc870caf512bdba84387f40a474a7d21e67801"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-9",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-security-billing",
+      "input_commitment": "57d1aa63b7d3bf3d2b39c54ebdd15106f2fbee5c395c832e91d139c7b16b8a8e",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4505,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "0af44db63baa0dc9a64e6e3b7a38f1bf077070aafee645bbf7c30d8934ff37b1",
+      "trace_artifact_ids": [
+        "242bd0f27aa86289c534cba5d12c2c98c23864a9dc3acac1f287547216d6a932",
+        "19c684ecff3df5b252d33d4d2bc0c188e3bd03c65909064f7d4727329789be44",
+        "01842d702216006e42d20f74db73ce0e8c2ee70cf51395fa1c2a1781e7ffb45b",
+        "4ebe8bd5c5ef86c11db625d978b1b3499bc46ce6dfab124b82fd6a5bd021c022"
+      ]
+    },
+    "signature": "77efb7e3a45f34ec226a257c6fbddb071cec6c7a48f2cc539e8206641e435d7e9988094dce7ff29d3e6b6f5df3053d61551a51cf263dcfdf1c548d5cc4deb409"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-10",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-staging-export",
+      "input_commitment": "f5a42de4c0e2e011d695dea24de375634c2f2b2958801929945ce8aec7195ad6",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5182,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "f68202bd8f485d55dd5efc724f97aae2125b65586a0fce40f8548a0666d2b803",
+      "trace_artifact_ids": [
+        "206a2b347430ac0caa720794c29ba4daecba35b0d79b78ed90314443d77e4e2b",
+        "00a4aa12fa3459b09edb24511f68fe4c8a06af687296dcef041546f9e4003840",
+        "1ce5eb999e09e16879a7ceb89260766ecbfe7e96ea4d2aa08083181b2fa84b0b",
+        "b130a41660c8e1b1c0a6c2ed4be91d11ee713a16cc141dfa21416ef3c3bdb4b9"
+      ]
+    },
+    "signature": "7fe72a88afad6c03b044465ac83fa51dec9f5c3de0ee69405478451149385faa4734267db29c36c77df6b8fa2473885a4f4be5cdde28aec4fa653b6119eb7b02"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-11",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-unicode-access",
+      "input_commitment": "21f5277f907a8eafa515990d8c2179bf83016a77a1c12bef1e545cf92f68234b",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4137,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "0cd9b3f2ac1fe67b034fbfb7a2ca6585e61fc7357de68121ec444294d4af0796",
+      "stderr_artifact_id": "9d29eefdf8dbeee7d23bcad7cfbfc5bd1b29b64fecf3f89466595e43d485e811",
+      "trace_artifact_ids": [
+        "34be016b80ecf996b69a08bd1464f2e7be16204750fbff09e2c7fccd433d78db",
+        "d753ad7a2b7c6e9dbbdd98be2c07d0b4cb0974f454c25918910eba15945cd2ba",
+        "4b3f984fbbf681254b8acf896d1a8c6b072a54852e2772a32855ff1ab75947bf",
+        "96049b2d0f473347442eefac462df95edf0d4ebb3e81a48666a78ab44e5061c6"
+      ]
+    },
+    "signature": "1d8961f101d6b6cc02841027e384c37070c61287f6f2988efffb39b8a183e72ad9beaacd49cc58a49de1687a9a1557d0c386ba7f538e1b56957e06fef654990f"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-12",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-annual-plan",
+      "input_commitment": "fa23a20e576f8e1db7cdae67aa2dcf9cb30b93f6109ee4dc6f0bf19c10429323",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5289,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "630986994413d48f6faf9f4ba4d8a948da4f214e51faa48a01433d5f6cde2481",
+      "trace_artifact_ids": [
+        "e689f46de8107f26245300a5c1ab48b6c8ac6d10c89feba2966ebec043a2a381",
+        "05cc676ba5c54d3f02dafd360a7c551e149b52d1fbe928f93fbfc4c95e44a87f",
+        "2ec0dac6765e3578620710fbad44a763ceb1df7dc15a7ab5192a473f74e3369f",
+        "f08bb436ccaf250219f916c8fd4d56ee8ad2adb89c12f4881799cde39a0fb31c"
+      ]
+    },
+    "signature": "75d3326fbe27f6d0a9767fdb149437b929159594d0d9bc87a37e41edce11316ff61eaf6ac8459f13a117130b2b828e78973f25abedb82e0a121a57abbec4480c"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-13",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-cancel-plan",
+      "input_commitment": "53fd12016b95fc410f1472e7acfff4e8571fae8de662054cedc1ec535efd567d",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4358,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "784bde4592331fff683421169eaeff0edbd534276f335d04ae4f48761b9a3c5a",
+      "trace_artifact_ids": [
+        "47b50be4364810bf6a02f13519d660c3478659eceb6d532b2acc5d0d71032c51",
+        "c27f477aa66e6d7b7d819e42cecd18a9348e920ed34128b49a78ec9c43fee51b",
+        "e7ab76f6416dd1c8e8c740f393f5dc4e242b6166214965213afcf325a45a27bf",
+        "2a8cd6f68790390c1077f6cdd86e9f66802a66a6aef5a8342899523522a6824f"
+      ]
+    },
+    "signature": "830628a7bd2eb11d3332e96aa0d16f364b2bca513798fb8cca8e961c035c8f208156b0b198aea61af82a96e51f4368245d68284df6e3f7f93fb1e009c5935309"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-14",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-credential-refund",
+      "input_commitment": "6e51e8c711f3476fbb6d6d61047c080094429c44198dae42f7312178e74063f0",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4615,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "e7b8c15393a49d935be68804147dc4295456af657bc1e23dfcca2cd4ea7871f9",
+      "trace_artifact_ids": [
+        "860a7871d815b015789d0556437d5d1ca8d18073c4170d60adb381f82a412338",
+        "a029d20f0873e908e1a444fb4e918268feba3f4c8e416d906624781b1aaf9a53",
+        "99a1b5eac732a0589391729b0d0ed09da47358f6aab8f4bf3570bb0094882eec",
+        "8bcda9c655213698ba61b1576160a33efc31bb926441c510fc2d2ebbbbed2c4d"
+      ]
+    },
+    "signature": "d7583391cd0ed4e39f5ab37faa48eac6af8fbd1dbda809f7a5ab9ee454de8ad78269a82c05bf71675615f5787b378af3b9c54f578b9742496c7988c37740d20b"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-15",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-future-access",
+      "input_commitment": "3a4870fe94ab082f46ca04a5032bbdc4f7f44e97214409874883694cf140c339",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 10094,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "42e9f9a7c4599dc8ec12a85f521510c9308088c67f77403412473f6dfed1b7ca",
+      "trace_artifact_ids": [
+        "40065aabad6a4b19f9a5c13c7e1b66085acaef28a59a2b0adbf7924f0960cf34",
+        "a6ca444cda901c7e833825c311ebbbd3b6abe83a12599ba4ad967c03e1b2f948",
+        "1c06e42b9668d19c151dcaa1e5f00ec5324136faad09d72299675b6f7c030661",
+        "30011024067756f7f82a968d7177d36c93b9f284a758a3a4abf80043d2f5d14f"
+      ]
+    },
+    "signature": "da259436fb80f0ba2f7245ec001f56b39febf2d92f3f9d4659c7176b06170b3dc24e159ac55361d419eb699caead0096a26a7f5f018ad228ff4332369fedb401"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-16",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-payment-reset",
+      "input_commitment": "86ac6fe529b00891ff15280f40740361d9b0e0500db254e54ab821955a0e233a",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4707,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "3fa83ee7eea4a01603ff5fbcd2a8f26883f5f020a45a61c710d957c276f7edd2",
+      "trace_artifact_ids": [
+        "888af3844361c42ad290612a240ad445e7b99ef9cea39fabdcb51332dfe6253c",
+        "3536af3d48ed0e4c247a23bf29a6031bd2f896a7c0ccef49655de228865eea97",
+        "505929dcbb25fe043ef90287eefea08f21068132d85e579859bfdb3bb2571fc4",
+        "846fd9010c08e48dc2979ddb11711e46dc7f1a063d379e114e24322f40e12992"
+      ]
+    },
+    "signature": "23df84333eddbce2324336480515f5b0ffb21dfe20d3b259afb13510e572684c8f215289cc8da088cad21bade7513574f99a0083ba5db398486422edb4083e04"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-17",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-prod-mfa",
+      "input_commitment": "85c390cfb6cc18ab1cb3aaf27eb6dd9b1c95237d97e29f4921d09291d42f03ae",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4088,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "0cd9b3f2ac1fe67b034fbfb7a2ca6585e61fc7357de68121ec444294d4af0796",
+      "stderr_artifact_id": "ab169f605c4b80cb09331f9640f9c87caea8840c2dd6e47ca32ab667a049503e",
+      "trace_artifact_ids": [
+        "b1698ef7ac7e4ce1d4aa8232029f6e270d8c6f8659c3b1c528eaa71c72c992d4",
+        "dbf77c50a7220b33f94d8c164dea5a7b37546152ab9160e20acc21fdb63555f8",
+        "bf753e87bf9ebd8f36660edb9cce8fdcf1de22d9a5a7eefc03e5ac8a4d8d2d46",
+        "12909579470eca45ef37e7f1f2b0428db13a4ce84f3335949918f0942c4d85a4"
+      ]
+    },
+    "signature": "5c489bbbbb626e1e202e67f8dfb144859ad2189a704562b415029f8852524bc708fd6781fdc0266991ebeb8f90462eadf536f79851d19b200014562d538d6200"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-18",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-prod-upload",
+      "input_commitment": "329c5dfce6eb57137f1270cac715a1b11bbf8c712afbc6ea718c5513fdd2fbd5",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5756,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "af7964b1398badffc1946c80750e03560a802a3a67b56868766a3f6de38915bd",
+      "stderr_artifact_id": "192f33800ede3e151d270abb31fbdbb20822628bc7a05f9f79c03ac8d59aa03b",
+      "trace_artifact_ids": [
+        "af1f3831b1c2c43d9c4b096ac593c60e49df04f90c56ae533c60e3b250ec93cf",
+        "11cd5c409ab4cc58e92ed7002d590b70ec5b989945c2bfdc222b57006bf499f7",
+        "178a04c8eab2621de0e541db012f9aa3fb9159983af6be4505da131db2c5a269",
+        "ead30ad99aabaea028acd58ab0c7c8c77eb4156bf026d56e98629a80ea28c4e2"
+      ]
+    },
+    "signature": "4d2353bba58e771618db0ac4b1a26790c8f080597216f17871551df250d10ab93ed47c4d59983cbfcbfe2804d4b934bdb881f4c63031aea9d0ae01f8d18fa201"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-19",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-resolved-login",
+      "input_commitment": "cee209ddcbdb1aa077d1ee5fd1374fb09dbd2595b04a121be80c17f288c94531",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4565,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "4faddef581e39b2cc8c0cb2934bb4f5e64edbece72bd6c9888e927ad20392c1d",
+      "trace_artifact_ids": [
+        "180bb01e02ac4cac86c8c62b93ce82cd5d9526d6785c11ddfce41e54af175fef",
+        "cbbb8c3412bee232bb3db264bb6cb895d78894f7180792cce8557ddec317f3a9",
+        "65d483f5202e3151fca1227ce6f91b9240cda17451a41dfadf0a1b701bac7fe7",
+        "2730faaf2177cfe90dd33ed352d47259b3a7d3068a38e9196356bcbf8011380a"
+      ]
+    },
+    "signature": "e5fc15aff45a032381d4e38ee6563bc0b15d0554afffc850697a4df63c61ad2ba76650d68d9c23735f2bcb5af37d8c009377f8c6364102b2d0e539b39f11b105"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-20",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-resolved-secret",
+      "input_commitment": "4d3fa80fabebf5c9be6a4c732d81e36c4d93a876380bb431053811853fed6c94",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4280,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "cf695271472b7bc64c0b9d600677f1c635fe11727d7987f2531f841d9c392b7a",
+      "stderr_artifact_id": "1e3f4a22b16b5b1334dcfb0a84586dd1d81ea1aeb495ed6e1a17d6aa100a2a08",
+      "trace_artifact_ids": [
+        "d67216d7b6c867d146e697f12665f5044fd86d6bcfa7ee9ea7d0ebe9d4eec062",
+        "fd35ac48a558df4dd1a7ed1d47ecb366385e2779aa32c168e477f91d105ab43d",
+        "5a4b72cd7a1d1db82a2e492ac6dff5557518448e2277b33e1a23cbd59e0294e3",
+        "88140cb5aad701473b0d5d39c9542db573a7692b34cb17a8f4f76fbbe63d4364"
+      ]
+    },
+    "signature": "be64ca101946bcfb9292a1a916c720f9520117a6d79aa96a559456ccda98f679b4672fe9993904caf7e9f976e013cf5f54ca056b7709d9a556f135681956840a"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-21",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-schema-injection",
+      "input_commitment": "a20c21db1ba369593b0904f77b58939b1e19c53a51e44db9836be4663e973436",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4409,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "247932f4fad85e1882f0a4ffca7b1aa3170a7fafa196541721dc25f52fce8b71",
+      "trace_artifact_ids": [
+        "4dca970c97f27de908e86f08c75c61ea76fe4fd31f92a383ba803e12fca03350",
+        "4cb5748847d2c0486ff9f6da94aa1237f0bddcf5695a352a3170dfff5fe61903",
+        "68ffbdb277d1bd28615a22900b8b112ada84d2379f8506c9f43264c7645f88f7",
+        "bc5b5e69953eae519f3fd4632fdc42d6a54b2c999665c6c942361e2d12a6bb63"
+      ]
+    },
+    "signature": "a6a3c664641138169d4a616d8baee4d921acd8ca0cbe2cb0d55cd6584e77f6f4551f8467ad550c4375cebb6e469c29572b7932be7bb7b94191c6c72a41490c00"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-22",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-suspected-takeover",
+      "input_commitment": "dccb159910aebd10b46ee8c4e40033e15100d8c27c453263771c95df89cb7b59",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4388,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "b6993db1348aa412ffa4099684e4942da9554f445faa77d3539aebc9003f0746",
+      "trace_artifact_ids": [
+        "d165e3ca498a55d5e98712d1561a110ad3e9eda738db5086218a454779cfa2f6",
+        "ca57cf228be9fed8624c1ea6ff8415142f56881ef3a200eb8d133f30dbc0738f",
+        "ce5730978124cbba24b4f8c910973063d74fe437165ea45bae574857ea55f7e6",
+        "79552071f47606b47294f13ec64b1da1934481a107bc5deb081fd07ad8bd4bfd"
+      ]
+    },
+    "signature": "5e5f12006c70e9ba46cee59206881d013cd4282b1ecaa97849fd78e60ee114abee814470c3c6fbdcb5f4d9cdb48d171e3216ac843d6c6e371e8e99762f341a03"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-parent-23",
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-test-security-feature",
+      "input_commitment": "6d27bbc4173c2dd56da268b7b8c984385527997750a68ae8cefcee963ef62159",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5034,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "c78831ce69819387d4a7cdc06a64c6c9595a938f86c06af1eaa869efe51f04f9",
+      "trace_artifact_ids": [
+        "b59fc470255338ca361ba2cfc7625b6472093e857a3f38c6fc20b905d24249ac",
+        "b30cb03913e274f995d694c9478d3488cf2f0fac79ad0b378584f59a2ffb859f",
+        "030aafd3899ba421896e22b3bc6c2aaf04834e1c7a4e4562d56ee347052f3a68",
+        "599b0ed105698f9f58c8f87049e52d61b81dc4d6215103f078d3ca96be9f0a7f"
+      ]
+    },
+    "signature": "611758102050473e66ba605410bad7683b37bb80fb46711f56d156705678c07a442d667ae736b679197cfbfa6b317161014505a6e16facb13ab031bd4ef5310d"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-0",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-billing-access",
+      "input_commitment": "4c12083af01f3a5079151a44195ba13b50ca2534a7370007581dee8ac49f0c96",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4556,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "9e9cf9f090a71382e39ad369d304ce3a1ca6117f3a497a264225151f2bd038a6",
+      "stderr_artifact_id": "97a430f17a601cfa739783338ed8e0edf506c22abe20242e7888c07b67ac5a0c",
+      "trace_artifact_ids": [
+        "9383a19b067ae7ae5fc04a59bb3ca93f232b2d2138477b8174641a0090950a11",
+        "c8d25b4598f76e877a3cc0c8f9c8ac97d905d7a12c1fe00bcf473ead088e416f",
+        "c582c5b5db18011301a10a7553c1c3a90091f8fb942d758afaa798db539e22e0",
+        "1604f858b48bde44986c80e9c3d395412526df55cc628657f2d15cc9f52136a2"
+      ]
+    },
+    "signature": "ca3cde8b74085b8c272cfba6f4fae231cb9fbff53be6355d749d90fcfd08e3c1471f1ce8259c5c8b91f4736c5b9f2d7bbee3861516a5f839058ace19cf51130d"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-1",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-credential-leak",
+      "input_commitment": "48d290fa090c7cd5fa8ab0ad1cee109b808d9723ffa934b5de5e02c3673e377d",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4853,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "2179f8e392a49a66eb888a9dbacb72f98090a319b051cc0419b70f1c946d96b8",
+      "trace_artifact_ids": [
+        "4699a9e00bd894ebb24cc5585515bdbe4168ee224dcdc1a270fad9987b18b84c",
+        "3a4f76d5a681ee3405f2adca050e3cff24c59c702002326e124c43fb2b139fc4",
+        "4a1e0dbeabd6d6c3b6f87d1d4b7efe972b85f09fb22bc9bb6a5dd523778641a1",
+        "9011b3120e9903b8427cf2393ed1f2887d4693f04e31670c927b059124a19dcc"
+      ]
+    },
+    "signature": "c6e8e4b6edc2d2796d9caead8bd39b706dc712e75af9277f3daaeb13ae24a493c7e0694fa61231e146d91dcd52990699a3ac19d219ed8b6cf03aeb37f9c9cd0f"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-2",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-feature-urgent",
+      "input_commitment": "3a45e47aebf0b1f84c76859be9af80cf7c14aef614af1e8da997b35825147024",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4962,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "da12082dd0e78ce529a963e1e699f752db2afafab7780d0ac0fdc3f3970ea27b",
+      "trace_artifact_ids": [
+        "f617bfa8373061a66df386d4e244cafb8975c2774f1bbe2cf120d85df3aebfc4",
+        "fdc6aeb1058ac30156f28a41fef30c9dfb4e589091f87722aca0599962beca7d",
+        "76a97301f4ad5fac8aebac7c5614336072163ec615c5c7259bf49c7e59ff709f",
+        "85d6e11e919c2ecdc4ca150108e4a5e1604ce0fedead8b29c896dd78eb162559"
+      ]
+    },
+    "signature": "4b1d76e17be1898eece6885a5283d830568d605030a13490f72361b84eacd7ef1f7b3ff4eef17d9a5a7f23e231f7c471bdb8607a8eda87063d6a0cec085d1e09"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-3",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-invoice-copy",
+      "input_commitment": "affe26cb4f3cd574815a7544509a02ca0073c3230eecf887e1c406a42a4681e7",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4691,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "3633dca465e647b35838f112356c5f95decb9aa65f8641ad01c639e87572e8d6",
+      "trace_artifact_ids": [
+        "d1b6922ad17b0a68e4cdbd2ce78a3335e31ec0d852c88a29197e93842f108837",
+        "691802043e341a9356610535e05eddcef59917737060000fcc34948db87f4557",
+        "52e2f2067458887c0d9ac4221e81882dfc655b514ac8d43570b6d7a257279b78",
+        "456a781bc4729d0f0609830be2de45360eaa0a2ed92c44eeb24571c59b64e6b5"
+      ]
+    },
+    "signature": "bca3923abbf212a92cc2ea084b2651b52b6f08b114bdf577383460e63f1b870790268f96432b3174a8c44a28808aada1a0458c9ea991f5ad3f0f27d1eed1fa06"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-4",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-login-reset",
+      "input_commitment": "abce5a392f3f93fc08ff2a034eb40b6047d790247f807cbacdb08ac92cbfc334",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5597,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "688a54f5bf07be85815f9591f4d5ca8b7c52cd7ec85f4fa15a5a5980f6722285",
+      "trace_artifact_ids": [
+        "9c182910914ebb8506c1d54419fae63df9aacce3669ab7d4eb8dfcd7003aa53d",
+        "66e901dd3c9a4783b97db3fc958a7cdf07b21208afe064a643b04b66d8b475e4",
+        "bce9642ee106bfe241ba48b0662a1885b8e9010100721104a7ce27c7f4a6d1c8",
+        "d93c1cb289a0cfa13093a2c1abb2d530ae8f1942f38ef626d1d93b71d10c00ca"
+      ]
+    },
+    "signature": "277e1948d34c2211bea333a16bd801e08acab585878970499daa1e842dba54156bf86860ed4f05272ba186bb713d902d69d836bd520b923f60e03c0f91cc3d02"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-5",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-mfa-setup",
+      "input_commitment": "f87e3f3fbfdb4317a6a3bf71d035bc73f1562dd49047d334e5310e0ab0ff15b3",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4355,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "f270d16d1068475060c6687c066faf773f8ee1d5b77ff547eed38670e64dda4f",
+      "trace_artifact_ids": [
+        "222e3f1002a34f91bb6d4b8566efeec62db10168e83b29fe5356954a5cdfc90f",
+        "831a58d8e3f98cfd5f3549735a9aaf4e972a27eaa3b7bdb4b87dc281a99da7bc",
+        "8ac967599fbecd30e15c2c51b6bd4f67301d1d1bd72a833e41e09f3160659bd9",
+        "e07818fc9b2968c716cd445b6646a9e1a7de68c26be1f02c489da45b9f7d0bf7"
+      ]
+    },
+    "signature": "622e1d9f3b6383beca981f20b72a9af9ca0cc6592e6781e3e41f38cb3dab56cf949d3814b61d6d75df78adaaa115f2318eb50c0e6b22920d153bd6dc92f38208"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-6",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-past-outage",
+      "input_commitment": "27f44218d46c531e25d507e56e75603eb45a1ca0c38582b0e6642b7592dca950",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5112,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "c548a496740e4f455b86f3ff039743c0f8add3863d503fc98cf7d30f4edc04dd",
+      "trace_artifact_ids": [
+        "c5dc6564878914a8fe57b0de232b117e2516a18ce8e2d27d8bfd837d32960280",
+        "78a816343b1dc0bec69fd3f4002b9d49e82a25f2316b47e4cc436b3adbb6d552",
+        "aca2068581652a04ef934fb9e8344fcd3f79687af1da305d0e1cd7de5d2ac58e",
+        "4660a99c3c6f6c13b79f829649188036ff8631832ee4c6bc2422be4064041eb2"
+      ]
+    },
+    "signature": "7646386fcdbb92ee54252e81dd52c98fccb669344b72d8c73b3d0ef41c7fae87651dfc055329e8a45b3f627051c110168125bc0e72099cf1fa8fd3b5895cab06"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-7",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-prod-export",
+      "input_commitment": "9b96af66c35da2bfb1301b79532b7e6c76c1227d825748236244f0fb122226ad",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4566,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "af7964b1398badffc1946c80750e03560a802a3a67b56868766a3f6de38915bd",
+      "stderr_artifact_id": "396f5b59178f6a585fff4af7480732a800df2f38de06d09fb2795ba411ad240d",
+      "trace_artifact_ids": [
+        "4a96629bdb596754cea19417238794a97bf7753d12c6fbe176bae26999e7f97a",
+        "bcdb066dd0778cdd2b6ce0c59f3ca22a74e1946a6bc02321337a052755a2e032",
+        "2813d77a530e8c8eec996dd83289375be0116031168a14bbb2338bdf3dcefd90",
+        "171744badb9610341eeab5526f11110409bfc32394114b94b4b214f6784e0c8c"
+      ]
+    },
+    "signature": "2bbc907340b44aa0047f912e56637706d877089bda82b9b5c2b8a92aad1fb42907f90d4d7354b97bc2a7adeee7136abb1ddfef921e50b3cdfccd4b207fa4ca08"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-8",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-refund-injection",
+      "input_commitment": "79822cb5698a829c12aefbceb25566edd5a471c854473ca239a285520c437462",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4036,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "e899fa1bb5f3d86282e43e0a613eb0e85caa0c71fd3812e8fcd85f3670462631",
+      "trace_artifact_ids": [
+        "02d64c5b554471c5cf1d75ee749255b9b22ddeadbab3cd2e5d21a2cd754171c5",
+        "d2e0d6f2b28d76604474e9a6721ddd9de8ce11149ff8a841e4ceb4c4805e3f37",
+        "b76aa6ef4b392a0a02f0c1c5c617ce5e416e20880dc8edf961f8a4e3011f0f15",
+        "dc9b4cea46e08dd9a2bf74c0602e91d2b75faa1b1967cea31ad7cf9e94b1cff1"
+      ]
+    },
+    "signature": "69ba5c74c9ffa0d63b5913b9171e33b61f6323712eee25fa73b1c0e9bc53e6c9eda63909bda789af2cf8fc359f8345ff18366033015729963e3a8f869ca4c705"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-9",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-security-billing",
+      "input_commitment": "57d1aa63b7d3bf3d2b39c54ebdd15106f2fbee5c395c832e91d139c7b16b8a8e",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4344,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "10db5c4433f1a6547d4e98518106040d29c79bd95676da79d70e52d7058dc98c",
+      "trace_artifact_ids": [
+        "d14a8ccdad706b5425a4c035a3360bece26ee2c1df812b1129004bdf8e16a4cd",
+        "7817bd52576fbb90c4f681912f95ff4f2962b98883cfc50aae3f542d80eadefa",
+        "6bf0a732ba9665ff70335196694695642e6e1271abc7c5c1a1ba6f991a9781cd",
+        "2525ff11116ca164a1f054e079e6022de61ca8b3852c836abf31d4226420d00b"
+      ]
+    },
+    "signature": "8d1ad07919794877fd1b3ab2510de98b6e0584ad94d04190a06e0436d7237c923771b8143050d2c8b9a649e1563541d4075b848937c57fcca9ccef201b1cc600"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-10",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-staging-export",
+      "input_commitment": "f5a42de4c0e2e011d695dea24de375634c2f2b2958801929945ce8aec7195ad6",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4013,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "ae9e0b4df85bcc1400291b722de7a7f16607bae466a6d5284770605da78c3ac9",
+      "trace_artifact_ids": [
+        "29d00b94826a1d7b4e9f4026e1e4488f75e509ab4203e3e024dba8d67a5bf8c2",
+        "e33df5246fd3f96001095841d43e976485f4c30e66098526c00c79b938caedd0",
+        "a1631b3d9c1facb91afd5f6c1e36555c62e58e28d2c29ff036d520da33fbeeea",
+        "83073b5e77faa69aa17a6bd00c642cc165c7f0c7e16afe0574262ea665a044d2"
+      ]
+    },
+    "signature": "d67053516fdb9b974b6a739fdf5abd457be36d6db23ad48aeed216d86cd12d001b2829b9b00eb6aa24c0ecc69c19b0f6c39087a362dce57aeee0606200b33a0d"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-11",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-visible-unicode-access",
+      "input_commitment": "21f5277f907a8eafa515990d8c2179bf83016a77a1c12bef1e545cf92f68234b",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4789,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "0cd9b3f2ac1fe67b034fbfb7a2ca6585e61fc7357de68121ec444294d4af0796",
+      "stderr_artifact_id": "091b171ecc0fea38773f5fe70567d3252b04c5463cb7d0f2a2639d7538619ab0",
+      "trace_artifact_ids": [
+        "37c2a28251e0174a2202a23a3554a797ca161b56b8402e2bd08ae1d2e6071061",
+        "4b2769fb894d4ed13b6a68e73f635f0bb32b784ab1f6993532e06d71ad4df0ab",
+        "efe05355766c6209a53081137ba04652442ae025b45d4a5bcb3cad4a5a83b7ef",
+        "89e474c7100e1ce45bd9da617c00b6e415f363986f767f073420fd4bb5d24e18"
+      ]
+    },
+    "signature": "22a88dd6388a4aec9554aafad31a393132bd89f525e0f7fd20368c80a4ab073ddd660e5f1da884dd89ab272b62667601ee2540c02fe3f8ba945a4a5648fb0d0c"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-12",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-annual-plan",
+      "input_commitment": "fa23a20e576f8e1db7cdae67aa2dcf9cb30b93f6109ee4dc6f0bf19c10429323",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 6162,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "4f699c8b4a2dfa24d2117862b0b2bfea808cec0677fd429dac4c5f8e61101e68",
+      "trace_artifact_ids": [
+        "f0867f60aea4b488b6688bf8878caa5951639bbb338bf084cf3e7ba9df47034f",
+        "6a042c1f1f137df92dfadf35b7031d5e21495ec3eee01536614dedf92e4e4654",
+        "4843d1b4f2a1a0f061a3095f84bfe7d87c736606274f70733e6ac7d5a6fb9449",
+        "c5c94ee39b0a63f00cfa3f9cad6f73e8a9208d128749f7408a90d0f6aece9aa1"
+      ]
+    },
+    "signature": "67ca756c7b08c56a4bd046c327133ee27dfa70fce22bc64cdaa85d893661e9ae09f2b99422a12468f298bc137ab4dbb4131df9d888fc48d6d36dc995d25bca0a"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-13",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-cancel-plan",
+      "input_commitment": "53fd12016b95fc410f1472e7acfff4e8571fae8de662054cedc1ec535efd567d",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4990,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "eba7d91d4ee5684f067aaa6349e1e8b6d8e4df65f0ea0355f3447f7751b1f385",
+      "trace_artifact_ids": [
+        "e7e198f1d7c50bad6f5446ad6623735346243f11dbd4c3225e6a3faa8b6dc694",
+        "f72fbabe94db538d18821d6b7aa2efe6b2b9f152647221ada452ce4abc8149c4",
+        "7f64b84114843b12db9d6c8dc06ab2afea5a32564b3782cf21ec8dc4b0df7ac3",
+        "402ec695a77da8446d487376471b52fc378bfc01c42d06b7e44c682fdc9ca1bc"
+      ]
+    },
+    "signature": "a044095aa76ada468cf68f5047e8409b5067384fcd28d2b7fd4ff8694e346f4871f3fe4c8dedacff6ecb386e0098d097b8584b13563258fe173984c18b596c00"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-14",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-credential-refund",
+      "input_commitment": "6e51e8c711f3476fbb6d6d61047c080094429c44198dae42f7312178e74063f0",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4556,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "aceef33653dbe66fbb17c7d6d7c364867ba0c0349cb0ca3932168db4347cd4ab",
+      "trace_artifact_ids": [
+        "4517a0c8308e31afb0338d3cafa562e1d67ee9407d55f7eaa379efd003e78572",
+        "4352325d7937c63332acf40dd057df2f99f620173ce1d05ee950da02fadd39aa",
+        "8f703aa9014c354f9021c1326287e5d27cc7dec3c251352edf5677c076ae77b8",
+        "a930805e26abb3bbff81faa406f0c2f4542d8c55c14bc62d132e2911cd9ce16d"
+      ]
+    },
+    "signature": "643cbd49ee1bb90f5bde8a09989fdd33f814ef0049572380dc9058100c6bca2800f391ea3ad4030edbfe656b08c32d0207d3f1afaa5263c2ba10ef17cf7d7200"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-15",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-future-access",
+      "input_commitment": "3a4870fe94ab082f46ca04a5032bbdc4f7f44e97214409874883694cf140c339",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4676,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "1c1d07e90a3be672cdd26be23ff600a9fc79223faafdd59b509ac15a2e738de9",
+      "trace_artifact_ids": [
+        "a4724d33cccff1ba6414770ccce66312e9fe426929c45584f8f0dbc12c3425c0",
+        "3e95b691448019e3c4b708dfd375c620e8d36560ffca4320d1750c482e08e231",
+        "2dedc44f1b05639bc5c8611ef620d828d25efe1301deaed3bdfbcdc8a921f0d7",
+        "f0a42826259522baa979d2650e2ad429edd1c5b06bed9919d0b89eb940962bc6"
+      ]
+    },
+    "signature": "5629a1f3022040a71260b96dc2857133b45420821e4f3a7b1aee8a63e382bf686503cd6f85f0e23f83f32f60fa8538a8e096e797215272982b2f43bde8dc3b0e"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-16",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-payment-reset",
+      "input_commitment": "86ac6fe529b00891ff15280f40740361d9b0e0500db254e54ab821955a0e233a",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 10664,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "4d2c87f30503a0e5b93eaedc8fbee5230ff6f9829200eb857288d2ff7e711ee3",
+      "stderr_artifact_id": "888af7f7183b33b75e80e46afad8d682122d49cd5236d991e90c17bdeec89478",
+      "trace_artifact_ids": [
+        "79d89d8378e1310f24541cb714de113aa1b7b8ffc42bcfd4e6fa3b43d9581d8d",
+        "9fb3ca5a0c3210452fea2cefe2d76a27ae75e4ff54fa772910234d9d7e0013b4",
+        "0399d7a3e6956d41c551a33260ac6116cf1110b37004754ff7e07de5b76b88fb",
+        "8ea2aef55b789a63dde3a0477ce1bd24a1b74642ecada5f33666d18e13452eac"
+      ]
+    },
+    "signature": "57c5023dd7ebe74f7c3ee72616168316afe3bcd9116e4ff7934648eedcf8da67e95259e5830ab7b0c8b39b4bee1a9cdd86d83e966cfe7178cf3aa75cc44cb50f"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-17",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-prod-mfa",
+      "input_commitment": "85c390cfb6cc18ab1cb3aaf27eb6dd9b1c95237d97e29f4921d09291d42f03ae",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4296,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "0cd9b3f2ac1fe67b034fbfb7a2ca6585e61fc7357de68121ec444294d4af0796",
+      "stderr_artifact_id": "749ca6bfa909531dcf2e3fdb88ae7eeb5fd8c47209c3995739ddfba90849a2c3",
+      "trace_artifact_ids": [
+        "c20e1b12be65923b852a191c98f052fa41130edba79265a45e3cb7b3bd5869e0",
+        "8b600ba951896119b013da3f7652c17835fe03414db4bb387de518789f157286",
+        "0d58966e7e0659dba7c420189b2d4204582f7edaa985b5b10aaea0e61c136a9b",
+        "660e635259d0ebd4783390f6bf7c7e4a6dd10aaa7aa325a540e774d0bfcab927"
+      ]
+    },
+    "signature": "66017dc3e7508c447911fc200f9d3b9b1dd17444555608712f1d7146b059e553f80ff56a3d735b766a40b3e44b4f09e87e4e8440bdfbcbc2970a011345747708"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-18",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-prod-upload",
+      "input_commitment": "329c5dfce6eb57137f1270cac715a1b11bbf8c712afbc6ea718c5513fdd2fbd5",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4239,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "af7964b1398badffc1946c80750e03560a802a3a67b56868766a3f6de38915bd",
+      "stderr_artifact_id": "f1da10b6e8940c472a8d747c7c9e71164169abdefa0612a7456fa16e9c577e59",
+      "trace_artifact_ids": [
+        "b9cf369c47ff2c61cd856e0d5ac5be6533c4264edb290a22de00da7fbe1edbbb",
+        "7ebd3fdc91f640ebc297277b0446a9af1f828c60a239df20cefd7dd0a2fc0859",
+        "c398046771489edce296fde3c5b9dfe261a2089d80f4f0cd61d1ab5867505701",
+        "b7154ef68668da2c0edaee908299a146fd7e1f39f6f021bc3d336a08e8b9681c"
+      ]
+    },
+    "signature": "22e4d774dfec17351f64aab1487fa17208f19e06e177db7a16368662205e74f2610229bb2fd5c5dd1d0920b8d73bdc7b4bac3254146ee8f25bab34fec436b40d"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-19",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-resolved-login",
+      "input_commitment": "cee209ddcbdb1aa077d1ee5fd1374fb09dbd2595b04a121be80c17f288c94531",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4586,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "90da55b8535cbefa99cc5a1ba24458e154ec5843da9a713ed593d1f3fd2f6694",
+      "stderr_artifact_id": "825e76d021f93e8129a591604e4544a52e11c6be83998eba0bc577a89a1f7ee1",
+      "trace_artifact_ids": [
+        "6190516003509e6a36cc191452efb4eafbb45492f662bff4fe0d6a7a31740731",
+        "fdd6ccf72d16538643bf668267b416958eedf2dd9a57d7f117f361dce4a292ef",
+        "0fb6cd3d5b0b8f3dff693b0900fd24933ed69b9f69e717d62ab81565dc1381cc",
+        "b87bc6331a068be202633e7bc850cb0c55e24b459e7edc564873ddf3c613923f"
+      ]
+    },
+    "signature": "51c79c1c57f32661532a3ea02078e03437d8960b2e1434a3a1c33ec056ea70d70e5191a53d840ad8d9db7db4578d21ccbf91046a3acfa376d4ee60d40fd9bc04"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-20",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-resolved-secret",
+      "input_commitment": "4d3fa80fabebf5c9be6a4c732d81e36c4d93a876380bb431053811853fed6c94",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 5338,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "cf695271472b7bc64c0b9d600677f1c635fe11727d7987f2531f841d9c392b7a",
+      "stderr_artifact_id": "e2f34553e57eb4832f93e5538d815e33c217832da14f9ccd44c53bc7ea3e7adc",
+      "trace_artifact_ids": [
+        "222cbcda48b6f6278cdd7dcb8dc374813e087f4257298d6be1cc3d85ec9b43b8",
+        "d36617364e00699e544703fc03f80db4892e1f632f1cd5ab66ddc39ed7adad66",
+        "3b63253d676645b919de60c24536d2ac2ebb6d0a5c0c1a95d2e533d186f68b26",
+        "9a6e7f922ba5ecd4a598fd185c8e58e6e6fe2ad473fb9eebc6bd2bcc0a608ec9"
+      ]
+    },
+    "signature": "740f9d554aa75b7df45d8fdd3332baa219125bcff177e5b2b1426c3e16c57fafa76588e68420ae880dbb2d264d48f4a87001aefa211e8d611296aac49b6cc700"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-21",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-schema-injection",
+      "input_commitment": "a20c21db1ba369593b0904f77b58939b1e19c53a51e44db9836be4663e973436",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4287,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "f55c7c8ac38a388ce9b6087e3fa1775901e597293aabc4ef452a449dabc86ad6",
+      "trace_artifact_ids": [
+        "dec7c32fd05c4d2af9e251274507af7a36e4d3c93432415737c751582d39eaf6",
+        "aa02a54dc8af99a7c79d7b97ea55cbcc50d3f39e2abfa2f3232589a03db1a048",
+        "1eab15a1df5b549dedf3d19a8445f4ebcbbe014bbac1639a420e07dc3f4d55b5",
+        "fbaab1f129febc58c0593f05eadc1e7f772e8cda996190beb9ddda6b27b32110"
+      ]
+    },
+    "signature": "6be135010c1f55a89a002aabc93a89768adbf15aa810a725422e32f04f5ca34f15914a702f41464f3553fe638141d6bfe43b7a48c185e69dc2a6e0478885910c"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-22",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-suspected-takeover",
+      "input_commitment": "dccb159910aebd10b46ee8c4e40033e15100d8c27c453263771c95df89cb7b59",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 4310,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "1623a2f201a76daa53abf99310bddd8aed06e3d6f5d37aaf3226e70907cc106e",
+      "stderr_artifact_id": "0a2aa4519301fbaa0c0d7766b9f89408c7262b9471c64881d78a2ecdf92bd20f",
+      "trace_artifact_ids": [
+        "1884fef3ebbf165a6e8b554fd3a89ef02404a553af251a5f25a9d57a060fef22",
+        "b3ec6752ccda0ac7049713b2d8fd74c9b1b1da2b958e0877402dc2f53bb3d39e",
+        "b89301527670ebf089a6a2f1aa60e7ec79ed3bf9dd0c9861d33c6b500a4288d4",
+        "7b51ddff14967b175ca19cb973b09f2829d90b7eed17dbfe18a5e5b40906495a"
+      ]
+    },
+    "signature": "8b14a9d4a2d75959a380dc53a8b6d8390ee8d330290c00ddd0b6231ef2443ff0bc04af8cb4c56b5830ff6c927cb36cb0e9993219cf8d64180cbe174a4d278e0a"
+  },
+  {
+    "schema_version": 1,
+    "producer_key_id": "b098a7838432ef108607ec8523218e5ee8c84ec99856dfb74a5d1cfd53bb03de",
+    "claims": {
+      "schema_version": 2,
+      "run_id": "paired-33b48667cc7b9e79edfa3977-candidate-23",
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+      "task_id": "support-sealed-test-security-feature",
+      "input_commitment": "6d27bbc4173c2dd56da268b7b8c984385527997750a68ae8cefcee963ef62159",
+      "seed": 42,
+      "environment_id": "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c",
+      "budget": {
+        "wall_millis": 300000,
+        "maximum_output_bytes": 1048576,
+        "maximum_cost_microusd": 250000
+      },
+      "completion_reason": "success",
+      "latency_millis": 6329,
+      "actual_cost_microusd": 0,
+      "stdout_artifact_id": "72f9121ce951168115024799358aa3fd70a8d10333f953675b9c2f50dc138e88",
+      "stderr_artifact_id": "3d091feddef07a9949717f2dc50cba04b92ebd7d7e93742ec26bca7f00c97b17",
+      "trace_artifact_ids": [
+        "0abb1885ac7fccc57befceaa76059da4b848091ba491658f4039242d9d477f8f",
+        "0ed323a40a4a04b1c73036f51672899d56857f88722abdbe8d58148e29683f15",
+        "e77c3259efc77c121aa1e7487275958df81d23521cb3d5c2a3de2930b1fc62d8",
+        "daf919156eaaeae105a08ff6fdc2210ecb238050e37b5939879dce9ba73e8e8d"
+      ]
+    },
+    "signature": "d60410b2f02b2fee6e5b787288ee0a2b451fcdc66e4a1fa636cb840b7633e556ea4a1d9db3e6faf6f185943bcdc3501b9fa3a69eacfb877f1d33aea0fc41af09"
+  }
+]

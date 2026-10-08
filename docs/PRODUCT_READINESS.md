@@ -34,25 +34,26 @@ live-model evidence and full installation acceptance remain required.
 |---|---|---|
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Evaluator-installation recovery has actionable fixed errors, physical safety/privacy tests, matching-daemon restart and exact retry evidence. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The installed 24-case support-triage pack has native initialization and frozen preparation, with retries, profile readback and crash/graceful restart. Fresh-user provider acceptance still remains |
-| Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass. Current workspace tests, all 51 coverage floors and the full 434-entry mutation audit pass; verification below |
+| Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; evaluator, clusters and provider replay checks pass. Current workspace tests and all 51 coverage floors pass. The full 434-entry audit belongs to ebbb21b; the current matrix has 442 entries, with scoped verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
-| Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
-| Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established. The initial baseline/checklist comparison alone cannot close the evidence-bound Forge revision or measured-cost requirements; fixture CLIs cannot substitute |
-| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The current launch-settings checkpoint passes 728 Rust tests including doc tests, all 51 critical-module coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance passes. The complete current audit at immutable ebbb21b killed all 434 mutations with no survivors, stale anchors or timeouts, followed by source-hash restoration and 728 restored workspace tests. Main production files match that checkpoint. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. Full product acceptance remains |
+| Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented and verified against both real 48-call comparisons, including downloaded reports, desktop/mobile readback and restart; verification recorded below |
+| Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Two real Codex comparisons completed, 96 experimental calls total: baseline/checklist and evidence-bound Forge child. Both tied 24/24; the child’s Forge assessment is metrics_rejected. Signed receipts, browser exports and restart/replay verified. Attributable USD cost and independent private/customer evidence remain |
+| Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | The prior launch-settings checkpoint passed 728 Rust tests including doc tests, all 51 coverage floors, both Clippy modes and exact Rust 1.88 checks. Native ARM64 installed acceptance passed. The complete audit at immutable ebbb21b killed all 434 mutations, followed by source restoration and 728 restored tests. The current redaction correction adds eight mutations; its separate verification is recorded below. The earlier 5d231c4 checkpoint also passed 191 TUI and 40 web tests on Node 22, 47 Python tests and install contracts. Full product acceptance remains |
 | Clear commercial offer | Honest intended audience, use case, capabilities, limits, support and delivery instructions; claims grounded in representative results | Engineer audience, one-workflow pilot, evidence deliverables, local delivery and support boundaries are documented in the pilot guide. The assisted paid pilot is a proposed scope; representative model results and an available paid offer remain |
 
 A positive measured verdict alone never grants promotion. A generated report
 is a readable summary, not a signed receipt. Live-model quality cannot be
 inferred from deterministic Gauntlet evidence.
 
-The requested first live experiment is the pack's baseline/checklist directed
-pair: **48 invocations**, under an explicitly approved provider, model and
-authentication handoff. It would establish real output and the initial comparison
-workflow. It would not establish a real model's response to an evidence-bound
-Forge revision. That follow-up requires a proposal grounded in the first run's
-Selection, a separate usage allowance and another verified comparison; the
-initial allowance does not authorize it. A win is not required: retain and
-interpret a tie or regression with the same evidence checks.
+The owner authorized the pack's first baseline/checklist directed pair with
+“send it,” including **48 Codex invocations** and the existing private
+authentication-file handoff. That run is complete. It establishes real output
+and the initial comparison workflow; it does not establish a real model's
+response to an evidence-bound Forge revision. The owner then approved a
+separate 48-call allowance for the concrete registered policy-reference
+revision, which also completed. Both allowances are exhausted. A win is
+not required: retain and interpret a tie or regression with the same
+evidence checks; these results do not authorize another experiment.
 
 Cost evidence must retain its source and limits. Record provider-reported USD
 when available and explicit absence otherwise. Codex does not report USD, so
@@ -61,6 +62,50 @@ alone. Actual billing or quota claims require attributable provider usage
 evidence; an unavailable figure or recorded zero must not be treated as measured
 free usage. A later authorized provider run or attributable usage statement is
 needed to close that gap.
+
+## First real Codex comparison and usage correction, 2026-10-08
+
+The [real comparison record](evidence/2026-10-08-live-codex/README.md) contains
+48 unique successful runs, canonical Selection, signed run-result envelopes,
+profiles, browser report and desktop/mobile readback. Baseline and checklist
+both scored **24/24** on the protected aggregate, including **12/12** visible
+cases each. Total latency was **117,865 ms versus 120,307 ms**. There is no
+correctness improvement, repeatable latency claim or promotion. The single
+public fictional pack is not independent private holdout/customer acceptance.
+
+The matching daemon restarted frozen with no active work; all evaluation
+summaries and the 48-run list were identical, and canonical history replayed.
+The downloaded report agrees with the summaries. Codex reported no USD.
+Numeric token counters were also masked by generic secret-key redaction;
+their historical absence is retained explicitly, with no reconstructed usage.
+
+The [scoped correction](evidence/2026-10-08-usage-redaction/README.md) preserves
+only exact numeric usage fields in new cost traces, while masking malformed
+values, credentials and known-secret collisions. Other trace kinds and
+experience fields retain the full policy. Existing artifacts and this live
+pilot's original installation are preserved. Its offline verification is
+separate from the earlier 434-entry audit: 732 Rust tests in total (728
+instrumented unit/integration plus four workspace doc tests), all 51 coverage
+floors, both Clippy modes, exact Rust 1.88 checks and
+full-workspace mutation baseline, 20/20 affected mutations across the redaction
+and recorder audits, restored
+experience/doc checks and 47 Python tests pass. The configured matrix is
+now 442; a fresh full matrix pass is not implied. The current native ARM64
+package also passes ordinary installed acceptance, including relocation,
+bundled runtime, the six-step tour and offline hosted preparation with zero
+provider launches. Its archive and payload hashes are recorded alongside
+the correction. Native Intel and published-download/fresh-user checks remain.
+
+The [real Forge follow-up](evidence/2026-10-08-live-forge/README.md) completed
+48 additional successful calls against the evaluated checklist. Both prompts
+scored **24/24**. The child’s total latency was lower (**130,974 versus
+136,720 ms**), but its median was higher; no speed improvement is established.
+Selection eligibility stayed false and Forge recorded **`metrics_rejected`**.
+The authenticated proposal, assessment, report, both evaluations and all
+96 runs survived graceful restart; canonical replay verified 5,312 events.
+This closes the real evidence-bound revision workflow leg. Attributable
+USD cost, independent private/customer acceptance, native Intel/download
+acceptance and a commercial offer remain required for full readiness.
 
 ## Current source delivery and trust checkpoint, 2026-10-08
 
@@ -78,7 +123,9 @@ on Rust 1.88.0, with every mutation target restored byte-for-byte. The
 at `ebbb21b` subsequently killed all 434 mutations with no survivors, stale
 anchors or timeouts. Its restored workspace suite passed 728 tests including
 doc tests, and post-test hashes and tracked cleanliness were verified.
-The main worktree's production files match the audited checkpoint.
+At that verification point, the main worktree's production files matched the
+audited checkpoint. The later usage-redaction correction is recorded separately
+above.
 Claude's actual read-only review
 found no material contradiction or concrete defect in the inspected evidence
 and identified the live-revision and measured-cost limits clarified above.
@@ -358,10 +405,10 @@ trailing character can be dropped by the character-pair decoder. It cannot
 forge a signed event. The subsequent strict decoding checkpoint below repairs
 this behavior and adds a regression guard.
 
-Representative live-provider output, current hosted release/Intel acceptance,
-downloaded-package first launch and the remaining trust audit are still open.
-The requested provider comparison remains pending explicit quota/auth-handoff
-authorization; preparation alone does not prove model availability or quality.
+At this historical checkpoint, the provider comparison still awaited explicit
+quota/auth-handoff authorization. The two authorized live comparisons recorded
+above supersede that status. Hosted release/Intel acceptance, downloaded-package
+first launch and current trust verification retain their separate evidence scopes.
 
 ## Strict ledger decoding checkpoint, 2026-10-08
 
@@ -386,9 +433,10 @@ The corrected Node path resolution works for source and relocated package
 installs and passes real offline Arena, recorded Selection and replay. No
 provider quota is spent by this reference-fixture path check.
 
-Live-provider output and authorized quota/auth handoff, hosted release delivery,
-native Intel acceptance and downloaded/quarantined first launch remain open.
-These checkpoints do not complete the owner's product objective.
+Provider authorization and live output were still pending at this checkpoint;
+the two authorized comparisons above supersede that status. Hosted release,
+native Intel and downloaded/quarantined first launch remain open. These
+checkpoints do not complete the owner's product objective.
 
 ## Installed browser and report export
 
@@ -468,10 +516,10 @@ pass 191 TUI and 40 web tests with typechecks, Python passes 47 tests, and all
 valid; the isolated socket regression is an additional focused red/green check,
 not a fresh full mutation matrix or coverage result.
 
-Provider authentication, model availability and representative live quality are
-still unproved. Quota/auth-handoff authorization, hosted release delivery,
-native Intel and downloaded/quarantined first launch remain open. This delivery
-checkpoint does not establish product completion or a revenue result.
+This delivery checkpoint used fixture providers. The later two authorized
+comparisons establish actual Codex authentication and output for the requested
+model identifier. Broad quality, hosted release, native Intel and
+downloaded/quarantined first launch remain open; no revenue result is established.
 
 ## Coding evolution socket-path correction, 2026-10-08
 
@@ -501,11 +549,11 @@ installed acceptance change and found no material defect. See the
 [coding socket evidence](evidence/2026-10-08-evolve-socket/README.md).
 
 The full 724-test workspace checkpoint belongs to 5d231c4; this surgical CLI
-correction has the scoped checks above. A fresh full matrix/coverage audit,
-representative live-provider quality and authorized quota/auth handoff, hosted
-release/Intel and downloaded/quarantined first launch remain open. Useful
-recovery guidance for evaluator-installation mismatches is the next product
-reliability improvement. These checks do not prove full readiness or revenue.
+correction has the scoped checks above. Subsequent full trust checks, coverage,
+two authorized live comparisons and evaluator recovery are recorded elsewhere
+in this document. They supersede this checkpoint's pending-work status. Hosted
+release/Intel and downloaded/quarantined first launch remain open; these checks
+do not prove full readiness or revenue.
 
 ## Verification of evaluator installation recovery, 2026-10-08
 

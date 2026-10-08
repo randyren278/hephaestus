@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "request_id": "cli-30549-1791491726042111000",
+  "data": {
+    "type": "forge_revision",
+    "revision": {
+      "payload": {
+        "schema_version": 2,
+        "proposal_id": "support-triage-policy-reference-2026-10-08-001",
+        "selection_event_id": "arena:selection:support-triage-live-2026-10-08-001:selected",
+        "selection_event_hash": "5b28495e16b7813edf691083021680159a72d991944d06200bb19db9f818170b",
+        "evaluation_id": "support-triage-live-2026-10-08-001",
+        "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+        "parent_genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+        "child": {
+          "genome_id": "hephaestus:genome:54d0d400b0f8367de74695fbf81936d6d6d147cc31cb470701377a453c177b17",
+          "name": "support-triage-candidate-forge-support-triage-policy-reference-2026-10-08-001",
+          "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+          "artifact_id": "54d0d400b0f8367de74695fbf81936d6d6d147cc31cb470701377a453c177b17",
+          "parent_ids": [
+            "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8"
+          ]
+        },
+        "hypothesis": "Removing repeated checklist prose while keeping the supplied policy authoritative will yield zero paired regressions on the same 24 tasks. Strict JSON compares whole queue/priority objects; malformed outputs/errors are incorrect. Secondary: lower total and median latency_millis over 24 calls per arm; arm-major scheduling confounds timing, so no speed proof. Missing Selection or complete infrastructure evidence is inconclusive. No USD/token/savings claim.",
+        "artifact_name": "agent.prompt",
+        "prompt_artifact_before": "94a609f1fef9a123bb35cf6404f5c649464a38dec9137761917f9ca06b1cbc5b",
+        "prompt_artifact_after": "f53f03d788da51e2f9dcc3e60454400fe7c830c0afcdc3be225b1fc3738a4e6b"
+      },
+      "event": {
+        "sequence": 2534,
+        "event_id": "forge:support-triage-policy-reference-2026-10-08-001:proposed",
+        "aggregate_id": "forge:support-triage-policy-reference-2026-10-08-001",
+        "event_hash": "3ff98652114e45882fd879c16d6b108aad61d3790a2ad0a24ad68f0a9bec18bb"
+      },
+      "promotion_eligible": false
+    }
+  }
+}

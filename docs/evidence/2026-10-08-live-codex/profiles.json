@@ -1,0 +1,62 @@
+{
+  "fixture": "support-triage",
+  "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+  "parent_genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+  "candidate_genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+  "baseline_profile": {
+    "genome": {
+      "genome_id": "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "name": "support-triage-baseline",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "artifact_id": "b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da",
+      "parent_ids": []
+    },
+    "world": {
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "name": "support-triage-v1",
+      "artifact_id": "52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b"
+    },
+    "provider": "codex",
+    "family": "gpt-6.1-sol",
+    "workspace_write": false,
+    "network": true,
+    "prompt_artifact_id": "1ed7e69350436bed034dfa2e379725f95011c0c6bd611a1e78a1fb9eea1ba58b",
+    "harness_mutation_allowed": true,
+    "output_scoring": "json_canonical",
+    "visible_tasks": 12,
+    "sealed_tasks": 12,
+    "paired_trial_wall_millis": 300000,
+    "paired_trial_output_bytes": 1048576,
+    "paired_total_wall_millis": 14410000,
+    "reported_cost_limit_microusd": "250000"
+  },
+  "candidate_profile": {
+    "genome": {
+      "genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "name": "support-triage-candidate",
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "artifact_id": "16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+      "parent_ids": [
+        "hephaestus:genome:b1f95efa845b20d9e90884b519975ff122809313bf07f5f1f20972e30f37c3da"
+      ]
+    },
+    "world": {
+      "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+      "name": "support-triage-v1",
+      "artifact_id": "52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b"
+    },
+    "provider": "codex",
+    "family": "gpt-6.1-sol",
+    "workspace_write": false,
+    "network": true,
+    "prompt_artifact_id": "94a609f1fef9a123bb35cf6404f5c649464a38dec9137761917f9ca06b1cbc5b",
+    "harness_mutation_allowed": true,
+    "output_scoring": "json_canonical",
+    "visible_tasks": 12,
+    "sealed_tasks": 12,
+    "paired_trial_wall_millis": 300000,
+    "paired_trial_output_bytes": 1048576,
+    "paired_total_wall_millis": 14410000,
+    "reported_cost_limit_microusd": "250000"
+  }
+}

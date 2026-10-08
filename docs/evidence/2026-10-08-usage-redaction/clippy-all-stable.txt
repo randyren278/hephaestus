@@ -1,0 +1,10 @@
+   Compiling serde_json v1.0.151
+    Checking hephaestus-core v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-core)
+    Checking hephaestus-ledger v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-ledger)
+    Checking hephaestus-senate v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-senate)
+    Checking hephaestus-runtime v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-runtime)
+    Checking hephaestus-genome v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-genome)
+    Checking hephaestus-experience v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-experience)
+    Checking hephaestus-arena v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-arena)
+    Checking hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 04s

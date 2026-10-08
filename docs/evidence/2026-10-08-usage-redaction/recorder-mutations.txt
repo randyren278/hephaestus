@@ -1,0 +1,37 @@
+root:    /private/tmp/heph-launch-guard-os2fxey_/checkout
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 120s
+baseline timeout: 900s
+
+baseline: unmutated suite is green
+
+RUN       zero-experience-retention-limit-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    zero-experience-retention-limit-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       experience-retention-ceiling-ignored command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    experience-retention-ceiling-ignored crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       terminal-evidence-slot-not-reserved command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    terminal-evidence-slot-not-reserved crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       oversized-experience-artifact-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    oversized-experience-artifact-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       unknown-experience-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    unknown-experience-source-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       cross-provenance-experience-source-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    cross-provenance-experience-source-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       missing-experience-evidence-artifact-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    missing-experience-evidence-artifact-accepted crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+RUN       raw-experience-presented-as-gene command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    raw-experience-presented-as-gene crates/hephaestus-experience/src/recorder.rs (timeout 120s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+zero-experience-retention-limit-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+experience-retention-ceiling-ignored crates/hephaestus-experience/src/recorder.rs KILLED
+terminal-evidence-slot-not-reserved crates/hephaestus-experience/src/recorder.rs KILLED
+oversized-experience-artifact-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+unknown-experience-source-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+cross-provenance-experience-source-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+missing-experience-evidence-artifact-accepted crates/hephaestus-experience/src/recorder.rs KILLED
+raw-experience-presented-as-gene crates/hephaestus-experience/src/recorder.rs KILLED
+
+8 mutations run, 8 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

@@ -183,7 +183,7 @@ impl EvidenceRecorder {
             .unwrap_or(0);
         self.enforce_available(count, reserved_after.saturating_add(1))?;
         let aggregate = format!("run:{}", input.provenance.run_id());
-        let redacted = self.redaction.redact(&input.fields);
+        let redacted = self.redaction.redact_trace(input.kind, &input.fields);
         let artifact = TraceArtifact {
             schema_version: 1,
             event_id: &input.event_id,

@@ -1,0 +1,129 @@
+{
+  "base_commit": "bf0c5011cc47e7a2e8c3984e8140868d65653929",
+  "configured_mutations": 442,
+  "experience_ci_minimum": 80,
+  "actual_experience_entries": 80,
+  "control_shard_counts": [
+    29,
+    29,
+    28,
+    28,
+    28
+  ],
+  "current_guard_run": {
+    "run": 12,
+    "killed": 12,
+    "survived": 0,
+    "stale": 0,
+    "timed_out": 0
+  },
+  "workspace_coverage_tests": {
+    "passed": 728,
+    "failed": 0,
+    "ignored": 0,
+    "compiler": "Rust 1.98.0 stable"
+  },
+  "coverage": {
+    "modules": 51,
+    "floor_percent": 92,
+    "passed": true,
+    "redaction_percent": 100,
+    "recorder_percent": 99.6
+  },
+  "full_mutation_baseline_on_rust188_passed": true,
+  "restored_experience_tests_including_doc_test": 51,
+  "workspace_doc_tests_rust188": 4,
+  "rust188_workspace_check_passed": true,
+  "stable_clippy_modes_passed": [
+    "all-features",
+    "default"
+  ],
+  "python_tests_passed": 47,
+  "mutation_target_restored_and_retested": true,
+  "historical_live_tokens_reconstructed": false,
+  "extra_live_provider_calls_for_patch": 0,
+  "source_sha256": {
+    "checks/checks.json": "fa3cbab11c3490adf755203d3bca47467896705f6fd77fab209851b49f246c98",
+    "crates/hephaestus-experience/src/redaction.rs": "474b70af15ef3aaee252acce08a3dc5b4f507acc3eba5c9887b797cbd5989645",
+    "crates/hephaestus-experience/src/recorder.rs": "d4bf55c45c22db6171b8ce1bce0c6db4ee6ccb5b93fb42fbcceeb6f06cd1bc1a",
+    "crates/hephaestus-experience/tests/evidence_contracts.rs": "258f635a65d45ea1dbf941f00cbe5b51aa9edd408a8f2487a0104e079a6a895d",
+    ".github/workflows/ci.yml": "d629226f7b199e193a1a2f3706d2b0f1008dc83034636ec55b49e38fe9ff5a38",
+    "python/tests/test_mutation_guard.py": "e5070ad0ee428f83599805ff72fa011d7caabe936530ed7e86bf1bf703224c83",
+    "apps/hephaestus-web/src/web/comparison.ts": "3a81b8df0effe49d6e843aa1513f5ef78055aa6482a61798afd7e7dccf720a4e"
+  },
+  "log_sha256": {
+    "clippy-all-stable.txt": "c5bff647176c760f3b60166f34ffc92b1930f01a6b5e4a87e3e97cd5047e44a7",
+    "clippy-default-stable.txt": "9fb1b4332f6ead45ebc069e0f4fc1ee203836ee6f8c30476852557957fab3550",
+    "clippy-mixed-toolchain-refusal.txt": "4963cd0875bf75cb2b9f2c6873e2c183c9153b2c28f0c3c5c365bcaa80157c04",
+    "coverage-gate.txt": "855e1ddfde5c7384c0e851a08e6ae78627639a7ef61df7386c7cd01ee3717d9a",
+    "lcov.info": "db5d36a74903461e30703272b3e443559cd14a670967491d2f9a839568bfb923",
+    "mutations.txt": "5dd07d1e15d55417a98229d8a8f0f3fbedf33de32a24548acdacdcb55535d14b",
+    "package-acceptance.txt": "e40afcd443c45a142dd54c9546e99899ed4fa5657e9f74bcc0426caca38e1dd3",
+    "package-build.txt": "a5686474d5984061cde4d3f9d19bcebd87f66b429a658faef1941f870e1f5ec8",
+    "python-tests.txt": "746cef78b81b95e40299012125dd1c081294a43d89ca66f38a9242ebf6f59208",
+    "recorder-mutations.txt": "f094fc9972cbece6ea9cdf8256066ff89e2e95664f230d998214a785330c2f94",
+    "recorder-restored-tests.txt": "cbebf4dc55a86e065612f035678921fe31fbaea4984cff568ef42f44054880ea",
+    "restored-rust188-tests.txt": "778d3944e977c549475c03d9431b309f196a0917ffc5feaaa4d47c1fd866b832",
+    "rust188-check.txt": "35e93da0d4533eaa454493599051a0185fa0574a04b11511063412fdcd83e04e",
+    "rust188-doc-tests.txt": "28a21aa8c033ab09f3032012eed81761058d6db8f198a25a484971eb994c7129",
+    "rust188-tests.txt": "8e4cb5355dff7b032b76b9953ef44e66d8d751a5e1a4fda3cacef07b00f2d855",
+    "web-checks.txt": "ec45d380983ba8ee8c3b714ed3173fffc635dc6face201996bc0ec5a96c12b5f",
+    "workspace-coverage.txt": "faadd965a44a31ada85b786ba46542a5681d684e96cb7384b10569d40d942664"
+  },
+  "rust_tests_total_across_workspace_coverage_and_doc_commands": 732,
+  "affected_mutation_runs": [
+    {
+      "file": "crates/hephaestus-experience/src/redaction.rs",
+      "log": "mutations.txt",
+      "run": 12,
+      "killed": 12,
+      "survived": 0,
+      "stale": 0,
+      "timed_out": 0
+    },
+    {
+      "file": "crates/hephaestus-experience/src/recorder.rs",
+      "log": "recorder-mutations.txt",
+      "run": 8,
+      "killed": 8,
+      "survived": 0,
+      "stale": 0,
+      "timed_out": 0
+    }
+  ],
+  "affected_mutations_total": 20,
+  "recorder_restored_experience_tests_including_doc_test": 51,
+  "native_arm64_package": {
+    "archive_name": "hephaestus-v0.1.0-macos-arm64.tar.gz",
+    "archive_sha256": "6ea24128b41804e9c06c1b9ee2fa22e63feb8e8d2fe35cd5f858e3bfadb1b2e9",
+    "members_sha256": {
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/heph": "a67514a5e13624606b6a77e7b058c8e9660406e7597ea4b189ab21dd629fbaf4",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus": "10bd6d4d76823fb60818c9763ab2eb8e7a910cc66243c3c21a7b61ee550684f3",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus-process-guardian": "f6498e7749c842895cc776d9d637964b9664e6aeabf4715470cdcd6de53632f8",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus-reference-evaluator": "9e9cf8dbef02a415dd9b832a0103eaa60e2699ad8d4e7e2ee6f2a8ea52bf1fa9",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestus-reference-worker": "1a28d95eb8a5ef5c7812d81b1a36478f45f6fbaf72c1bded4c6ebb48d2ba24a8",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/hephaestusd": "6614a50cb598f9650d1eacb6aa2f43d5aaf7cd80979fe4dba31e99e690b1d1a9",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/node": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/bin/senate": "13fd504927fb4d06d0935a72cfa4db58378db6f38f9401e71676c9ef139b96cc",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/tui/main.mjs": "9eb8cee40880e34cc0d6c593479b596a02fcbeb8ea00762e1cfb0291ffa9f33c",
+      "hephaestus-v0.1.0-macos-arm64/hephaestus/share/hephaestus/web/main.mjs": "9eb8cee40880e34cc0d6c593479b596a02fcbeb8ea00762e1cfb0291ffa9f33c"
+    },
+    "builder_exit_code": 0,
+    "installed_acceptance_exit_code": 0,
+    "architecture": "aarch64-apple-darwin",
+    "compiler": "Rust 1.88.0",
+    "bundled_node": true,
+    "provider_launches_during_acceptance": 0,
+    "native_intel_verified": false,
+    "published_download_verified": false,
+    "fresh_user_verified": false
+  },
+  "web_current_checks": {
+    "typecheck": true,
+    "tests_passed": 40,
+    "tests_failed": 0,
+    "bundle_build": true,
+    "log": "web-checks.txt"
+  },
+  "test_log_export_normalization": "Only trailing empty lines removed from four test logs; raw originals retained in owned local temporary directory."
+}

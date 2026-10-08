@@ -1,0 +1,9 @@
+{
+  "parent_total_latency_millis": 136720,
+  "candidate_total_latency_millis": 130974,
+  "parent_median_latency_millis": 5146.5,
+  "candidate_median_latency_millis": 5199.5,
+  "candidate_faster_pairs": 11,
+  "candidate_slower_pairs": 13,
+  "scope": "One arm-major sample; provider timing drift is confounded with role. No repeated/causal speed, USD, token or savings claim."
+}

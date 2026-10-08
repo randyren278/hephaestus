@@ -1,0 +1,37 @@
+{
+  "requested_model": "gpt-6.1-sol",
+  "provider": "codex",
+  "codex_version": "codex-cli 0.161.0",
+  "codex_sha256": "12ac11d2c7eee27cfae34393986d7b7c9ed0dea537cb749831cdd7033893e6de",
+  "api_keys_used": false,
+  "source_checkout_commit": "bf0c5011cc47e7a2e8c3984e8140868d65653929",
+  "source_revision": "6fe0b390137495c9b053dc5402a5b8f9115b8b1d",
+  "evaluation_id": "support-triage-live-2026-10-08-001",
+  "invocation_allowance": 48,
+  "evaluation_cli_exit_code": 0,
+  "graceful_restart_verified": true,
+  "replay_after_restart_verified": true,
+  "production_implementation_checkpoint": "ebbb21b",
+  "host_node": "22.22.2",
+  "auth_handoff": "Existing owner-only ChatGPT auth file, with explicit user authorization; no contents exported.",
+  "runs": 48,
+  "signed_success_receipts": 48,
+  "unique_environment_ids": [
+    "provider-v2.4c17036340d2e371864d371dc137e9b9b37c08788e51d327e28b66293944072c"
+  ],
+  "usd_available": false,
+  "token_counts_available_in_saved_evidence": false,
+  "browser_report_matches_evidence": true,
+  "browser_mobile_no_page_overflow": true,
+  "published_or_deployed": false,
+  "installed_binary_sha256": {
+    "heph": "f7228fef9f22a4bb5d93da9eedbbeac9b1402843ac251cd45ac992c3dc7dbe34",
+    "senate": "61204c87aebe58ce4eeeb825e6b87ba0a63e3f841a14c66ca9eb7e479a435337",
+    "hephaestus": "ede581f9ebf99e4a4c397661cc16b97f36a7affba587f221fb5b5e739fb9fdf2",
+    "hephaestusd": "5bfec7ec4044ebb66db5de422b588710c399fdead9cf53c3eeb965f880979bc8",
+    "hephaestus-reference-evaluator": "dc39814709f2b8c9ff212c9c4301114e8eabfb5f38ad6e9e342ab23f06c90bc8",
+    "hephaestus-reference-worker": "806765913fb1492545760a56a595f069672f0dd0aaa26b213fa597ff565b0204",
+    "hephaestus-process-guardian": "0cf82394aa5de90f05eab3f2920bad255fa81bcd54c36be5fa7c30450fa8d05a"
+  },
+  "total_runs_visible_after_restart": 48
+}

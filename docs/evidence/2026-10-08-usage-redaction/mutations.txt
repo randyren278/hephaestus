@@ -1,0 +1,49 @@
+root:    /private/tmp/heph-launch-guard-os2fxey_/checkout
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 120s
+baseline timeout: 900s
+
+baseline: unmutated suite is green
+
+RUN       sensitive-experience-field-persisted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    sensitive-experience-field-persisted crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       known-secret-literal-persisted   command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    known-secret-literal-persisted   crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       prefixed-provider-token-persisted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    prefixed-provider-token-persisted crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       provider-redaction-skipped       command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    provider-redaction-skipped       crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-counts-always-redacted     command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-counts-always-redacted     crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-exception-on-non-cost-traces command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-exception-on-non-cost-traces crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-credential-key-exempted    command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-credential-key-exempted    crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-count-nondigits-accepted   command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-count-nondigits-accepted   crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-count-overflow-accepted    command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-count-overflow-accepted    crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-count-leading-zero-accepted command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-count-leading-zero-accepted crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-secret-collision-partially-disclosed command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-secret-collision-partially-disclosed crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+RUN       usage-exception-on-experience-fields command=cargo test -p hephaestus-experience --quiet timeout=120s
+KILLED    usage-exception-on-experience-fields crates/hephaestus-experience/src/redaction.rs (timeout 120s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+sensitive-experience-field-persisted crates/hephaestus-experience/src/redaction.rs KILLED
+known-secret-literal-persisted   crates/hephaestus-experience/src/redaction.rs KILLED
+prefixed-provider-token-persisted crates/hephaestus-experience/src/redaction.rs KILLED
+provider-redaction-skipped       crates/hephaestus-experience/src/redaction.rs KILLED
+usage-counts-always-redacted     crates/hephaestus-experience/src/redaction.rs KILLED
+usage-exception-on-non-cost-traces crates/hephaestus-experience/src/redaction.rs KILLED
+usage-credential-key-exempted    crates/hephaestus-experience/src/redaction.rs KILLED
+usage-count-nondigits-accepted   crates/hephaestus-experience/src/redaction.rs KILLED
+usage-count-overflow-accepted    crates/hephaestus-experience/src/redaction.rs KILLED
+usage-count-leading-zero-accepted crates/hephaestus-experience/src/redaction.rs KILLED
+usage-secret-collision-partially-disclosed crates/hephaestus-experience/src/redaction.rs KILLED
+usage-exception-on-experience-fields crates/hephaestus-experience/src/redaction.rs KILLED
+
+12 mutations run, 12 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

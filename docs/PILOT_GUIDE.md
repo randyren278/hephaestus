@@ -90,6 +90,12 @@ reports no USD amount; a hosted zero can mean missing reporting. World cost
 and wall limits do not guarantee subscription quota or provider billing caps.
 Use your provider's usage statement to understand the actual expenditure.
 
+The [first real support-triage comparison](evidence/2026-10-08-live-codex/README.md)
+completed 48 Codex calls: both prompts scored 24/24 and the checklist did not
+pass the measured gates. The record includes the checked browser report and
+restart/replay evidence. It establishes this workflow on a public fictional
+pack; it does not establish an improvement, measured USD cost or customer value.
+
 If the evidence identifies a useful next change, use the guided Forge revision
 flow to bind a new prompt and hypothesis to the evaluated candidate's source
 Selection. Confirm its separate comparison and record assessment. Keep the

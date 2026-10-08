@@ -1,0 +1,486 @@
+{
+  "usd_available": false,
+  "token_counts_available_in_saved_evidence": false,
+  "observations": [
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-0",
+      "usage_artifact_id": "65b0d25309789cc03294c52329c78b3e71922e8ee4004045049d40636665a53f",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-1",
+      "usage_artifact_id": "1bb22bb96557981c2b2e52f71016efddef3205420fb48728fc7e35458a85690a",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-2",
+      "usage_artifact_id": "2eeee262ae7a7e44618b529c50e7559c4fa046ec50be1a9fa0312d75b46bd866",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-3",
+      "usage_artifact_id": "fcaf5dc4e142bea47124f885a54e8b62680b83d56f9c9a0ce3581226adaf2341",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-4",
+      "usage_artifact_id": "e118d1359790955448eadab90d5b277218b11cf503fa754025122e76f7b66aa1",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-5",
+      "usage_artifact_id": "b0144e9c01fe13b36f9e711cd5656fa5d51baa24314b1ef293dd7ba335a970fd",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-6",
+      "usage_artifact_id": "e1f425378b311f35a7725ab95de17406994900e97a75ea1395e748a8c27999f8",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-7",
+      "usage_artifact_id": "1e6d2ecd92aca5257414b17669e0f47545061cbbb6ddb40929ca90b21b3d86de",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-8",
+      "usage_artifact_id": "4df5c50267aaaa034b3c7db5ae85b5897791c7706c3c5fc53e62f974d40faabf",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-9",
+      "usage_artifact_id": "8fafb9d3a0d07ae6f7719fdcd41d4eaafc79ce72e437b5999cef543e02fbb9c4",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-10",
+      "usage_artifact_id": "adc433ef8238a5a3b640472ec6d4bcf513f9dc41e237de06aea4d0292a035ed7",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-11",
+      "usage_artifact_id": "200a09249e6e2e98666313a8018534ee3778358c86aba78bae88707476412bf9",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-12",
+      "usage_artifact_id": "2c7289d9fbaca64d36efae870df6212216e02fd1c946237ef0154afcd782cc53",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-13",
+      "usage_artifact_id": "46d57510fa4f6520f5ea947a0c086763a3a735658e8073fd2e80e17019c97218",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-14",
+      "usage_artifact_id": "f433b4cb3c3a0418e5d5ae679b6a9e22d497369da3a2008ea35137fbce39b47d",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-15",
+      "usage_artifact_id": "c8bd4aa1fd8dd838adcf2872885ea9706b3c03d6563d2c7484ad9f09f11407b8",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-16",
+      "usage_artifact_id": "699648745bd923caf939fd6b741462a618bc5f567be4771b18516772fb48fe48",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-17",
+      "usage_artifact_id": "d4987fe2be1ffb671a0349dc5426c98a6d85e2c82db8faa386e1793581b1f035",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-18",
+      "usage_artifact_id": "04e64273fb8ec9f56e6fe2f8244d62a404e69e8aa0188a07a277950dae89dd50",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-19",
+      "usage_artifact_id": "d2201aea201ac4a2b5573135b6b330a2558da85f6f2d9e50aa9a74c3d111ad55",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-20",
+      "usage_artifact_id": "2984f9e80a846fcc0e79fec4e77bd3666a406e6028a349052b7a0ffb2a031397",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-21",
+      "usage_artifact_id": "e9f8e31381fa1901fcb37d058e0196b9489110cf7880b8bbcfa2fb1473fbf51c",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-22",
+      "usage_artifact_id": "23e059b822b26c77f1456f904fd274da950ef29883e7843c2f81bf4f8fac9644",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-parent-23",
+      "usage_artifact_id": "3ba72458c2f56ba475c43ce2390b105a79e94cec4c3e0fce5fa2fe65ebfb8243",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-0",
+      "usage_artifact_id": "3eb6369bd71d50ca614ac9c958d6199b7c5748aec4a93e1dcc6c2ba266833eb7",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-1",
+      "usage_artifact_id": "4c657bec0b3e0bb7b19e0408bb9eb07b2e57448776ac57c7f12a44bbef4745ac",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-2",
+      "usage_artifact_id": "7aedfa7467d032d936396fb009fd9ce8000a24041f604f5e4d4051379cbf258c",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-3",
+      "usage_artifact_id": "b829592eceaec29aaac00fa2907d28d951aa5c88f35a890b3a05c0d95dd1daa6",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-4",
+      "usage_artifact_id": "b4c386060166dd22ca169f99f0906f697fc0d2e0a1748b5ae868d2abb017bfb6",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-5",
+      "usage_artifact_id": "d77405c2634edbccfa2da51e595fcfbccad4f9ac5144e288ced64a4f37979e15",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-6",
+      "usage_artifact_id": "2db94dde0c2790216b562836d6f318554625222e61ac8323d6c573b342289278",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-7",
+      "usage_artifact_id": "132202ec4a317ef85a17140cccef4d9c3129a1e526409a42e4ac1b2a13f1ef09",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-8",
+      "usage_artifact_id": "91d249d3621a3e1695e9d9ba22d936e6634160122a739c8e2ecffd8be812b534",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-9",
+      "usage_artifact_id": "4cc6c28008aaaaab4d4734894f040e7e71cd86826eaf6c5bc35b7e4704a12955",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-10",
+      "usage_artifact_id": "c16f71b7c5d2fade421f1db969943842a740a7bc24ebae0bcccda440a98ad98a",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-11",
+      "usage_artifact_id": "2f263e77772ed632ea50025820a49cc2fee4c0e88dad40e8c0b457c63b554227",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-12",
+      "usage_artifact_id": "928b7f49b5cbb5a8723685d22dcc868dcfd795d3a311feefe80c5426d2c08139",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-13",
+      "usage_artifact_id": "3f94e0de1f93e852141a811b72f65d93398ce65ca93ed6de85897cc89f2a5dee",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-14",
+      "usage_artifact_id": "bbedb2878c997515775d96d597bf93656220afca63f7802d0b423d8f2c35d993",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-15",
+      "usage_artifact_id": "1f41c2ab297aa3880806293d46b9bc7293591de5454ce845e8b9fce30723c8a5",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-16",
+      "usage_artifact_id": "7de9d3cf4734138c3026a9675a5bf6891c0eeb818c96674d0316b8689030693e",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-17",
+      "usage_artifact_id": "dfb832eacd440542198eb5e848042b27dcfbfc232e68bc759da2a7ba406e0b19",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-18",
+      "usage_artifact_id": "4fcbed0d44588aeca3ebff3c3d3b6c57e0326008ad0564fd1ad7d4a81a2a3ac9",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-19",
+      "usage_artifact_id": "fed555d9f03c3f8a2ad841513718f37423fa506c04b010febc4e1a9e64c2c020",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-20",
+      "usage_artifact_id": "189b829777eb0fd1d15f8ce003a0ba4199a49f5dc074040076418ed940c3ddd7",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-21",
+      "usage_artifact_id": "b3bd5992d7a5d6e5b7d8805ca053e43446e18620a5b329235eec80b5d586f3a2",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-22",
+      "usage_artifact_id": "03a2e4aafb04a5c09b6e7fec1c219964639b66fbfd3cc62207f946058d72035c",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    },
+    {
+      "run_id": "paired-51f050c57097ad5d081383a4-candidate-23",
+      "usage_artifact_id": "b83b3cf6b18fe0b2171b5e20513a811a90513f60e7bc818884681e9dff83811f",
+      "token_counts": {
+        "input_tokens": "[REDACTED]",
+        "cached_input_tokens": "[REDACTED]",
+        "output_tokens": "[REDACTED]",
+        "reasoning_output_tokens": "[REDACTED]"
+      }
+    }
+  ]
+}

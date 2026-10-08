@@ -1,0 +1,82 @@
+   Compiling hephaestus-experience v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-experience)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.95s
+     Running unittests src/lib.rs (/tmp/heph-launch-guard-os2fxey_/target/debug/deps/hephaestus_experience-9b449f6f9f71769b)
+
+running 3 tests
+test redaction::tests::generic_fields_do_not_get_the_cost_trace_usage_exception ... ok
+test redaction::tests::redact_text_matches_known_secrets_and_prefixed_tokens ... ok
+test integration::tests::clock_status_and_sequence_edges_fail_or_map_explicitly ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/evidence_contracts.rs (/tmp/heph-launch-guard-os2fxey_/target/debug/deps/evidence_contracts-5e45b7a2c21527bc)
+
+running 25 tests
+test experience_cannot_cite_unrelated_ledger_events ... ok
+test invalid_provenance_experience_shapes_and_limits_fail_closed ... ok
+test experience_cannot_claim_provenance_different_from_its_source ... ok
+test channel_sink_waits_for_canonical_writer_acknowledgement ... ok
+test rejected_evidence_requests_release_both_waiting_executor_paths ... ok
+test numeric_usage_values_still_redact_known_secret_collisions ... ok
+test provider_usage_counters_survive_redacted_persistence_and_restart ... ok
+test experiences_require_verified_sources_and_keep_contradictions_explicit ... ok
+test retention_and_record_size_limits_survive_restart ... ok
+test trusted_experience_rehydrates_exact_redacted_evidence_after_restart ... ok
+test trusted_experience_rehydrates_experience_source_chains ... ok
+test trusted_experience_rejects_forged_envelope_and_receipt_artifact_mismatch ... ok
+test trusted_experience_rejects_forward_source_reference ... ok
+test traces_cover_observable_runtime_events_and_redact_before_persistence ... ok
+test trusted_experience_rejects_missing_and_tampered_primary_artifact ... ok
+test trusted_experience_rejects_invalid_deserialized_receipt_semantics ... ok
+test trusted_experience_rejects_noncanonical_primary_artifact ... ok
+test trusted_experience_rejects_missing_source_and_evidence_artifacts ... ok
+test trusted_experience_rejects_noncanonical_receipt_and_unknown_exact_source ... ok
+test trusted_experience_rejects_source_provenance_mismatch ... ok
+test trusted_experience_rejects_unrelated_source_event_types ... ok
+test writer_does_not_acknowledge_failed_capacity_reservation ... ok
+test trusted_experience_rejects_forged_trace_envelopes_and_artifacts ... ok
+test trusted_experience_rehydrates_shared_ancestry_without_recursive_expansion ... ok
+test usage_exception_rejects_credentials_malformed_counts_and_other_trace_kinds ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests/run_result_contracts.rs (/tmp/heph-launch-guard-os2fxey_/target/debug/deps/run_result_contracts-32cb490ef2c134ce)
+
+running 12 tests
+test confirmed_provider_failure_can_be_signed_and_replayed ... ok
+test canonical_receipt_round_trips_from_derived_event_envelope ... ok
+test a_verifier_that_already_authenticated_an_event_still_rejects_edited_copies ... ok
+test correct_actor_forgery_and_wrong_key_are_rejected ... ok
+test operator_interrupt_receipt_is_signed_and_cannot_be_upgraded_to_success ... ok
+test latency_contract_accepts_long_evaluations_and_rejects_above_shared_limit ... ok
+test signature_cannot_be_copied_to_different_valid_claims ... ok
+test parser_rejects_forged_event_envelopes ... ok
+test signer_is_deterministic_and_verifier_round_trips_from_public_bytes ... ok
+test signature_binds_timestamp_envelope_and_every_claim ... ok
+test supervisor_wall_and_io_failures_can_be_signed_and_replayed ... ok
+test parser_rejects_unknown_schema_fields_and_invalid_runtime_claims ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/runtime_evidence_e2e.rs (/tmp/heph-launch-guard-os2fxey_/target/debug/deps/runtime_evidence_e2e-0a56ffb7b54b8f2c)
+
+running 10 tests
+test failed_containment_remains_addressable_until_termination_is_confirmed ... ok
+test interrupt_records_natural_completion_race_and_terminal_state_is_closed ... ok
+test adapter_failures_are_recorded_and_denials_never_become_active ... ok
+test output_budget_reason_comes_from_runtime_snapshot ... ok
+test real_offline_run_emits_provider_observations_and_truthful_terminal_evidence ... ok
+test running_polls_preserve_the_reserved_terminal_slot ... ok
+test terminal_state_is_not_closed_when_canonical_append_fails ... ok
+test runtime_operation_failures_remain_evidence_backed ... ok
+test unpersisted_observations_cannot_be_lost_before_terminal_evidence ... ok
+test evidence_and_adapter_protocol_failures_fail_closed ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+   Doc-tests hephaestus_experience
+
+running 1 test
+test crates/hephaestus-experience/src/record.rs - record::TrustedExperience (line 249) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s

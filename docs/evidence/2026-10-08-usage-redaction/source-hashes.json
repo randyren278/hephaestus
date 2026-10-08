@@ -1,0 +1,9 @@
+{
+  "checks/checks.json": "fa3cbab11c3490adf755203d3bca47467896705f6fd77fab209851b49f246c98",
+  "crates/hephaestus-experience/src/redaction.rs": "474b70af15ef3aaee252acce08a3dc5b4f507acc3eba5c9887b797cbd5989645",
+  "crates/hephaestus-experience/src/recorder.rs": "d4bf55c45c22db6171b8ce1bce0c6db4ee6ccb5b93fb42fbcceeb6f06cd1bc1a",
+  "crates/hephaestus-experience/tests/evidence_contracts.rs": "258f635a65d45ea1dbf941f00cbe5b51aa9edd408a8f2487a0104e079a6a895d",
+  ".github/workflows/ci.yml": "d629226f7b199e193a1a2f3706d2b0f1008dc83034636ec55b49e38fe9ff5a38",
+  "python/tests/test_mutation_guard.py": "e5070ad0ee428f83599805ff72fa011d7caabe936530ed7e86bf1bf703224c83",
+  "apps/hephaestus-web/src/web/comparison.ts": "3a81b8df0effe49d6e843aa1513f5ef78055aa6482a61798afd7e7dccf720a4e"
+}

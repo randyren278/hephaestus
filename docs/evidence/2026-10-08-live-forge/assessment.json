@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "request_id": "cli-29875-1791491526779112000",
+  "data": {
+    "type": "forge_assessment",
+    "assessment": {
+      "payload": {
+        "schema_version": 1,
+        "assessment_id": "support-triage-policy-reference-assessment-2026-10-08-001",
+        "proposal_id": "support-triage-policy-reference-2026-10-08-001",
+        "proposal_event_id": "forge:support-triage-policy-reference-2026-10-08-001:proposed",
+        "proposal_event_hash": "3ff98652114e45882fd879c16d6b108aad61d3790a2ad0a24ad68f0a9bec18bb",
+        "selection_event_id": "arena:selection:support-triage-forge-live-2026-10-08-002:selected",
+        "selection_event_hash": "bf3af7a5292a2d6a94fcadec2592ac30a0f1ec9d0e6cb8087b2499aa5108f2ff",
+        "selection_receipt_artifact_id": "0cfe4ef5609fb4d8ccaf91344f1196f815e85d953fa3e4fa5c1f5053f4cc4088",
+        "evaluation_id": "support-triage-forge-live-2026-10-08-002",
+        "evaluation_event_id": "arena:evaluation:support-triage-forge-live-2026-10-08-002:recorded",
+        "evaluation_event_hash": "8714398af29a70b13752da9c0e7101f52a0aaeff88dee21c5f9e4ef719190ad3",
+        "world_id": "hephaestus:world:52808099164ea7b750aeedfb7ce533b4fe87f592bef899ad1a25ad2a86417c8b",
+        "parent_genome_id": "hephaestus:genome:16b720b7049593d9a42370ec172e785b4b4ecd4539a80775793cdb7beb9626f8",
+        "child_genome_id": "hephaestus:genome:54d0d400b0f8367de74695fbf81936d6d6d147cc31cb470701377a453c177b17",
+        "outcome": "metrics_rejected",
+        "invariant_gate_verified": false,
+        "promotion_eligible": false
+      },
+      "event": {
+        "sequence": 5293,
+        "event_id": "forge-assessment:support-triage-policy-reference-assessment-2026-10-08-001:recorded",
+        "aggregate_id": "forge:support-triage-policy-reference-2026-10-08-001",
+        "event_hash": "cd3fc9199678a8aa13b32b56bdb939e63aedb1538a68321d086d1969ad06df98"
+      }
+    }
+  }
+}

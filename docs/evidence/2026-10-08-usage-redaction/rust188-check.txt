@@ -1,0 +1,78 @@
+   Compiling proc-macro2 v1.0.107
+    Checking cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+    Checking bitflags v2.13.1
+    Checking zmij v1.0.23
+   Compiling serde_json v1.0.151
+    Checking memchr v2.8.3
+    Checking anstyle v1.0.14
+    Checking itoa v1.0.18
+    Checking typenum v1.20.1
+    Checking foldhash v0.1.5
+    Checking smallvec v1.15.2
+    Checking hashbrown v0.15.5
+   Compiling autocfg v1.5.1
+    Checking constant_time_eq v0.4.2
+    Checking arrayvec v0.7.8
+    Checking libsqlite3-sys v0.35.0
+    Checking blake3 v1.8.7
+    Checking fallible-iterator v0.3.0
+   Compiling num-traits v0.2.19
+    Checking utf8parse v0.2.2
+    Checking fallible-streaming-iterator v0.1.9
+    Checking anstyle-parse v1.0.0
+   Compiling syn v3.0.3
+    Checking encoding_rs v0.8.35
+    Checking unicode-width v0.2.2
+    Checking hashlink v0.10.0
+    Checking arraydeque v0.5.1
+    Checking generic-array v0.14.7
+    Checking anstyle-query v1.1.5
+    Checking is_terminal_polyfill v1.70.2
+    Checking subtle v2.6.1
+    Checking zeroize v1.9.0
+    Checking rusqlite v0.37.0
+    Checking colorchoice v1.0.5
+    Checking signature v2.2.0
+    Checking anstream v1.0.0
+    Checking ed25519 v2.2.3
+    Checking annotate-snippets v0.12.16
+    Checking granit-parser v1.1.0
+    Checking block-buffer v0.10.4
+    Checking errno v0.3.14
+    Checking crypto-common v0.1.7
+    Checking cpufeatures v0.2.17
+    Checking rustix v0.38.44
+    Checking digest v0.10.7
+    Checking curve25519-dalek v4.1.3
+    Checking sha2 v0.10.9
+    Checking nohash-hasher v0.2.0
+   Compiling heck v0.5.0
+    Checking clap_lex v1.1.0
+    Checking strsim v0.11.1
+    Checking base64 v0.23.1
+    Checking getrandom v0.4.3
+    Checking clap_builder v4.6.6
+    Checking encoding_rs_io v0.1.8
+    Checking rustix v1.1.4
+    Checking ed25519-dalek v2.2.0
+    Checking fastrand v2.5.0
+    Checking once_cell v1.21.4
+    Checking fs2 v0.4.3
+    Checking serde-saphyr v1.1.0
+    Checking tempfile v3.27.0
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.4
+    Checking clap v4.6.6
+    Checking serde v1.0.229
+    Checking hephaestus-core v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-core)
+    Checking hephaestus-ledger v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-ledger)
+    Checking hephaestus-senate v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-senate)
+    Checking hephaestus-runtime v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-runtime)
+    Checking hephaestus-genome v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-genome)
+    Checking hephaestus-experience v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-experience)
+    Checking hephaestus-arena v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-arena)
+    Checking hephaestus-control v0.1.0 (/private/tmp/heph-launch-guard-os2fxey_/checkout/crates/hephaestus-control)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.67s
