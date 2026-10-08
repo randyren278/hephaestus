@@ -1,6 +1,8 @@
 //! Async reference/candidate/provider execution helpers, executable/digest
 //! resolution, and run-id/hex encoding utilities, split out of server.rs.
 
+use std::{io::Read, os::unix::fs::OpenOptionsExt};
+
 use super::{
     Arc, ArenaTrialSpec, ArenaWorkerMessage, ArtifactBackend, AsyncArenaTrialLaunch,
     AsyncReferenceLaunch, CapabilityToken, CompletionReason, ControlError, DeterministicRuntime,
@@ -35,14 +37,35 @@ pub(super) fn read_bounded_file(path: &str, limit: u64) -> Result<Vec<u8>, Execu
     if !path.is_absolute() {
         return Err(ExecuteError::Invalid("path must be absolute"));
     }
-    let metadata = fs::metadata(path).map_err(|_| ExecuteError::Invalid("file is not readable"))?;
+    // Open once, without blocking on a FIFO swapped in for a regular file.
+    // Metadata and the bounded read then refer to the same open handle.
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| ExecuteError::Invalid("file is not readable"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| ExecuteError::Invalid("file is not readable"))?;
     if !metadata.is_file() {
         return Err(ExecuteError::Invalid("path is not a regular file"));
     }
     if metadata.len() > limit {
         return Err(ExecuteError::Invalid("file exceeds the size limit"));
     }
-    fs::read(path).map_err(|_| ExecuteError::Invalid("file is not readable"))
+    read_bounded_stream(file, limit)
+}
+
+fn read_bounded_stream(reader: impl Read, limit: u64) -> Result<Vec<u8>, ExecuteError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| ExecuteError::Invalid("file is not readable"))?;
+    if u64::try_from(bytes.len()).map_err(|_| ExecuteError::Internal)? > limit {
+        return Err(ExecuteError::Invalid("file exceeds the size limit"));
+    }
+    Ok(bytes)
 }
 
 pub(super) struct ReferenceExecution {
@@ -860,8 +883,88 @@ pub(super) fn persist_reference_output(
 mod runtime_exec_unit_tests {
     use super::{
         RedactionPolicy, default_evaluator_executable, default_process_guardian_executable,
-        default_reference_worker_executable, hex_decode_bytes, redact_bytes,
+        default_reference_worker_executable, hex_decode_bytes, read_bounded_stream, redact_bytes,
     };
+
+    #[test]
+    fn bounded_reader_limits_reads_even_when_metadata_underestimates_size() {
+        let mut source = std::io::Cursor::new(vec![b'x'; 1024]);
+        assert!(read_bounded_stream(&mut source, 32).is_err());
+        assert_eq!(source.position(), 33, "read only one byte past the limit");
+        assert_eq!(
+            read_bounded_stream(std::io::Cursor::new(vec![b'x'; 32]), 32).unwrap(),
+            vec![b'x'; 32]
+        );
+        assert!(read_bounded_stream(std::io::Cursor::new(vec![b'x']), 0).is_err());
+        assert!(
+            read_bounded_stream(std::io::Cursor::new(Vec::<u8>::new()), 0)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    fn fifo_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("source.fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        (directory, fifo)
+    }
+
+    fn read_fifo_with_deadline(
+        fifo: &std::path::Path,
+        read: impl FnOnce(String) -> Result<Vec<u8>, super::ExecuteError> + Send + 'static,
+    ) -> Option<Result<Vec<u8>, super::ExecuteError>> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = fifo.display().to_string();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || sender.send(read(path)).unwrap());
+        let timely = receiver.recv_timeout(std::time::Duration::from_secs(1));
+        // Unblock a regressed blocking open so mutation checks fail promptly
+        // instead of leaving a stalled test process.
+        if timely.is_err() {
+            let writer = std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(fifo)
+                .unwrap();
+            drop(writer);
+            let _ = receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap();
+        }
+        reader.join().unwrap();
+        timely.ok()
+    }
+
+    #[test]
+    fn bounded_file_reader_rejects_a_fifo_without_waiting_for_a_writer() {
+        let (_directory, fifo) = fifo_fixture();
+        assert!(matches!(
+            read_fifo_with_deadline(&fifo, |path| super::read_bounded_file(&path, 32)),
+            Some(Err(super::ExecuteError::Invalid(
+                "path is not a regular file"
+            )))
+        ));
+    }
+
+    #[test]
+    fn fifo_deadline_fixture_releases_an_intentionally_blocked_reader() {
+        let (_directory, fifo) = fifo_fixture();
+        assert!(
+            read_fifo_with_deadline(&fifo, |path| {
+                let _file = std::fs::File::open(path).unwrap();
+                Ok(Vec::new())
+            })
+            .is_none(),
+            "the cleanup path must unblock and join a regressed reader"
+        );
+    }
 
     /// Not wired to any `ControlPlane` fixture (every existing test supplies
     /// its own evaluator/worker/guardian executables explicitly), so the

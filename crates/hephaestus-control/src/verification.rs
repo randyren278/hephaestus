@@ -3,6 +3,10 @@
 //! proposal/assessment payload construction, evolution id builders, and
 //! command-field validation, split out of server.rs.
 
+use super::forge_revision::{
+    ForgeProposalKind, decode_forge_proposal_kind, validate_revision_event, verify_revision,
+};
+
 use super::{
     ArenaError, ArtifactBackend, ArtifactId, BTreeMap, BTreeSet, CHAMPION_EVENT_TYPE,
     CLUSTER_EVENT_PREFIX, ChampionTransitionPayload, ClusterAnalysis, ClusterEvent, Command,
@@ -345,9 +349,12 @@ pub(super) fn verify_forge_history_with(
         .iter()
         .filter(|event| event.event_type == "forge.proposed")
     {
-        let payload = decode_forge_proposal(event)?;
-        validate_forge_event(event, &payload)?;
-        if !proposal_ids.insert(payload.proposal_id.clone()) {
+        let proposal = decode_forge_proposal_kind(event)?;
+        match &proposal {
+            ForgeProposalKind::Catalog(payload) => validate_forge_event(event, payload)?,
+            ForgeProposalKind::Revision(payload) => validate_revision_event(event, payload)?,
+        }
+        if !proposal_ids.insert(proposal.proposal_id().to_owned()) {
             return Err(ControlError::Projection(
                 "Forge proposal id was recorded more than once".to_owned(),
             ));
@@ -356,6 +363,14 @@ pub(super) fn verify_forge_history_with(
             continue;
         }
         let index = index.get_or_insert_with(|| EventIndex::build(history));
+        let payload = match proposal {
+            ForgeProposalKind::Catalog(payload) => payload,
+            ForgeProposalKind::Revision(payload) => {
+                verify_revision(artifacts, index, registered, event, &payload)?;
+                cache.insert("forge", event);
+                continue;
+            }
+        };
         let selection_event = index
             .get(&payload.selection_event_id)
             .filter(|selection| selection.sequence < event.sequence)
@@ -478,17 +493,43 @@ pub(super) fn verify_forge_prompt(
     Ok(())
 }
 
+pub(super) struct ForgeChildBinding<'a> {
+    pub(super) proposal_id: &'a str,
+    pub(super) parent_genome_id: &'a str,
+    pub(super) prompt_artifact_after: &'a str,
+    pub(super) world_id: &'a str,
+    pub(super) child: &'a GenomeRecord,
+}
+
 pub(super) fn verify_forge_child_compiles(
     artifacts: &dyn ArtifactBackend,
     registered: &RegisteredObjects,
     payload: &ForgeProposalPayload,
     world: &CompiledWorld,
 ) -> Result<(), ControlError> {
-    let parent = registered
-        .genome(&payload.parent_genome_id)
-        .ok_or_else(|| {
-            ControlError::Projection("Forge proposal parent is not registered".to_owned())
-        })?;
+    verify_forge_child_source(
+        artifacts,
+        registered,
+        &ForgeChildBinding {
+            proposal_id: &payload.proposal_id,
+            parent_genome_id: &payload.parent_genome_id,
+            prompt_artifact_after: &payload.prompt_artifact_after,
+            world_id: &payload.world_id,
+            child: &payload.child,
+        },
+        world,
+    )
+}
+
+pub(super) fn verify_forge_child_source(
+    artifacts: &dyn ArtifactBackend,
+    registered: &RegisteredObjects,
+    payload: &ForgeChildBinding<'_>,
+    world: &CompiledWorld,
+) -> Result<(), ControlError> {
+    let parent = registered.genome(payload.parent_genome_id).ok_or_else(|| {
+        ControlError::Projection("Forge proposal parent is not registered".to_owned())
+    })?;
     let child = registered.genome(&payload.child.genome_id).ok_or_else(|| {
         ControlError::Projection("Forge proposal child is not registered".to_owned())
     })?;
@@ -508,7 +549,7 @@ pub(super) fn verify_forge_child_compiles(
     object.insert(
         "parents".to_owned(),
         serde_json::Value::Array(vec![serde_json::Value::String(
-            payload.parent_genome_id.clone(),
+            payload.parent_genome_id.to_owned(),
         )]),
     );
     object
@@ -517,7 +558,7 @@ pub(super) fn verify_forge_child_compiles(
         .ok_or(ControlError::Protocol("Forge parent artifacts are invalid"))?
         .insert(
             "agent.prompt".to_owned(),
-            serde_json::Value::String(payload.prompt_artifact_after.clone()),
+            serde_json::Value::String(payload.prompt_artifact_after.to_owned()),
         );
     let source = serde_json::to_string(&expected_source)?;
     let parents = registered
@@ -547,8 +588,13 @@ pub(super) fn existing_forge_response(
         .iter()
         .filter(|event| event.event_type == "forge.proposed")
     {
-        let existing = decode_forge_proposal(event).map_err(|_| ExecuteError::Internal)?;
-        if existing.proposal_id == payload.proposal_id {
+        let existing = decode_forge_proposal_kind(event).map_err(|_| ExecuteError::Internal)?;
+        if existing.proposal_id() == payload.proposal_id {
+            let ForgeProposalKind::Catalog(existing) = existing else {
+                return Err(ExecuteError::Rejected(
+                    "proposal_id is already bound to a revision proposal".to_owned(),
+                ));
+            };
             if existing != *payload {
                 return Err(ExecuteError::Rejected(
                     "proposal_id is already bound to different proposal content".to_owned(),
@@ -588,6 +634,11 @@ pub(super) fn decode_forge_proposal(
 ) -> Result<ForgeProposalPayload, ControlError> {
     let payload = serde_json::from_slice::<ForgeProposalPayload>(&event.payload)
         .map_err(|_| ControlError::Projection("Forge proposal payload is invalid".to_owned()))?;
+    if payload.schema_version != 1 {
+        return Err(ControlError::Projection(
+            "Forge catalog proposal schema is invalid".to_owned(),
+        ));
+    }
     let canonical_value = serde_json::to_value(&payload)?;
     if serde_json::to_vec(&canonical_value)? != event.payload {
         return Err(ControlError::Projection(
@@ -755,9 +806,14 @@ pub(super) fn forge_assessment_payload(
     let proposal_event = index
         .get(&proposal_event_id)
         .ok_or(ExecuteError::NotFound)?;
-    let proposal = decode_forge_proposal(proposal_event).map_err(|_| ExecuteError::Internal)?;
-    validate_forge_event(proposal_event, &proposal).map_err(|_| ExecuteError::Internal)?;
-    if proposal.proposal_id != proposal_id {
+    let proposal =
+        decode_forge_proposal_kind(proposal_event).map_err(|_| ExecuteError::Internal)?;
+    match &proposal {
+        ForgeProposalKind::Catalog(payload) => validate_forge_event(proposal_event, payload),
+        ForgeProposalKind::Revision(payload) => validate_revision_event(proposal_event, payload),
+    }
+    .map_err(|_| ExecuteError::Internal)?;
+    if proposal.proposal_id() != proposal_id {
         return Err(ExecuteError::Internal);
     }
 
@@ -799,9 +855,9 @@ pub(super) fn forge_assessment_payload(
     }
     if routed_evaluation_id != receipt.evaluation_id()
         || routed_world_id != receipt.world_id()
-        || receipt.world_id() != proposal.world_id
-        || receipt.parent_genome_id() != proposal.parent_genome_id
-        || receipt.candidate_genome_id() != proposal.child.genome_id
+        || receipt.world_id() != proposal.world_id()
+        || receipt.parent_genome_id() != proposal.parent_genome_id()
+        || receipt.candidate_genome_id() != proposal.child().genome_id
     {
         return Err(ExecuteError::Rejected(
             "selection evidence does not match the proposed child".to_owned(),
@@ -914,7 +970,7 @@ pub(super) fn evolution_candidate_assessment_id(
     }
 }
 
-fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
+pub(super) fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
     if hypothesis.trim().is_empty()
         || hypothesis.len() > 512
         || hypothesis.chars().any(char::is_control)
@@ -926,7 +982,7 @@ fn validate_hypothesis(hypothesis: &str) -> Result<(), ExecuteError> {
     Ok(())
 }
 
-fn verified_prompt_bytes(
+pub(super) fn verified_prompt_bytes(
     artifacts: &dyn ArtifactBackend,
     artifact_id: &str,
 ) -> Result<Vec<u8>, ControlError> {
@@ -1003,9 +1059,24 @@ pub(super) fn verified_forge_source(
     selection_event_id: &str,
     parent_genome_id: &str,
 ) -> Result<(String, String, String), ExecuteError> {
-    let event = history
-        .iter()
-        .find(|event| event.event_id == selection_event_id)
+    verified_forge_source_in(
+        artifacts,
+        &EventIndex::build(history),
+        registered,
+        selection_event_id,
+        parent_genome_id,
+    )
+}
+
+pub(super) fn verified_forge_source_in(
+    artifacts: &dyn ArtifactBackend,
+    index: &EventIndex<'_>,
+    registered: &RegisteredObjects,
+    selection_event_id: &str,
+    parent_genome_id: &str,
+) -> Result<(String, String, String), ExecuteError> {
+    let event = index
+        .get(selection_event_id)
         .ok_or(ExecuteError::NotFound)?;
     if event.event_type != "selection.recorded" {
         return Err(ExecuteError::Rejected(
@@ -1015,13 +1086,8 @@ pub(super) fn verified_forge_source(
     let (evaluation_id, world_id) =
         selection_event_references(event).map_err(|_| ExecuteError::Internal)?;
     let world = registered.world(&world_id).ok_or(ExecuteError::Internal)?;
-    let selection = verify_selection_event_in(
-        &EventIndex::build(history),
-        artifacts,
-        event,
-        world.compiled(),
-    )
-    .map_err(|_| ExecuteError::Internal)?;
+    let selection = verify_selection_event_in(index, artifacts, event, world.compiled())
+        .map_err(|_| ExecuteError::Internal)?;
     let receipt = selection.receipt().clone();
     let selection_hash = selection.event().event_hash.clone();
     if receipt.evaluation_id() != evaluation_id
@@ -1597,6 +1663,26 @@ pub(super) fn require_command_fields(command: &Command) -> Result<(), ExecuteErr
                 ));
             }
         }
+    }
+    if let Command::GenomeRevise {
+        proposal_id,
+        selection_event_id,
+        parent_genome_id,
+        prompt_path,
+        hypothesis,
+    } = command
+    {
+        validate_job_id(proposal_id)
+            .map_err(|_| ExecuteError::Invalid("proposal_id is invalid"))?;
+        if selection_event_id.trim().is_empty() || parent_genome_id.trim().is_empty() {
+            return Err(ExecuteError::Invalid(
+                "selection_event_id and parent_genome_id are required",
+            ));
+        }
+        if prompt_path.trim().is_empty() {
+            return Err(ExecuteError::Invalid("prompt_path is required"));
+        }
+        validate_hypothesis(hypothesis)?;
     }
     if let Command::GenomeAssess {
         assessment_id,

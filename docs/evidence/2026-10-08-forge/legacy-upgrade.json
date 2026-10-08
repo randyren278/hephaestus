@@ -1,0 +1,82 @@
+{
+  "legacy_commit": "7bf55d0",
+  "binary_sha256": {
+    "hephaestus": "62d94f4bf8131da533971cfbeed90d12c4d1a21259341449fabb50d310660b3f",
+    "hephaestusd": "713aa86ff0404ae99f982fae746ad33e7336ad4da51fa921751fed9462b3deb0",
+    "reference-evaluator": "a6d7fa86962c0a912cd5bf25de1340e7ef2e2a9b29a685618887c3658aad80b6",
+    "reference-worker": "6ad55ae63dca94168eaa920a67d06631b8c3e0d961b29fe21f1026bfa41d911b"
+  },
+  "catalog_proposal": {
+    "payload": {
+      "schema_version": 1,
+      "proposal_id": "old-catalog",
+      "selection_event_id": "arena:selection:catalog-source:selected",
+      "selection_event_hash": "6459a25fa97890a27f23d9228e504e70d7c38a29ec1cb2a34001eb111499866b",
+      "evaluation_id": "catalog-source",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+      "parent_genome_id": "hephaestus:genome:cb00050f76c71f8d17e3aaa758c1e9c6db57ddbeeaa86ddf04964922720666db",
+      "child": {
+        "genome_id": "hephaestus:genome:d2c8e515d6985c411ed5d8ffc1b0933ee499c60bd1b26ea1378a1e0ef5c78462",
+        "name": "upgrade-candidate-forge-old-catalog",
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+        "artifact_id": "d2c8e515d6985c411ed5d8ffc1b0933ee499c60bd1b26ea1378a1e0ef5c78462",
+        "parent_ids": [
+          "hephaestus:genome:cb00050f76c71f8d17e3aaa758c1e9c6db57ddbeeaa86ddf04964922720666db"
+        ]
+      },
+      "hypothesis": "Explicit uppercase operation should improve correctness.",
+      "artifact_name": "agent.prompt",
+      "prompt_artifact_before": "990805e8205fc899e677c51fa07da82473b079263e71867258ab32d83e2c869f",
+      "prompt_artifact_after": "3410b9435bf405ff3b0b198974a85ba2e24c1c3adf3e5c3bbf2ca3041e300cee",
+      "operation_before": "identity",
+      "operation_after": "ascii_uppercase",
+      "analysis_binding": null,
+      "catalog_version": 1,
+      "mutation_kind": "flip"
+    },
+    "event": {
+      "sequence": 41,
+      "event_id": "forge:old-catalog:proposed",
+      "aggregate_id": "forge:old-catalog",
+      "event_hash": "2a3f7fdf76d97cb57e366a527852b3e7d19588122e9f3ff3853fa18f0ec88fa3"
+    },
+    "promotion_eligible": false
+  },
+  "catalog_bytes": {
+    "payload": {
+      "analysis_binding": null,
+      "artifact_name": "agent.prompt",
+      "catalog_version": 1,
+      "child": {
+        "artifact_id": "d2c8e515d6985c411ed5d8ffc1b0933ee499c60bd1b26ea1378a1e0ef5c78462",
+        "genome_id": "hephaestus:genome:d2c8e515d6985c411ed5d8ffc1b0933ee499c60bd1b26ea1378a1e0ef5c78462",
+        "name": "upgrade-candidate-forge-old-catalog",
+        "parent_ids": [
+          "hephaestus:genome:cb00050f76c71f8d17e3aaa758c1e9c6db57ddbeeaa86ddf04964922720666db"
+        ],
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0"
+      },
+      "evaluation_id": "catalog-source",
+      "hypothesis": "Explicit uppercase operation should improve correctness.",
+      "mutation_kind": "flip",
+      "operation_after": "ascii_uppercase",
+      "operation_before": "identity",
+      "parent_genome_id": "hephaestus:genome:cb00050f76c71f8d17e3aaa758c1e9c6db57ddbeeaa86ddf04964922720666db",
+      "prompt_artifact_after": "3410b9435bf405ff3b0b198974a85ba2e24c1c3adf3e5c3bbf2ca3041e300cee",
+      "prompt_artifact_before": "990805e8205fc899e677c51fa07da82473b079263e71867258ab32d83e2c869f",
+      "proposal_id": "old-catalog",
+      "schema_version": 1,
+      "selection_event_hash": "6459a25fa97890a27f23d9228e504e70d7c38a29ec1cb2a34001eb111499866b",
+      "selection_event_id": "arena:selection:catalog-source:selected",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0"
+    },
+    "payload_sha256": "3c6aa835d5bec16d80fdba344870cd0b160b7b3a53b9d5812659f6e2a840d0d7"
+  },
+  "replay": {
+    "type": "replay",
+    "event_count": 42,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "83d34e3d6da233e4f85b3591e8204922b63175b6fab03dbeeaecf75a0585740b"
+  }
+}

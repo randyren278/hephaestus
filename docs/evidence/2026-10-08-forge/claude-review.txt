@@ -1,0 +1,31 @@
+I found no blocking issues in this checkpoint, but this is a read-only review: I didn't build or run the tests or the upgrade proof.
+
+**Retry and idempotency**
+- A retry of a revision compares the stored proposal with what was sent: selection, parent, hypothesis, and the content hash of the prompt file's current bytes (`forge_revision.rs:278-287`). If they match it returns the original recorded proposal unchanged. This is checked before the reserved-prefix check and before any artifact or Genome writes, so a retry has no side effects.
+- A proposal ID used for one kind of proposal is rejected for the other, in both directions: `forge_revision.rs:266` and `genome_ops.rs:188`, with a second check at `verification.rs:593`. That stops a revision and a schema-1 proposal from sharing an ID.
+- The reserved `evolve-` and `adapt-` prefixes cover all automatic proposal IDs, including `adaptation_proposal_id` at `adaptation.rs:62-63` and the evolution IDs at `verification.rs:912`. So a revision can never sit where `decode_forge_proposal` in `evolve.rs:338,407` expects a schema-1 proposal.
+
+**Replay order**
+`verify_revision` (`forge_revision.rs:154-243`) checks that the source selection comes before the proposal, that the parent was registered before it, and that the child is registered by this exact event. It recomputes the selection hash, evaluation and World bindings, and the World's harness permission. It also re-reads both prompts from storage and rejects a prompt that is empty, too large or unchanged. Verified events are cached only after all of this passes, the same way schema-1 proposals are.
+
+**Exact bytes, model and authority**
+- `verify_forge_child_source` (`verification.rs:524-581`) rebuilds the child from the parent's stored definition. Only the name, the parents and `agent.prompt` change, and the result must match the recorded child exactly. So model, authority and every other artifact are pinned. The `model` and `other-artifact` tamper tests (`forge_revision_tests.rs:660-709`) cover this.
+- Prompt text is stored exactly as read, with no trimming or newline changes, and the tests include `\r\n` and non-ASCII text.
+- The compile-time check at `forge_revision.rs:17` makes sure an accepted prompt always fits the runtime's input limit.
+
+**Schema-1 compatibility**
+- `decode_forge_proposal_kind` reads `schema_version` first. Version 1 goes through the existing decoder byte for byte.
+- The new `schema_version != 1` check in `decode_forge_proposal` (`verification.rs:637`) doesn't make old history invalid, because `validate_forge_event` already required version 1.
+- The registry (`registry.rs:291,444`) reads the `child` field the same way for both versions.
+- The places that need a schema-1 proposal (Gene extraction at `gene_bank.rs:268` and adaptation at `handlers_evolve_meta.rs:1505`) reject a revision with a clear error instead of crashing.
+- The historical-bytes test (`forge_revision_tests.rs:812-840`) and the upgrade proof both check old proposals against stored bytes, before and after the upgrade and after a restart.
+
+**Smaller limitations (not blocking)**
+1. A retry needs the prompt file to still exist with the same bytes. Otherwise it fails with "file is not readable" instead of returning the stored proposal. The test at `forge_revision_tests.rs:195-202` treats this as intended, but CLI and UI users may not expect it.
+2. The reserved prefixes and the hosted-model check (`RunSpec::validate_provider_model`) only run when a revision is submitted, not on replay. They're only tamper-hardening on top of the full child check, since replay already requires the parent to be a `codex` or `claude` model.
+3. `verify_revision` repeats most of the lineage checks in `verify_forge_child` (`forge_revision.rs:202-218` and `verification.rs:428-443`). A future change to one could miss the other.
+4. A revision's child can't be used for Gene extraction, drift adaptation or automatic evolution. Evolution on a hosted champion will fail when it tries to apply a catalog edit to free-text prompts.
+5. Housekeeping:
+   - `upgrade-proof.py` writes `{mode}-report.json`, but the evidence directory holds `*-upgrade.json`, so the README needs to explain the renaming.
+   - Don't commit `docs/evidence/2026-10-08-forge/__pycache__/`, `.DS_Store` or `python/.DS_Store`.
+6. As you noted, the UI flow and real hosted-model quality aren't covered. The tests and the upgrade proof both use a fake `claude` script that matches exact inputs.

@@ -30,9 +30,8 @@ use hephaestus_runtime::ReferenceInstruction;
 
 use super::champion::{champion_event_id, decode_champion_transition};
 use super::{
-    ControlError, ExecuteError, decode_forge_assessment, decode_forge_proposal, forge_event_id,
-    hex_encode, mutate_reference_instruction_document, reference_instruction_operation,
-    validate_job_id,
+    ControlError, ExecuteError, decode_forge_assessment, forge_event_id, hex_encode,
+    mutate_reference_instruction_document, reference_instruction_operation, validate_job_id,
 };
 use crate::protocol::{
     ChampionTransitionKind, ForgeAssessmentOutcome, GeneAggregateRecord, GeneContradictionPayload,
@@ -264,7 +263,9 @@ pub(super) fn gene_extraction_payload(
     if hex_encode(&proposal_event.hash) != assessment.proposal_event_hash {
         return Err(ExecuteError::Internal);
     }
-    let proposal = decode_forge_proposal(proposal_event).map_err(|_| ExecuteError::Internal)?;
+    let proposal = super::forge_revision::decode_forge_proposal_kind(proposal_event)
+        .map_err(|_| ExecuteError::Internal)?
+        .into_catalog("Gene extraction requires a catalog-edge proposal")?;
 
     let world = registered
         .world(&assessment.world_id)

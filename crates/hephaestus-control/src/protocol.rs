@@ -77,6 +77,19 @@ pub enum Command {
         #[serde(default)]
         cluster_index: Option<u32>,
     },
+    /// Record an operator-authored hosted prompt revision from a trusted selection.
+    GenomeRevise {
+        /// Stable proposal key, shared with catalog proposals.
+        proposal_id: String,
+        /// Exact source selection event.
+        selection_event_id: String,
+        /// Source selection's candidate, used as the sole parent.
+        parent_genome_id: String,
+        /// Absolute path to a bounded UTF-8 prompt body without Genome frontmatter.
+        prompt_path: String,
+        /// Explicit operator hypothesis for this change.
+        hypothesis: String,
+    },
     /// Assess one proposed child against a verified Arena selection receipt.
     GenomeAssess {
         /// Stable idempotency key for the assessment event.
@@ -607,6 +620,11 @@ pub enum ResponseData {
         /// Proposal fields and compiler-verified child Genome registration.
         proposal: Box<ForgeProposalRecord>,
     },
+    /// One durable hosted prompt revision; it does not authorize promotion.
+    ForgeRevision {
+        /// Exact revision and compiler-verified child registration.
+        revision: Box<ForgeRevisionRecord>,
+    },
     /// One evidence-bound Forge assessment. It never authorizes promotion.
     ForgeAssessment {
         /// Assessment payload and canonical event metadata.
@@ -1021,10 +1039,9 @@ pub struct ForgeProposalPayload {
     /// Single operation proposed for the child prompt.
     pub operation_after: String,
     /// The verified `forge.clustered` analysis and cluster this proposal was
-    /// derived from, when one was supplied. Absent for an operator-authored
-    /// hypothesis. This field was added after `schema_version` 1 shipped; it
-    /// defaults to `None` so every previously recorded proposal event still
-    /// replays byte-for-byte.
+    /// derived from, when one was supplied. None for an operator-authored
+    /// hypothesis. Deserialization defaults to None, while canonical schema-1
+    /// encoding includes an explicit null. Preserve that encoding for replay.
     #[serde(default)]
     pub analysis_binding: Option<ForgeAnalysisBinding>,
     /// The mutation catalog version this proposal's `operation_before` ->
@@ -1113,6 +1130,49 @@ pub struct ForgeProposalRecord {
     /// Canonical event metadata.
     pub event: ForgeProposalEventRecord,
     /// This milestone never authorizes or performs promotion.
+    pub promotion_eligible: bool,
+}
+
+/// Strict schema-2 operator-authored prompt revision. Catalog operation fields
+/// are absent; historical schema-1 proposal bytes remain unchanged.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeRevisionPayload {
+    /// Always 2 for this revision contract.
+    pub schema_version: u16,
+    /// Stable proposal key, shared with catalog proposals.
+    pub proposal_id: String,
+    /// Exact verified selection source.
+    pub selection_event_id: String,
+    /// Hash of the source selection event.
+    pub selection_event_hash: String,
+    /// Source evaluation identity.
+    pub evaluation_id: String,
+    /// Immutable World governing the revision.
+    pub world_id: String,
+    /// Source candidate used as the sole parent.
+    pub parent_genome_id: String,
+    /// Compiler-verified child registration.
+    pub child: GenomeRecord,
+    /// Operator-authored explanation for this change.
+    pub hypothesis: String,
+    /// Reserved artifact name; always agent.prompt.
+    pub artifact_name: String,
+    /// Exact existing parent prompt address.
+    pub prompt_artifact_before: String,
+    /// Exact revised prompt address.
+    pub prompt_artifact_after: String,
+}
+
+/// Schema-2 revision paired with canonical proposal event metadata.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeRevisionRecord {
+    /// Strict revision payload.
+    pub payload: ForgeRevisionPayload,
+    /// Canonical ledger event metadata.
+    pub event: ForgeProposalEventRecord,
+    /// Proposal creation never authorizes promotion.
     pub promotion_eligible: bool,
 }
 

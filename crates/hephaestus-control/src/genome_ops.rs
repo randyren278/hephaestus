@@ -185,6 +185,7 @@ impl ControlPlane {
             .ledger
             .replay_verified()
             .map_err(|_| ExecuteError::Internal)?;
+        super::forge_revision::reject_cross_kind_retry(&history, proposal_id, false)?;
         let (selection_hash, evaluation_id, world_id) = verified_forge_source(
             &storage.artifacts,
             &history,

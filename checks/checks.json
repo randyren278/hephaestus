@@ -37,6 +37,7 @@
     "crates/hephaestus-control/src/run_exec.rs",
     "crates/hephaestus-control/src/genome_ops.rs",
     "crates/hephaestus-control/src/verification.rs",
+    "crates/hephaestus-control/src/forge_revision.rs",
     "crates/hephaestus-control/src/runtime_exec.rs",
     "crates/hephaestus-control/src/control_state.rs",
     "crates/hephaestus-control/src/run_records.rs",
@@ -2144,7 +2145,7 @@
       "id": "forge-assessment-directed-child-check-skipped",
       "file": "crates/hephaestus-control/src/verification.rs",
       "invariant": "An assessment selection must identify the exact proposed child Genome.",
-      "find": "        || receipt.candidate_genome_id() != proposal.child.genome_id",
+      "find": "        || receipt.candidate_genome_id() != proposal.child().genome_id",
       "replace": "        || false",
       "test_cmd": "cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays"
     },
@@ -3042,6 +3043,150 @@
       "replace": "    require_text(&raw.model.family, \"model.family\")?;\n    raw.model.family = raw.model.family.replace(' ', \"_\");",
       "test_cmd": "cargo test -p hephaestus-genome --test compiler_contracts hosted_free_form_model_family --quiet",
       "invariant": "Historical hosted model labels preserve canonical bytes and replay identities."
+    },
+    {
+      "id": "forge-revision-freeze-bypassed",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Frozen evolution refuses new prose revisions.",
+      "find": "if self.state.freeze.is_frozen() {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-reserved-prefix-bypassed",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Operator prose revisions cannot occupy automatic evolution or adaptation proposal IDs.",
+      "find": "if proposal_id.starts_with(\"evolve-\") || proposal_id.starts_with(\"adapt-\") {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-selection-hash-unbound",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Replay binds prose revisions to the exact verified source selection hash.",
+      "find": "payload.selection_event_hash != selection_hash",
+      "replace": "false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-source-order-unchecked",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "A prose revision cannot precede its source Selection.",
+      "find": ".filter(|source| source.sequence < event.sequence)",
+      "replace": ".filter(|_| true)",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-before-prompt-unbound",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "The recorded before prompt must belong to the exact registered parent.",
+      "find": "parent.compiled().artifact_id(\"agent.prompt\")\n            != Some(payload.prompt_artifact_before.as_str())",
+      "replace": "false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-artifact-name-unchecked",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "A prose revision changes only the registered agent prompt artifact.",
+      "find": "payload.artifact_name != \"agent.prompt\"",
+      "replace": "false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-hypothesis-retry-unbound",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Changing the hypothesis cannot reuse a recorded revision ID.",
+      "find": "existing.hypothesis != hypothesis",
+      "replace": "false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-content-retry-unbound",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Changing exact prompt bytes cannot reuse a recorded revision ID.",
+      "find": "existing.prompt_artifact_after != after_id.as_str()",
+      "replace": "false",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-empty-prompt-accepted",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Blank prompts are rejected at admission before storage mutation.",
+      "find": "if after_text.trim().is_empty() {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-unchanged-prompt-accepted",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "A revision must change the exact prompt bytes before recording a child.",
+      "find": "if before_bytes == after_text.as_bytes() {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-canonical-bytes-unchecked",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Schema-2 revision payloads must use their canonical byte encoding.",
+      "find": "if serde_json::to_vec(&serde_json::to_value(&payload)?)? != event.payload {",
+      "replace": "if false {",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-cross-kind-retry-unchecked",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Catalog and prose revisions share one proposal-ID namespace with explicit conflicts.",
+      "find": "                return Err(ExecuteError::Rejected(\n                    \"proposal_id is already bound to a catalog proposal\".to_owned(),\n                ));",
+      "replace": "                return Ok(());",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "forge-revision-child-recompile-skipped",
+      "file": "crates/hephaestus-control/src/forge_revision.rs",
+      "invariant": "Replaying a prose child recompiles exactly the parent configuration plus its prompt revision.",
+      "find": "    verify_forge_child_source(\n        artifacts,\n        registered,\n        &ForgeChildBinding {\n            proposal_id: &payload.proposal_id,\n            parent_genome_id: &payload.parent_genome_id,\n            prompt_artifact_after: &payload.prompt_artifact_after,\n            world_id: &payload.world_id,\n            child: &payload.child,\n        },\n        world.compiled(),\n    )",
+      "replace": "    Ok(())",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision"
+    },
+    {
+      "id": "source-reader-fifo-blocking-open",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
+      "invariant": "A replaced or supplied FIFO cannot block an authenticated source-file command.",
+      "find": ".custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)",
+      "replace": ".custom_flags(libc::O_CLOEXEC)",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib bounded_file_reader_rejects_a_fifo"
+    },
+    {
+      "id": "source-reader-stream-limit-unbounded",
+      "file": "crates/hephaestus-control/src/runtime_exec.rs",
+      "invariant": "Reading remains bounded even if an open file grows after its metadata check.",
+      "find": ".take(limit.saturating_add(1))",
+      "replace": ".take(u64::MAX)",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib bounded_reader_limits_reads"
+    },
+    {
+      "id": "forge-catalog-schema-check-skipped",
+      "file": "crates/hephaestus-control/src/verification.rs",
+      "invariant": "Catalog-only evolution and adaptation cannot decode a revision schema as a catalog edge.",
+      "find": "if payload.schema_version != 1 {\n        return Err(ControlError::Projection(\n            \"Forge catalog proposal schema is invalid\".to_owned(),\n        ));\n    }",
+      "replace": "if false {\n        return Err(ControlError::Projection(\n            \"Forge catalog proposal schema is invalid\".to_owned(),\n        ));\n    }",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_keeps_historical"
+    },
+    {
+      "id": "forge-revision-direct-job-busy-gate-skipped",
+      "file": "crates/hephaestus-control/src/worker_remote.rs",
+      "invariant": "External prose revisions cannot race the daemon orchestration or an active bounded job.",
+      "find": "    pub(super) fn require_no_active_job_for_sync_work(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let storage_taking = matches!(\n            command,\n            Command::RunReference { .. }\n                | Command::RunEvaluation { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomeRegister { .. }\n                | Command::GenomePropose { .. }\n                | Command::GenomeRevise { .. }\n",
+      "replace": "    pub(super) fn require_no_active_job_for_sync_work(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let storage_taking = matches!(\n            command,\n            Command::RunReference { .. }\n                | Command::RunEvaluation { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomeRegister { .. }\n                | Command::GenomePropose { .. }\n",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib genome_and_gene_bank_commands_are_blocked"
+    },
+    {
+      "id": "forge-revision-evolution-busy-gate-skipped",
+      "file": "crates/hephaestus-control/src/worker_remote.rs",
+      "invariant": "External prose revisions cannot race the daemon orchestration or an active bounded job.",
+      "find": "    pub(super) fn require_no_active_evolution_for_external_command(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let blocked = matches!(\n            command,\n            Command::EvaluatePair { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomePropose { .. }\n                | Command::GenomeRevise { .. }\n",
+      "replace": "    pub(super) fn require_no_active_evolution_for_external_command(\n        &self,\n        command: &Command,\n    ) -> Result<(), ExecuteError> {\n        let blocked = matches!(\n            command,\n            Command::EvaluatePair { .. }\n                | Command::ArenaSelect { .. }\n                | Command::ArenaInvariants { .. }\n                | Command::GenomePropose { .. }\n",
+      "test_cmd": "cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations"
     }
   ]
 }

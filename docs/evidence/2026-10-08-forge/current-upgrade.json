@@ -1,0 +1,245 @@
+{
+  "legacy_commit": "7bf55d0",
+  "binary_sha256": {
+    "hephaestus": "0dce1a2c49fa39762bb6f3b52e26bc2b71a4918a3dc7f3487c8ac4cc5276cc50",
+    "hephaestusd": "fab561b21da6deab065615765809d366d3fdbd7fd24d3e49e7d5bae7329018d7",
+    "reference-evaluator": "a6d7fa86962c0a912cd5bf25de1340e7ef2e2a9b29a685618887c3658aad80b6",
+    "reference-worker": "6ad55ae63dca94168eaa920a67d06631b8c3e0d961b29fe21f1026bfa41d911b"
+  },
+  "catalog_bytes_after_upgrade": {
+    "payload": {
+      "analysis_binding": null,
+      "artifact_name": "agent.prompt",
+      "catalog_version": 1,
+      "child": {
+        "artifact_id": "d2c8e515d6985c411ed5d8ffc1b0933ee499c60bd1b26ea1378a1e0ef5c78462",
+        "genome_id": "hephaestus:genome:d2c8e515d6985c411ed5d8ffc1b0933ee499c60bd1b26ea1378a1e0ef5c78462",
+        "name": "upgrade-candidate-forge-old-catalog",
+        "parent_ids": [
+          "hephaestus:genome:cb00050f76c71f8d17e3aaa758c1e9c6db57ddbeeaa86ddf04964922720666db"
+        ],
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0"
+      },
+      "evaluation_id": "catalog-source",
+      "hypothesis": "Explicit uppercase operation should improve correctness.",
+      "mutation_kind": "flip",
+      "operation_after": "ascii_uppercase",
+      "operation_before": "identity",
+      "parent_genome_id": "hephaestus:genome:cb00050f76c71f8d17e3aaa758c1e9c6db57ddbeeaa86ddf04964922720666db",
+      "prompt_artifact_after": "3410b9435bf405ff3b0b198974a85ba2e24c1c3adf3e5c3bbf2ca3041e300cee",
+      "prompt_artifact_before": "990805e8205fc899e677c51fa07da82473b079263e71867258ab32d83e2c869f",
+      "proposal_id": "old-catalog",
+      "schema_version": 1,
+      "selection_event_hash": "6459a25fa97890a27f23d9228e504e70d7c38a29ec1cb2a34001eb111499866b",
+      "selection_event_id": "arena:selection:catalog-source:selected",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0"
+    },
+    "payload_sha256": "3c6aa835d5bec16d80fdba344870cd0b160b7b3a53b9d5812659f6e2a840d0d7"
+  },
+  "replay_before_revision": {
+    "type": "replay",
+    "event_count": 45,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "6ae7c8710425544993f48e62193835195719bfedb49f5611c9685d4c28a046c8"
+  },
+  "revision": {
+    "payload": {
+      "schema_version": 2,
+      "proposal_id": "prose-upgrade",
+      "selection_event_id": "arena:selection:prose-source:selected",
+      "selection_event_hash": "42385d1c69f7689011ccd18c96c1f95dcfde46ccb0398d7769fe954ce638407d",
+      "evaluation_id": "prose-source",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+      "parent_genome_id": "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595",
+      "child": {
+        "genome_id": "hephaestus:genome:f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+        "name": "upgrade-hosted-forge-prose-upgrade",
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+        "artifact_id": "f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+        "parent_ids": [
+          "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595"
+        ]
+      },
+      "hypothesis": "Explicit uppercase prose should improve correctness.",
+      "artifact_name": "agent.prompt",
+      "prompt_artifact_before": "0ca5d8c31e50dba36bec871af85c0c47516994f79db92530f5f672669b10f571",
+      "prompt_artifact_after": "e8b1fe65b2202b18fd53ddd3a254e2ab57ccc0b7c05319b18e38a7839e28a089"
+    },
+    "event": {
+      "sequence": 81,
+      "event_id": "forge:prose-upgrade:proposed",
+      "aggregate_id": "forge:prose-upgrade",
+      "event_hash": "3969d4813f3dfb93bc2fbfdb6c554456d2575dbbcac2bd208ba6cb3e15803275"
+    },
+    "promotion_eligible": false
+  },
+  "revision_bytes": {
+    "payload": {
+      "artifact_name": "agent.prompt",
+      "child": {
+        "artifact_id": "f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+        "genome_id": "hephaestus:genome:f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+        "name": "upgrade-hosted-forge-prose-upgrade",
+        "parent_ids": [
+          "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595"
+        ],
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0"
+      },
+      "evaluation_id": "prose-source",
+      "hypothesis": "Explicit uppercase prose should improve correctness.",
+      "parent_genome_id": "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595",
+      "prompt_artifact_after": "e8b1fe65b2202b18fd53ddd3a254e2ab57ccc0b7c05319b18e38a7839e28a089",
+      "prompt_artifact_before": "0ca5d8c31e50dba36bec871af85c0c47516994f79db92530f5f672669b10f571",
+      "proposal_id": "prose-upgrade",
+      "schema_version": 2,
+      "selection_event_hash": "42385d1c69f7689011ccd18c96c1f95dcfde46ccb0398d7769fe954ce638407d",
+      "selection_event_id": "arena:selection:prose-source:selected",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0"
+    },
+    "payload_sha256": "6449bf547dfcf397ce4a8e7d9d2bd7fd39e62a04e1c8a0f578cb75b3f723fd96"
+  },
+  "comparison": {
+    "type": "evaluation",
+    "evaluation": {
+      "evaluation_id": "prose-comparison",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+      "parent_genome_id": "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595",
+      "candidate_genome_id": "hephaestus:genome:f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+      "parent_visible_correct": 0,
+      "candidate_visible_correct": 1,
+      "visible_total": 1,
+      "event": {
+        "sequence": 109,
+        "event_id": "arena:evaluation:prose-comparison:recorded",
+        "aggregate_id": "arena:evaluation:prose-comparison",
+        "event_type": "evaluation.recorded",
+        "actor": "arena-plane",
+        "timestamp_millis": 1791455430662
+      }
+    }
+  },
+  "assessment": {
+    "payload": {
+      "schema_version": 1,
+      "assessment_id": "prose-upgrade-assessment",
+      "proposal_id": "prose-upgrade",
+      "proposal_event_id": "forge:prose-upgrade:proposed",
+      "proposal_event_hash": "3969d4813f3dfb93bc2fbfdb6c554456d2575dbbcac2bd208ba6cb3e15803275",
+      "selection_event_id": "arena:selection:prose-comparison:selected",
+      "selection_event_hash": "acc2842edbad8fbdbf4b65983817cb3e601e5f12a80362caa183c60d675aaba9",
+      "selection_receipt_artifact_id": "fad5301e3d97d1add97572e9c149b0173d2b2736c901859910cee9fdd8b4450d",
+      "evaluation_id": "prose-comparison",
+      "evaluation_event_id": "arena:evaluation:prose-comparison:recorded",
+      "evaluation_event_hash": "72389fa5e73a4061f61a88051f2114859177b2aa30ed7e6d302e9fb6884bac38",
+      "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+      "parent_genome_id": "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595",
+      "child_genome_id": "hephaestus:genome:f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+      "outcome": "metrics_passed",
+      "invariant_gate_verified": false,
+      "promotion_eligible": false
+    },
+    "event": {
+      "sequence": 115,
+      "event_id": "forge-assessment:prose-upgrade-assessment:recorded",
+      "aggregate_id": "forge:prose-upgrade",
+      "event_hash": "03a6bba22a2296ba87194379197c258d82605b7c6c9a35256adedd03953efdd0"
+    }
+  },
+  "invariants": {
+    "type": "arena_invariants",
+    "invariants": {
+      "receipt": {
+        "schema_version": 1,
+        "algorithm": "reference-output-invariants-v1",
+        "evaluation_id": "prose-comparison",
+        "evaluation_event_id": "arena:evaluation:prose-comparison:recorded",
+        "evaluation_event_hash": "72389fa5e73a4061f61a88051f2114859177b2aa30ed7e6d302e9fb6884bac38",
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+        "parent_genome_id": "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595",
+        "candidate_genome_id": "hephaestus:genome:f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+        "manifest_artifact_id": "71086442b6c05243a5b79725fd3601e85bb68ac6ba3926588ccdcaf23fa50708",
+        "parent_submission_artifact_id": "fd5bc53247cd8ab4c1c277d4fc83d304be411b3afc9a4ee3ffbd852f98b3316e",
+        "candidate_submission_artifact_id": "75e3fe5105be2e8464f18a1a5ea263d6e9bcdfa9b544fd37daf7ab63e0d14294",
+        "total_evaluated_trials": 2,
+        "total_checks": 12,
+        "predicates": [
+          {
+            "predicate": "successful_terminal",
+            "forbidden_ascii_byte": null,
+            "parent_violations": 0,
+            "candidate_violations": 0,
+            "paired_regressions": 0
+          },
+          {
+            "predicate": "maximum_output_bytes",
+            "forbidden_ascii_byte": null,
+            "parent_violations": 0,
+            "candidate_violations": 0,
+            "paired_regressions": 0
+          },
+          {
+            "predicate": "forbidden_ascii_byte",
+            "forbidden_ascii_byte": 0,
+            "parent_violations": 0,
+            "candidate_violations": 0,
+            "paired_regressions": 0
+          }
+        ],
+        "total_candidate_violations": 0,
+        "total_paired_regressions": 0,
+        "maximum_regressions": 0,
+        "regressions_within_budget": true,
+        "candidate_contract_satisfied": true
+      },
+      "event": {
+        "sequence": 117,
+        "event_id": "arena:invariants:prose-comparison:checked",
+        "aggregate_id": "arena:invariants:prose-comparison",
+        "event_type": "invariants.recorded",
+        "actor": "arena-plane",
+        "event_hash": "7609a3e6379944b7846c2c7edba7be1ef822df330086dbd7ada2adaf6711c43a",
+        "receipt_artifact_id": "c2bc2852912d29a7aaaad7c53095a021917dc474731a2e45e0ee7b98f6a5180a"
+      }
+    }
+  },
+  "promotion": {
+    "type": "champion_transition",
+    "transition": {
+      "payload": {
+        "schema_version": 1,
+        "transition_id": "hosted-promotion",
+        "world_id": "hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+        "kind": "promoted",
+        "champion_genome_id": "hephaestus:genome:f808be2a85312b88ccfc971652c6298d8524032f2849730619094d1356bc956e",
+        "previous_champion_genome_id": "hephaestus:genome:7089ccb2f2027f49c7e4737375a084b2080afc3522eb1328f19637cafcfba595",
+        "previous_transition_event_id": "champion:hosted-bootstrap:recorded",
+        "previous_transition_event_hash": "4d829152959703470dead35312b38545dc79032156fd49ea99e231c610122672",
+        "promotion": {
+          "assessment_id": "prose-upgrade-assessment",
+          "assessment_event_id": "forge-assessment:prose-upgrade-assessment:recorded",
+          "assessment_event_hash": "03a6bba22a2296ba87194379197c258d82605b7c6c9a35256adedd03953efdd0",
+          "evaluation_id": "prose-comparison",
+          "selection_receipt_artifact_id": "fad5301e3d97d1add97572e9c149b0173d2b2736c901859910cee9fdd8b4450d",
+          "invariant_event_id": "arena:invariants:prose-comparison:checked",
+          "invariant_event_hash": "7609a3e6379944b7846c2c7edba7be1ef822df330086dbd7ada2adaf6711c43a",
+          "invariant_receipt_artifact_id": "c2bc2852912d29a7aaaad7c53095a021917dc474731a2e45e0ee7b98f6a5180a"
+        },
+        "reason": null
+      },
+      "event": {
+        "sequence": 121,
+        "event_id": "champion:hosted-promotion:recorded",
+        "aggregate_id": "champion:hephaestus:world:552b00d401f51860b7d3c286dcfdca4ec31de4d27cad714201f890c8ec44e6a0",
+        "event_hash": "07e97f5c874bdd3643179b6828c91c4dc60bffa894b4388a552f1db4ea0843e9"
+      }
+    }
+  },
+  "mixed_replay": {
+    "type": "replay",
+    "event_count": 122,
+    "frozen": false,
+    "active_runs": 0,
+    "projection_hash": "518994163a27028f26f9b86bb9cf13bd40c9bfb5785d0e80f5e6c10db2ccea21"
+  }
+}

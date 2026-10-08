@@ -22,8 +22,8 @@
 use hephaestus_ledger::{EventInput, StoredEvent};
 
 use super::{
-    ControlError, ExecuteError, OPERATOR_ACTOR, decode_forge_proposal, forge_assessment_event_id,
-    forge_event_id, hex_encode, validate_job_id,
+    ControlError, ExecuteError, OPERATOR_ACTOR, forge_assessment_event_id, forge_event_id,
+    hex_encode, validate_job_id,
 };
 use crate::protocol::{
     CanaryStage, DriftAdaptationEventRecord, DriftAdaptationFinishReason,
@@ -213,8 +213,8 @@ pub(super) fn adaptation_summary(
                 .iter()
                 .find(|event| event.event_id == forge_event_id(&started.proposal_id))
         })
-        .and_then(|event| decode_forge_proposal(event).ok())
-        .map(|proposal| proposal.child.genome_id);
+        .and_then(|event| super::forge_revision::decode_forge_proposal_kind(event).ok())
+        .map(|proposal| proposal.child().genome_id.clone());
     let shadow_evaluation_id = projection.started.as_ref().and_then(|_| {
         let candidate_id = adaptation_shadow_evaluation_id(drift_id);
         let selection_event_id = format!("arena:selection:{candidate_id}:selected");

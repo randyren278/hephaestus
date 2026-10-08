@@ -67,7 +67,53 @@ hephaestus genome propose <proposal-id> \
 
 The daemon re-verifies the exact selection event, receipt, registered World, and selected candidate. It accepts only a strict `hephaestus-reference-v1` prompt. An operator hypothesis without analysis uses the identity/uppercase flip; a verified analysis binding can propose another catalog edge. The child goes through the ordinary Genome compiler and registry with the selected candidate as its sole parent. One `forge.proposed` ledger event binds the selection event hash, hypothesis, parent and child identities, and exact before/after prompt artifact addresses; startup and explicit replay recompute those bindings. Reusing the proposal ID with identical content returns the original event; conflicting content fails closed.
 
-This records a bounded reference-language mutation and its hypothesis. Arbitrary prose prompt revisions are not supported by this proposal command; operators can register a manually revised Markdown child and compare it in the Arena. A verified failure-cluster analysis can supply the hypothesis and catalog target as described below. It does not evaluate, select, or promote the child, and its response always reports `promotion_eligible=false`.
+This records a bounded reference-language mutation and its hypothesis. For a hosted agent's prose prompt, use `genome revise` below. A verified failure-cluster analysis can supply the hypothesis and catalog target as described below. It does not evaluate, select, or promote the child, and its response always reports `promotion_eligible=false`.
+
+## Hosted prompt revisions
+
+An operator can revise a registered Codex or Claude agent's prompt while keeping
+its model, authority, World and other artifacts. Start with an Arena evaluation
+and its Selection, then write the revised prompt body to a UTF-8 file:
+
+```sh
+hephaestus genome revise <proposal-id> \
+  --selection-event <source-selection-event-id> \
+  --parent <source-candidate-genome-id> \
+  --prompt-file <prompt-body-file> \
+  --hypothesis "State the behavior change and why it should improve this task."
+```
+
+The file contains the prompt body only, without Genome frontmatter. It must be
+nonblank, no larger than 1 MiB, and different from the parent's exact prompt
+bytes. CRLF, Unicode, whitespace and final newlines are preserved. The parent
+must already have a prompt artifact and a runnable hosted-provider model
+identifier. Its World must authorize harness mutations, and evolution must be
+unfrozen. A source Selection identifies the evaluated candidate; that candidate
+does not need to have passed promotion metrics to become a revision's parent.
+
+The child has the source candidate as its sole parent. Only its name, parent
+list and prompt artifact change. One schema-2 proposal records the hypothesis,
+source Selection hash, evaluation, World, parent, child and before/after prompt
+addresses. Startup and explicit replay verify those bindings and recompile the
+child from its parent. Schema-1 catalog proposals keep their historical bytes
+and validation rules.
+
+Proposal IDs are shared with catalog proposals. An identical retry returns the
+original revision; the supplied prompt file must still exist so its bytes can
+be verified. Changed prompt bytes, hypothesis or source evidence reject the retry. The prefixes `evolve-` and `adapt-` are reserved for automatic runs.
+The command is available to the authenticated local operator; the MCP gateway
+does not expose prompt-file reads.
+
+A revision records an experiment, with promotion eligibility false. Evaluate
+the child against its parent in a new Arena comparison and use `genome assess`
+below. Champion promotion still requires measured selection, verified
+invariants and explicit operator authority. Automatic evolution, adaptation
+and Gene extraction continue to use catalog edges.
+
+This history upgrade is forward-only: older binaries cannot decode an audited
+revision command or its schema-2 proposal. Keep a copy of the original data
+directory before upgrading and use the current or a compatible newer binary
+with history containing revisions.
 
 ## Evidence-only Forge assessment
 

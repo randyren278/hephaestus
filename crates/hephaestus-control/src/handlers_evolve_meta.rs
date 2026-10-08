@@ -23,13 +23,12 @@ use super::{
     adaptation_diagnostic_evaluation_id, adaptation_projection, adaptation_proposal_id,
     adaptation_shadow_evaluation_id, adaptation_stage_evaluation_id, best_gene_target_operation,
     canary, champion_after, champion_projection, champion_transition_ids_for, decode_drift_record,
-    decode_forge_proposal, descendant_verdict, drift, evaluation_record_from_operator, event_type,
-    evolution_aggregate_id, evolution_analysis_id, evolution_cancel_event_id,
-    evolution_candidate_assessment_id, evolution_candidate_child_evaluation_id,
-    evolution_candidate_proposal_id, evolution_diagnostic_evaluation_id,
-    evolution_finished_event_id, evolution_generation_event_id, evolution_projection,
-    evolution_promotion_transition_id, evolution_started_event_id, finished_event_input,
-    forge_assessment_event_id, forge_assessment_summary, forge_event_id,
+    descendant_verdict, drift, evaluation_record_from_operator, event_type, evolution_aggregate_id,
+    evolution_analysis_id, evolution_cancel_event_id, evolution_candidate_assessment_id,
+    evolution_candidate_child_evaluation_id, evolution_candidate_proposal_id,
+    evolution_diagnostic_evaluation_id, evolution_finished_event_id, evolution_generation_event_id,
+    evolution_projection, evolution_promotion_transition_id, evolution_started_event_id,
+    finished_event_input, forge_assessment_event_id, forge_assessment_summary, forge_event_id,
     invariant_event_references, load_operator_evaluation, meta_evaluation_admitted_event_id,
     meta_evaluation_admitted_ids, meta_evaluation_admitted_projection,
     meta_evaluation_aggregate_id, meta_evaluation_event_id, meta_evaluation_list,
@@ -1501,10 +1500,10 @@ impl ControlPlane {
             .iter()
             .find(|event| event.event_id == forge_event_id(&started.proposal_id));
         let child_genome_id = if let Some(event) = proposal_event {
-            decode_forge_proposal(event)
+            let proposal = super::forge_revision::decode_forge_proposal_kind(event)
                 .map_err(|_| ExecuteError::Internal)?
-                .child
-                .genome_id
+                .into_catalog("adaptation requires a catalog-edge proposal")?;
+            proposal.child.genome_id
         } else {
             let Some(hypothesis_source) = self.choose_adaptation_hypothesis_source(
                 drift_id,
@@ -1694,8 +1693,8 @@ impl ControlPlane {
             history
                 .iter()
                 .find(|event| event.event_id == forge_event_id(&started.proposal_id))
-                .and_then(|event| decode_forge_proposal(event).ok())
-                .map(|proposal| proposal.child.genome_id)
+                .and_then(|event| super::forge_revision::decode_forge_proposal_kind(event).ok())
+                .map(|proposal| proposal.child().genome_id.clone())
         } else {
             None
         };

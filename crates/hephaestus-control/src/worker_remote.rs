@@ -424,6 +424,7 @@ impl ControlPlane {
                 | Command::ArenaInvariants { .. }
                 | Command::GenomeRegister { .. }
                 | Command::GenomePropose { .. }
+                | Command::GenomeRevise { .. }
                 | Command::GenomeAssess { .. }
                 | Command::ForgeAnalyze { .. }
                 | Command::ChampionSeed { .. }
@@ -468,6 +469,7 @@ impl ControlPlane {
                 | Command::ArenaSelect { .. }
                 | Command::ArenaInvariants { .. }
                 | Command::GenomePropose { .. }
+                | Command::GenomeRevise { .. }
                 | Command::GenomeAssess { .. }
                 | Command::ForgeAnalyze { .. }
                 | Command::ChampionSeed { .. }

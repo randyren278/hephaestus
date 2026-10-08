@@ -23,8 +23,8 @@ customer-value gaps; Codex confirmed them against the checkout:
    and a report they can review alongside exact agent identities.
 
 The first implementation slice addressed item 3 and console reliability.
-The second adds World-pinned scoring for item 1. The third fixes hosted instruction/model delivery and historical replay, a prerequisite for item 2. Item 2 and representative
-live-model improvement remain required.
+The second adds World-pinned scoring for item 1. The third fixes hosted instruction/model delivery and historical replay, a prerequisite for item 2. Verification and guided authoring for item 2, plus representative
+live-model improvement, remain required.
 
 ## Acceptance for the full product
 
@@ -33,7 +33,7 @@ live-model improvement remain required.
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Existing implementation; current full acceptance still to run |
 | Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Manual registration and provider instruction/model delivery verified with offline CLI fixtures; guided workflow incomplete |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
-| Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Missing in this checkout |
+| Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command implemented; six scoped integration/contract tests, all 51 coverage floors and default/all-feature workspace clippy pass; restored binaries preserve actual old history through upgrade and restart; all 30 affected mutations killed |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
 | Useful live model evidence | A dated representative parent/revision Arena comparison using real provider output, measured quality/cost, verified receipts and replay | Not established; fake CLIs cannot substitute |
 | Reliability and trust | Workspace tests, TypeScript checks, packaging, docs, mutation anchors and affected mutation guard entries pass; no weakened gates | Full final revision gates still required |
@@ -47,7 +47,7 @@ inferred from deterministic Gauntlet evidence.
 
 Verified hosted Genome instructions now reach direct, submitted and paired execution. Contract v2 preserves exact instruction bytes separately from task commitments, pins the requested model, and retains v1 history replay. The offline fixture verifies different role instructions and models through the actual stdin pipe and reopens the saved control plane. Real old/new daemon upgrade evidence is recorded below. This proves configuration delivery, not live-model quality.
 
-Next add bounded operator-authored prose prompt proposals with versioned replay validation and the same compiler/authority checks as catalog proposals. Then use that workflow for a representative live-provider comparison before claiming product readiness. Guided onboarding, commercial positioning and full final acceptance remain required.
+Finish coverage, mutation and real daemon upgrade verification for the new operator-authored prose proposal path. Then use that workflow for a representative live-provider comparison before claiming product readiness. Guided onboarding, commercial positioning and full final acceptance remain required.
 
 ## Verification of the comparison slice
 
@@ -133,3 +133,36 @@ Verified on macOS, 2026-10-08, using offline provider fixtures. Hosted quality a
 - **21 new mutations ran: 21 killed, 0 survived, 0 stale, 0 timed out.** [Mutation results](evidence/2026-10-08-provider/mutation-results.txt) record the commands and verdicts. The configured matrix is now **402** entries; this does not establish a fresh pass of all matrix shards.
 - Python checks: **44/44 passed**. Default and all-feature Clippy, documentation, formatting and mutation-source anchors passed. Workspace binaries are rebuilt from restored source after the mutation run.
 - Actual Claude Code reviewed configuration delivery, role pairing, replay and migration evidence. Its compatibility-test findings were incorporated. Prose Forge proposals, guided acceptance, representative live evidence and commercial positioning remain required.
+
+## Forge revision work in progress, 2026-10-08
+
+The authenticated operator command `genome revise` records ordinary UTF-8 prompt
+revisions for registered Codex and Claude agents. It keeps the model, authority,
+World and other artifacts, creates a child through the ordinary compiler, and
+binds the hypothesis and exact before/after prompt bytes to a verified source
+Selection. Catalog proposals retain schema 1; prose revisions use strict schema 2
+under the shared proposal-ID namespace.
+
+Current scoped evidence: six revision integration/contract tests pass and
+all-feature workspace clippy passes. The scripted provider checks exact Unicode,
+CRLF and trailing-space instruction bytes plus the model flag through stdin.
+It produces signed paired evidence for a revised child, then exercises
+assessment, invariant verification, Champion promotion and restart. Semantic
+tamper checks rebuild valid ledger hash chains before reopening the control
+plane; unrelated model and artifact changes are rejected even when their child
+Genomes compile. Conflicting retries and cross-kind ID conflicts reject.
+
+Claude reviewed the implementation read-only through the installed CLI. Its
+review led to earlier idempotent retry handling, shared event-index reuse on
+cold replay, and reservation of automatic proposal IDs. The bounded source
+reader now opens once, checks metadata on that handle and limits the stream
+read; FIFO and underestimated-size checks passed in the full workspace run.
+
+This is an implementation checkpoint. The full workspace tests and real old/new upgrade plus a second restart now
+pass, with schema-1 catalog bytes preserved. See the
+[Forge upgrade evidence](evidence/2026-10-08-forge/README.md). All 51 critical coverage floors now pass, including the new revision module,
+and both default and all-feature workspace clippy pass. All 30 affected mutation
+checks were killed, with no survivors, stale entries or timeouts. The restored
+source rebuilt successfully and repeated the actual old/new upgrade and second
+restart. Guided authoring and representative live-model quality evidence remain
+required. This does not establish full product readiness or revenue.

@@ -72,12 +72,13 @@ use crate::{
     EvolutionGenerationPayload, EvolutionRunRecord, EvolutionRunState, EvolutionStartedPayload,
     EvolverStrategyConfig, ForgeAnalysisBinding, ForgeAnalysisRecord, ForgeAssessmentEventRecord,
     ForgeAssessmentOutcome, ForgeAssessmentPayload, ForgeAssessmentRecord,
-    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, GeneSelectionPolicy,
-    GeneTransferOutcome, GenomeRecord, InvariantRecord, JobProgress, JobRecord, JobState,
-    JobTerminal, MAX_LIST_LIMIT, McpDecision, MetaEvaluationAdmittedPayload, MetaEvaluationPayload,
-    MetaEvaluationStatus, MetaLineageOutcome, MetaLineageProgress, MetaStrategyRegisteredPayload,
-    MutationPrioritization, MutationSlot, RemoteJobState, ResponseData, RunCompletionReason,
-    RunListEntry, SelectionEventRecord, SelectionRecord, WorkerScope, WorldRecord,
+    ForgeProposalEventRecord, ForgeProposalPayload, ForgeProposalRecord, ForgeRevisionPayload,
+    ForgeRevisionRecord, GeneSelectionPolicy, GeneTransferOutcome, GenomeRecord, InvariantRecord,
+    JobProgress, JobRecord, JobState, JobTerminal, MAX_LIST_LIMIT, McpDecision,
+    MetaEvaluationAdmittedPayload, MetaEvaluationPayload, MetaEvaluationStatus, MetaLineageOutcome,
+    MetaLineageProgress, MetaStrategyRegisteredPayload, MutationPrioritization, MutationSlot,
+    RemoteJobState, ResponseData, RunCompletionReason, RunListEntry, SelectionEventRecord,
+    SelectionRecord, WorkerScope, WorldRecord,
 };
 
 // A 1 MiB Markdown body can expand to six JSON bytes per escaped control
@@ -1342,6 +1343,19 @@ impl ControlPlane {
             }),
             Command::GenomeRegister { path, world_id } => self.register_genome(&path, &world_id),
             command @ Command::GenomePropose { .. } => self.propose_genome_command(command),
+            Command::GenomeRevise {
+                proposal_id,
+                selection_event_id,
+                parent_genome_id,
+                prompt_path,
+                hypothesis,
+            } => self.revise_genome(
+                &proposal_id,
+                &selection_event_id,
+                &parent_genome_id,
+                &prompt_path,
+                &hypothesis,
+            ),
             command @ Command::GenomeAssess { .. } => self.assess_genome_command(command),
             Command::ForgeAnalyze {
                 analysis_id,
@@ -1528,6 +1542,9 @@ use runtime_exec::{
 
 #[path = "verification.rs"]
 mod verification;
+
+#[path = "forge_revision.rs"]
+mod forge_revision;
 
 use verification::{
     AuditedCommand, EvidenceCache, ExecuteError, RecordedCommand, best_gene_target_operation,

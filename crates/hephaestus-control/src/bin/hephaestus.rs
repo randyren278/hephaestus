@@ -13,11 +13,11 @@ use hephaestus_control::{
     ChampionRecord, ChampionTransitionRecord, Client, Command, DenialEntry, DriftAdaptationSummary,
     DriftKind, DriftRecord, EvaluationListEntry, EvaluationRecord, EvolutionRunRecord,
     EvolutionRunState, ForgeAnalysisRecord, ForgeAssessmentOutcome, ForgeAssessmentRecord,
-    ForgeProposalRecord, GeneRecord, GeneSpeciesRecord, GeneSummary, GeneTransferRecord,
-    GenomeRecord, InvariantRecord, JobState, MetaBootstrapInterval, MetaEvaluationStatus,
-    MetaLineageOutcome, MetaLineageProgress, MetaLineageSpec, MetaReceiptRecord,
-    MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord, WorldRecord,
-    data_dir_from_environment,
+    ForgeProposalRecord, ForgeRevisionRecord, GeneRecord, GeneSpeciesRecord, GeneSummary,
+    GeneTransferRecord, GenomeRecord, InvariantRecord, JobState, MetaBootstrapInterval,
+    MetaEvaluationStatus, MetaLineageOutcome, MetaLineageProgress, MetaLineageSpec,
+    MetaReceiptRecord, MetaStrategyRecord, ResponseData, RunListEntry, SelectionRecord,
+    WorldRecord, data_dir_from_environment,
 };
 
 #[derive(Parser)]
@@ -257,6 +257,23 @@ enum GenomeCommand {
         /// Index into that analysis's clusters, in canonical signature order.
         #[arg(long)]
         cluster: Option<u32>,
+    },
+    /// Revise a hosted agent's prompt body from an exact trusted Arena selection.
+    Revise {
+        /// Stable idempotency key for this revision.
+        proposal_id: String,
+        /// Canonical selection event ID returned by `arena select`.
+        #[arg(long)]
+        selection_event: String,
+        /// Selected candidate Genome whose prompt is being revised.
+        #[arg(long)]
+        parent: String,
+        /// UTF-8 prompt body file, without Genome frontmatter.
+        #[arg(long)]
+        prompt_file: PathBuf,
+        /// Operator-authored hypothesis for the prompt revision.
+        #[arg(long)]
+        hypothesis: String,
     },
     /// Record measured evidence for a proposed child; never promotes it.
     Assess {
@@ -1687,6 +1704,19 @@ fn genome_command_from_cli(command: GenomeCommand) -> Result<Command, &'static s
             analysis_id: analysis,
             cluster_index: cluster,
         },
+        GenomeCommand::Revise {
+            proposal_id,
+            selection_event,
+            parent,
+            prompt_file,
+            hypothesis,
+        } => Command::GenomeRevise {
+            proposal_id,
+            selection_event_id: selection_event,
+            parent_genome_id: parent,
+            prompt_path: absolute_path(prompt_file)?,
+            hypothesis,
+        },
         GenomeCommand::Assess {
             assessment_id,
             proposal,
@@ -1723,6 +1753,9 @@ fn print_human(response: &ApiResponse) {
         (Some(ResponseData::Genome { genome }), None) => println!("{}", genome_human(genome)),
         (Some(ResponseData::ForgeProposal { proposal }), None) => {
             println!("{}", forge_proposal_human(proposal));
+        }
+        (Some(ResponseData::ForgeRevision { revision }), None) => {
+            println!("{}", forge_revision_human(revision));
         }
         (Some(ResponseData::ForgeAssessment { assessment }), None) => {
             println!("{}", forge_assessment_human(assessment));
@@ -2349,6 +2382,23 @@ fn forge_proposal_human(proposal: &ForgeProposalRecord) -> String {
     )
 }
 
+fn forge_revision_human(revision: &ForgeRevisionRecord) -> String {
+    format!(
+        "proposal={} parent={} child={} selection={} prompt={}→{} hypothesis={:?} promotion_eligible={} event={} sequence={} hash={}",
+        revision.payload.proposal_id,
+        revision.payload.parent_genome_id,
+        revision.payload.child.genome_id,
+        revision.payload.selection_event_id,
+        revision.payload.prompt_artifact_before,
+        revision.payload.prompt_artifact_after,
+        revision.payload.hypothesis,
+        revision.promotion_eligible,
+        revision.event.event_id,
+        revision.event.sequence,
+        revision.event.event_hash,
+    )
+}
+
 fn forge_assessment_human(assessment: &ForgeAssessmentRecord) -> String {
     let outcome = match assessment.payload.outcome {
         ForgeAssessmentOutcome::MetricsPassed => "metrics_passed",
@@ -2477,6 +2527,42 @@ mod tests {
     use hephaestus_control::{
         Command, DriftKind, EvaluationEventRecord, EvaluationRecord, MetaLineageSpec,
     };
+
+    #[test]
+    fn genome_revise_maps_a_prompt_body_file_and_required_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("prompt.txt");
+        fs::write(&path, "Return the answer.").unwrap();
+        let args = [
+            "hephaestus",
+            "genome",
+            "revise",
+            "revision-1",
+            "--selection-event",
+            "selection-1",
+            "--parent",
+            "parent-1",
+            "--prompt-file",
+            path.to_str().unwrap(),
+            "--hypothesis",
+            "Improve correctness.",
+        ];
+        let arguments = Arguments::try_parse_from(args).unwrap();
+        assert_eq!(
+            command_from_cli(arguments.command).unwrap(),
+            Command::GenomeRevise {
+                proposal_id: "revision-1".to_owned(),
+                selection_event_id: "selection-1".to_owned(),
+                parent_genome_id: "parent-1".to_owned(),
+                prompt_path: fs::canonicalize(&path).unwrap().display().to_string(),
+                hypothesis: "Improve correctness.".to_owned()
+            }
+        );
+        assert!(
+            Arguments::try_parse_from(&args[..args.len() - 2]).is_err(),
+            "hypothesis is required"
+        );
+    }
 
     #[test]
     fn genome_assess_maps_stable_ids_to_the_authenticated_command() {

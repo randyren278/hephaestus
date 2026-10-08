@@ -324,6 +324,7 @@ pub(super) fn event_type(command: &Command) -> &'static str {
         Command::GenomeList => "control.genome_list",
         Command::GenomeRegister { .. } => "control.genome_register",
         Command::GenomePropose { .. } => "control.genome_propose",
+        Command::GenomeRevise { .. } => "control.genome_revise",
         Command::GenomeAssess { .. } => "control.genome_assess",
         Command::ForgeAnalyze { .. } => "control.forge_analyze",
         Command::WorldShow { .. } => "control.world_show",

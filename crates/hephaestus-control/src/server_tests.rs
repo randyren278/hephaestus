@@ -1,3 +1,6 @@
+#[path = "forge_revision_tests.rs"]
+mod forge_revision_tests;
+
 use std::{
     fs,
     os::unix::fs::{PermissionsExt, symlink},
@@ -12575,6 +12578,20 @@ fn evolve_start_completes_three_generations_with_one_promotion_and_replays() {
     );
     assert!(repeat.error.is_none());
 
+    let revision_busy = dispatch_call(
+        &mut plane,
+        &token,
+        "evolve-revision-busy",
+        Command::GenomeRevise {
+            proposal_id: "external-revision".to_owned(),
+            selection_event_id: "selection".to_owned(),
+            parent_genome_id: from_genome_id.clone(),
+            prompt_path: "/unread-prompt".to_owned(),
+            hypothesis: "operator race".to_owned(),
+        },
+    );
+    assert_eq!(revision_busy.error.unwrap().code, ApiErrorCode::Busy);
+
     // While one run is active, an operator cannot race its own internal
     // Arena/Forge/Champion calls through the ordinary command surface.
     let busy = dispatch_call(
@@ -22675,6 +22692,17 @@ fn genome_and_gene_bank_commands_are_blocked_while_a_direct_job_is_active() {
             "{request}"
         );
     };
+    expect_busy(
+        &mut plane,
+        "revision-while-active",
+        Command::GenomeRevise {
+            proposal_id: "external-revision".to_owned(),
+            selection_event_id: "selection".to_owned(),
+            parent_genome_id: genome.genome_id.clone(),
+            prompt_path: "/unread-prompt".to_owned(),
+            hypothesis: "operator race".to_owned(),
+        },
+    );
     expect_busy(
         &mut plane,
         "drift-while-active",

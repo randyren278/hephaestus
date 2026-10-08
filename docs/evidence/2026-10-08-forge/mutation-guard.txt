@@ -1,0 +1,102 @@
+root:    /Users/randyren/Developer/hephaestus
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 900s default; selected mutation timeout(s): 900s
+
+baseline: unmutated suite is green
+
+RUN       forge-proposal-parent-not-bound-to-selected-candidate command=cargo test -p hephaestus-control --all-features --lib forge_proposal_replays_and_rejects_tampered_selection_and_metadata timeout=900s
+KILLED    forge-proposal-parent-not-bound-to-selected-candidate crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-parent-prompt-mutation-preserves-only-operation-token command=cargo test -p hephaestus-control --all-features --lib forge_mutation_changes_only_the_supported_compact_instruction_token timeout=900s
+KILLED    forge-parent-prompt-mutation-preserves-only-operation-token crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-proposal-forbidden-while-frozen command=cargo test -p hephaestus-control --all-features --lib -- forge_proposal_is_rejected_while_evolution_is_frozen timeout=900s
+KILLED    forge-proposal-forbidden-while-frozen crates/hephaestus-control/src/genome_ops.rs (timeout 900s)
+RUN       forge-replay-selection-event-hash-not-verified command=cargo test -p hephaestus-control --all-features --lib forge_proposal_replays_and_rejects_tampered_selection_and_metadata timeout=900s
+KILLED    forge-replay-selection-event-hash-not-verified crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-assessment-replay-payload-comparison-weakened command=cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays timeout=900s
+KILLED    forge-assessment-replay-payload-comparison-weakened crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-assessment-directed-child-check-skipped command=cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays timeout=900s
+KILLED    forge-assessment-directed-child-check-skipped crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-assessment-conflicting-retry-condition-weakened command=cargo test -p hephaestus-control --all-features --lib forge_assessment_records_verified_child_selection_and_replays timeout=900s
+KILLED    forge-assessment-conflicting-retry-condition-weakened crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-assessment-outcome-eligibility-inverted command=cargo test -p hephaestus-control --all-features --lib -- server::tests::forge_assessment_records_verified_child_selection_and_replays --exact timeout=900s
+KILLED    forge-assessment-outcome-eligibility-inverted crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-assessment-promotion-authorized command=cargo test -p hephaestus-control --all-features --lib server::tests::forge_assessment_records_verified_child_selection_and_replays -- --exact timeout=900s
+KILLED    forge-assessment-promotion-authorized crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-assessment-evidence-order-bypassed command=cargo test -p hephaestus-control --all-features --lib server::tests::forge_assessment_records_verified_child_selection_and_replays -- --exact timeout=900s
+KILLED    forge-assessment-evidence-order-bypassed crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-harness-mutation-scope-skipped command=cargo test -p hephaestus-control --all-features --lib forge_refuses_harness_mutations_when_the_world_scope_excludes_them timeout=900s
+KILLED    forge-harness-mutation-scope-skipped crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-catalog-edge-check-skipped-on-replay command=cargo test -p hephaestus-control --all-features --lib verify_forge_prompt_rejects_a_before_after_edge_that_is_not_a_representable_catalog_edge timeout=900s
+KILLED    forge-catalog-edge-check-skipped-on-replay crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-revision-freeze-bypassed   command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-freeze-bypassed   crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-reserved-prefix-bypassed command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-reserved-prefix-bypassed crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-selection-hash-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-selection-hash-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-source-order-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-source-order-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-before-prompt-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-before-prompt-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-artifact-name-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-artifact-name-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-hypothesis-retry-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-hypothesis-retry-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-content-retry-unbound command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-content-retry-unbound crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-empty-prompt-accepted command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-empty-prompt-accepted crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-unchanged-prompt-accepted command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-unchanged-prompt-accepted crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-canonical-bytes-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-canonical-bytes-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-cross-kind-retry-unchecked command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-cross-kind-retry-unchecked crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       forge-revision-child-recompile-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision timeout=900s
+KILLED    forge-revision-child-recompile-skipped crates/hephaestus-control/src/forge_revision.rs (timeout 900s)
+RUN       source-reader-fifo-blocking-open command=cargo test -p hephaestus-control --all-features --lib bounded_file_reader_rejects_a_fifo timeout=900s
+KILLED    source-reader-fifo-blocking-open crates/hephaestus-control/src/runtime_exec.rs (timeout 900s)
+RUN       source-reader-stream-limit-unbounded command=cargo test -p hephaestus-control --all-features --lib bounded_reader_limits_reads timeout=900s
+KILLED    source-reader-stream-limit-unbounded crates/hephaestus-control/src/runtime_exec.rs (timeout 900s)
+RUN       forge-catalog-schema-check-skipped command=cargo test -p hephaestus-control --all-features --lib hosted_forge_revision_keeps_historical timeout=900s
+KILLED    forge-catalog-schema-check-skipped crates/hephaestus-control/src/verification.rs (timeout 900s)
+RUN       forge-revision-direct-job-busy-gate-skipped command=cargo test -p hephaestus-control --all-features --lib genome_and_gene_bank_commands_are_blocked timeout=900s
+KILLED    forge-revision-direct-job-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs (timeout 900s)
+RUN       forge-revision-evolution-busy-gate-skipped command=cargo test -p hephaestus-control --all-features --lib evolve_start_completes_three_generations timeout=900s
+KILLED    forge-revision-evolution-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs (timeout 900s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+forge-proposal-parent-not-bound-to-selected-candidate crates/hephaestus-control/src/verification.rs KILLED
+forge-parent-prompt-mutation-preserves-only-operation-token crates/hephaestus-control/src/verification.rs KILLED
+forge-proposal-forbidden-while-frozen crates/hephaestus-control/src/genome_ops.rs KILLED
+forge-replay-selection-event-hash-not-verified crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-replay-payload-comparison-weakened crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-directed-child-check-skipped crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-conflicting-retry-condition-weakened crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-outcome-eligibility-inverted crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-promotion-authorized crates/hephaestus-control/src/verification.rs KILLED
+forge-assessment-evidence-order-bypassed crates/hephaestus-control/src/verification.rs KILLED
+forge-harness-mutation-scope-skipped crates/hephaestus-control/src/verification.rs KILLED
+forge-catalog-edge-check-skipped-on-replay crates/hephaestus-control/src/verification.rs KILLED
+forge-revision-freeze-bypassed   crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-reserved-prefix-bypassed crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-selection-hash-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-source-order-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-before-prompt-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-artifact-name-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-hypothesis-retry-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-content-retry-unbound crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-empty-prompt-accepted crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-unchanged-prompt-accepted crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-canonical-bytes-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-cross-kind-retry-unchecked crates/hephaestus-control/src/forge_revision.rs KILLED
+forge-revision-child-recompile-skipped crates/hephaestus-control/src/forge_revision.rs KILLED
+source-reader-fifo-blocking-open crates/hephaestus-control/src/runtime_exec.rs KILLED
+source-reader-stream-limit-unbounded crates/hephaestus-control/src/runtime_exec.rs KILLED
+forge-catalog-schema-check-skipped crates/hephaestus-control/src/verification.rs KILLED
+forge-revision-direct-job-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs KILLED
+forge-revision-evolution-busy-gate-skipped crates/hephaestus-control/src/worker_remote.rs KILLED
+
+30 mutations run, 30 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

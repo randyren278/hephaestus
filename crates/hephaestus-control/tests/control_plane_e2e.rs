@@ -641,6 +641,10 @@ fn mcp_gateway_speaks_json_rpc_framing_over_stdio_against_a_real_daemon() {
         .as_array()
         .expect("tools/list returns an array");
     assert_eq!(tools.len(), MCP_TOOL_NAMES.len());
+    assert!(
+        tools.iter().all(|tool| tool["name"] != "genome_revise"),
+        "remote agents cannot read operator prompt files"
+    );
     for name in MCP_TOOL_NAMES {
         let tool = tools
             .iter()
