@@ -1,0 +1,45 @@
+I found **no concrete blockers** in either the mutation-guard change or the support-triage pack. There is one test-timing risk worth fixing before merge.
+
+## Mutation guard (`checks/mutation_guard.py`, `python/tests/test_mutation_guard.py`)
+
+**Your claims hold:**
+- **Mutation deadlines are unchanged.** `--baseline-timeout` only changes `baseline_timeout` (`mutation_guard.py:377`), which only `verify_baseline` uses (`:417`). Each mutation's deadline still comes from `args.timeout` or `mutation_timeout(entry, data, timeout)` (`:382-389`), with the manifest's per-prefix values (`checks.json:17-21`).
+- **A green baseline is still required.** `--baseline-timeout` doesn't bypass it; only `--skip-baseline` does. Bad values (0, negative, inf, nan) are rejected before any suite runs (`:378`).
+- **Both new manifest mutants should be caught:**
+  - `mutation-baseline-deadline-overrides-mutants` (`checks.json:1232`): the test at `test_mutation_guard.py:156` would see run timeouts `[3, 3]` instead of the expected `[3, 0.1]`.
+  - `mutation-extended-baseline-skips-green-proof` (`checks.json:1239`): caught by the "baseline: unmutated suite is green" assertion (`:155`), and the test at `:180-205` would error.
+- **CI's minimum count still matches.** The `mutation-checks` job requires 5 mutations (`ci.yml:354`), and there are exactly 5 `checks/` entries.
+
+**Risk (not a blocker): the 0.1s mutation deadline in `test_baseline_extension_preserves_the_mutation_deadline` (`test_mutation_guard.py:138`) may be too tight.**
+- `_run` sets `PYTHONPYCACHEPREFIX` to a fresh temp directory (`mutation_guard.py:143`). That probably makes the child Python recompile non-frozen stdlib modules like `pathlib` at startup.
+- On a slow or loaded runner, the non-hang case could hit the deadline and report TIMEOUT instead of KILLED, so the test fails.
+- That matters because CI runs the mutation guard with `--skip-baseline` (`ci.yml:403`). Flaky test failures there can make mutants look killed when they actually survived.
+- The fix: keep the same structure (baseline run longer than the mutation deadline) with more margin, e.g. baseline sleep 1.5s, mutation timeout 1s, `--baseline-timeout 5`. The exact call-arguments assertion, which is what catches mutant 1, doesn't depend on timing.
+
+**Minor, fail-closed issues:**
+- `--timeout` is still never validated. Without `--baseline-timeout`, a value like `--timeout -1` produces the misleading message "baseline timeout must be positive…".
+- A non-numeric manifest `timeout_seconds` now crashes in `math.isfinite` (`:378`) instead of raising a ManifestError. The exit code is still non-zero.
+- There's no test combining `--timeout` with `--baseline-timeout`, but the precedence code is simple.
+
+## Support-triage pack
+
+- **Labels:** I checked all 24 against `policy.md` and found no conflicting labels. The precedence cases are consistent: security+billing → security, billing+access → billing, payment-suspended production → billing/urgent, resolved token → security/normal. The two closest calls are still defensible:
+  - `support-sealed-test-security-feature`: product/normal despite mentioning MFA; the ticket says outright it's a UI bug, not setup.
+  - `support-sealed-resolved-login`: access/normal.
+- **Policy text:** the policy body (without its heading) is byte-identical across all 24 inputs; a single exact-match search hit 12 + 12.
+- **Fairness and realism:**
+  - Both variants have the same frontmatter (provider, model, authority) and the same base sentence. The candidate only adds the checklist paragraph.
+  - The baseline is a reasonable prompt, not deliberately weakened.
+  - The World template has exactly four artifact placeholders, as the README says.
+- **Confidentiality claim:** honest. README lines 17-19 say "sealed" here is not a confidential benchmark.
+- **Billing and runtime claims match the code:**
+  - 48 invocations at 300,000 ms each, plus a 10,000 ms scoring window, gives 4h + 10s (`server.rs:98,102`, `run_exec.rs:157-161`).
+  - The 1 MiB per-trial output limit matches `server.rs:103`.
+  - The total cost allowance is 48 × the World's per-trial cost limit (`run_exec.rs:182-185`).
+- **Non-blocking wording issue:** `revision.prompt.md` is byte-identical to the candidate's prompt. The README explains it will be rejected if submitted as-is, but the filename invites exactly that mistake. Consider renaming it or folding it into the README.
+
+## Limits of this review
+- With no shell access, I couldn't see the actual diffs. I reviewed the current state of the files and worked out which parts were new.
+- I didn't run any tests, the mutation guard, or CI. Nothing here confirms that the 715 tests pass, the 181s runtime, or that the mutants are actually caught at runtime.
+- I didn't read the `json_canonical` scorer, so the README's description of what it accepts and rejects (README lines 95-96) is unverified.
+- No provider run was done, so I can't say whether either prompt actually performs well, or how hard the labels are in practice.

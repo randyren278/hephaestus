@@ -123,6 +123,9 @@ inspection) instead of pretending to succeed.
 
 ## After the tour
 
+- [Support-triage acceptance pack](../examples/support-triage/README.md) —
+  prepare a strict JSON task set and two hosted prompt variants without calling
+  a model, then review the usage allowance before measuring them.
 - [docs/CLI.md](CLI.md) — the full command reference: registering Worlds
   and Genomes, running, Arena evaluation and selection, replay, drift and
   canary rollouts.

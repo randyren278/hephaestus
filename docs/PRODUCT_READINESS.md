@@ -33,7 +33,7 @@ live-model improvement and full installation acceptance remain required.
 | Requirement | Evidence needed | Current status |
 |---|---|---|
 | Fresh installation and first launch | Source and packaged installation checks; a real six-step terminal tour; understandable setup/recovery messages | Clean source installation and native ARM64 package verified through actual first-launch choice and six-step tours. Package relocation, bundled Node with host Node/npm hidden, offline Arena and restart/replay pass. Native Intel acceptance and downloaded-archive first launch remain |
-| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. Fresh-user provider acceptance still remains |
+| Bring a real task and agent | A documented representative task pack and provider setup; parent and revised prose prompt registered without editing implementation internals | Guided hosted revision workflow is wired; packaged offline terminal checks cover recording, restart, live comparison and assessment. The 24-case support-triage pack passes frozen-daemon registration, profile readback and replay. Fresh-user provider acceptance still remains |
 | Fair scoring for the intended task | World-pinned scoring; exact/normalized structured-output cases; malformed-output rejection; same scoring in clusters; receipt replay and mutation coverage | Exact, ASCII-trimmed and strict JSON scoring implemented; scoped evaluator, clusters and provider replay checks pass; full workspace tests, all 50 coverage floors and 15 affected mutation checks pass; verification below |
 | Evidence-bound prose revisions | Proposal binds before/after content, parent, hypothesis and source evidence; conflicting retries, authority escalation, tampering and restart covered | Operator command and guided console implemented; authenticated recovery, explicit profile confirmation, source preservation and restart verified. Current checks pass all 51 coverage floors and 25 affected mutations; prior revision checks killed 30 mutations |
 | Useful result and export | Browser shows scores, confidence interval, cost, latency, separate gates and agent identities; report matches daemon evidence and contains no sealed payloads or tokens | Implemented in this slice; verification recorded below |
@@ -265,3 +265,14 @@ and reviewed the trust gaps addressed here. See the
 [release gate evidence](evidence/2026-10-08-release/README.md). A hosted run is
 still needed for native Intel acceptance, actual Hephaestus signing and release
 delivery; local syntax checks do not establish those results.
+
+## Representative task preparation, 2026-10-08
+
+The [support-triage pack](../examples/support-triage/README.md) defines strict
+JSON routing and priority for 24 fictional tickets. Its baseline and checklist
+prompts use the same policy, model and authority. Both manifests and Genomes
+registered in a fresh frozen production daemon; profile readbacks and replay
+passed without any provider launch. Claude checked all labels and found no
+conflicts. The [preparation evidence](evidence/2026-10-08-support-triage/README.md)
+distinguishes this from model availability, authentication and actual quality.
+Real outputs, authorized usage and representative measured results remain open.

@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-08",
+  "scope": "Real frozen daemon manifest publication, World/Genome registration, profile readback and replay; provider executables replaced with launch-marker stubs that were never invoked",
+  "scratch_path": "/var/folders/l0/f73q0dln26v1fk40dxfc_w9h0000gn/T/heph-triage-prepare-909jmswp",
+  "binaries_sha256": {
+    "hephaestus": "7328124f43ac834887268295de5f04155f30156e0d6d0774232fe1630980921b",
+    "hephaestusd": "c946e6f053d637075c5ac853e6e75918925196cb821f08834b0ba3cafa31b1a7"
+  },
+  "world": "hephaestus:world:760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0",
+  "profiles": [
+    {
+      "genome": {
+        "genome_id": "hephaestus:genome:7656850919e040dcfff078b54201b5337b7e4633b0f8ad060d488f2eea7f826c",
+        "name": "support-triage-baseline",
+        "world_id": "hephaestus:world:760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0",
+        "artifact_id": "7656850919e040dcfff078b54201b5337b7e4633b0f8ad060d488f2eea7f826c",
+        "parent_ids": []
+      },
+      "world": {
+        "world_id": "hephaestus:world:760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0",
+        "name": "support-triage-v1",
+        "artifact_id": "760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0"
+      },
+      "provider": "claude",
+      "family": "acceptance-placeholder",
+      "workspace_write": false,
+      "network": true,
+      "prompt_artifact_id": "1ed7e69350436bed034dfa2e379725f95011c0c6bd611a1e78a1fb9eea1ba58b",
+      "harness_mutation_allowed": true,
+      "output_scoring": "json_canonical",
+      "visible_tasks": 12,
+      "sealed_tasks": 12,
+      "paired_trial_wall_millis": 300000,
+      "paired_trial_output_bytes": 1048576,
+      "paired_total_wall_millis": 14410000,
+      "reported_cost_limit_microusd": "250000"
+    },
+    {
+      "genome": {
+        "genome_id": "hephaestus:genome:012bd16a4dbbc274a40f076442c1a3de20b6dd2ac8ef0dad06ecd7cbcb5f3f3d",
+        "name": "support-triage-candidate",
+        "world_id": "hephaestus:world:760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0",
+        "artifact_id": "012bd16a4dbbc274a40f076442c1a3de20b6dd2ac8ef0dad06ecd7cbcb5f3f3d",
+        "parent_ids": [
+          "hephaestus:genome:7656850919e040dcfff078b54201b5337b7e4633b0f8ad060d488f2eea7f826c"
+        ]
+      },
+      "world": {
+        "world_id": "hephaestus:world:760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0",
+        "name": "support-triage-v1",
+        "artifact_id": "760157c9d24fffc8bd7064150317af02619b9cbe21cdf4c9cf967029f30269d0"
+      },
+      "provider": "claude",
+      "family": "acceptance-placeholder",
+      "workspace_write": false,
+      "network": true,
+      "prompt_artifact_id": "94a609f1fef9a123bb35cf6404f5c649464a38dec9137761917f9ca06b1cbc5b",
+      "harness_mutation_allowed": true,
+      "output_scoring": "json_canonical",
+      "visible_tasks": 12,
+      "sealed_tasks": 12,
+      "paired_trial_wall_millis": 300000,
+      "paired_trial_output_bytes": 1048576,
+      "paired_total_wall_millis": 14410000,
+      "reported_cost_limit_microusd": "250000"
+    }
+  ],
+  "replay": {
+    "version": 1,
+    "request_id": "cli-79331-1791467677766270000",
+    "data": {
+      "type": "replay",
+      "event_count": 14,
+      "frozen": true,
+      "active_runs": 0,
+      "projection_hash": "02bbb8452ceb4830e524b604e26faab33e8aaa20fc8182c089ad9106ac880954"
+    }
+  },
+  "provider_invocations": 0,
+  "model": "acceptance-placeholder (offline registration only, not a real model)",
+  "cost_ceiling_for_offline_profile": 250000,
+  "task_file_sha256": {
+    "visible": "35bade0f978e66a1c178f4e6bde5277ae8af7c0999e1b9e5e19fff88bf2516c3",
+    "sealed": "d300952bebb1c1c595c7b1c5221929e83ba4bb9336549007690644ea35c23357"
+  }
+}
