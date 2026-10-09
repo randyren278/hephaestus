@@ -1,0 +1,23 @@
+root:    /Users/randyren/Developer/hephaestus
+suite:   cargo test --workspace --all-features --quiet (manifest default)
+timeout: 120s default; selected mutation timeout(s): 480s
+baseline timeout: 120s
+
+RUN       canary-latency-crossed-drops-absolute-floor command=cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact timeout=480s
+KILLED    canary-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       drift-latency-crossed-drops-absolute-floor command=cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_refuses_a_small_regression_within_the_absolute_floor -- --exact timeout=480s
+KILLED    drift-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/drift.rs (timeout 480s)
+RUN       canary-replay-forces-current-latency-rule-on-old-events command=cargo test -p hephaestus-control --all-features --lib server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor -- --exact timeout=480s
+KILLED    canary-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/canary.rs (timeout 480s)
+RUN       drift-replay-forces-current-latency-rule-on-old-events command=cargo test -p hephaestus-control --all-features --lib server::tests::drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies -- --exact timeout=480s
+KILLED    drift-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/drift.rs (timeout 480s)
+
+id                               file                         verdict
+----------------------------------------------------------------------------
+canary-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/canary.rs KILLED
+drift-latency-crossed-drops-absolute-floor crates/hephaestus-control/src/drift.rs KILLED
+canary-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/canary.rs KILLED
+drift-replay-forces-current-latency-rule-on-old-events crates/hephaestus-control/src/drift.rs KILLED
+
+4 mutations run, 4 killed, 0 survived, 0 stale, 0 timed out
+PASS: all mutations killed

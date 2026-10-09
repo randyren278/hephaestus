@@ -1,0 +1,15 @@
+{
+  "scope": "actual gh CLI in an empty directory; network target confined to closed loopback port; no release mutation",
+  "results": [
+    {
+      "explicit_repository": false,
+      "exit_code": 1,
+      "stderr": "failed to run git: fatal: not a git repository (or any of the parent directories): .git\n\n"
+    },
+    {
+      "explicit_repository": true,
+      "exit_code": 1,
+      "stderr": "Post \"https://127.0.0.1:1/api/graphql\": dial tcp 127.0.0.1:1: connect: connection refused\n"
+    }
+  ]
+}

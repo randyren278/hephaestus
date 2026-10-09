@@ -87,6 +87,9 @@ jobs:
       - name: Docs icon and diagram generator contracts
         run: python -m unittest discover -s scripts/tests -p 'test_docs_art.py' -v
 
+      - name: Release publication contracts (offline GitHub fixture)
+        run: python -m unittest discover -s scripts/tests -p 'test_release_publish.py' -v
+
       - name: Tests with coverage
         # Two test threads: the control suite's Arena tests each spawn worker,
         # guardian, evaluator, and git processes, and four at once on this

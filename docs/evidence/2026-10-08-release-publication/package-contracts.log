@@ -1,0 +1,16 @@
+test_bundle_fixtures_copies_every_named_fixture_by_its_installed_name (test_macos_package.MacosPackageTests.test_bundle_fixtures_copies_every_named_fixture_by_its_installed_name) ... ok
+test_bundled_fixtures_cover_quickstart_gauntlet_coding_and_gauntlet_reference (test_macos_package.MacosPackageTests.test_bundled_fixtures_cover_quickstart_gauntlet_coding_and_gauntlet_reference) ... ok
+test_first_run_launcher_is_bundled (test_macos_package.MacosPackageTests.test_first_run_launcher_is_bundled) ... ok
+test_installer_refuses_to_replace_a_broken_release_symlink (test_macos_package.MacosPackageTests.test_installer_refuses_to_replace_a_broken_release_symlink) ... ok
+test_installer_rejects_a_mismatched_architecture_without_installing (test_macos_package.MacosPackageTests.test_installer_rejects_a_mismatched_architecture_without_installing) ... ok
+test_installer_rejects_incomplete_web_assets_before_changing_the_prefix (test_macos_package.MacosPackageTests.test_installer_rejects_incomplete_web_assets_before_changing_the_prefix) ... ok
+test_installer_survives_relocation_and_keeps_binaries_adjacent (test_macos_package.MacosPackageTests.test_installer_survives_relocation_and_keeps_binaries_adjacent) ... ok
+test_node_runtime_is_pinned_for_both_macos_architectures (test_macos_package.MacosPackageTests.test_node_runtime_is_pinned_for_both_macos_architectures) ... ok
+test_senate_binary_is_bundled (test_macos_package.MacosPackageTests.test_senate_binary_is_bundled) ... ok
+test_version_comes_from_workspace_metadata (test_macos_package.MacosPackageTests.test_version_comes_from_workspace_metadata) ... ok
+test_web_bundle_copies_complete_assets_and_rejects_missing_payloads (test_macos_package.MacosPackageTests.test_web_bundle_copies_complete_assets_and_rejects_missing_payloads) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.504s
+
+OK

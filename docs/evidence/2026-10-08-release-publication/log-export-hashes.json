@@ -1,0 +1,14 @@
+[
+  {
+    "file": "floor-restored.log",
+    "raw_sha256": "e657e05cab81cfdaded96bd9bf33c90ee8d1b3fe532b3e7232497de5a8d6fbf7",
+    "export_sha256": "bc7a8752345b779bb6b6c621a87bca2acc406514a11de5b2cf2c914c34fc4e3b",
+    "normalization": "trim trailing blank lines for Git whitespace check"
+  },
+  {
+    "file": "old-rule-restored.log",
+    "raw_sha256": "217ec2378d4aadd9de7b0fd33adcb1062c4d13258a5fb2a60b1f02e940aa5779",
+    "export_sha256": "86657221714bbbde7cc9be25e61ff4a847af551890fcde425a972bd00f0700bc",
+    "normalization": "trim trailing blank lines for Git whitespace check"
+  }
+]

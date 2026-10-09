@@ -79,6 +79,15 @@ pub(super) struct ReferenceExecution {
     actual_cost_microusd: u64,
 }
 
+#[cfg(test)]
+impl ReferenceExecution {
+    /// Supply fixture timing before the canonical writer signs this result.
+    pub(super) fn with_test_latency(mut self, millis: u64) -> Self {
+        self.latency_millis = millis;
+        self
+    }
+}
+
 pub(super) fn execute_async_reference(
     launch: AsyncReferenceLaunch,
     spec: &RunSpec,

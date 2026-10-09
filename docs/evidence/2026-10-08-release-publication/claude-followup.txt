@@ -1,0 +1,22 @@
+The concrete blocker is fixed, and I didn't find another one. This was a read-only review: I didn't run the tests or anything else.
+
+**`scripts/publish_release.py`**
+- `gh()` at line 19 now only parses stdout as JSON when the command is `gh api`. The `release create` (line 106), `upload` (line 119) and `edit` (line 126) calls return `None`, and their return values aren't used.
+- All the state checks after a write re-read the release through `gh("api", endpoint)`, so a URL on stdout can no longer cause a parse failure.
+
+**`scripts/tests/test_release_publish.py`**
+- The fake `gh` now prints a release URL on stdout for `create` (line 65) and `edit` (line 90), which matches real `gh` output. Under the old parser this would have raised `JSONDecodeError`, which `main()` catches as `ValueError` and turns into exit 1.
+- `test_complete_private_upload_becomes_a_non_latest_prerelease` requires a single run to exit 0 (line 135). It then checks that the release is published, a prerelease, not latest, and has 36 assets. So the test would catch the old bug.
+- `test_interrupted_upload_remains_private_and_retry_completes_it` and `test_lightweight_tag_is_supported` also need successful create/edit runs, so they cover the fix too.
+
+**Small-latency Rust fixture** (`server_tests.rs:115-161`, `runtime_exec.rs:82-89`)
+- `with_test_latency` only exists in test builds (`#[cfg(test)]`). It sets `latency_millis` before the result is signed, and `persist_reference_output` signs that value, so the selection receipt uses the fixture timings rather than the measured ones.
+- The helper intercepts each `Trial`, sets parent runs to 10ms and candidate runs to 25ms, and sends the message back on `arena_message_sender`. That's the same channel `service_arena_message` reads from (`run_exec.rs:694-695`), and other tests already use this pattern (around `server_tests.rs:5281` and `5407`). The worker waits for each reply before sending the next trial, so a re-sent message can't be overtaken or arrive out of order.
+- The numbers work out:
+  - The change is +150%, i.e. 15,000 basis points. That crosses the 2,000-basis-point threshold, so the old proportional-only rule flags it.
+  - The increase is 15ms per task, below the 50ms-per-task floor, so the current rule doesn't. The checks at 14954-14968 assert both of these.
+- The scheduler no longer decides the outcome, which was the flakiness concern.
+
+**Not blockers:**
+- The complete-flow test doesn't check how many times `release create` was called, but the retry test does (line 159).
+- `gh api --paginate --slurp` needs a fairly recent `gh` version (I believe 2.48 or later, unconfirmed); check that CI's version supports it.

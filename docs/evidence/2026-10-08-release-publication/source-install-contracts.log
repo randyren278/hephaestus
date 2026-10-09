@@ -1,0 +1,14 @@
+test_conflicting_modes_are_rejected (test_source_install.SourceInstallTests.test_conflicting_modes_are_rejected) ... ok
+test_force_color_emits_truecolor_escapes (test_source_install.SourceInstallTests.test_force_color_emits_truecolor_escapes) ... ok
+test_full_install_rejects_old_node_before_building (test_source_install.SourceInstallTests.test_full_install_rejects_old_node_before_building) ... ok
+test_full_install_stops_before_linking_if_the_web_build_fails (test_source_install.SourceInstallTests.test_full_install_stops_before_linking_if_the_web_build_fails) ... ok
+test_full_installs_everything_including_the_senate (test_source_install.SourceInstallTests.test_full_installs_everything_including_the_senate) ... ok
+test_interactive_run_asks_and_yes_means_senate_only (test_source_install.SourceInstallTests.test_interactive_run_asks_and_yes_means_senate_only) ... ok
+test_non_interactive_default_is_the_full_install (test_source_install.SourceInstallTests.test_non_interactive_default_is_the_full_install) ... ok
+test_non_tty_output_has_no_escape_codes (test_source_install.SourceInstallTests.test_non_tty_output_has_no_escape_codes) ... ok
+test_senate_only_installs_just_the_senate_without_npm (test_source_install.SourceInstallTests.test_senate_only_installs_just_the_senate_without_npm) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 1.960s
+
+OK

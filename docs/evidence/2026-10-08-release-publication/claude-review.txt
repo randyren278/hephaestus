@@ -1,0 +1,33 @@
+I'm done reading. Verdict: **one concrete blocker** in the publisher. The Rust fixture change is acceptable.
+
+## Blocker: `gh()` tries to parse the output of `release create` and `release edit` as JSON
+
+`scripts/publish_release.py:15-19` runs `json.loads` on any non-empty stdout. But the real `gh release create` and `gh release edit` print the release URL to stdout when they succeed. That URL isn't JSON, so `json.loads` raises `JSONDecodeError`. That is a `ValueError`, which `main()` catches (`:149`) and reports as a refusal. The result on a real tag push:
+
+1. **First run:** the draft is created (`:107`), then the publisher refuses. The job fails before uploading anything.
+2. **Re-run:** it finds the draft, uploads, verifies, then calls `release edit` (`:127`). The release becomes public, then the publisher refuses before the post-publication readback (`:129-134`).
+3. **Third run:** it takes the already-published path and finally succeeds.
+
+So it fails safe (nothing becomes public without verification), but it can never succeed in one run, and the final readback after publishing is skipped. The tests miss this because the fake `gh` calls `finish()` with no output for `create` and `edit` (`scripts/tests/test_release_publish.py:65,87`).
+
+**Fix:** only parse JSON for `api` calls, or add a `json_output` flag. Also make the fake print a URL from `create` and `edit` so a test catches this.
+
+## Verified as requested
+- **Draft discovery:** uses `releases?per_page=100 --paginate --slurp`, flattens all pages, and refuses if more than one release has the tag (`:71-75`). The fake puts the release on page two. After that, every readback uses `releases/{id}` (`:113-129`).
+- **Source binding:** `check_release` requires the body marker (`:32`) and ignores `target_commitish`. The test pins `target_commitish="main"` to prove this. A draft from another commit is left alone, with only API calls made.
+- **Tag revalidation:** `verify_tag` follows annotated tags down to the commit. It runs before discovery, on the published path, before publishing, and after the final readback. The moved-tag test confirms the draft stays private.
+- **Asset set:** the local set must exactly match `expected_assets` (36 files, no symlinks). Remote assets must be the same set with `state == uploaded`, matching size and `sha256:` digest. This is checked before and after publishing. Duplicate or unexpected remote assets are rejected.
+- **Prerelease:** the workflow passes `--prerelease`, the edit sets `--prerelease=true --latest=false`, and the readback checks it. On the already-published path, a channel mismatch is refused rather than changed.
+- **Workflow:** the `hephaestus-*` artifact pattern collects the archives, checksums, both SBOMs and the signature bundles. The publish job only runs on `v*` tag pushes and is the only job with `contents: write`.
+
+## Rust fixture: acceptable
+- `with_test_latency` is under `#[cfg(test)]` (`runtime_exec.rs:82-89`) and only changes `latency_millis`.
+- `complete_small_latency_regression_job` (`server_tests.rs:118-161`) takes each real worker `Trial` (`.expect("real worker trial succeeds")`) and overrides only its latency: 10ms for the parent, 25ms for the candidate. It then sends it back so the real canonical writer signs it (`service_arena_message`). Scoring still runs through `drain_active_arena_test_job`, which requires `Succeeded`.
+- The callers keep all the requested assertions: the change crosses the proportional threshold, the current rule says no regression, the original rule says regression, the canary advances without regressing, the drift record is refused, and the old-rule (v1) payload replays and verifies.
+
+## Limits
+- Nothing was run. This is static review only.
+- The blocker depends on how `gh` behaves outside a terminal (it prints the URL from `create`/`edit`); I didn't confirm that against the runner's installed version.
+- `--slurp` needs a fairly recent `gh`. That's assumed on `ubuntu-24.04`, not checked.
+- `release upload` and `release edit` still find the release by tag, not ID. Uploads happen only after the duplicate-release check, and the readbacks use the ID, so this is a small race, not a blocker.
+- `docs/RELEASE_NOTES.md` and `scripts/publish_release.py` are untracked. They have to be committed and included in the tagged commit, or the publish job's checkout won't have them.

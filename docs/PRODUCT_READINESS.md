@@ -665,3 +665,24 @@ first launch, fresh-user provider acceptance, attributable USD, independent
 customer evidence and an available commercial offer remain open. Earlier
 checkpoint sections retain their original limits; this later evidence
 supersedes their native Intel pending status only.
+
+## Release publication safeguards, 2026-10-08
+
+Claude's proposal review found that the publish job lacked checkout and explicit
+repository selection. The actual GitHub CLI reproduces that repository-resolution
+failure from an empty directory; naming the repository proceeds to the confined
+loopback endpoint. The publisher now binds the remote tag to the intended commit,
+stages a private draft, verifies all remote asset digests before publication,
+and can recover interrupted draft uploads without overwriting a public release.
+Signature and provenance verification bind the exact workflow, tag and source
+commit before publication. The owner selected the prerelease channel; tagging
+and publication have not been authorized or performed.
+
+Offline publication contracts exercise complete delivery, interrupted upload
+and retry, corrupt assets, wrong source, incomplete inputs, API failure and
+public retry behavior. These use a local GitHub CLI fixture. They do not prove
+actual GitHub signing, provenance, publication or fresh-user acceptance.
+
+The [publication safeguards evidence](evidence/2026-10-08-release-publication/README.md)
+records the local contracts, actual Claude review and deterministic latency-floor
+fixture correction. It does not replace fresh CI for the resulting commit.

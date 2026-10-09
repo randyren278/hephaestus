@@ -1,0 +1,9 @@
+   Compiling hephaestus-control v0.1.0 (/Users/randyren/Developer/hephaestus/crates/hephaestus-control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.92s
+     Running unittests src/lib.rs (target/debug/deps/hephaestus_control-8e95ae6d661888f8)
+
+running 2 tests
+test server::tests::canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor ... ok
+test server::tests::drift_latency_record_refuses_a_small_regression_within_the_absolute_floor ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 257 filtered out; finished in 5.71s

@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/hephaestus_control-8e95ae6d661888f8)
+
+running 1 test
+test server::tests::drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_decision_still_verifies ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 5.54s

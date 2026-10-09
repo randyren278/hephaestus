@@ -1,0 +1,20 @@
+test_ambiguous_drafts_are_preserved (test_release_publish.ReleasePublicationTests.test_ambiguous_drafts_are_preserved) ... ok
+test_api_failure_is_not_treated_as_an_absent_release (test_release_publish.ReleasePublicationTests.test_api_failure_is_not_treated_as_an_absent_release) ... ok
+test_complete_private_upload_becomes_a_non_latest_prerelease (test_release_publish.ReleasePublicationTests.test_complete_private_upload_becomes_a_non_latest_prerelease) ... ok
+test_corrupted_remote_asset_never_becomes_public (test_release_publish.ReleasePublicationTests.test_corrupted_remote_asset_never_becomes_public) ... ok
+test_existing_draft_for_another_commit_is_preserved (test_release_publish.ReleasePublicationTests.test_existing_draft_for_another_commit_is_preserved) ... ok
+test_incomplete_local_assets_do_not_create_a_release (test_release_publish.ReleasePublicationTests.test_incomplete_local_assets_do_not_create_a_release) ... ok
+test_interrupted_upload_remains_private_and_retry_completes_it (test_release_publish.ReleasePublicationTests.test_interrupted_upload_remains_private_and_retry_completes_it) ... ok
+test_lightweight_tag_is_supported (test_release_publish.ReleasePublicationTests.test_lightweight_tag_is_supported) ... ok
+test_pending_remote_upload_stays_private (test_release_publish.ReleasePublicationTests.test_pending_remote_upload_stays_private) ... ok
+test_public_retry_refuses_a_tag_moved_after_inspection (test_release_publish.ReleasePublicationTests.test_public_retry_refuses_a_tag_moved_after_inspection) ... ok
+test_public_retry_revalidates_tag_and_channel (test_release_publish.ReleasePublicationTests.test_public_retry_revalidates_tag_and_channel) ... ok
+test_remote_tag_must_resolve_to_the_approved_commit (test_release_publish.ReleasePublicationTests.test_remote_tag_must_resolve_to_the_approved_commit) ... ok
+test_successful_publication_retry_does_not_modify_public_assets (test_release_publish.ReleasePublicationTests.test_successful_publication_retry_does_not_modify_public_assets) ... ok
+test_symlink_assets_are_refused_without_api_calls (test_release_publish.ReleasePublicationTests.test_symlink_assets_are_refused_without_api_calls) ... ok
+test_tag_move_before_publication_keeps_draft_private (test_release_publish.ReleasePublicationTests.test_tag_move_before_publication_keeps_draft_private) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 7.921s
+
+OK

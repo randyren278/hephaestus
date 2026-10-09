@@ -1,7 +1,8 @@
 # Releases
 
 The release workflow builds macOS archives from a tagged version, checksums them,
-adds Sigstore signatures and records build provenance. Sigstore verifies the
+adds and verifies Sigstore signatures, records and verifies build provenance,
+then publishes a prerelease. Sigstore verifies the
 workflow identity; Apple code signing and notarization are not implemented.
 The commands to verify a release are below.
 
@@ -19,6 +20,35 @@ building. The installed-package acceptance check must pass before checksumming,
 uploading release bytes or signing. Its failure logs use a separate artifact
 name and are never merged into published release assets. Ordinary CI also
 checks the ARM64 package on pull requests and main.
+
+## Publication and recovery
+
+Before an approved tag push, require main CI to pass for the exact intended
+source commit. The tag push starts publication; there is no later owner approval
+step in the workflow. Manual dispatch continues to skip signing and publication.
+
+The publisher names the repository explicitly, verifies the remote tag's commit
+and uploads into a private draft. It checks the complete asset names, sizes and
+SHA-256 digests before publishing as a prerelease without marking it Latest.
+The release page includes the capabilities and limits in
+[release notes](RELEASE_NOTES.md), followed by generated change notes.
+
+An interrupted upload leaves a private draft. Retrying the original tag-push
+run can replace assets only after checking the draft's tag and source marker
+against the remote tag's resolved commit. Draft discovery uses all release
+listing pages and refuses duplicate tag matches; readbacks pin the release ID.
+A completed public release is accepted as an identical retry only when its
+source, channel and every asset match; public assets are not overwritten.
+Unexpected assets, a different source or failed API inspection refuse recovery.
+Workflow concurrency serializes its own runs; operators must not manually
+publish or edit the draft while it is uploading. The GitHub API does not provide
+an atomic check-and-publish transaction. Preserve failed-run evidence and do not
+move the original tag. A source or
+workflow correction requires a separately reviewed patch version.
+
+The first prerelease still needs fresh-user quarantined-download and provider
+acceptance. Publishing it is not a claim of full product readiness. Changing
+it to a full release is a separate owner decision after those checks.
 
 ## What a release contains
 

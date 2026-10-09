@@ -239,6 +239,23 @@ jobs:
             dist/*.tar.gz
             dist/*.cdx.json
 
+      - name: Verify every signature and source-bound provenance before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for f in dist/*.tar.gz dist/*.sha256 dist/*.cdx.json; do
+            cosign verify-blob --bundle "$f.sigstore.json" \
+              --certificate-identity "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-github-workflow-sha "$GITHUB_SHA" "$f"
+          done
+          for f in dist/*.tar.gz dist/*.cdx.json; do
+            gh attestation verify "$f" --repo "$GH_REPO" \
+              --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA"
+          done
+
       - name: Upload verification bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
@@ -256,6 +273,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           pattern: hephaestus-*
@@ -265,7 +286,8 @@ jobs:
       - name: Publish release with archives, checksums, SBOMs, and signatures
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "${{ github.ref_name }}" dist/* \
-            --title "Hephaestus ${{ github.ref_name }}" \
-            --generate-notes
+          python3 -m scripts.publish_release --repo "$GH_REPO" \
+            --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" \
+            --assets dist --notes docs/RELEASE_NOTES.md --prerelease

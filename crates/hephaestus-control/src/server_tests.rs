@@ -112,6 +112,54 @@ fn complete_arena_test_job(
     drain_active_arena_test_job(plane, evaluation_id);
 }
 
+/// Exercise real worker output, signing, scoring and replay with known clock
+/// readings. A 10 -> 25ms change crosses 20% but stays below the 50ms floor;
+/// process scheduling must not decide which version of the rule accepts it.
+fn complete_small_latency_regression_job(
+    plane: &mut ControlPlane,
+    evaluation_id: &str,
+    parent: &str,
+    candidate: &str,
+) {
+    plane
+        .submit_arena_job(evaluation_id, parent, candidate, false)
+        .expect("admit floor evidence job");
+    let count = plane.active_arena_job.as_ref().unwrap().trials.len();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    for _ in 0..count {
+        let ArenaWorkerMessage::Trial {
+            job_id,
+            index,
+            output,
+            reply,
+        } = wait_for_test_arena_trial(plane, deadline)
+        else {
+            unreachable!("helper returns only trials");
+        };
+        let genome = &plane.active_arena_job.as_ref().unwrap().trials[index]
+            .genome
+            .genome_id;
+        assert!(genome == parent || genome == candidate);
+        let millis = if genome == parent { 10 } else { 25 };
+        let output = Ok(output
+            .expect("real worker trial succeeds")
+            .with_test_latency(millis));
+        plane
+            .arena_message_sender
+            .as_ref()
+            .unwrap()
+            .send(ArenaWorkerMessage::Trial {
+                job_id,
+                index,
+                output,
+                reply,
+            })
+            .expect("return timed fixture to canonical writer");
+        plane.service_arena_message().expect("sign fixture result");
+    }
+    drain_active_arena_test_job(plane, evaluation_id);
+}
+
 fn drain_active_arena_test_job(plane: &mut ControlPlane, evaluation_id: &str) {
     let deadline = Instant::now() + Duration::from_secs(30);
     while plane.active_arena_job.is_some() {
@@ -14884,19 +14932,14 @@ fn canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor
     )
     .expect("start canary");
 
-    // A small, deterministic per-task delay: far too small to cross the
-    // 50ms-per-task absolute floor for this single-task world, but large
-    // relative to the reference worker's few-millisecond baseline, so it
-    // reliably crosses the 20% proportional threshold on its own.
-    hephaestus_runtime::set_test_reference_delay_in(directory.path(), assessed.child.clone(), 15);
+    // Fixed signed fixture timings isolate the floor from OS scheduling.
     let evidence_id = "floor-small-regression-eval";
-    complete_arena_test_job(
+    complete_small_latency_regression_job(
         &mut plane,
         evidence_id,
         &initial_candidate.genome_id,
         &assessed.child,
     );
-    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     let ResponseData::Selection { selection } = plane
         .select_arena_evaluation(evidence_id)
         .expect("select evidence")
@@ -14905,12 +14948,12 @@ fn canary_advance_is_not_aborted_by_a_small_regression_within_the_absolute_floor
     };
     assert!(
         selection.receipt.candidate_latency_millis() > selection.receipt.parent_latency_millis(),
-        "the injected delay should make the candidate measurably slower"
+        "the fixture latency should make the candidate measurably slower"
     );
     let deltas = super::canary::regression_deltas(&selection.receipt);
     assert!(
         deltas.latency_bps >= super::canary::LATENCY_REGRESSION_BPS,
-        "the injected delay should still cross the proportional threshold on its own: {deltas:?}"
+        "the fixture latency should still cross the proportional threshold on its own: {deltas:?}"
     );
     assert!(
         !super::canary::is_regression(
@@ -15564,19 +15607,14 @@ fn drift_latency_record_refuses_a_small_regression_within_the_absolute_floor() {
         &initial_parent.genome_id,
         true,
     );
-    // Same reasoning as the canary version of this test: small enough to
-    // stay under the 50ms-per-task absolute floor, large enough relative to
-    // the reference worker's baseline to cross the 20% proportional
-    // threshold on its own.
-    hephaestus_runtime::set_test_reference_delay_in(directory.path(), sibling.child.clone(), 15);
+    // Fixed signed fixture timings isolate the floor from OS scheduling.
     let drift_evidence_id = "floor-drift-evidence";
-    complete_arena_test_job(
+    complete_small_latency_regression_job(
         &mut plane,
         drift_evidence_id,
         &improved.child,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     let ResponseData::Selection { selection } = plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select evidence")
@@ -15586,7 +15624,7 @@ fn drift_latency_record_refuses_a_small_regression_within_the_absolute_floor() {
     let deltas = super::canary::regression_deltas(&selection.receipt);
     assert!(
         deltas.latency_bps >= super::canary::LATENCY_REGRESSION_BPS,
-        "the injected delay should still cross the proportional threshold on its own: {deltas:?}"
+        "the fixture latency should still cross the proportional threshold on its own: {deltas:?}"
     );
 
     assert_drift_error(
@@ -15642,18 +15680,14 @@ fn drift_latency_record_recorded_under_the_old_rule_with_a_genuinely_different_d
         &initial_parent.genome_id,
         true,
     );
-    // Same small, deterministic delay as the sibling test above: crosses
-    // the 20% proportional threshold on its own but stays under the
-    // 50ms-per-task absolute floor, so v1 and v2 genuinely disagree.
-    hephaestus_runtime::set_test_reference_delay_in(directory.path(), sibling.child.clone(), 15);
+    // Fixed signed fixture timings isolate the floor from OS scheduling.
     let drift_evidence_id = "floor-drift-oldrule-evidence";
-    complete_arena_test_job(
+    complete_small_latency_regression_job(
         &mut plane,
         drift_evidence_id,
         &improved.child,
         &sibling.child,
     );
-    hephaestus_runtime::clear_test_reference_delays_in(directory.path());
     plane
         .select_arena_evaluation(drift_evidence_id)
         .expect("select evidence");
